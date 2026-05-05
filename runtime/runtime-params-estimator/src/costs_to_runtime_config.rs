@@ -145,6 +145,8 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::ecrecover_base => Cost::EcrecoverBase,
         ExtCosts::ed25519_verify_base => Cost::Ed25519VerifyBase,
         ExtCosts::ed25519_verify_byte => Cost::Ed25519VerifyByte,
+        ExtCosts::p256_verify_base => Cost::P256VerifyBase,
+        ExtCosts::p256_verify_byte => Cost::P256VerifyByte,
         ExtCosts::log_base => Cost::LogBase,
         ExtCosts::log_byte => Cost::LogByte,
         ExtCosts::storage_write_base => Cost::StorageWriteBase,

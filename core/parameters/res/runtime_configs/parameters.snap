@@ -136,6 +136,8 @@ wasm_ripemd160_block                             680_107_584
 wasm_ecrecover_base                          278_821_988_457
 wasm_ed25519_verify_base                     210_000_000_000
 wasm_ed25519_verify_byte                           9_000_000
+wasm_p256_verify_base                      1_300_000_000_000
+wasm_p256_verify_byte                             13_000_000
 wasm_log_base                                  3_543_313_050
 wasm_log_byte                                     13_198_791
 wasm_storage_write_base                       64_196_736_000, compute:      200_000_000_000
@@ -207,6 +209,7 @@ max_number_logs                                          100
 max_total_log_length                                  16_384
 max_total_prepaid_gas                   1_000_000_000_000_000
 max_actions_per_receipt                                  100
+max_deploy_actions_per_receipt                            10
 max_number_bytes_method_names                          2_000
 max_length_method_name                                   256
 max_arguments_length                               4_194_304
@@ -225,8 +228,10 @@ yield_timeout_length_in_blocks                           200
 max_yield_payload_size                                 1_024
 max_tables_per_contract                                    1
 max_elements_per_contract_table                       10_000
-max_function_body_size                               262_144
+max_function_body_size                               196_608
 max_instrumented_code_size                        16_777_216
+max_blocks_per_function                                5_000
+max_blocks_per_contract                               50_000
 flat_storage_reads                      true
 fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
@@ -270,3 +275,4 @@ global_contract_host_fns                true
 deterministic_account_ids               true
 gas_key_host_fns                        false
 one_yocto_on_promise                    true
+p256_verify_host_fn                     true

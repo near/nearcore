@@ -227,6 +227,10 @@ pub fn default_archival_writer_polling_interval() -> Duration {
     Duration::seconds(1)
 }
 
+pub fn default_snapshot_every_n_epochs() -> u64 {
+    10
+}
+
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
 /// behavior such as block data and polling interval.
@@ -242,6 +246,11 @@ pub struct CloudArchivalWriterConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     #[serde(default = "default_archival_writer_polling_interval")]
     pub polling_interval: Duration,
+
+    /// Cadence of state snapshots, in epochs. Higher values reduce bucket cost at
+    /// the expense of potentially longer delta replay during reader bootstrap.
+    #[serde(default = "default_snapshot_every_n_epochs")]
+    pub snapshot_every_n_epochs: u64,
 }
 
 impl Default for CloudArchivalWriterConfig {
@@ -249,6 +258,7 @@ impl Default for CloudArchivalWriterConfig {
         Self {
             archive_block_data: false,
             polling_interval: default_archival_writer_polling_interval(),
+            snapshot_every_n_epochs: default_snapshot_every_n_epochs(),
         }
     }
 }
@@ -312,19 +322,15 @@ pub struct DumpConfig {
 /// Configures how to fetch state parts during state sync.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Default)]
 pub enum SyncConfig {
     /// Syncs state from the peers without reading anything from external storage.
+    #[default]
     Peers,
     /// Expects parts to be available in external storage.
     ///
     /// Usually as a fallback after some number of attempts to use peers.
     ExternalStorage(ExternalStorageConfig),
-}
-
-impl Default for SyncConfig {
-    fn default() -> Self {
-        Self::Peers
-    }
 }
 
 impl SyncConfig {
@@ -393,6 +399,7 @@ pub struct StateSyncConfig {
 }
 
 impl StateSyncConfig {
+    /// Deprecated: cloud state sync is deprecated. Use peer-based state sync instead.
     pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
@@ -548,7 +555,7 @@ pub fn default_state_sync_external_backoff() -> Duration {
 }
 
 pub fn default_chunk_wait_mult() -> Rational32 {
-    Rational32::new(1, 6)
+    Rational32::new(1, 3)
 }
 
 pub fn default_header_sync_expected_height_per_second() -> u64 {

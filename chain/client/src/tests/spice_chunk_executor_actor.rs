@@ -13,7 +13,6 @@ use near_async::messaging::Actor;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
-use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
@@ -191,7 +190,6 @@ impl TestActor {
             network_adapter,
             validator_signer,
             Arc::new(spawner),
-            ApplyChunksIterationMode::Sequential,
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,

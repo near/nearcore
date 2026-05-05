@@ -433,6 +433,17 @@ impl ShardLayout {
             .collect()
     }
 
+    /// Returns the UIDs of all shards in this layout that were newly created
+    /// by splitting a parent shard from the previous layout.
+    pub fn get_split_child_shard_uids(&self) -> BTreeSet<ShardUId> {
+        self.get_split_parent_shard_ids()
+            .iter()
+            .flat_map(|parent_shard_id| {
+                self.get_children_shards_uids(*parent_shard_id).unwrap_or_default()
+            })
+            .collect()
+    }
+
     /// Get UIDs of all the shard's ancestors (parents, grandparents, etc.) for `ShardLayoutV3`.
     /// `None` for earlier versions.
     pub fn ancestor_uids(&self, shard_id: ShardId) -> Option<Vec<ShardUId>> {

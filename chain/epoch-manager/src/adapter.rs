@@ -971,10 +971,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
                     .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
                 {
                     Some(validator) => Ok(validator),
-                    None => Err(EpochError::ChunkProducerSelectionError(format!(
-                        "chunk producer not in DB for prev_block_hash={}, shard_id={}",
-                        prev_block_hash, shard_id,
-                    ))),
+                    None => Err(EpochError::ChunkProducerNotInDB(*prev_block_hash, shard_id)),
                 };
             }
         }

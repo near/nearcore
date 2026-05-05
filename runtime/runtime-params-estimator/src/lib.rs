@@ -277,6 +277,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::EcrecoverBase, ecrecover_base),
     (Cost::Ed25519VerifyBase, ed25519_verify_base),
     (Cost::Ed25519VerifyByte, ed25519_verify_byte),
+    (Cost::P256VerifyBase, p256_verify_base),
+    (Cost::P256VerifyByte, p256_verify_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
@@ -1176,6 +1178,26 @@ fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
     let iteration_bytes = 16384;
     let total_bytes = base_call_num * iteration_bytes;
     let byte = fn_cost(ctx, "ed25519_verify_16kib_64", ExtCosts::ed25519_verify_byte, total_bytes);
+    // need to subtract the base cost, which has already been divided by the number of bytes per iteration
+    byte - base / iteration_bytes
+}
+
+fn p256_verify_base(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = &ctx.cached.p256_verify_base {
+        return cost.clone();
+    }
+    let cost = fn_cost(ctx, "p256_verify_32b_500", ExtCosts::p256_verify_base, 500);
+    ctx.cached.p256_verify_base.insert(cost).clone()
+}
+
+fn p256_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let base = p256_verify_base(ctx);
+    // inside the WASM function, there are 64 calls to `p256_verify`.
+    let base_call_num = 64;
+    // each call checks a message of size 16kiB
+    let iteration_bytes = 16384;
+    let total_bytes = base_call_num * iteration_bytes;
+    let byte = fn_cost(ctx, "p256_verify_16kib_64", ExtCosts::p256_verify_byte, total_bytes);
     // need to subtract the base cost, which has already been divided by the number of bytes per iteration
     byte - base / iteration_bytes
 }

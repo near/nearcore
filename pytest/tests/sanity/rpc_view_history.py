@@ -55,6 +55,12 @@ class TestRpcViewHistory(unittest.TestCase):
 
         utils.wait_for_blocks(nodes[0], target=3)
 
+        # Pin a canonical pre-payment block to query later. Doomslug can skip
+        # heights in dev clusters (e.g. block 1 isn't guaranteed to be on the
+        # canonical chain), so a hardcoded height like `block=1` races. Using
+        # the height of a block we just observed via `get_latest_block` is
+        # safe — it's already on the canonical chain.
+        pre_payment_height = nodes[0].get_latest_block().height
         balances = {
             account: int(nodes[0].get_account('test0')['result']['amount'])
             for account in ['test0', 'test1']
@@ -89,7 +95,7 @@ class TestRpcViewHistory(unittest.TestCase):
 
             # Now check that the RPC will provide historical results.
             historical_amount = int(nodes[0].get_account(
-                acc_id, block=1)['result']['amount'])
+                acc_id, block=pre_payment_height)['result']['amount'])
             self.assertEqual(balances[acc_id], historical_amount)
 
 

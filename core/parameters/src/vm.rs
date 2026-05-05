@@ -91,6 +91,9 @@ pub struct LimitConfig {
     pub max_total_prepaid_gas: Gas,
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
+    /// Max number of `DeployContract` and `DeployGlobalContract` actions
+    /// combined within a single receipt.
+    pub max_deploy_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
     /// permission access key.
     pub max_number_bytes_method_names: u64,
@@ -134,6 +137,14 @@ pub struct LimitConfig {
     /// pathologically large contracts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_instrumented_code_size: Option<u64>,
+    /// If present, stores max number of basic blocks (block/loop/if) in a single function.
+    /// This caps per-function compilation time in Cranelift.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_function: Option<u64>,
+    /// If present, stores max total number of basic blocks across all functions in a contract.
+    /// This caps total compilation time for a contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
@@ -205,6 +216,10 @@ pub struct Config {
     /// call without requiring the calling contract to have sufficient balance.
     pub one_yocto_on_promise: bool,
 
+    /// Whether to enable the P-256 ECDSA signature verification host function.
+    /// NEP-635: <https://github.com/near/NEPs/pull/635>
+    pub p256_verify_host_fn: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -237,6 +252,7 @@ impl Config {
         self.eth_implicit_global_contract = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
+        self.p256_verify_host_fn = true;
     }
 }
 

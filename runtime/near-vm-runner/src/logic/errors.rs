@@ -187,6 +187,10 @@ pub enum PrepareError {
     FunctionBodyTooLarge = 11,
     /// The instrumented code exceeds the size limit.
     InstrumentedCodeTooLarge = 12,
+    /// A function contains too many basic blocks.
+    TooManyBlocksPerFunction = 13,
+    /// A contract contains too many basic blocks.
+    TooManyBlocksPerContract = 14,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -310,6 +314,12 @@ pub enum HostError {
     Ed25519VerifyInvalidInput {
         msg: String,
     },
+    /// Input length mismatch for p256 signature verification (signature is not 64
+    /// bytes or public key is not 33 bytes). Parse failures of otherwise
+    /// well-sized inputs return 0 from the host function instead of aborting.
+    P256VerifyInvalidInput {
+        msg: String,
+    },
     // Invalid input to bls12381 family of functions
     BLS12381InvalidInput {
         msg: String,
@@ -413,6 +423,8 @@ impl fmt::Display for PrepareError {
             TooManyTableElements => "Too many table elements declared in the contract.",
             FunctionBodyTooLarge => "A function body in the contract exceeds the size limit.",
             InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
+            TooManyBlocksPerFunction => "Too many basic blocks in a function.",
+            TooManyBlocksPerContract => "Too many basic blocks in a contract.",
         })
     }
 }
@@ -573,6 +585,9 @@ impl std::fmt::Display for HostError {
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
+            }
+            P256VerifyInvalidInput { msg } => {
+                write!(f, "P256 signature verification error: {}", msg)
             }
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(

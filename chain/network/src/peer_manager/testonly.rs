@@ -18,7 +18,9 @@ use crate::network_protocol::{
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::network_transport::NetworkTransport;
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
@@ -29,7 +31,7 @@ use crate::types::{
 };
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
-    AsyncSender, CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop,
+    AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop,
 };
 use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -67,11 +69,38 @@ impl Handler<WithNetworkState> for PeerManagerActor {
     }
 }
 
+/// Boxed future returned by test-only PMA message callbacks.
+type BoxFut = Pin<Box<dyn Send + 'static + Future<Output = ()>>>;
+
+/// Callback that receives both NetworkState and the real transport.
+type StateTransportFn =
+    Box<dyn Send + FnOnce(Arc<NetworkState>, Arc<dyn NetworkTransport>) -> BoxFut>;
+
+/// Test-only message: run a closure with access to both NetworkState
+/// and the real `Arc<dyn NetworkTransport>` held by PMA. Needed because
+/// methods like `tier1_advertise_proxies` call `transport.connect_to_peer`
+/// which requires the real TcpTransport (not a `new_wrapping` stub).
+struct WithStateAndTransport(StateTransportFn);
+
+impl Debug for WithStateAndTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("WithStateAndTransport").finish()
+    }
+}
+
+impl Handler<WithStateAndTransport> for PeerManagerActor {
+    fn handle(&mut self, WithStateAndTransport(f): WithStateAndTransport) {
+        self.handle
+            .spawn("with_state_and_transport", f(self.state.clone(), self.transport.clone()));
+    }
+}
+
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
     pub actor: AutoStopActor<PeerManagerActor>,
     pub actor_system: ActorSystem,
+    pub tcp: Arc<TcpTransport>,
 }
 
 pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
@@ -174,7 +203,7 @@ impl ActorHandler {
         let stream = tcp::Stream::connect(&peer_info, tier, &config::SocketOptions::default())
             .await
             .unwrap();
-        self.actor.send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
+        self.tcp.spawn_outbound_from_stream(stream).unwrap();
     }
 
     pub fn connect_to(
@@ -182,7 +211,7 @@ impl ActorHandler {
         peer_info: &PeerInfo,
         tier: tcp::Tier,
     ) -> impl 'static + Send + Future<Output = tcp::StreamId> {
-        let addr = self.actor.0.clone();
+        let tcp = self.tcp.clone();
         let events = self.events.clone();
         let peer_info = peer_info.clone();
         async move {
@@ -191,7 +220,7 @@ impl ActorHandler {
                 .unwrap();
             let mut events = events.from_now();
             let stream_id = stream.id();
-            addr.send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
+            tcp.spawn_outbound_from_stream(stream).unwrap();
             events
                 .recv_until(|ev| match &ev {
                     Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(stream_id),
@@ -212,6 +241,27 @@ impl ActorHandler {
         self.actor
             .send_async(WithNetworkState(Box::new(|s| {
                 Box::pin(async { send.send(f(s).await).ok().unwrap() })
+            })))
+            .await
+            .unwrap();
+        recv.await.unwrap()
+    }
+
+    /// Like `with_state`, but the closure also receives the real
+    /// `Arc<dyn NetworkTransport>` held by PMA. Needed by tests that
+    /// drive methods invoking `transport.connect_to_peer` (e.g.
+    /// `tier1_advertise_proxies`, `tier1_connect`).
+    pub async fn with_state_and_transport<
+        R: 'static + Send,
+        Fut: 'static + Send + Future<Output = R>,
+    >(
+        &self,
+        f: impl 'static + Send + FnOnce(Arc<NetworkState>, Arc<dyn NetworkTransport>) -> Fut,
+    ) -> R {
+        let (send, recv) = tokio::sync::oneshot::channel();
+        self.actor
+            .send_async(WithStateAndTransport(Box::new(|s, t| {
+                Box::pin(async { send.send(f(s, t).await).ok().unwrap() })
             })))
             .await
             .unwrap();
@@ -260,7 +310,9 @@ impl ActorHandler {
             tcp::Stream::loopback(network_cfg.node_id(), tier).await;
         let stream_id = outbound_stream.id();
         let events = self.events.from_now();
-        self.actor.send(PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream));
+        if let Err(err) = self.tcp.spawn_outbound_from_stream(outbound_stream) {
+            tracing::info!(target:"network", ?err, "start_outbound: spawn failed");
+        }
         let conn = RawConnection {
             events,
             stream: inbound_stream,
@@ -284,9 +336,10 @@ impl ActorHandler {
     /// This is a partial implementation, add more invariant checks
     /// if needed.
     pub async fn check_consistency(&self) {
-        self.with_state(|s| async move {
+        let tcp = self.tcp.clone();
+        self.with_state(move |s| async move {
             // Check that the set of ready connections matches the PeerStore state.
-            let tier2: HashSet<_> = s.tier2.load().ready.keys().cloned().collect();
+            let tier2: HashSet<_> = tcp.tier2.load().ready.keys().cloned().collect();
             let store: HashSet<_> = s
                 .peer_store
                 .dump()
@@ -320,11 +373,17 @@ impl ActorHandler {
 
     pub async fn fix_local_edges(&self, clock: &time::Clock, timeout: time::Duration) {
         let clock = clock.clone();
-        self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
+        self.with_state_and_transport(move |s, transport| async move {
+            s.fix_local_edges(&clock, timeout, transport).await
+        })
+        .await
     }
 
     pub async fn set_chain_info(&self, chain_info: ChainInfo) -> bool {
-        self.with_state(move |s| async move { s.set_chain_info(chain_info) }).await
+        self.with_state_and_transport(move |s, transport| async move {
+            s.set_chain_info(chain_info, transport.as_ref())
+        })
+        .await
     }
 
     pub async fn tier1_advertise_proxies(
@@ -332,17 +391,17 @@ impl ActorHandler {
         clock: &time::Clock,
     ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
-        let actor_system = self.actor_system.clone();
-        self.with_state(
-            move |s| async move { s.tier1_advertise_proxies(&clock, actor_system).await },
-        )
+        self.with_state_and_transport(move |s, transport| async move {
+            s.tier1_advertise_proxies(&clock, transport.as_ref()).await
+        })
         .await
     }
 
     pub async fn disconnect(&self, peer_id: &PeerId) {
         let peer_id = peer_id.clone();
-        self.with_state(move |s| async move {
-            let num_stopped = s
+        let tcp = self.tcp.clone();
+        self.with_state(move |_s| async move {
+            let num_stopped = tcp
                 .tier2
                 .load()
                 .ready
@@ -368,8 +427,10 @@ impl ActorHandler {
         // TODO(gprusak): figure out how to await for both ends to disconnect.
         let clock = clock.clone();
         let peer_id = peer_id.clone();
-        self.with_state(move |s| async move { s.disconnect_and_ban(&clock, &peer_id, reason) })
-            .await
+        self.with_state_and_transport(move |s, transport| async move {
+            s.disconnect_and_ban(&clock, &peer_id, reason, transport.as_ref())
+        })
+        .await
     }
 
     pub async fn peer_store_update(&self, clock: &time::Clock) {
@@ -379,8 +440,8 @@ impl ActorHandler {
 
     pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let clock = clock.clone();
-        self.with_state(move |s| async move {
-            s.send_ping(&clock, tcp::Tier::T2, nonce, target);
+        self.with_state_and_transport(move |s, transport| async move {
+            s.send_ping(&clock, tcp::Tier::T2, nonce, target, transport.as_ref());
         })
         .await;
     }
@@ -443,10 +504,7 @@ impl ActorHandler {
     pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
         let mut events = self.events.from_now();
         loop {
-            let connections =
-                self.with_state(|s| async move { s.tier2.load().ready.clone() }).await;
-
-            if connections.contains_key(&target_peer_id) {
+            if self.tcp.tier2.load().ready.contains_key(&target_peer_id) {
                 return;
             }
 
@@ -499,7 +557,7 @@ impl ActorHandler {
     pub async fn wait_for_num_connected_peers(&self, wanted: usize) {
         let mut events = self.events.from_now();
         loop {
-            let got = self.with_state(|s| async move { s.tier2.load().ready.len() }).await;
+            let got = self.tcp.tier2.load().ready.len();
             if got == wanted {
                 return;
             }
@@ -515,9 +573,8 @@ impl ActorHandler {
     /// Executes `NetworkState::tier1_connect` method.
     pub async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
-        let actor_system = self.actor_system.clone();
-        self.with_state(move |s| async move {
-            s.tier1_connect(&clock, actor_system).await;
+        self.with_state_and_transport(move |s, transport| async move {
+            s.tier1_connect(&clock, transport.as_ref()).await;
         })
         .await;
     }
@@ -566,7 +623,7 @@ pub(crate) async fn start(
         });
 
     let actor_system = ActorSystem::new();
-    let actor = PeerManagerActor::spawn(
+    let (actor, tcp) = PeerManagerActor::spawn(
         clock,
         actor_system.clone(),
         store,
@@ -582,7 +639,7 @@ pub(crate) async fn start(
     )
     .unwrap();
     let actor = AutoStopActor(actor);
-    let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system };
+    let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system, tcp };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {
         Event::ServerStarted => Some(()),

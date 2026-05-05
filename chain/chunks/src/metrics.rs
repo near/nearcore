@@ -1,5 +1,6 @@
 use near_o11y::metrics::{
     Counter, Histogram, exponential_buckets, try_create_histogram, try_create_histogram_vec,
+    try_create_int_counter_vec,
 };
 use std::sync::LazyLock;
 
@@ -129,3 +130,13 @@ pub static PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON: LazyLock<Counter> = LazyLock::
     )
     .unwrap()
 });
+
+pub static CHUNK_DECODE_FAILED_TOTAL: LazyLock<near_o11y::metrics::IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_chunk_decode_failed_total",
+            "Number of chunks that failed to decode (malicious chunk producer)",
+            &["shard_id"],
+        )
+        .unwrap()
+    });

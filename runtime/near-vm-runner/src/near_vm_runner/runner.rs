@@ -246,10 +246,14 @@ impl NearVM {
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
+        // Track whether the in-memory cache had the entry. The generate closure only runs on
+        // memory cache miss, so if it stays true the lookup was served from memory.
+        let mut is_memory_hit = true;
         let key = get_contract_cache_key(contract.hash(), &self.config, near_vm_vm_hash());
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             key,
             || {
+                is_memory_hit = false;
                 // `cache` stores compiled machine code in the database
                 //
                 // Caches also cache _compilation_ errors, so that we don't have to
@@ -340,7 +344,7 @@ impl NearVM {
             },
         )?;
 
-        crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
+        crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit, is_memory_hit);
         let config = Arc::clone(&self.config);
         let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
         if let Err(e) = result {
@@ -542,7 +546,7 @@ impl near_vm_vm::Tunables for &NearVM {
     }
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<'_, Output = u64>> {
         Box::new(GasCostCfg(u64::from(self.config.regular_op_cost)))
     }
 }
@@ -586,6 +590,9 @@ struct GasCostCfg(u64);
 macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
+            // The macro produces many visitor functions with unused arguments, the easiest
+            // solution is to ignore the warnings.
+            #[allow(unused_variables)]
             fn $visit(&mut self $($(, $arg: $argty)*)?) -> u64 {
                 gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
             }

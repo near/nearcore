@@ -7,6 +7,7 @@ use crate::types::{
     StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -33,7 +34,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{
+    ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
+};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -332,7 +335,7 @@ impl NightshadeRuntime {
             .observe(elapsed.as_secs_f64());
         let shard_label = shard_id.to_string();
         metrics::DELAYED_RECEIPTS_COUNT
-            .with_label_values(&[&shard_label])
+            .with_label_values(&[shard_label.as_str()])
             .set(apply_result.delayed_receipts_count as i64);
         if let Some(mut metrics) = apply_result.metrics {
             metrics.report(&shard_label);
@@ -1080,21 +1083,23 @@ impl RuntimeAdapter for NightshadeRuntime {
         );
         tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, "transaction filtering results");
         let shard_label = shard_id.to_string();
-        metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
+        metrics::PREPARE_TX_SIZE
+            .with_label_values(&[shard_label.as_str()])
+            .observe(total_size as f64);
         metrics::PREPARE_TX_REJECTED
-            .with_label_values(&[&shard_label, "congestion"])
+            .with_label_values(&[shard_label.as_str(), "congestion"])
             .observe(rejected_due_to_congestion as f64);
         metrics::PREPARE_TX_REJECTED
-            .with_label_values(&[&shard_label, "invalid_tx"])
+            .with_label_values(&[shard_label.as_str(), "invalid_tx"])
             .observe(rejected_invalid_tx as f64);
         metrics::PREPARE_TX_REJECTED
-            .with_label_values(&[&shard_label, "invalid_block_hash"])
+            .with_label_values(&[shard_label.as_str(), "invalid_block_hash"])
             .observe(rejected_invalid_for_chain as f64);
         metrics::PREPARE_TX_GAS
-            .with_label_values(&[&shard_label])
+            .with_label_values(&[shard_label.as_str()])
             .observe(total_gas_burnt.as_gas() as f64);
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
-            .with_label_values(&[&shard_label])
+            .with_label_values(&[shard_label.as_str()])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
         Ok((prepared_transactions, SkippedTransactions(skipped_transactions)))
     }
@@ -1393,7 +1398,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let elapsed = instant.elapsed();
         let is_ok = if res.is_ok() { "ok" } else { "error" };
         metrics::STATE_SYNC_OBTAIN_PART_DELAY
-            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .with_label_values(&[shard_id.to_string().as_str(), is_ok])
             .observe(elapsed.as_secs_f64());
         res
     }
@@ -1413,7 +1418,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             StatePartValidationResult::Invalid => "error",
         };
         metrics::STATE_SYNC_VALIDATE_PART_DELAY
-            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .with_label_values(&[shard_id.to_string().as_str(), is_ok])
             .observe(elapsed.as_secs_f64());
         res
     }
@@ -1548,36 +1553,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             "precompile_contracts",
             num_contracts = contract_codes.len())
         .entered();
+        if contract_codes.is_empty() {
+            return Ok(());
+        }
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
-            Some(Box::new(self.compiled_contract_cache.handle()));
-        // Execute precompile_contract in parallel but prevent it from using more than half of all
-        // threads so that node will still function normally.
-        rayon::scope(|scope| {
-            let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
-            // Use up-to half of the threads for the compilation.
-            let max_threads = std::cmp::max(rayon::current_num_threads() / 2, 1);
-            for _ in 0..max_threads {
-                slot_sender.send(()).expect("both sender and receiver are owned here");
-            }
-            for code in contract_codes {
-                slot_receiver.recv().expect("could not receive a slot to compile contract");
-                let contract_cache = compiled_contract_cache.as_deref();
-                let slot_sender = slot_sender.clone();
-                scope.spawn(move |_| {
-                    precompile_contract(
-                        &code,
-                        Arc::clone(&runtime_config.wasm_config),
-                        contract_cache,
-                    )
-                    .ok();
-                    // If this fails, it just means there won't be any more attempts to recv the
-                    // slots
-                    let _ = slot_sender.send(());
-                });
-            }
-        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        for code in contract_codes {
+            let tx = tx.clone();
+            let config = Arc::clone(&runtime_config.wasm_config);
+            let cache = self.compiled_contract_cache.handle();
+            contract_compilation_pool().spawn_boxed(Box::new(move || {
+                precompile_contract(&code, config, Some(&*cache)).ok();
+                let _ = tx.send(());
+            }));
+        }
+        drop(tx);
+        while rx.recv().is_ok() {}
         Ok(())
     }
 }
@@ -1706,7 +1698,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         self.trie_viewer.view_account_contract_code(
             &state_update,
             account_id,
-            current_protocol_version,
+            clamp_to_supported_protocol_version(current_protocol_version),
             &self.genesis_config.chain_id,
         )
     }
@@ -1735,7 +1727,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,
-            current_protocol_version,
+            current_protocol_version: clamp_to_supported_protocol_version(current_protocol_version),
             cache: Some(self.compiled_contract_cache.handle()),
         };
         self.trie_viewer.call_function(

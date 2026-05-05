@@ -7,9 +7,9 @@ use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
 use itertools::Itertools;
 use near_async::messaging::Sender;
-use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
+use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks_sequential};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
-use near_chain::{ApplyChunksIterationMode, ChainStoreAccess, Provenance};
+use near_chain::{ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
@@ -254,7 +254,9 @@ pub fn create_chunk(
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut block_merkle_tree)
         .build();
-    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
+        .map_err(|(err, _)| err)
+        .unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 
@@ -272,8 +274,7 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
         client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
         for msg in block_messages.lock().drain(..) {
-            let results = do_apply_chunks(
-                ApplyChunksIterationMode::Sequential,
+            let results = do_apply_chunks_sequential(
                 BlockToApply::Normal(msg.block_hash),
                 msg.block_height,
                 msg.work,

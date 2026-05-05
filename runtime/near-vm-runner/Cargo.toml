@@ -24,6 +24,7 @@ finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
+p256.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
@@ -125,6 +126,11 @@ protocol_schema = [
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
+
+[[bin]]
+name = "bench-contracts-compilation"
+path = "benchmarks/compile_contracts.rs"
+required-features = ["wasmtime_vm"]
 
 [package.metadata.cargo-machete]
 ignored = ["prometheus"]

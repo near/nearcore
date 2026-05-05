@@ -1,21 +1,26 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
-    TxStatusResponse,
+    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
+    EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
+    SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart, StateResponse,
+    StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessage, SignedAccountData, SnapshotHostInfo, T1MessageBody, T2MessageBody,
-    TieredMessageBody,
+    RoutedMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo, SyncAccountsData,
+    SyncSnapshotHosts, T1MessageBody, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
+use crate::peer_manager::network_transport::NetworkTransport;
+#[cfg(test)]
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -36,20 +41,22 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
-    StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request, Tier3RequestBody,
+    BlockInfo, ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request,
+    Tier3RequestBody,
 };
-use anyhow::Context;
 use arc_swap::ArcSwap;
+use dashmap::DashMap;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
-use near_async::{ActorSystem, new_owned_future_spawner, time};
+use near_async::{new_owned_future_spawner, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -57,9 +64,6 @@ use std::sync::atomic::AtomicUsize;
 
 mod routing;
 mod tier1;
-
-/// Limit number of pending Peer actors to avoid OOM.
-pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 
 /// Size of LRU cache size of recent routed messages.
 /// It should be large enough to detect duplicates (i.e. all messages received during
@@ -74,6 +78,11 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
+
+/// How long a pending Tier3 request remains valid. After sending a state sync request over
+/// Tier2, we expect the peer to open an inbound Tier3 connection within this window. Entries
+/// older than this are cleaned up periodically.
+pub(crate) const PENDING_TIER3_REQUEST_TIMEOUT: time::Duration = time::Duration::seconds(60);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -113,18 +122,23 @@ pub(crate) struct NetworkState {
     pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     pub spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
 
+    /// Per-peer metadata + T1 account-key index. Written by
+    /// register/unregister and the `handle_peer_message` Block branch.
+    pub peers: ConnectedPeers,
+
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
+    /// Per-peer gossip demuxes for T2 peers. Kept as two separate
+    /// maps rather than a struct so `add_accounts_data` and
+    /// `add_snapshot_hosts` iterate the map they need directly — no
+    /// struct-field extraction step.
+    accounts_data_demuxes: Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SignedAccountData>>, ()>>>,
+    snapshot_hosts_demuxes: Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>>>,
+
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<AccountDataCache>,
     /// AnnounceAccounts mapping TIER1 account ids to peer ids.
     pub account_announcements: Arc<AnnounceAccountCache>,
-    /// Connected peers (inbound and outbound) with their full peer information.
-    pub tier2: connection::Pool,
-    pub tier1: connection::Pool,
-    pub tier3: connection::Pool,
-    /// Semaphore limiting inflight inbound handshakes.
-    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
     pub my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
     /// Peer store that provides read/write access to peers.
@@ -153,6 +167,11 @@ pub(crate) struct NetworkState {
     /// messages since last block.
     pub txns_since_last_block: AtomicUsize,
 
+    /// Peers from which we expect an inbound Tier3 connection, because we sent them a state
+    /// sync request over Tier2. Maps peer_id to the time the request was sent. Entries are
+    /// cleaned up after PENDING_TIER3_REQUEST_TIMEOUT.
+    pub pending_tier3_requests: DashMap<PeerId, time::Instant>,
+
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -171,14 +190,73 @@ pub(crate) struct NetworkState {
 /// Self-connected edges are not allowed from remote peers.
 pub(crate) enum EdgesWithSource {
     Local(Vec<Edge>),
-    Remote(Vec<Edge>),
+    Remote { edges: Vec<Edge>, source: PeerId },
 }
 
 impl EdgesWithSource {
     pub(crate) fn is_empty(&self) -> bool {
         match self {
-            EdgesWithSource::Local(edges) | EdgesWithSource::Remote(edges) => edges.is_empty(),
+            EdgesWithSource::Local(edges) | EdgesWithSource::Remote { edges, .. } => {
+                edges.is_empty()
+            }
         }
+    }
+}
+
+/// Action to take after processing an incoming routed message.
+/// Returned by `NetworkState::process_incoming_routed` for the caller
+/// (PeerActor or TestLoopTransport) to execute.
+pub(crate) enum RoutedAction {
+    /// Message is for us — caller should handle (Ping/Pong synchronously,
+    /// others via `handle_peer_message`).
+    ForMe(Box<RoutedMessage>),
+    /// Not for us — caller should forward via `send_message_to_peer`.
+    /// TTL already decremented, num_hops incremented.
+    Forward(Box<RoutedMessage>),
+    /// Message dropped (TTL expired, etc). Metrics/logging already done.
+    Dropped,
+}
+
+/// Transport-agnostic per-connection metadata. The caller (PeerActor
+/// for TCP, TestLoopTransport for testloop) extracts these fields from
+/// whatever connection representation it owns and hands them to the
+/// lifecycle methods (`validate_new_connection`, `on_peer_connected`).
+pub(crate) struct PeerConnectionInfo {
+    pub peer_info: PeerInfo,
+    pub tier: tcp::Tier,
+    pub peer_type: PeerType,
+    pub archival: bool,
+    pub tracked_shards: Vec<near_primitives::types::ShardId>,
+    /// AccountKey ownership proof — only populated on TIER1 connections.
+    pub owned_account: Option<SignedOwnedAccount>,
+    pub established_time: time::Instant,
+}
+
+/// Minimal peer identity carried through the disconnect path. Only
+/// what `on_peer_disconnected` actually reads.
+pub(crate) struct PeerDisconnectInfo {
+    pub peer_info: PeerInfo,
+    pub tier: tcp::Tier,
+    pub peer_type: PeerType,
+}
+
+impl From<&connection::Connection> for PeerConnectionInfo {
+    fn from(conn: &connection::Connection) -> Self {
+        Self {
+            peer_info: conn.peer_info.clone(),
+            tier: conn.tier,
+            peer_type: conn.peer_type,
+            archival: conn.archival,
+            tracked_shards: conn.tracked_shards.clone(),
+            owned_account: conn.owned_account.clone(),
+            established_time: conn.established_time,
+        }
+    }
+}
+
+impl From<&connection::Connection> for PeerDisconnectInfo {
+    fn from(conn: &connection::Connection) -> Self {
+        Self { peer_info: conn.peer_info.clone(), tier: conn.tier, peer_type: conn.peer_type }
     }
 }
 
@@ -207,6 +285,9 @@ impl NetworkState {
                     node_id: config.node_id(),
                     prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                    max_edges_per_source: config.routing_graph_max_edges_per_source,
+                    max_total_edges: config.routing_graph_max_edges,
+                    max_graph_peers: config.routing_graph_max_peers,
                 },
             ),
             genesis_id,
@@ -215,11 +296,10 @@ impl NetworkState {
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
+            peers: ConnectedPeers::new(),
+            accounts_data_demuxes: Mutex::new(HashMap::new()),
+            snapshot_hosts_demuxes: Mutex::new(HashMap::new()),
             chain_info: Default::default(),
-            tier2: connection::Pool::new(config.node_id()),
-            tier1: connection::Pool::new(config.node_id()),
-            tier3: connection::Pool::new(config.node_id()),
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
@@ -233,6 +313,7 @@ impl NetworkState {
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
             txns_since_last_block: AtomicUsize::new(0),
+            pending_tier3_requests: DashMap::new(),
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(
                 config.routing_table_update_rate_limit,
@@ -255,7 +336,7 @@ impl NetworkState {
     /// It should be used to make the public methods cancellable: you spawn the
     /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
     /// the noncancellable logic will be run in the background anyway.
-    fn spawn<R: 'static + Send>(
+    pub(crate) fn spawn<R: 'static + Send>(
         &self,
         description: &'static str,
         fut: impl std::future::Future<Output = R> + 'static + Send,
@@ -275,10 +356,10 @@ impl NetworkState {
         clock: &time::Clock,
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
+        transport: &dyn NetworkTransport,
     ) {
-        let tier2 = self.tier2.load();
-        if let Some(peer) = tier2.ready.get(peer_id) {
-            peer.stop(Some(ban_reason));
+        if self.peers.is_connected_on_tier(peer_id, tcp::Tier::T2) {
+            transport.disconnect_peer(peer_id, Some(ban_reason));
         } else {
             if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
                 tracing::debug!(target: "network", ?err, "failed to save peer data");
@@ -298,10 +379,11 @@ impl NetworkState {
     }
 
     /// predicate checking whether we should allow an inbound connection from peer_info.
-    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+    fn is_inbound_allowed(&self, peer_info: &PeerInfo, transport: &dyn NetworkTransport) -> bool {
         // Check if we have spare inbound connections capacity.
-        let tier2 = self.tier2.load();
-        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.config.max_num_peers as usize
+        let t2_count = self.peers.tier2().len();
+        let pending_outbound = transport.transport_info().pending_outbound.len();
+        if t2_count + pending_outbound < self.config.max_num_peers as usize
             && !self.config.inbound_disabled
         {
             return true;
@@ -314,167 +396,208 @@ impl NetworkState {
         false
     }
 
-    /// Register a direct connection to a new peer. This will be called after successfully
-    /// establishing a connection with another peer. It becomes part of the connected peers.
-    ///
-    /// To build new edge between this pair of nodes both signatures are required.
-    /// Signature from this node is passed in `edge_info`
-    /// Signature from the other node is passed in `full_peer_info.edge_info`.
-    pub async fn register(
+    /// Pure validation for a new connection — no side effects.
+    /// Returns Err to reject the connection. If it fails, nothing was
+    /// written — no rollback needed.
+    pub(crate) fn validate_new_connection(
+        &self,
+        info: &PeerConnectionInfo,
+        edge: &Edge,
+        transport: &dyn NetworkTransport,
+    ) -> Result<(), RegisterPeerError> {
+        let peer_info = &info.peer_info;
+        if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
+            tracing::debug!(target: "network", peer_info = ?peer_info, "dropping connection from blacklisted peer or unknown address");
+            return Err(RegisterPeerError::Blacklisted);
+        }
+        if self.peer_store.is_banned(&peer_info.id) {
+            tracing::debug!(target: "network", id = ?peer_info.id, "dropping connection from banned peer");
+            return Err(RegisterPeerError::Banned);
+        }
+        match info.tier {
+            tcp::Tier::T1 => {
+                if info.peer_type == PeerType::Inbound {
+                    if !self.config.tier1.enable_inbound {
+                        return Err(RegisterPeerError::Tier1InboundDisabled);
+                    }
+                    // Allow for inbound TIER1 connections only directly from a TIER1 peers.
+                    let owned_account =
+                        info.owned_account.as_ref().ok_or(RegisterPeerError::NotTier1Peer)?;
+                    if !self.accounts_data.load().keys.contains(&owned_account.account_key) {
+                        return Err(RegisterPeerError::NotTier1Peer);
+                    }
+                }
+                if !edge.verify() {
+                    return Err(RegisterPeerError::InvalidEdge);
+                }
+            }
+            tcp::Tier::T2 => {
+                if info.peer_type == PeerType::Inbound {
+                    if !self.is_inbound_allowed(peer_info, transport) {
+                        // TODO(1896): Gracefully drop inbound connection for other peer.
+                        let t2_count = self.peers.tier2().len();
+                        let pending_outbound = transport.transport_info().pending_outbound.len();
+                        tracing::debug!(target: "network",
+                            tier2 = t2_count, outgoing_peers = pending_outbound,
+                            max_num_peers = self.config.max_num_peers,
+                            "dropping handshake (network at max capacity)"
+                        );
+                        return Err(RegisterPeerError::ConnectionLimitExceeded);
+                    }
+                }
+                // TODO(gprusak): consider actually banning the peer for consistency.
+                if !edge.verify() {
+                    return Err(RegisterPeerError::InvalidEdge);
+                }
+            }
+            tcp::Tier::T3 => {
+                if !edge.verify() {
+                    return Err(RegisterPeerError::InvalidEdge);
+                }
+                if info.peer_type == PeerType::Inbound {
+                    // Reject inbound Tier3 connections that don't correspond to a
+                    // state sync request we sent. We check without removing so that
+                    // the entry remains valid for the full timeout window — the peer
+                    // may need to open additional T3 connections (e.g. if the first
+                    // was idle-closed before a later response is ready).
+                    //
+                    // Edge verification is done first so that a spoofed peer_id with
+                    // an invalid edge cannot influence the pending-request lookup.
+                    if !self.pending_tier3_requests.contains_key(&peer_info.id) {
+                        return Err(RegisterPeerError::UnexpectedTier3Connection);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Post-registration business logic writes. Called AFTER pool_insert
+    /// succeeds. Writes to connected_peers (ConnectedPeers handles the
+    /// T1 `account_key → peer_id` index internally as a side effect of
+    /// `insert`), broadcasts edge (T2), and updates peer_store (T2).
+    pub(crate) async fn on_peer_connected(
         self: &Arc<Self>,
         clock: &time::Clock,
         edge: Edge,
-        conn: Arc<connection::Connection>,
-    ) -> Result<(), RegisterPeerError> {
-        let this = self.clone();
-        let clock = clock.clone();
-        self.spawn("register_connection", async move {
-            let peer_info = &conn.peer_info;
-            // Check if this is a blacklisted peer.
-            if peer_info.addr.as_ref().map_or(true, |addr| this.peer_store.is_blacklisted(addr)) {
-                tracing::debug!(target: "network", peer_info = ?peer_info, "dropping connection from blacklisted peer or unknown address");
-                return Err(RegisterPeerError::Blacklisted);
-            }
-
-            if this.peer_store.is_banned(&peer_info.id) {
-                tracing::debug!(target: "network", id = ?peer_info.id, "dropping connection from banned peer");
-                return Err(RegisterPeerError::Banned);
-            }
-
-            match conn.tier {
-                tcp::Tier::T1 => {
-                    if conn.peer_type == PeerType::Inbound {
-                        if !this.config.tier1.enable_inbound {
-                            return Err(RegisterPeerError::Tier1InboundDisabled);
-                        }
-                        // Allow for inbound TIER1 connections only directly from a TIER1 peers.
-                        let owned_account = conn.owned_account.as_ref().ok_or(RegisterPeerError::NotTier1Peer)?;
-                        if !this.accounts_data.load().keys.contains(&owned_account.account_key) {
-                            return Err(RegisterPeerError::NotTier1Peer);
-                        }
-                    }
-                    if !edge.verify() {
-                        return Err(RegisterPeerError::InvalidEdge);
-                    }
-                    this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
-                }
-                tcp::Tier::T2 => {
-                    if conn.peer_type == PeerType::Inbound {
-                        if !this.is_inbound_allowed(&peer_info) {
-                            // TODO(1896): Gracefully drop inbound connection for other peer.
-                            let tier2 = this.tier2.load();
-                            tracing::debug!(target: "network",
-                                tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                                max_num_peers = this.config.max_num_peers,
-                                "dropping handshake (network at max capacity)"
-                            );
-                            return Err(RegisterPeerError::ConnectionLimitExceeded);
-                        }
-                    }
-                    // First verify and broadcast the edge of the connection, so that in case
-                    // it is invalid, the connection is not added to the pool.
-                    // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, EdgesWithSource::Local(vec![edge.clone()]))
-                        .await
-                        .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
-                    // Insert to the local connection pool
-                    this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Write to the peer store
-                    this.peer_store.peer_connected(&clock, peer_info);
-                }
-                tcp::Tier::T3 => {
-                    if conn.peer_type == PeerType::Inbound {
-                        // TODO(saketh): When a peer initiates a TIER3 connection it should be
-                        // responding to a request sent previously by the local node. If we
-                        // maintain some state about pending requests it would be possible to add
-                        // an additional layer of security here and reject unexpected connections.
-                    }
-                    if !edge.verify() {
-                        return Err(RegisterPeerError::InvalidEdge);
-                    }
-                    this.tier3.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
-                }
-            }
-            Ok(())
-        }).await.unwrap()
-    }
-
-    /// Removes the connection from the state.
-    /// It is intentionally synchronous and expected to be called from PeerActor.stopping.
-    /// If it was async, there would be a risk that the unregister will be cancelled before
-    /// even starting.
-    pub fn unregister(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        conn: &Arc<connection::Connection>,
-        _stream_id: tcp::StreamId,
-        reason: ClosingReason,
+        info: PeerConnectionInfo,
+        transport: Arc<dyn NetworkTransport>,
     ) {
-        let this = self.clone();
-        let clock = clock.clone();
-        let conn = conn.clone();
-        self.spawn("unregister_connection", async move {
-            match conn.tier {
-                tcp::Tier::T1 => this.tier1.remove(&conn),
-                tcp::Tier::T2 => this.tier2.remove(&conn),
-                tcp::Tier::T3 => this.tier3.remove(&conn),
-            }
-
-            // Handle banning and routing, which are applicable only for TIER2.
-            if conn.tier == tcp::Tier::T2 {
-                let peer_id = conn.peer_info.id.clone();
-
-                // If the last edge we have with this peer represent a connection addition, create the edge
-                // update that represents the connection removal.
-                if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
-                    if edge.edge_type() == EdgeState::Active {
-                        let edge_update =
-                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.add_edges(&clock, EdgesWithSource::Local(vec![edge_update.clone()]))
-                            .await
-                            .unwrap();
-                    }
-                }
-
-                // Save the fact that we are disconnecting to the PeerStore.
-                let res = match &reason {
-                    ClosingReason::Ban(ban_reason) => {
-                        this.peer_store.peer_ban(&clock, &conn.peer_info.id, *ban_reason)
-                    }
-                    _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
-                };
-                if let Err(err) = res {
-                    tracing::debug!(target: "network", ?err, "failed to save peer data");
-                }
-
-                // Save the fact that we are disconnecting to the ConnectionStore,
-                // and push a reconnect attempt, if applicable
-                if this.connection_store.connection_closed(
-                    &conn.peer_info,
-                    &conn.peer_type,
-                    &reason,
-                ) {
-                    this.pending_reconnect.lock().push(conn.peer_info.clone());
-                }
-            }
-
-            #[cfg(test)]
-            this.config.event_sink.send(
-                crate::peer_manager::peer_manager_actor::Event::ConnectionClosed(
-                    crate::peer::peer_actor::ConnectionClosedEvent {
-                        stream_id: _stream_id,
-                        reason,
-                    },
+        let account_key = info.owned_account.as_ref().map(|oa| oa.account_key.clone());
+        let peer_id = info.peer_info.id.clone();
+        let tier = info.tier;
+        let peer_info = info.peer_info.clone();
+        self.peers.insert(
+            peer_id,
+            ConnectedPeerState {
+                peer_info: info.peer_info,
+                block_info: None,
+                tier: info.tier,
+                archival: info.archival,
+                tracked_shards: info.tracked_shards,
+                owned_account_key: account_key,
+                peer_type: info.peer_type,
+                established_time: info.established_time,
+            },
+        );
+        if tier == tcp::Tier::T2 {
+            self.accounts_data_demuxes.lock().insert(
+                peer_info.id.clone(),
+                demux::Demux::new(
+                    self.config.accounts_data_broadcast_rate_limit,
+                    &*self.ops_spawner,
                 ),
             );
-        });
+            self.snapshot_hosts_demuxes.lock().insert(
+                peer_info.id.clone(),
+                demux::Demux::new(
+                    self.config.snapshot_hosts_broadcast_rate_limit,
+                    &*self.ops_spawner,
+                ),
+            );
+            // Broadcast the edge to other peers. The edge was already verified
+            // in validate_new_connection (edge.verify()), so add_edges should
+            // never fail for a pre-verified local edge. On master this was done
+            // before pool_insert; now done after — the broadcast is independent
+            // of whether the peer is in the pool.
+            self.add_edges(clock, EdgesWithSource::Local(vec![edge]), transport)
+                .await
+                .expect("local edge was verified in validate_new_connection");
+            self.peer_store.peer_connected(clock, &peer_info);
+        }
+    }
+
+    /// Post-unregistration cleanup. Removes from connected_peers
+    /// (ConnectedPeers clears the T1 `account_key → peer_id` index
+    /// internally, only when the removed peer was T1, with a defensive
+    /// check against account-key reuse races). For T2: edge removal
+    /// broadcast, peer_store, connection_store, pending_reconnect.
+    pub(crate) async fn on_peer_disconnected(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        info: &PeerDisconnectInfo,
+        reason: ClosingReason,
+        #[cfg(test)] stream_id: tcp::StreamId,
+        transport: Arc<dyn NetworkTransport>,
+    ) {
+        self.peers.remove(info.tier, &info.peer_info.id);
+
+        if info.tier == tcp::Tier::T2 {
+            self.accounts_data_demuxes.lock().remove(&info.peer_info.id);
+            self.snapshot_hosts_demuxes.lock().remove(&info.peer_info.id);
+
+            let peer_id = info.peer_info.id.clone();
+
+            // If the last edge represents a connection addition, create an edge
+            // update for the removal.
+            if let Some(edge) = self.graph.load().local_edges.get(&peer_id) {
+                if edge.edge_type() == EdgeState::Active {
+                    let edge_update =
+                        edge.remove_edge(self.config.node_id(), &self.config.node_key);
+                    self.add_edges(
+                        clock,
+                        EdgesWithSource::Local(vec![edge_update.clone()]),
+                        transport.clone(),
+                    )
+                    .await
+                    .unwrap();
+                }
+            }
+
+            // Save the fact that we are disconnecting to the PeerStore.
+            let res = match &reason {
+                ClosingReason::Ban(ban_reason) => {
+                    self.peer_store.peer_ban(clock, &info.peer_info.id, *ban_reason)
+                }
+                _ => self.peer_store.peer_disconnected(clock, &info.peer_info.id),
+            };
+            if let Err(err) = res {
+                tracing::debug!(target: "network", ?err, "failed to save peer data");
+            }
+
+            // Save the fact that we are disconnecting to the ConnectionStore,
+            // and push a reconnect attempt, if applicable
+            if self.connection_store.connection_closed(&info.peer_info, &info.peer_type, &reason) {
+                self.pending_reconnect.lock().push(info.peer_info.clone());
+            }
+        }
+
+        // Emit after all state changes so tests waiting on
+        // `ConnectionClosed` observe the peer_store / connection_store
+        // updates. `#[cfg(test)]` keeps stream_id out of production paths.
+        #[cfg(test)]
+        self.config.event_sink.send(
+            crate::peer_manager::peer_manager_actor::Event::ConnectionClosed(
+                crate::peer::peer_actor::ConnectionClosedEvent { stream_id, reason },
+            ),
+        );
     }
 
     /// Attempt to connect to the given peer until successful, up to max_attempts times
     pub async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
-        actor_system: ActorSystem,
+        transport: Arc<dyn NetworkTransport>,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
@@ -482,24 +605,12 @@ impl NetworkState {
         for _attempt in 0..max_attempts {
             interval.tick(&clock).await;
 
-            let result = async {
-                let stream =
-                    tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
-                        .await
-                        .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(
-                    clock.clone(),
-                    actor_system.clone(),
-                    stream,
-                    self.clone(),
-                )
+            let result = transport
+                .connect_to_peer(&clock, peer_info.clone(), tcp::Tier::T2)
                 .await
-                .context("PeerActor::spawn()")?;
-                anyhow::Ok(())
-            }
-            .await;
+                .map_err(|err| anyhow::anyhow!("connect_to_peer: {err:?}"));
 
-            let succeeded = !result.is_err();
+            let succeeded = result.is_ok();
 
             if let Err(ref err) = result {
                 tracing::info!(target:"network", %err, %peer_info, "failed to connect");
@@ -525,24 +636,38 @@ impl NetworkState {
     }
 
     #[cfg(test)]
-    pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
+    pub fn send_ping(
+        &self,
+        clock: &time::Clock,
+        tier: tcp::Tier,
+        nonce: u64,
+        target: PeerId,
+        transport: &dyn NetworkTransport,
+    ) {
         let body = T2MessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
         })
         .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg), transport);
     }
 
-    pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
+    pub fn send_pong(
+        &self,
+        clock: &time::Clock,
+        tier: tcp::Tier,
+        nonce: u64,
+        target: CryptoHash,
+        transport: &dyn NetworkTransport,
+    ) {
         let body = T2MessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
         })
         .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg), transport);
     }
 
     pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessage> {
@@ -560,6 +685,7 @@ impl NetworkState {
         clock: &time::Clock,
         tier: tcp::Tier,
         msg: Box<RoutedMessage>,
+        transport: &dyn NetworkTransport,
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
@@ -584,46 +710,52 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return transport.send_message(
+                    tcp::Tier::T1,
+                    peer_id,
+                    Arc::new(PeerMessage::Routed(msg)),
+                );
             }
-            tcp::Tier::T2 => {
-                match self.tier2_find_route(&clock, msg.target()) {
-                    Ok(peer_id) => {
-                        // Remember if we expect a response for this message.
-                        if *msg.author() == my_peer_id && msg.expect_response() {
-                            tracing::trace!(target: "network", ?msg, "initiate route back");
-                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
-                        }
-                        return self
-                            .tier2
-                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+            tcp::Tier::T2 => match self.tier2_find_route(&clock, msg.target()) {
+                Ok(peer_id) => {
+                    // Remember if we expect a response for this message.
+                    if *msg.author() == my_peer_id && msg.expect_response() {
+                        tracing::trace!(target: "network", ?msg, "initiate route back");
+                        self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                     }
-                    Err(find_route_error) => {
-                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                        metrics::MessageDropped::NoRouteFound.inc(msg.body());
-
-                        tracing::debug!(target: "network",
-                              account_id = ?self.config.validator.account_id(),
-                              to = ?msg.target(),
-                              reason = ?find_route_error,
-                              known_peers = ?self.graph.routing_table.reachable_peers(),
-                              msg = ?msg.body(),
-                            "dropping signed message"
-                        );
-                        return false;
-                    }
+                    return transport.send_message(
+                        tcp::Tier::T2,
+                        peer_id,
+                        Arc::new(PeerMessage::Routed(msg)),
+                    );
                 }
-            }
+                Err(find_route_error) => {
+                    // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                    metrics::MessageDropped::NoRouteFound.inc(msg.body());
+                    tracing::debug!(target: "network",
+                          account_id = ?self.config.validator.account_id(),
+                          to = ?msg.target(),
+                          reason = ?find_route_error,
+                          known_peers = ?self.graph.routing_table.reachable_peers(),
+                          msg = ?msg.body(),
+                        "dropping signed message"
+                    );
+                    return false;
+                }
+            },
             tcp::Tier::T3 => {
                 let peer_id = match msg.target() {
                     PeerIdOrHash::Hash(_) => {
-                        // There is no route back cache for TIER3 as all connections are direct
                         debug_assert!(false);
                         return false;
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier3.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return transport.send_message(
+                    tcp::Tier::T3,
+                    peer_id,
+                    Arc::new(PeerMessage::Routed(msg)),
+                );
             }
         }
     }
@@ -636,6 +768,7 @@ impl NetworkState {
         clock: &time::Clock,
         account_id: &AccountId,
         msg: TieredMessageBody,
+        transport: &dyn NetworkTransport,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
@@ -670,19 +803,19 @@ impl NetworkState {
                     Some(data) => data,
                     None => continue,
                 };
-                let conn = match self.get_tier1_proxy(data) {
-                    Some(conn) => conn,
+                let peer_id = match self.get_tier1_proxy(data) {
+                    Some(peer_id) => peer_id,
                     None => continue,
                 };
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
-                conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
-                    clock,
-                    RawRoutedMessage {
-                        target: PeerIdOrHash::PeerId(data.peer_id.clone()),
-                        body: msg,
-                    },
-                ))));
+                let raw = RawRoutedMessage {
+                    target: PeerIdOrHash::PeerId(data.peer_id.clone()),
+                    body: msg,
+                };
+                let signed = self.sign_message(clock, raw);
+                let peer_msg = Arc::new(PeerMessage::Routed(signed));
+                transport.send_message(tcp::Tier::T1, peer_id, peer_msg);
                 return true;
             }
         }
@@ -721,7 +854,7 @@ impl NetworkState {
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         for _ in 0..msg.body().message_resend_count() {
-            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
+            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone(), transport);
         }
         success
     }
@@ -910,10 +1043,251 @@ impl NetworkState {
         }
     }
 
+    /// Classifies an incoming routed message as for this node, to be
+    /// forwarded, or dropped, after per-connection checks (signature
+    /// dedup, ForwardTx rate limiting, signature verification) have
+    /// passed.
+    ///
+    /// Records route-back; applies network-wide dedup/metrics for
+    /// messages addressed to this node; decrements TTL for messages
+    /// that need forwarding.
+    ///
+    /// Returns a `RoutedAction` for the caller to execute. Ping/Pong
+    /// special-casing happens on the caller side.
+    pub(crate) fn process_incoming_routed(
+        &self,
+        clock: &time::Clock,
+        from: &PeerId,
+        tier: tcp::Tier,
+        mut msg: Box<RoutedMessage>,
+    ) -> RoutedAction {
+        let for_me = self.message_for_me(msg.target());
+        if for_me {
+            // Network-wide dedup: check if we already received this message
+            // (could arrive via both T1 and T2).
+            let new_hash = CryptoHash::hash_borsh(msg.body());
+            let fastest = self.recent_routed_messages.lock().put(new_hash, ()).is_none();
+            metrics::record_routed_msg_metrics(clock, &msg, tier, fastest);
+        }
+
+        self.add_route_back(clock, from, tier, &msg);
+
+        if for_me {
+            RoutedAction::ForMe(msg)
+        } else {
+            if msg.decrease_ttl() {
+                let num_hops = msg.num_hops_mut();
+                *num_hops = num_hops.saturating_add(1);
+                RoutedAction::Forward(msg)
+            } else {
+                #[cfg(test)]
+                self.config.event_sink.send(Event::RoutedMessageDropped);
+                tracing::debug!(target: "network", ?msg, from = ?from, "message dropped because ttl reached 0");
+                metrics::ROUTED_MESSAGE_DROPPED.with_label_values(&[msg.body_variant()]).inc();
+                RoutedAction::Dropped
+            }
+        }
+    }
+
+    /// Dispatches an inbound peer message to the appropriate handler.
+    ///
+    /// Messages handled here are "business logic" messages — TCP-protocol
+    /// messages (handshake, peers, gossip, routed forwarding) are handled
+    /// by PeerActor directly.
+    ///
+    /// Returns:
+    /// - `Ok(Some(response))` — caller should send response back to peer
+    /// - `Ok(None)` — message consumed, no response needed
+    /// - `Err(ban_reason)` — caller should ban the peer
+    pub async fn handle_peer_message(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        msg: PeerMessage,
+        was_requested: bool,
+    ) -> Result<Option<PeerMessage>, ReasonForBan> {
+        Ok(match msg {
+            PeerMessage::Routed(msg) => {
+                let msg_hash = msg.hash();
+                self.receive_routed_message(
+                    clock,
+                    msg.author().clone(),
+                    peer_id.clone(),
+                    msg_hash,
+                    msg.body_owned(),
+                )
+                .await
+                .map(|body| {
+                    PeerMessage::Routed(self.sign_message(
+                        clock,
+                        RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
+                    ))
+                })
+            }
+            PeerMessage::BlockRequest(hash) => {
+                let response = self.client.send_async(BlockRequest(hash)).await;
+                response.ok().flatten().map(|block| PeerMessage::Block(block))
+            }
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                let response = self.client.send_async(BlockHeadersRequest(hashes)).await;
+                response.ok().flatten().map(PeerMessage::BlockHeaders)
+            }
+            PeerMessage::Block(block) => {
+                // Update connected_peers block_info (monotonic — no-op if
+                // the new height is below the stored one).
+                let hash = *block.hash();
+                let height = block.header().height();
+                self.peers.update_block_info(&peer_id, BlockInfo { height, hash });
+                self.client
+                    .send_async(BlockResponse { block, peer_id, was_requested }.span_wrap())
+                    .await
+                    .ok();
+                None
+            }
+            PeerMessage::Transaction(transaction) => {
+                self.client
+                    .send_async(ProcessTxRequest {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
+                    .await
+                    .ok();
+                None
+            }
+            PeerMessage::BlockHeaders(headers) => {
+                if let Ok(Err(ban_reason)) =
+                    self.client.send_async(BlockHeadersResponse(headers, peer_id).span_wrap()).await
+                {
+                    return Err(ban_reason);
+                }
+                None
+            }
+            PeerMessage::Challenge(_) => None,
+            PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                let response = self
+                    .state_request_adapter
+                    .send_async(StateRequestHeader { shard_id, sync_hash })
+                    .await;
+                response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
+            }
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+                let response = self
+                    .state_request_adapter
+                    .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                    .await;
+                response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
+            }
+            PeerMessage::VersionedStateResponse(info) => {
+                self.client
+                    .send_async(
+                        StateResponseReceived {
+                            peer_id,
+                            state_response: StateResponse::State(info.into()),
+                        }
+                        .span_wrap(),
+                    )
+                    .await
+                    .ok();
+                None
+            }
+            PeerMessage::EpochSyncRequest => {
+                self.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                None
+            }
+            PeerMessage::EpochSyncResponse(proof) => {
+                self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+                None
+            }
+            PeerMessage::OptimisticBlock(ob) => {
+                self.client.send(
+                    OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob }.span_wrap(),
+                );
+                None
+            }
+            msg => {
+                tracing::error!(target: "network", ?msg, "peer received unexpected type");
+                None
+            }
+        })
+    }
+
+    /// Broadcast accounts data to a single peer via its gossip demux.
+    /// Deduplicates by account_key, keeping the highest version.
+    async fn gossip_accounts_data_to_peer(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+        data: Vec<Arc<SignedAccountData>>,
+        transport: Arc<dyn NetworkTransport>,
+    ) {
+        let res = demux
+            .call(data, {
+                let peer_id = peer_id.clone();
+                let transport = transport.clone();
+                |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
+                    let res = ds.iter().map(|_| ()).collect();
+                    let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
+                    for d in ds.into_iter().flatten() {
+                        if sum.get(&d.account_key).map_or(true, |old| old.version < d.version) {
+                            sum.insert(d.account_key.clone(), d);
+                        }
+                    }
+                    let msg = Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: true,
+                        requesting_full_sync: false,
+                        accounts_data: sum.into_values().collect(),
+                    }));
+                    transport.send_message(tcp::Tier::T2, peer_id, msg);
+                    res
+                }
+            })
+            .await;
+        if res.is_err() {
+            tracing::debug!(%peer_id, "peer disconnected while sending sync accounts data");
+        }
+    }
+
+    /// Broadcast snapshot hosts to a single peer via its gossip demux.
+    /// Deduplicates by peer_id, keeping the highest epoch_height.
+    async fn gossip_snapshot_hosts_to_peer(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
+        data: Vec<Arc<SnapshotHostInfo>>,
+        transport: Arc<dyn NetworkTransport>,
+    ) {
+        let res = demux
+            .call(data, {
+                let peer_id = peer_id.clone();
+                let transport = transport.clone();
+                |ds: Vec<Vec<Arc<SnapshotHostInfo>>>| async move {
+                    let res = ds.iter().map(|_| ()).collect();
+                    let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
+                    for d in ds.into_iter().flatten() {
+                        if sum.get(&d.peer_id).map_or(true, |old| old.epoch_height < d.epoch_height)
+                        {
+                            sum.insert(d.peer_id.clone(), d);
+                        }
+                    }
+                    let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+                        hosts: sum.into_values().collect(),
+                    }));
+                    transport.send_message(tcp::Tier::T2, peer_id, msg);
+                    res
+                }
+            })
+            .await;
+        if res.is_err() {
+            tracing::debug!(%peer_id, "peer disconnected while sending sync snapshot hosts");
+        }
+    }
+
     pub async fn add_accounts_data(
         self: &Arc<Self>,
         clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Option<AccountDataError> {
         let this = self.clone();
         let clock = clock.clone();
@@ -923,18 +1297,32 @@ impl NetworkState {
             // Broadcast any new data we have found, even in presence of an error.
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
-            if !new_data.is_empty() {
-                let tier2 = this.tier2.load();
-                let tasks: Vec<_> = tier2
-                    .ready
-                    .values()
-                    .map(|p| {
-                        this.spawn("send_accounts_data", p.send_accounts_data(new_data.clone()))
-                    })
-                    .collect();
-                for t in tasks {
-                    t.await.unwrap();
-                }
+            if new_data.is_empty() {
+                return err;
+            }
+            // Snapshot the demux map in a scoped block so the MutexGuard
+            // drops before we start spawning tasks (each `this.spawn`
+            // may take unrelated locks).
+            let peers: Vec<_> = {
+                let guard = this.accounts_data_demuxes.lock();
+                guard.iter().map(|(id, demux)| (id.clone(), demux.clone())).collect()
+            };
+            let tasks: Vec<_> = peers
+                .into_iter()
+                .map(|(peer_id, demux)| {
+                    this.spawn(
+                        "send_accounts_data",
+                        this.clone().gossip_accounts_data_to_peer(
+                            peer_id,
+                            demux,
+                            new_data.clone(),
+                            transport.clone(),
+                        ),
+                    )
+                })
+                .collect();
+            for t in tasks {
+                t.await.unwrap();
             }
             err
         })
@@ -945,6 +1333,7 @@ impl NetworkState {
     pub async fn add_snapshot_hosts(
         self: &Arc<Self>,
         hosts: Vec<Arc<SnapshotHostInfo>>,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
         self.spawn("add_snapshot_hosts", async move {
@@ -952,18 +1341,31 @@ impl NetworkState {
             let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
-            if !new_data.is_empty() {
-                let tier2 = this.tier2.load();
-                let tasks: Vec<_> = tier2
-                    .ready
-                    .values()
-                    .map(|p| {
-                        this.spawn("send_snapshot_hosts", p.send_snapshot_hosts(new_data.clone()))
-                    })
-                    .collect();
-                for t in tasks {
-                    t.await.unwrap();
-                }
+            if new_data.is_empty() {
+                return err;
+            }
+            // Snapshot first, drop the guard, then spawn — same
+            // reasoning as `add_accounts_data`.
+            let peers: Vec<_> = {
+                let guard = this.snapshot_hosts_demuxes.lock();
+                guard.iter().map(|(id, demux)| (id.clone(), demux.clone())).collect()
+            };
+            let tasks: Vec<_> = peers
+                .into_iter()
+                .map(|(peer_id, demux)| {
+                    this.spawn(
+                        "send_snapshot_hosts",
+                        this.clone().gossip_snapshot_hosts_to_peer(
+                            peer_id,
+                            demux,
+                            new_data.clone(),
+                            transport.clone(),
+                        ),
+                    )
+                })
+                .collect();
+            for t in tasks {
+                t.await.unwrap();
             }
             err
         })
@@ -975,43 +1377,53 @@ impl NetworkState {
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
-    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
+    pub async fn fix_local_edges(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        timeout: time::Duration,
+        transport: Arc<dyn NetworkTransport>,
+    ) {
         let this = self.clone();
         let clock = clock.clone();
         self.spawn("fix_local_edges", async move {
             let graph = this.graph.load();
-            let tier2 = this.tier2.load();
+            let tier2 = this.peers.tier2();
             let mut tasks = vec![];
             for edge in graph.local_edges.values() {
                 let edge = edge.clone();
                 let node_id = this.config.node_id();
                 let other_peer = edge.other(&node_id).unwrap();
-                match (tier2.ready.get(other_peer), edge.edge_type()) {
+                match (tier2.contains_key(other_peer), edge.edge_type()) {
                     // This is an active connection, while the edge indicates it shouldn't.
-                    (Some(conn), EdgeState::Removed) => {
+                    (true, EdgeState::Removed) => {
                         tasks.push(this.spawn("fix_local_edges", {
                             let this = this.clone();
-                            let conn = conn.clone();
+                            let other_peer = other_peer.clone();
                             let clock = clock.clone();
+                            let transport = transport.clone();
                             async move {
-                                conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
-                                    PartialEdgeInfo::new(
-                                        &node_id,
-                                        &conn.peer_info.id,
-                                        std::cmp::max(
-                                            Edge::create_fresh_nonce(&clock),
-                                            edge.next(),
+                                transport.send_message(
+                                    tcp::Tier::T2,
+                                    other_peer.clone(),
+                                    Arc::new(PeerMessage::RequestUpdateNonce(
+                                        PartialEdgeInfo::new(
+                                            &node_id,
+                                            &other_peer,
+                                            std::cmp::max(
+                                                Edge::create_fresh_nonce(&clock),
+                                                edge.next(),
+                                            ),
+                                            &this.config.node_key,
                                         ),
-                                        &this.config.node_key,
-                                    ),
-                                )));
+                                    )),
+                                );
                                 // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
                                 // response (with timeout). Until network round trips are implemented, we just
                                 // blindly wait for a while, then check again.
                                 clock.sleep(timeout).await;
-                                match this.graph.load().local_edges.get(&conn.peer_info.id) {
+                                match this.graph.load().local_edges.get(&other_peer) {
                                     Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                                    _ => conn.stop(None),
+                                    _ => transport.disconnect_peer(&other_peer, None),
                                 }
                             }
                         }))
@@ -1019,24 +1431,29 @@ impl NetworkState {
                     // We are not connected to this peer, but routing table contains
                     // information that we do. We should wait and remove that peer
                     // from routing table
-                    (None, EdgeState::Active) => tasks.push(this.spawn("fix_local_edges", {
+                    (false, EdgeState::Active) => tasks.push(this.spawn("fix_local_edges", {
                         let this = this.clone();
                         let clock = clock.clone();
                         let other_peer = other_peer.clone();
+                        let transport = transport.clone();
                         async move {
                             // This edge says this is an connected peer, which is currently not in the set of connected peers.
                             // Wait for some time to let the connection begin or broadcast edge removal instead.
                             clock.sleep(timeout).await;
-                            if this.tier2.load().ready.contains_key(&other_peer) {
+                            if this.peers.is_connected_on_tier(&other_peer, tcp::Tier::T2) {
                                 return;
                             }
                             // Peer is still not connected after waiting a timeout.
                             // Unwrap is safe, because new_edge is always valid.
                             let new_edge =
                                 edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                            this.add_edges(&clock, EdgesWithSource::Local(vec![new_edge.clone()]))
-                                .await
-                                .unwrap()
+                            this.add_edges(
+                                &clock,
+                                EdgesWithSource::Local(vec![new_edge.clone()]),
+                                transport,
+                            )
+                            .await
+                            .unwrap()
                         }
                     })),
                     // OK
@@ -1052,7 +1469,7 @@ impl NetworkState {
     }
 
     pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
-        self.connection_store.update(clock, &self.tier2.load());
+        self.connection_store.update(clock, &self.peers.tier2());
     }
 
     /// Clears pending_reconnect and returns the cleared values
@@ -1065,12 +1482,16 @@ impl NetworkState {
 
     /// Collects and returns PeerInfos for all directly connected TIER2 peers.
     pub fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
-        return self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
+        self.peers.tier2().into_values().map(|s| s.peer_info).collect()
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.
     /// Returns true iff the set of TIER1 keys has changed.
-    pub fn set_chain_info(self: &Arc<Self>, info: ChainInfo) -> bool {
+    pub fn set_chain_info(
+        self: &Arc<Self>,
+        info: ChainInfo,
+        transport: &dyn NetworkTransport,
+    ) -> bool {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
@@ -1082,7 +1503,7 @@ impl NetworkState {
         // accounts_data that our peers know about.
         let has_changed = self.accounts_data.set_keys(info.tier1_accounts);
         if has_changed {
-            self.tier1_request_full_sync();
+            self.tier1_request_full_sync(transport);
         }
         has_changed
     }

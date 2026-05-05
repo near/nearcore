@@ -284,7 +284,7 @@ impl TrieCache {
         }
     }
 
-    pub(crate) fn lock(&self) -> MutexGuard<TrieCacheInner> {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, TrieCacheInner> {
         self.0.lock()
     }
 }

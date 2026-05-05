@@ -94,6 +94,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     trie_config,
                     DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                     false,
+                    1,
                     true,
                 )
             };

@@ -48,7 +48,7 @@ pub enum Finality {
 }
 
 /// Account ID with its public key.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountWithPublicKey {
     pub account_id: AccountId,
@@ -975,7 +975,7 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn validator_proposals(&self) -> ValidatorStakeIter {
+        pub fn validator_proposals(&self) -> ValidatorStakeIter<'_> {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),

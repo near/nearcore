@@ -70,7 +70,9 @@ impl ComplianceError {
                 Some(Expected { value, reason }) => format!(
                     " [expected: {c_expected}{}{c_none}{}]",
                     value,
-                    reason.as_ref().map_or("".to_string(), |reason| format!(", {}", reason)),
+                    reason
+                        .as_ref()
+                        .map_or_else(|| "".to_string(), |reason| format!(", {}", reason)),
                     c_expected = style::fg(style::Color::Color256(35))
                         + &style::bg(style::Color::Gray { shade: 3 })
                         + style::bold(),

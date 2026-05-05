@@ -402,8 +402,9 @@ impl RocksDB {
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
-        let timer =
-            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+        let timer = metrics::DATABASE_OP_LATENCY_HIST
+            .with_label_values::<&str>(&["get", col.into()])
+            .start_timer();
         let read_options = rocksdb_read_options();
         let result = self
             .db
@@ -414,15 +415,15 @@ impl Database for RocksDB {
         result
     }
 
-    fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {
+    fn iter_raw_bytes(&self, col: DBCol) -> DBIterator<'_> {
         Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
 
-    fn iter(&self, col: DBCol) -> DBIterator {
+    fn iter(&self, col: DBCol) -> DBIterator<'_> {
         refcount::iter_with_rc_logic(col, self.iter_raw_bytes_internal(col, None, None, None))
     }
 
-    fn iter_prefix(&self, col: DBCol, key_prefix: &[u8]) -> DBIterator {
+    fn iter_prefix(&self, col: DBCol, key_prefix: &[u8]) -> DBIterator<'_> {
         let iter = self.iter_raw_bytes_internal(col, Some(key_prefix), None, None);
         refcount::iter_with_rc_logic(col, iter)
     }

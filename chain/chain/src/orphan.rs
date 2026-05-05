@@ -149,14 +149,25 @@ impl OrphanBlockPool {
                     break;
                 }
             }
-            self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(x)));
-            self.prev_hash_idx
-                .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(x)));
-            self.orphans_requested_missing_chunks.retain(|x| !removed_hashes.contains(x));
+            self.prune_side_indexes(&removed_hashes);
 
             self.evicted += old_len - self.orphans.len();
         }
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
+    }
+
+    /// Prune `removed` hashes from every side-index and drop empty buckets.
+    /// Precondition: `self.orphans` no longer contains any of these hashes.
+    fn prune_side_indexes(&mut self, removed: &HashSet<CryptoHash>) {
+        self.height_idx.retain(|_, xs| {
+            xs.retain(|x| !removed.contains(x));
+            !xs.is_empty()
+        });
+        self.prev_hash_idx.retain(|_, xs| {
+            xs.retain(|x| !removed.contains(x));
+            !xs.is_empty()
+        });
+        self.orphans_requested_missing_chunks.retain(|x| !removed.contains(x));
     }
 
     pub fn contains(&self, hash: &CryptoHash) -> bool {
@@ -196,7 +207,7 @@ impl OrphanBlockPool {
                 .collect()
         });
 
-        self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(x)));
+        self.prune_side_indexes(&removed_hashes);
 
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
         ret
@@ -394,7 +405,10 @@ impl Chain {
         let orphans_to_check =
             self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
         for orphan_hash in orphans_to_check {
-            let orphan = self.orphans.get(&orphan_hash).unwrap().block.clone();
+            let Some(orphan) = self.orphans.get(&orphan_hash) else {
+                continue;
+            };
+            let orphan = orphan.block.clone();
             if let Some(orphan_missing_chunks) = self.should_request_chunks_for_orphan(&orphan) {
                 block_processing_artifacts.orphans_missing_chunks.push(orphan_missing_chunks);
                 self.orphans.mark_missing_chunks_requested_for_orphan(orphan_hash);
@@ -443,11 +457,11 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_async::time::Clock;
-    use near_async::time::Utc;
+    use near_async::time::{Clock, FakeClock, Utc};
     use near_primitives::genesis::genesis_block;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
     use near_primitives::types::Balance;
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
     fn make_orphan(clock: &Clock, block: Arc<Block>) -> Orphan {
@@ -456,6 +470,200 @@ mod tests {
             provenance: crate::Provenance::NONE,
             added: clock.now(),
         }
+    }
+
+    /// Clone a block, override its height and prev_hash, then re-sign.
+    fn make_block_at(
+        base: &Arc<Block>,
+        height: BlockHeight,
+        prev_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> Arc<Block> {
+        let mut block = base.clone();
+        let m = Arc::make_mut(&mut block);
+        m.mut_header().set_prev_hash(prev_hash);
+        m.mut_header().set_height(height);
+        m.recompute_fields_derived_from_chunks();
+        m.mut_header().resign(signer);
+        block
+    }
+
+    /// Assert that every hash in every side-index vector exists in
+    /// `self.orphans`, and vice versa.
+    fn assert_pool_consistency(pool: &OrphanBlockPool) {
+        // Forward: every side-index entry must be live in orphans.
+        for (prev_hash, hashes) in &pool.prev_hash_idx {
+            for hash in hashes {
+                assert!(
+                    pool.orphans.contains_key(hash),
+                    "stale hash {hash} in prev_hash_idx[{prev_hash}]"
+                );
+            }
+        }
+        for (height, hashes) in &pool.height_idx {
+            for hash in hashes {
+                assert!(
+                    pool.orphans.contains_key(hash),
+                    "stale hash {hash} in height_idx[{height}]"
+                );
+            }
+        }
+        // Reverse: every orphan must appear in both side-indexes.
+        for (hash, orphan) in &pool.orphans {
+            let prev = orphan.block.header().prev_hash();
+            assert!(
+                pool.prev_hash_idx.get(prev).map_or(false, |v| v.contains(hash)),
+                "orphan {hash} not found in prev_hash_idx[{prev}]"
+            );
+            let height = orphan.block.header().height();
+            assert!(
+                pool.height_idx.get(&height).map_or(false, |v| v.contains(hash)),
+                "orphan {hash} not found in height_idx[{height}]"
+            );
+        }
+        // get_orphans_within_depth must only return live hashes.
+        for prev_hash in pool.prev_hash_idx.keys() {
+            for hash in pool.get_orphans_within_depth(*prev_hash, 1) {
+                assert!(
+                    pool.orphans.contains_key(&hash),
+                    "get_orphans_within_depth({prev_hash}) returned stale hash {hash}"
+                );
+            }
+        }
+    }
+
+    fn make_genesis() -> Arc<Block> {
+        Arc::new(genesis_block(
+            PROTOCOL_VERSION,
+            vec![],
+            Utc::now_utc(),
+            0,
+            Balance::ZERO,
+            Balance::ZERO,
+            &vec![],
+        ))
+    }
+
+    /// Overflow via height-based eviction must not leave stale hashes in
+    /// prev_hash_idx.  All orphans share one parent; the highest-height
+    /// ones are evicted from `self.orphans` and their hashes must be
+    /// pruned from the side-index vectors too.
+    #[test]
+    fn test_height_eviction_overflow_preserves_side_index_consistency() {
+        let clock = Clock::real();
+        let signer = Arc::new(create_test_signer("test"));
+
+        let genesis = make_genesis();
+        let parent =
+            TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
+        let parent_hash = *parent.hash();
+        let base_height = parent.header().height();
+
+        let mut pool = OrphanBlockPool::new();
+
+        // 1025 orphans, all children of P, at distinct heights.
+        // Height-based eviction removes the highest ones first.
+        for i in 0..=(MAX_ORPHAN_SIZE as u64) {
+            let child = make_block_at(&parent, base_height + 1 + i, parent_hash, &signer);
+            pool.add(make_orphan(&clock, child), false);
+        }
+
+        assert!(pool.len() < MAX_ORPHAN_SIZE);
+        assert_pool_consistency(&pool);
+
+        // get_orphans_within_depth should return exactly the live children.
+        let returned: HashSet<CryptoHash> =
+            pool.get_orphans_within_depth(parent_hash, 1).into_iter().collect();
+        let live: HashSet<CryptoHash> = pool.orphans.keys().copied().collect();
+        assert_eq!(returned, live);
+
+        // remove_by_prev_hash should return all of them with no silent drops.
+        let removed = pool.remove_by_prev_hash(parent_hash).unwrap();
+        assert_eq!(removed.len(), live.len());
+    }
+
+    /// Overflow via age-based eviction must not leave stale hashes in
+    /// height_idx.  Old orphans share a height with newer siblings;
+    /// the old ones are evicted by age, but the surviving siblings keep
+    /// the height_idx bucket alive — stale hashes must be pruned from
+    /// inside the surviving bucket.
+    #[test]
+    fn test_age_eviction_overflow_preserves_side_index_consistency() {
+        let fake_clock = FakeClock::default();
+        let clock = fake_clock.clock();
+        let signer = Arc::new(create_test_signer("test"));
+
+        let genesis = make_genesis();
+        let parent =
+            TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
+        let parent_hash = *parent.hash();
+        let genesis_hash = *genesis.hash();
+        let base_height = parent.header().height();
+
+        let mut pool = OrphanBlockPool::new();
+
+        // Phase 1: "old" orphans at heights base+1..base+10.
+        let num_old = 10u64;
+        for i in 1..=num_old {
+            let child = make_block_at(&parent, base_height + i, parent_hash, &signer);
+            pool.add(make_orphan(&clock, child), false);
+        }
+
+        // Age them past MAX_ORPHAN_AGE_SECS.
+        fake_clock.advance(Duration::seconds(MAX_ORPHAN_AGE_SECS as i64 + 1));
+
+        // Phase 2: "new" orphans at the SAME heights (different prev_hash
+        // so they get distinct block hashes).  These survive age cleanup
+        // and keep the height_idx buckets alive.
+        for i in 1..=num_old {
+            let child = make_block_at(&parent, base_height + i, genesis_hash, &signer);
+            pool.add(make_orphan(&clock, child), false);
+        }
+
+        // Phase 3: fill up to overflow.
+        let remaining = MAX_ORPHAN_SIZE as u64 + 1 - num_old * 2;
+        for i in 0..remaining {
+            let child = make_block_at(&parent, base_height + num_old + 1 + i, parent_hash, &signer);
+            pool.add(make_orphan(&clock, child), false);
+        }
+
+        assert!(pool.len() < MAX_ORPHAN_SIZE);
+        assert_pool_consistency(&pool);
+    }
+
+    /// remove_by_prev_hash must prune stale hashes from height_idx when the
+    /// removed orphans share heights with orphans under a different parent.
+    /// The surviving siblings keep the bucket alive, so stale hashes must be
+    /// pruned from inside the bucket, not only from fully-empty buckets.
+    #[test]
+    fn test_remove_by_prev_hash_preserves_side_index_consistency() {
+        let clock = Clock::real();
+        let signer = Arc::new(create_test_signer("test"));
+
+        let genesis = make_genesis();
+        let parent_p =
+            TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
+        let parent_p_hash = *parent_p.hash();
+        let parent_q_hash = *genesis.hash();
+        let base_height = parent_p.header().height();
+
+        let mut pool = OrphanBlockPool::new();
+
+        // Children of P and Q share the same three heights.
+        for i in 1..=3u64 {
+            let p_child = make_block_at(&parent_p, base_height + i, parent_p_hash, &signer);
+            let q_child = make_block_at(&parent_p, base_height + i, parent_q_hash, &signer);
+            pool.add(make_orphan(&clock, p_child), false);
+            pool.add(make_orphan(&clock, q_child), false);
+        }
+        assert_eq!(pool.len(), 6);
+
+        // Remove children of P. Children of Q keep the height buckets alive,
+        // so the P-children hashes would remain stale without inner pruning.
+        let removed = pool.remove_by_prev_hash(parent_p_hash).unwrap();
+        assert_eq!(removed.len(), 3);
+        assert_eq!(pool.len(), 3);
+        assert_pool_consistency(&pool);
     }
 
     /// Test that `get_orphans_within_depth` collects all orphans within the

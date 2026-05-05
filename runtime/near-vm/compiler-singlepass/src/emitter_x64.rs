@@ -1,7 +1,6 @@
 // cspell:disable
 
 pub(crate) use crate::x64_decl::{GPR, XMM};
-use dynasm::dynasm;
 use dynasmrt::{
     AssemblyOffset, DynamicLabel, DynasmApi, DynasmLabelApi, VecAssembler, x64::X64Relocation,
 };

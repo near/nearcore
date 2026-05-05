@@ -1976,6 +1976,36 @@
             "const": "GasKeyFunctionCallAllowanceNotAllowed",
             "description": "Gas keys with FunctionCall permission cannot have an allowance set.",
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The combined number of `DeployContract` and `DeployGlobalContract`\nactions in one receipt exceeded the limit.",
+            "properties": {
+              "TotalNumberOfDeployActionsExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_deploy_actions": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_deploy_actions",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfDeployActionsExceeded"
+            ],
+            "title": "TotalNumberOfDeployActionsExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
@@ -2722,6 +2752,13 @@
               "secs": 1
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
+          },
+          "snapshot_every_n_epochs": {
+            "default": 10,
+            "description": "Cadence of state snapshots, in epochs. Higher values reduce bucket cost at\nthe expense of potentially longer delta replay during reader bootstrap.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "title": "CloudArchivalWriterConfig",
@@ -3817,6 +3854,22 @@
             ],
             "description": "Cost for logging per byte"
           },
+          "p256_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification base"
+          },
+          "p256_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification per byte"
+          },
           "promise_and_base": {
             "allOf": [
               {
@@ -4237,6 +4290,8 @@
           "ed25519_verify_base",
           "ed25519_verify_byte",
           "ecrecover_base",
+          "p256_verify_base",
+          "p256_verify_byte",
           "log_base",
           "log_byte",
           "storage_write_base",
@@ -5174,25 +5229,25 @@
           {
             "additionalProperties": false,
             "properties": {
-              "CodeHash": {
+              "hash": {
                 "$ref": "#/components/schemas/CryptoHash"
               }
             },
             "required": [
-              "CodeHash"
+              "hash"
             ],
-            "title": "CodeHash",
+            "title": "Hash",
             "type": "object"
           },
           {
             "additionalProperties": false,
             "properties": {
-              "AccountId": {
+              "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               }
             },
             "required": [
-              "AccountId"
+              "account_id"
             ],
             "title": "AccountId",
             "type": "object"
@@ -5806,6 +5861,28 @@
               "Ed25519VerifyInvalidInput"
             ],
             "title": "Ed25519VerifyInvalidInput",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Input length mismatch for p256 signature verification (signature is not 64\nbytes or public key is not 33 bytes). Parse failures of otherwise\nwell-sized inputs return 0 from the host function instead of aborting.",
+            "properties": {
+              "P256VerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "P256VerifyInvalidInput"
+            ],
+            "title": "P256VerifyInvalidInput",
             "type": "object"
           }
         ],
@@ -6467,8 +6544,32 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_blocks_per_contract": {
+            "description": "If present, stores max total number of basic blocks across all functions in a contract.\nThis caps total compilation time for a contract.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_blocks_per_function": {
+            "description": "If present, stores max number of basic blocks (block/loop/if) in a single function.\nThis caps per-function compilation time in Cranelift.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "max_contract_size": {
             "description": "Max contract size",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_deploy_actions_per_receipt": {
+            "description": "Max number of `DeployContract` and `DeployGlobalContract` actions\ncombined within a single receipt.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -6670,6 +6771,7 @@
           "max_total_log_length",
           "max_total_prepaid_gas",
           "max_actions_per_receipt",
+          "max_deploy_actions_per_receipt",
           "max_number_bytes_method_names",
           "max_length_method_name",
           "max_arguments_length",
@@ -7227,6 +7329,16 @@
           {
             "const": "InstrumentedCodeTooLarge",
             "description": "The instrumented code exceeds the size limit.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyBlocksPerFunction",
+            "description": "A function contains too many basic blocks.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyBlocksPerContract",
+            "description": "A contract contains too many basic blocks.",
             "type": "string"
           }
         ],
@@ -9746,6 +9858,14 @@
               "$ref": "#/components/schemas/ValidatorKickoutView"
             },
             "type": "array"
+          },
+          "validator_reward_paid_prev_epoch": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NearToken"
+            },
+            "default": {},
+            "description": "Per-validator rewards paid out at the start of the previous epoch.\nFor epoch E, this contains the rewards earned in epoch E-2 that were\nadded to validator and treasury balances at the first block of epoch\nE-1 (via `ValidatorAccountsUpdate`).",
+            "type": "object"
           }
         },
         "required": [
@@ -12135,6 +12255,10 @@
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
             "type": "boolean"
           },
+          "p256_verify_host_fn": {
+            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
+            "type": "boolean"
+          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"
@@ -12175,6 +12299,7 @@
           "deterministic_account_ids",
           "gas_key_host_fns",
           "one_yocto_on_promise",
+          "p256_verify_host_fn",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",

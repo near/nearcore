@@ -113,6 +113,8 @@ pub enum Parameter {
     WasmEcrecoverBase,
     WasmEd25519VerifyBase,
     WasmEd25519VerifyByte,
+    WasmP256VerifyBase,
+    WasmP256VerifyByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
@@ -186,6 +188,7 @@ pub enum Parameter {
     MaxTotalLogLength,
     MaxTotalPrepaidGas,
     MaxActionsPerReceipt,
+    MaxDeployActionsPerReceipt,
     MaxNumberBytesMethodNames,
     MaxLengthMethodName,
     MaxArgumentsLength,
@@ -206,6 +209,8 @@ pub enum Parameter {
     MaxElementsPerContractTable,
     MaxFunctionBodySize,
     MaxInstrumentedCodeSize,
+    MaxBlocksPerFunction,
+    MaxBlocksPerContract,
 
     // Contract runtime features
     FlatStorageReads,
@@ -255,6 +260,9 @@ pub enum Parameter {
 
     // Flag to allow 1 yoctoNEAR on promise function calls without balance
     OneYoctoOnPromise,
+
+    // Flag to enable the P-256 verification host function
+    P256VerifyHostFn,
 }
 
 #[derive(
@@ -315,6 +323,7 @@ impl Parameter {
             Parameter::MaxTotalLogLength,
             Parameter::MaxTotalPrepaidGas,
             Parameter::MaxActionsPerReceipt,
+            Parameter::MaxDeployActionsPerReceipt,
             Parameter::MaxNumberBytesMethodNames,
             Parameter::MaxLengthMethodName,
             Parameter::MaxArgumentsLength,
@@ -336,6 +345,8 @@ impl Parameter {
             Parameter::MaxElementsPerContractTable,
             Parameter::MaxFunctionBodySize,
             Parameter::MaxInstrumentedCodeSize,
+            Parameter::MaxBlocksPerFunction,
+            Parameter::MaxBlocksPerContract,
         ]
         .iter()
     }

@@ -509,6 +509,21 @@ impl TrieChanges {
     pub fn deletions(&self) -> &[TrieRefcountSubtraction] {
         self.deletions.as_slice()
     }
+
+    /// Returns a copy of this TrieChanges with only the insertions, clearing
+    /// deletions and in-memory changes. Used for resharding, where only
+    /// insertions are applied to the store and persisting deletions would
+    /// corrupt GC refcounts.
+    pub fn insertions_only(&self) -> TrieChanges {
+        TrieChanges {
+            old_root: self.old_root,
+            new_root: self.new_root,
+            insertions: self.insertions.clone(),
+            deletions: vec![],
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
+        }
+    }
 }
 
 /// Result of applying state part to Trie.
@@ -1693,14 +1708,14 @@ impl Trie {
     /// This only uses the on-disk trie. If memtrie iteration is desired, see
     /// `lock_for_iter`.
     #[inline]
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator, StorageError> {
+    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
         self.disk_iter_with_prune_condition(None)
     }
 
     pub fn disk_iter_with_max_depth(
         &self,
         max_depth: usize,
-    ) -> Result<DiskTrieIterator, StorageError> {
+    ) -> Result<DiskTrieIterator<'_>, StorageError> {
         let prune_condition = Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth);
         self.disk_iter_with_prune_condition(Some(prune_condition))
     }
@@ -1709,7 +1724,7 @@ impl Trie {
     pub fn disk_iter_with_prune_condition(
         &self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator, StorageError> {
+    ) -> Result<DiskTrieIterator<'_>, StorageError> {
         DiskTrieIterator::new(DiskTrieIteratorInner::new(self), prune_condition)
     }
 

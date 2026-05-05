@@ -1,3 +1,4 @@
+use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 use crate::config::StateSnapshotType;
@@ -222,7 +223,8 @@ impl<'a> StoreOpener<'a> {
         let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
         let cold =
             cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
-        let cloud = cloud_storage_context.map(|context| CloudStorageOpener::new(context));
+        let cloud = cloud_storage_context
+            .map(|context| CloudStorageOpener::new(context, BucketConfig::canonical()));
         Self { hot, cold, migrator: None, cloud, is_snapshot: false }
     }
 

@@ -113,7 +113,11 @@ impl StateSyncConnection {
         };
         let elapsed = instant.elapsed();
         metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
-            .with_label_values(&[&shard_id.to_string(), is_ok, &file_type.to_string()])
+            .with_label_values(&[
+                shard_id.to_string().as_str(),
+                is_ok,
+                file_type.to_string().as_str(),
+            ])
             .observe(elapsed.as_secs_f64());
         res
     }

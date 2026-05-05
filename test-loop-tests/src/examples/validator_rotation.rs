@@ -9,8 +9,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, NumSeats};
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validator_rotation() {
     init_test_logger();
 

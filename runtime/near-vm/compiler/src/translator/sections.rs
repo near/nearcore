@@ -12,7 +12,6 @@
 //! interpreted on the fly.
 use super::environ::ModuleEnvironment;
 use super::state::ModuleTranslationState;
-use crate::wasm_unsupported;
 use crate::{WasmError, WasmResult};
 use core::convert::TryFrom;
 use near_vm_types::entity::EntityRef;

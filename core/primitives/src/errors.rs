@@ -456,6 +456,12 @@ pub enum ActionsValidationError {
     } = 18,
     /// Gas keys with FunctionCall permission cannot have an allowance set.
     GasKeyFunctionCallAllowanceNotAllowed = 19,
+    /// The combined number of `DeployContract` and `DeployGlobalContract`
+    /// actions in one receipt exceeded the limit.
+    TotalNumberOfDeployActionsExceeded {
+        number_of_deploy_actions: u64,
+        limit: u64,
+    } = 20,
 }
 
 /// Describes the error for validating a receipt.
@@ -651,6 +657,14 @@ impl Display for ActionsValidationError {
             ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed => {
                 write!(f, "Gas keys with FunctionCall permission cannot have an allowance set")
             }
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions,
+                limit,
+            } => write!(
+                f,
+                "The total number of deploy actions {} exceeds the per-receipt limit {}",
+                number_of_deploy_actions, limit
+            ),
         }
     }
 }
@@ -1179,6 +1193,10 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
     /// Error selecting chunk producer for a shard.
     ChunkProducerSelectionError(String),
+    /// Chunk producer entry not found in the ChunkProducers DB column.
+    /// This is transient during initial sync — the entry is populated when
+    /// the parent block is processed.
+    ChunkProducerNotInDB(CryptoHash, ShardId),
 }
 
 impl std::error::Error for EpochError {}
@@ -1213,6 +1231,9 @@ impl Display for EpochError {
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "Error selecting chunk producer: {}", err)
             }
+            EpochError::ChunkProducerNotInDB(hash, shard_id) => {
+                write!(f, "chunk producer not in DB for block {} shard {}", hash, shard_id)
+            }
         }
     }
 }
@@ -1238,6 +1259,9 @@ impl Debug for EpochError {
             }
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "ChunkProducerSelectionError({})", err)
+            }
+            EpochError::ChunkProducerNotInDB(hash, shard_id) => {
+                write!(f, "ChunkProducerNotInDB({}, {})", hash, shard_id)
             }
         }
     }
@@ -1304,6 +1328,10 @@ pub enum PrepareError {
     FunctionBodyTooLarge = 11,
     /// The instrumented code exceeds the size limit.
     InstrumentedCodeTooLarge = 12,
+    /// A function contains too many basic blocks.
+    TooManyBlocksPerFunction = 13,
+    /// A contract contains too many basic blocks.
+    TooManyBlocksPerContract = 14,
 }
 
 /// A kind of a trap happened during execution of a binary
@@ -1427,6 +1455,10 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String } = 32,
+    /// Input length mismatch for p256 signature verification (signature is not 64
+    /// bytes or public key is not 33 bytes). Parse failures of otherwise
+    /// well-sized inputs return 0 from the host function instead of aborting.
+    P256VerifyInvalidInput { msg: String } = 33,
 }
 
 #[derive(

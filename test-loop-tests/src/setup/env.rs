@@ -248,6 +248,7 @@ impl TestLoopEnv {
         let genesis = self.shared_state.genesis.clone();
         let tempdir_path = self.shared_state.tempdir.path().to_path_buf();
         NodeStateBuilder::new(genesis, tempdir_path)
+            .bucket_config(self.shared_state.bucket_config.clone())
     }
 }
 

@@ -30,10 +30,13 @@ use crate::utils::account::{
 use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
+use near_crypto::{KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
+use near_primitives::account::AccessKey;
 use near_primitives::action::{
-    DeterministicStateInitAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    Action, AddKeyAction, DeployContractAction, DeterministicStateInitAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, TransferAction,
 };
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -45,14 +48,12 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::Action;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
-use near_primitives::version::ProtocolVersion;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::AccountView;
+use near_primitives::views::{AccountView, ExecutionStatusView};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
@@ -374,52 +375,236 @@ fn test_deterministic_state_init_prepay_for_storage() {
     env.assert_test_contract_usable_on_account(det_account);
 }
 
-/// Test that multi-action receipts fail to create deterministic accounts before
-/// `FixDeterministicAccountIdCreation` is enabled.
+/// Try to do Transfer and AddKey in a single transaction targeting a
+/// deterministic account. A single Transfer can create a deterministic
+/// account, but multiple actions are disallowed.
+/// It should not be possible to add an access key to a deterministic account this way, as it would
+/// give the creator control over the account before StateInit.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_deterministic_state_init_multi_action_before_fix() {
-    let version_before_fix =
-        ProtocolFeature::FixDeterministicAccountIdCreation.protocol_version() - 1;
-    assert!(
-        ProtocolFeature::DeterministicAccountIds.enabled(version_before_fix),
-        "DeterministicAccountIds must be enabled before FixDeterministicAccountIdCreation"
-    );
-
-    let mut env = TestEnv::setup_with_protocol_version(Balance::from_near(100), version_before_fix);
+fn test_transfer_and_add_key_to_deterministic_account() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
-    let tx = env.multi_action_deterministic_account_tx(Balance::from_near(5));
-    let outcome = env.try_execute_tx(tx).expect("tx should be submitted");
+    let data = empty();
+    let (_state_init, det_account) = env.new_deterministic_account_with_data(data);
 
+    let user_signer = create_user_test_signer(&env.user_account());
+    let public_key = PublicKey::from_seed(KeyType::ED25519, "test");
+
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        env.user_account(),
+        det_account,
+        &user_signer,
+        vec![
+            Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key,
+                access_key: AccessKey::full_access(),
+            })),
+        ],
+        env.get_tx_block_hash(),
+    );
+
+    let outcome = env.try_execute_tx(tx).expect("should be able to send transaction");
     assert_matches!(
         outcome.status,
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
             kind: ActionErrorKind::AccountDoesNotExist { .. },
-            ..
+            index: Some(0)
         }))
     );
 }
 
-/// Test that multi-action receipts can create deterministic accounts after
-/// `FixDeterministicAccountIdCreation` is enabled.
+/// Try to do Transfer and DeployContract in a single transaction targeting a
+/// deterministic account. Should fail the same way as Transfer + AddKey:
+/// multiple actions are disallowed when creating a deterministic account
+/// via transfer.
+/// It should not be possible to deploy a contract to a deterministic account this way, as it would
+/// give the creator control over the account before StateInit.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_deterministic_state_init_multi_action_after_fix() {
-    let version_with_fix = ProtocolFeature::FixDeterministicAccountIdCreation.protocol_version();
-    let mut env = TestEnv::setup_with_protocol_version(Balance::from_near(100), version_with_fix);
+fn test_transfer_and_deploy_contract_to_deterministic_account() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
-    let balance = Balance::from_near(5);
-    let tx = env.multi_action_deterministic_account_tx(balance);
-    let det_account = tx.transaction.receiver_id().clone();
+    let data = empty();
+    let (_state_init, det_account) = env.new_deterministic_account_with_data(data);
 
-    env.try_execute_tx(tx).expect("tx should be submitted").assert_success();
+    let user_signer = create_user_test_signer(&env.user_account());
 
-    assert!(env.get_account_state(det_account.clone()).amount >= balance);
-    env.assert_test_contract_usable_on_account(det_account);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        env.user_account(),
+        det_account,
+        &user_signer,
+        vec![
+            Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            }),
+        ],
+        env.get_tx_block_hash(),
+    );
+
+    let outcome = env.try_execute_tx(tx).expect("should be able to send transaction");
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::AccountDoesNotExist { .. },
+            index: Some(0)
+        }))
+    );
+}
+
+/// Try to do Transfer and DeterministicStateInit in a single transaction
+/// targeting a deterministic account. Should fail the same way: multiple
+/// actions are disallowed when creating a deterministic account via
+/// transfer.
+#[test]
+fn test_transfer_and_state_init_to_deterministic_account() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let data = empty();
+    let (state_init, det_account) = env.new_deterministic_account_with_data(data);
+
+    let user_signer = create_user_test_signer(&env.user_account());
+
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        env.user_account(),
+        det_account,
+        &user_signer,
+        vec![
+            Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
+            Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit: Balance::ZERO,
+            })),
+        ],
+        env.get_tx_block_hash(),
+    );
+
+    let outcome = env.try_execute_tx(tx).expect("should be able to send transaction");
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::AccountDoesNotExist { .. },
+            index: Some(0)
+        }))
+    );
+}
+
+/// Like test_transfer_and_add_key_to_deterministic_account but the
+/// actions are created by a contract via `call_promise`.
+#[test]
+fn test_contract_transfer_and_add_key_to_deterministic_account() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_test_contract();
+
+    let det_account = env.new_deterministic_account_with_data(empty()).1;
+
+    let public_key = PublicKey::from_seed(KeyType::ED25519, "test");
+    let public_key_base64 =
+        near_primitives_core::serialize::to_base64(&borsh::to_vec(&public_key).unwrap());
+    let call_promise_args = serde_json::json!([
+        {
+            "batch_create": { "account_id": det_account.as_str() },
+            "id": 0
+        },
+        {
+            "action_transfer": {
+                "promise_index": 0,
+                "amount": Balance::from_near(1).as_yoctonear().to_string()
+            },
+            "id": 0
+        },
+        {
+            "action_add_key_with_full_access": {
+                "promise_index": 0,
+                "public_key": public_key_base64,
+                "nonce": 0
+            },
+            "id": 0,
+            "return": true
+        }
+    ]);
+
+    env.assert_call_promise_creates_failing_receipt(call_promise_args);
+}
+
+/// Like test_transfer_and_deploy_contract_to_deterministic_account but
+/// the actions are created by a contract via `call_promise`.
+#[test]
+fn test_contract_transfer_and_deploy_contract_to_deterministic_account() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_test_contract();
+
+    let det_account = env.new_deterministic_account_with_data(empty()).1;
+
+    let code_base64 =
+        near_primitives_core::serialize::to_base64(near_test_contracts::rs_contract());
+    let call_promise_args = serde_json::json!([
+        {
+            "batch_create": { "account_id": det_account.as_str() },
+            "id": 0
+        },
+        {
+            "action_transfer": {
+                "promise_index": 0,
+                "amount": Balance::from_near(1).as_yoctonear().to_string()
+            },
+            "id": 0
+        },
+        {
+            "action_deploy_contract": {
+                "promise_index": 0,
+                "code": code_base64
+            },
+            "id": 0,
+            "return": true
+        }
+    ]);
+
+    env.assert_call_promise_creates_failing_receipt(call_promise_args);
+}
+
+/// Like test_transfer_and_state_init_to_deterministic_account but the
+/// actions are created by a contract via `call_promise`.
+#[test]
+fn test_contract_transfer_and_state_init_to_deterministic_account() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_test_contract();
+
+    let det_account = env.new_deterministic_account_with_data(empty()).1;
+
+    let call_promise_args = serde_json::json!([
+        {
+            "batch_create": { "account_id": det_account.as_str() },
+            "id": 0
+        },
+        {
+            "action_transfer": {
+                "promise_index": 0,
+                "amount": Balance::from_near(1).as_yoctonear().to_string()
+            },
+            "id": 0
+        },
+        {
+            "action_state_init_by_account_id": {
+                "promise_index": 0,
+                "account_id": env.global_contract_account().as_str(),
+                "amount": "0"
+            },
+            "id": 0,
+            "return": true
+        }
+    ]);
+
+    env.assert_call_promise_creates_failing_receipt(call_promise_args);
 }
 
 /// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
@@ -650,13 +835,6 @@ struct TestEnv {
 
 impl TestEnv {
     fn setup(initial_balance: Balance) -> Self {
-        Self::setup_with_protocol_version(initial_balance, PROTOCOL_VERSION)
-    }
-
-    fn setup_with_protocol_version(
-        initial_balance: Balance,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
         init_test_logger();
 
         let [user_account, independent_account, global_contract_account] =
@@ -668,7 +846,6 @@ impl TestEnv {
         let clients = validators_spec_clients_with_rpc(&validators_spec);
 
         let genesis = TestLoopBuilder::new_genesis_builder()
-            .protocol_version(protocol_version)
             .validators_spec(validators_spec)
             .shard_layout(shard_layout)
             .add_user_accounts_simple(
@@ -740,6 +917,71 @@ impl TestEnv {
         self.run_tx(tx);
     }
 
+    /// Deploy the standard test contract on the user account.
+    fn deploy_test_contract(&mut self) {
+        let user_account = self.user_account();
+        let user_signer = create_user_test_signer(&user_account);
+        let deploy_tx = SignedTransaction::deploy_contract(
+            self.next_nonce(),
+            &user_account,
+            near_test_contracts::rs_contract().to_vec(),
+            &user_signer,
+            self.get_tx_block_hash(),
+        );
+        self.run_tx(deploy_tx);
+    }
+
+    /// Call `call_promise` on the user account's test contract and assert
+    /// that the child receipt (the promise batch) fails with
+    /// AccountDoesNotExist.
+    fn assert_call_promise_creates_failing_receipt(
+        &mut self,
+        call_promise_args: serde_json::Value,
+    ) {
+        let user_account = self.user_account();
+        let user_signer = create_user_test_signer(&user_account);
+        let tx = SignedTransaction::call(
+            self.next_nonce(),
+            user_account.clone(),
+            user_account,
+            &user_signer,
+            Balance::from_near(2),
+            "call_promise".to_owned(),
+            serde_json::to_vec(&call_promise_args).unwrap(),
+            Gas::from_teragas(300),
+            self.get_tx_block_hash(),
+        );
+
+        let outcome = self.try_execute_tx(tx).expect("should be able to send transaction");
+
+        // The first receipt is the call_promise FunctionCall itself.
+        let call_promise_outcome = &outcome.receipts_outcome[0];
+        assert!(
+            matches!(
+                call_promise_outcome.outcome.status,
+                near_primitives::views::ExecutionStatusView::SuccessReceiptId(_)
+            ),
+            "call_promise should succeed, got: {:?}",
+            call_promise_outcome.outcome.status
+        );
+
+        // Find the child receipt produced by call_promise (the batch with
+        // Transfer + second action) and assert it fails.
+        let child_id = &call_promise_outcome.outcome.receipt_ids[0];
+        let child_outcome = outcome
+            .receipts_outcome
+            .iter()
+            .find(|o| o.id == *child_id)
+            .expect("child receipt outcome not found");
+        assert_matches!(
+            child_outcome.outcome.status,
+            ExecutionStatusView::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::AccountDoesNotExist { .. },
+                index: Some(0)
+            }))
+        );
+    }
+
     /// Assumes to use global_contract_account by account id as code.
     fn new_deterministic_account_with_data(
         &self,
@@ -786,33 +1028,6 @@ impl TestEnv {
             balance,
         );
         self.try_execute_tx(create_deterministic_account_tx)
-    }
-
-    /// Creates a multi-action transaction: Transfer + DeterministicStateInit + FunctionCall.
-    fn multi_action_deterministic_account_tx(&mut self, balance: Balance) -> SignedTransaction {
-        let (state_init, det_account) = self.new_deterministic_account_with_data(small());
-        let signer = create_user_test_signer(&self.user_account());
-        let actions = vec![
-            Action::Transfer(near_primitives::transaction::TransferAction { deposit: balance }),
-            Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
-                state_init,
-                deposit: Balance::ZERO,
-            })),
-            Action::FunctionCall(Box::new(near_primitives::action::FunctionCallAction {
-                method_name: "log_something".to_owned(),
-                args: vec![],
-                gas: Gas::from_teragas(50),
-                deposit: Balance::ZERO,
-            })),
-        ];
-        SignedTransaction::from_actions(
-            self.next_nonce(),
-            self.user_account(),
-            det_account,
-            &signer,
-            actions,
-            self.get_tx_block_hash(),
-        )
     }
 
     /// Creates, on-chain, a deterministic account id owned by `user`.

@@ -2,38 +2,19 @@
 ignore = [
     # DO NOT ADD ANYTHING TO THIS LIST WITHOUT CAREFUL CONSIDERATION!
 
-    # dotenv being unmaintained is ignored because it is an indirect dependency of cloud-storage, which would be hard to replace.
-    # In addition, it is most likely not ever going to be on a security-critical path, considering it only parses trusted .env files.
-    # However, we should probably replace cloud-storage with tame-gcs as soon as possible to remove this ignore.
-    "RUSTSEC-2021-0141",
-
-    # mach is unmaintained, but seems to be required by wasmtime at its latest version, which we currently cannot do without.
-    # We should replace it with mach2 in our personal code, but will need to keep it there until wasmtime switches to it.
-    # Anyway, it cannot be a security liability in production, considering it is bindings to the OS X kernel.
+    # mach is unmaintained, but is required by near-vm-vm (via region).
+    # It cannot be a security liability in production, considering it only provides bindings to the OS X kernel.
     "RUSTSEC-2020-0168",
 
-    # memmap is unmaintained, but is used by wasmer0, which we need to keep alive for replayability reasons.
-    # We should remove wasmer0 and this ignore as soon as we get limited replayability.
-    "RUSTSEC-2020-0077",
-
-    # parity-wasm is deprecated, but is used by our runtimes before near-vm, which we need to keep alive for replayability reasons.
-    # We should remove them all, as well as this ignore, as soon as we get limited replayability.
-    "RUSTSEC-2022-0061",
-
-    # borsh is vulnerable, but is used by wasmer0, which we need to keep alive for replayability reasons.
-    # We should remove it, as well as this ignore, as soon as we get limited replayability.
-    "RUSTSEC-2023-0033",
-
-    # older versions of parking-lot are vulnerable, but used by wasmer0, which we need to keep alive for replayability reasons.
-    # We should remove it, as well as this ignore, as soon as we get limited replayability.
+    # older versions of parking-lot are vulnerable, but used by reed-solomon-erasure.
     "RUSTSEC-2020-0070",
 
-    # proc-macro-error is unmaintained, but hard to replace right now.
+    # proc-macro-error is unmaintained, but hard to replace right now (via dynasm).
     # Follow https://github.com/Kyuuhachi/syn_derive/issues/4
     "RUSTSEC-2024-0370",
 
     # The instant package is unmaintained, but hard to replace right now because
-    # parking_lot depends on it.
+    # parking_lot 0.11 depends on it (via reed-solomon-erasure).
     "RUSTSEC-2024-0384",
 
     # The derivative package is unmaintained, but hard to replace right now
@@ -54,10 +35,16 @@ ignore = [
     # TODO(#15026): Remove this when rust-toolchain.toml is updated to >= 1.88
     "RUSTSEC-2026-0009",
 
-    # RUSTSEC-2026-0049 describes a problem in tls certificate validation. It doesn't really affect
-    # nearcore, so it's okay to ignore it. Currently we can't fully fix it because the
-    # `object_store` package depends on a vulnerable version of `reqwest`.
-    # object_store 0.13.1 -> reqwest 0.12.4 -> tokio-rustls 0.25.0 -> rustls 0.22.4 -> rustls-webpki 0.102.8
-    # TODO(#15435): Update object_store once the maintainers release a version with reqwest 0.13+
-    "RUSTSEC-2026-0049",
+    # libsecp256k1 is unmaintained, but every version of aurora-engine-transactions pulls it in
+    # (via aurora-engine-precompiles in 1.1, or aurora-engine-sdk in 1.2+). In the main workspace
+    # it's only a dev-dependency (test-loop-tests, integration-tests). It is also a transitive
+    # dependency of the wallet contract (separate workspace in runtime/near-wallet-contract/implementation/).
+    "RUSTSEC-2025-0161",
+
+    # RUSTSEC-2026-0097: rand unsoundness only triggers when rand's `log` feature is on and a
+    # custom `log::Log` logger calls `rand::rng()` on reseed. Neither applies here: the `log`
+    # feature is not enabled (check with `cargo tree -e features --workspace | grep 'rand feature'`)
+    # and nearcore has no custom `log::Log` impl (logging goes through tracing).
+    # Fixed in rand >= 0.9.3 / >= 0.10.1; 0.8.x has no patch and 0.7.3/0.9.0 are transitive.
+    "RUSTSEC-2026-0097",
 ]

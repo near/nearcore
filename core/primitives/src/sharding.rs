@@ -462,7 +462,7 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter<'_> {
         match self {
             Self::V1(header) => ValidatorStakeIter::v1(&header.inner.prev_validator_proposals),
             Self::V2(header) => ValidatorStakeIter::v1(&header.inner.prev_validator_proposals),
@@ -1523,9 +1523,13 @@ impl ShardChunkWithEncoding {
         (Self { shard_chunk, bytes: encoded_shard_chunk }, merkle_paths)
     }
 
-    pub fn from_encoded_shard_chunk(bytes: EncodedShardChunk) -> Result<Self, std::io::Error> {
-        let shard_chunk = bytes.decode_chunk()?;
-        Ok(Self { shard_chunk, bytes })
+    pub fn from_encoded_shard_chunk(
+        bytes: EncodedShardChunk,
+    ) -> Result<Self, (std::io::Error, Box<EncodedShardChunk>)> {
+        match bytes.decode_chunk() {
+            Ok(shard_chunk) => Ok(Self { shard_chunk, bytes }),
+            Err(err) => Err((err, Box::new(bytes))),
+        }
     }
 
     pub fn to_shard_chunk(&self) -> &ShardChunk {

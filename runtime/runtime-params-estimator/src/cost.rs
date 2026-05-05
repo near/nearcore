@@ -471,6 +471,19 @@ pub enum Cost {
     /// In the end, the cost should be low enough, compared to the base cost,
     /// that it does not matter all that much if we overestimate it a bit.
     Ed25519VerifyByte,
+    /// Estimates `p256_verify_base`, which covers the base cost of the host
+    /// function `p256_verify` to verify a P-256 ECDSA signature.
+    ///
+    /// Estimation: Use a fixed signature embedded in the test contract and
+    /// verify it `N` times in a loop and divide by `N`.
+    P256VerifyBase,
+    /// Estimates `p256_verify_byte`, the cost charged per input byte in calls to the
+    /// p256_verify host function.
+    ///
+    /// Estimation: Verify a signature for a large message many times, subtract
+    /// the cost estimated for the base and divide the remainder by the total
+    /// bytes of the message.
+    P256VerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value

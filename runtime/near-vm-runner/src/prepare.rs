@@ -181,6 +181,7 @@ mod tests {
     /// Build a wasm module with many small functions, each containing a single
     /// `if` block. The gas instrumentation inserts metering at every block
     /// boundary, so the instrumented output is much larger than the input.
+    // TODO: move to near-test-contracts.
     fn contract_with_many_blocks(num_functions: u32) -> Vec<u8> {
         use wasm_encoder::{
             CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
@@ -222,6 +223,86 @@ mod tests {
         }
         module.section(&code);
         module.finish()
+    }
+
+    /// Build a wasm module with a single function containing `num_blocks`
+    /// sequential if-blocks.
+    // TODO: move to near-test-contracts.
+    fn contract_with_blocks_in_one_function(num_blocks: u32) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+            TypeSection, ValType,
+        };
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([ValType::I32], []);
+        module.section(&types);
+        let mut functions = FunctionSection::new();
+        functions.function(0);
+        module.section(&functions);
+        let mut exports = ExportSection::new();
+        exports.export("main", ExportKind::Func, 0);
+        module.section(&exports);
+        let mut code = CodeSection::new();
+        let mut f = Function::new([]);
+        for _ in 0..num_blocks {
+            f.instruction(&Instruction::LocalGet(0));
+            f.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+            f.instruction(&Instruction::Nop);
+            f.instruction(&Instruction::End);
+        }
+        f.instruction(&Instruction::End);
+        code.function(&f);
+        module.section(&code);
+        module.finish()
+    }
+
+    // Block limits are enforced during the instrumentation pass, which NearVm
+    // skips. Run for all VM kinds that go through instrumentation.
+    #[test]
+    fn too_many_blocks_per_function() {
+        with_vm_variants(|kind| {
+            if kind == VMKind::NearVm {
+                return;
+            }
+            let limit: u64 = 100;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_blocks_per_function = Some(limit);
+
+            // A function with blocks over the limit should be rejected.
+            let wasm = contract_with_blocks_in_one_function(limit as u32 + 1);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyBlocksPerFunction));
+
+            // A function with blocks at the limit should be accepted.
+            let wasm = contract_with_blocks_in_one_function(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    #[test]
+    fn too_many_blocks_per_contract() {
+        with_vm_variants(|kind| {
+            if kind == VMKind::NearVm {
+                return;
+            }
+            let limit: u64 = 50;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_blocks_per_contract = Some(limit);
+            // No per-function limit.
+            config.limit_config.max_blocks_per_function = None;
+
+            // 100 functions x 1 block = 100 total blocks, should be rejected.
+            let wasm = contract_with_many_blocks(100);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyBlocksPerContract));
+
+            // 50 functions x 1 block = 50 total blocks, should be accepted.
+            let wasm = contract_with_many_blocks(50);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
     }
 
     #[test]
