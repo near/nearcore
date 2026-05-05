@@ -78,11 +78,8 @@ impl ReplayCommand {
         )
         .context("failed to create runtime")?;
 
-        let chain_store = ChainStore::new(
-            store.clone(),
-            false,
-            near_config.genesis.config.transaction_validity_period,
-        );
+        let chain_store =
+            ChainStore::new(store, false, near_config.genesis.config.transaction_validity_period);
 
         let shard_ids =
             resolve_shards(&chain_store, epoch_manager.as_ref(), &runtime, &self.shards)
