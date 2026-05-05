@@ -46,4 +46,8 @@ RUN apt-get update -qq && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /near/neard /usr/local/bin/neard
+# In the build stage, /near is the working tree; the `neard/` crate
+# directory shadows the cp'd binary so `cp /tmp/target/release/neard
+# /near/neard` lands the binary at /near/neard/neard, not /near/neard.
+# Reach in for the file directly.
+COPY --from=build /near/neard/neard /usr/local/bin/neard
