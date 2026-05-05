@@ -361,6 +361,9 @@ fn build_chunk_producer_indices(
 /// validators directly; split children get a stake-balanced subset of their
 /// parent's validators via greedy bin-packing. Validators that are no longer
 /// chunk producers in the new epoch are dropped.
+///
+/// Caller must ensure `prev_assignment` corresponds to the same number of
+/// shards as `shard_idx_mapping` (i.e. one entry per prev shard).
 fn sticky_by_shard_id(
     chunk_producers: &[ValidatorStake],
     num_shards: usize,
@@ -655,8 +658,12 @@ mod tests {
         )
     }
 
+    fn account(n: usize) -> AccountId {
+        format!("test{:02}", n).parse().unwrap()
+    }
+
     fn validator_stake_for_test(n: usize) -> ValidatorStake {
-        ValidatorStake::test(format!("test{:02}", n).parse().unwrap())
+        ValidatorStake::test(account(n))
     }
 
     #[test]
@@ -690,7 +697,7 @@ mod tests {
 
     fn validator_stake_for_test_with_stake(n: usize, stake: u128) -> ValidatorStake {
         ValidatorStake::new(
-            format!("test{:02}", n).parse().unwrap(),
+            account(n),
             PublicKey::empty(KeyType::ED25519),
             Balance::from_yoctonear(stake),
         )
@@ -942,11 +949,8 @@ mod tests {
             is_balanced,
             "Shard assignment didn't converge in 5 iterations, last assignment = {assignment:?}"
         );
-        let original_chunk_producer_ids = (0..num_chunk_producers)
-            .into_iter()
-            .map(validator_stake_for_test)
-            .map(|vs| vs.account_id().clone())
-            .collect::<HashSet<_>>();
+        let original_chunk_producer_ids =
+            (0..num_chunk_producers).map(account).collect::<HashSet<_>>();
         let chunk_producer_ids = assignment
             .into_iter()
             .flat_map(|shard| shard.into_iter().map(|cp| cp.account_id().clone()))
@@ -985,9 +989,7 @@ mod tests {
             .iter()
             .flat_map(|shard| shard.iter().map(|cp| cp.account_id().clone()))
             .collect();
-        let expected_producers: HashSet<_> = (0..num_chunk_producers)
-            .map(|i| validator_stake_for_test(i).account_id().clone())
-            .collect();
+        let expected_producers: HashSet<_> = (0..num_chunk_producers).map(account).collect();
         assert_eq!(assigned_producers, expected_producers);
 
         // Each shard should have at least the minimum required validators
@@ -1053,10 +1055,6 @@ mod tests {
                 (idx, accounts)
             })
             .collect()
-    }
-
-    fn account(n: usize) -> AccountId {
-        format!("test{:02}", n).parse().unwrap()
     }
 
     #[test]
