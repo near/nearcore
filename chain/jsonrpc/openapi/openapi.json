@@ -11298,7 +11298,7 @@
             "type": "integer"
           },
           "max_types_per_contract": {
-            "description": "If present, stores max number of distinct type-section entries (function\nsignatures) declared by a contract.",
+            "description": "If present, stores max number of entries in the wasm type section that\na contract may declare.",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
@@ -11902,7 +11902,7 @@
             "type": "string"
           },
           {
-            "description": "Contract declares too many distinct types (function signatures).",
+            "description": "Contract declares too many entries in the wasm type section.",
             "enum": [
               "TooManyTypes"
             ],
