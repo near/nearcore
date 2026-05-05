@@ -1,0 +1,38 @@
+# Example docker-compose override for the bounty-localnet tool.
+#
+# Compose auto-merges docker-compose.override.yml with docker-compose.yml on
+# every `up` — copy this file, edit, and run as usual:
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   # edit docker-compose.override.yml below
+#   docker compose up --build
+#
+# When to use: byzantine-bug repros where ONE validator must run a modified
+# neard binary (e.g. to demo double-signing, equivocation, or malformed-
+# message attacks). Pick a NON-RPC validator (validator1..7 — never
+# validator0, which owns the RPC port on localhost:3030). For
+# NUM_VALIDATORS=1 this pattern doesn't apply because validator0 is the
+# only validator.
+
+services:
+  validator1:
+    # PRIMARY: bind-mount your custom-built neard over the image's binary.
+    # Build it however you like (cargo build --release -p neard, your fork,
+    # etc.); the path below must be absolute on your host. The base file's
+    # ./network/node1:/srv/near mount is preserved automatically by
+    # Compose's list-merge semantics.
+    volumes:
+      - /absolute/path/to/your/custom/neard:/usr/local/bin/neard:ro
+
+    # ADVANCED: alternate build context. Uncomment to point at a *different*
+    # nearcore checkout instead. Only safe when your patched checkout is
+    # still compatible with the configs the unmodified `init` service
+    # generates (same genesis layout, same protocol version). If your patch
+    # changes genesis or the wire protocol, the validator won't join the
+    # network. Comment out the `volumes:` block above before uncommenting
+    # this one.
+    # build:
+    #   context: /absolute/path/to/your/nearcore-fork
+    #   dockerfile: Dockerfile
+    #   args:
+    #     make_target: neard-release

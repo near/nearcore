@@ -1,0 +1,89 @@
+name: bounty-localnet smoke
+
+# Smoke-tests the bug-bounty localnet tool: builds the init/validator images,
+# brings the stack up, waits for the network to start producing blocks, and
+# tears it down. The path filter is broad on purpose — anything that can
+# break the tool (top-level Dockerfile, neard CLI, genesis validation, the
+# tool itself) should re-run this job.
+
+on:
+  pull_request:
+    paths:
+      - 'tools/bounty-localnet/**'
+      - 'Dockerfile'
+      - 'scripts/run_docker.sh'
+      - 'neard/src/cli.rs'
+      - 'nearcore/src/config.rs'
+      - 'core/chain-configs/**'
+      - 'core/primitives-core/src/account.rs'
+      - 'core/primitives/src/state_record.rs'
+      - 'chain/network/src/config*.rs'
+      - '.github/workflows/bounty-localnet-smoke.yml'
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: bounty-localnet up + readiness + reset
+    runs-on: warp-ubuntu-2404-x64-16x
+    # Build cost dominates — let the cold-cache build run to completion and
+    # bound only the runtime check separately (see the wait-for-rpc step).
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pre-seed .env
+        working-directory: tools/bounty-localnet
+        run: cp .env.example .env
+
+      - name: Build images via bake (GHA layer cache)
+        # bake reads docker-compose.yml, builds every service's `build:`
+        # target, tags with names compose recognizes, and loads them into
+        # the local daemon. The GHA cache is only active on github runners,
+        # so reporters running locally are unaffected. First PR pays the
+        # full ~10–30 min build; subsequent PRs pull layers from the cache
+        # and finish in seconds.
+        uses: docker/bake-action@v5
+        with:
+          workdir: tools/bounty-localnet
+          files: docker-compose.yml
+          load: true
+          set: |
+            *.cache-from=type=gha
+            *.cache-to=type=gha,mode=max
+
+      - name: Bring stack up
+        working-directory: tools/bounty-localnet
+        # --no-build forces compose to use the images bake just loaded
+        # rather than re-evaluating build context.
+        run: docker compose up -d --no-build
+
+      - name: Wait for RPC to produce blocks (5 min budget)
+        working-directory: tools/bounty-localnet
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 300 ))
+          while (( $(date +%s) < deadline )); do
+            if curl -sf http://localhost:3030/status \
+                | jq -e '.sync_info.latest_block_height >= 2' > /dev/null 2>&1; then
+              echo "Network is producing blocks."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::RPC did not reach block height 2 within 5 minutes"
+          docker compose logs --tail=200
+          exit 1
+
+      - name: Tear down
+        if: always()
+        working-directory: tools/bounty-localnet
+        run: ./reset.sh

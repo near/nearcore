@@ -1,0 +1,90 @@
+# Bounty-localnet docker-compose definition.
+#
+# Topology: 1 init service that generates configs (runs once, then exits) +
+# up to 8 validator services. validator0 is always on; validator1..validator7
+# are gated by `min2`..`min8` profiles so the running set always matches
+# NUM_VALIDATORS (.env). When you change NUM_VALIDATORS, also update
+# COMPOSE_PROFILES to `min<NUM_VALIDATORS>` (or use the top-level Justfile
+# recipe `bounty-localnet`, which handles this for you).
+
+x-validator-build: &validator-build
+  context: ../..
+  dockerfile: Dockerfile
+  args:
+    make_target: neard-release
+
+x-validator-defaults: &validator-defaults
+  build: *validator-build
+  depends_on:
+    init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+  environment:
+    BOOT_NODES: ""
+
+services:
+  init:
+    build:
+      context: ../..
+      dockerfile: tools/bounty-localnet/Dockerfile.init
+      args:
+        make_target: neard-release
+    entrypoint: ["/bin/bash", "/bounty-localnet/init.sh"]
+    volumes:
+      - ./network:/network
+      - ./init.sh:/bounty-localnet/init.sh:ro
+      - ./reporter-key.json:/bounty-localnet/reporter-key.json:ro
+    environment:
+      NUM_VALIDATORS: ${NUM_VALIDATORS}
+      NUM_SHARDS: ${NUM_SHARDS}
+      STAKE_DISTRIBUTION: ${STAKE_DISTRIBUTION}
+      CHAIN_ID: ${CHAIN_ID}
+
+  validator0:
+    <<: *validator-defaults
+    volumes:
+      - ./network/node0:/srv/near
+    ports:
+      - "3030:3030"
+
+  validator1:
+    <<: *validator-defaults
+    profiles: [min2, min3, min4, min5, min6, min7, min8]
+    volumes:
+      - ./network/node1:/srv/near
+
+  validator2:
+    <<: *validator-defaults
+    profiles: [min3, min4, min5, min6, min7, min8]
+    volumes:
+      - ./network/node2:/srv/near
+
+  validator3:
+    <<: *validator-defaults
+    profiles: [min4, min5, min6, min7, min8]
+    volumes:
+      - ./network/node3:/srv/near
+
+  validator4:
+    <<: *validator-defaults
+    profiles: [min5, min6, min7, min8]
+    volumes:
+      - ./network/node4:/srv/near
+
+  validator5:
+    <<: *validator-defaults
+    profiles: [min6, min7, min8]
+    volumes:
+      - ./network/node5:/srv/near
+
+  validator6:
+    <<: *validator-defaults
+    profiles: [min7, min8]
+    volumes:
+      - ./network/node6:/srv/near
+
+  validator7:
+    <<: *validator-defaults
+    profiles: [min8]
+    volumes:
+      - ./network/node7:/srv/near
