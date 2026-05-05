@@ -159,10 +159,12 @@ impl ChainStore {
         // because they get accumulated too quickly for regular gc process.
         // If clearing state transition data or witnesses fails there's no reason not to try
         // cleaning old blocks.
+        #[allow(clippy::or_fun_call)]
         let result = self
             .clear_state_transition_data(epoch_manager.as_ref())
             .and(self.clear_witnesses_data());
 
+        #[allow(clippy::or_fun_call)]
         result.and(self.clear_old_blocks_data(
             gc_config,
             runtime_adapter,
