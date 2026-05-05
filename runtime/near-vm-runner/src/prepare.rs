@@ -307,8 +307,8 @@ mod tests {
 
     /// Build a wasm module that declares `n` distinct (func) types in the
     /// type section. Each type takes a distinct number of i32 params so they
-    /// don't dedupe. One trivial `main` function exercises type 0 so the
-    /// module is otherwise valid.
+    /// don't get deduplicated. One trivial `main` function exercises type 0
+    /// so the module is otherwise valid.
     fn contract_with_n_types(n: u32) -> Vec<u8> {
         use wasm_encoder::{
             CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
