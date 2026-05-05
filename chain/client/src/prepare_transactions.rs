@@ -58,6 +58,9 @@ impl PrepareTransactionsJobInputs {
     }
 }
 
+// Lint: `PrepareTransactionsJobInputs` is 1280 bytes
+// while `PreparedTransactions` is only 48 bytes.
+#[allow(clippy::large_enum_variant)]
 enum PrepareTransactionsJobState {
     /// Job created, but not running yet
     NotStarted(PrepareTransactionsJobInputs),
