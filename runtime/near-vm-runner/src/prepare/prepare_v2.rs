@@ -458,6 +458,9 @@ struct SimpleGasCostCfg(u64);
 macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
+            // The macro produces many visitor functions with unused arguments, the easiest
+            // solution is to ignore the warnings.
+            #[allow(unused_variables)]
             fn $visit(&mut self $($(, $arg: $argty)*)?) -> u64 {
                 gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
             }

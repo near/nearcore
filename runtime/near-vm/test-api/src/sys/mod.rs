@@ -5,7 +5,6 @@ mod import_object;
 mod instance;
 mod module;
 mod native;
-mod ptr;
 mod store;
 mod tunables;
 mod types;

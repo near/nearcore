@@ -322,19 +322,15 @@ pub struct DumpConfig {
 /// Configures how to fetch state parts during state sync.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Default)]
 pub enum SyncConfig {
     /// Syncs state from the peers without reading anything from external storage.
+    #[default]
     Peers,
     /// Expects parts to be available in external storage.
     ///
     /// Usually as a fallback after some number of attempts to use peers.
     ExternalStorage(ExternalStorageConfig),
-}
-
-impl Default for SyncConfig {
-    fn default() -> Self {
-        Self::Peers
-    }
 }
 
 impl SyncConfig {

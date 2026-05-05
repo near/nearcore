@@ -15,7 +15,7 @@ use time::ext::InstantExt;
 static FAKE_CLOCK_MONO_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 // An arbitrary non-trivial deterministic Utc timestamp.
-const FAKE_CLOCK_UTC_START: LazyLock<Utc> =
+static FAKE_CLOCK_UTC_START: LazyLock<Utc> =
     LazyLock::new(|| Utc::from_unix_timestamp(89108233).unwrap());
 
 #[derive(Clone)]

@@ -1976,6 +1976,36 @@
             "const": "GasKeyFunctionCallAllowanceNotAllowed",
             "description": "Gas keys with FunctionCall permission cannot have an allowance set.",
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The combined number of `DeployContract` and `DeployGlobalContract`\nactions in one receipt exceeded the limit.",
+            "properties": {
+              "TotalNumberOfDeployActionsExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_deploy_actions": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_deploy_actions",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfDeployActionsExceeded"
+            ],
+            "title": "TotalNumberOfDeployActionsExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
@@ -6538,6 +6568,12 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_deploy_actions_per_receipt": {
+            "description": "Max number of `DeployContract` and `DeployGlobalContract` actions\ncombined within a single receipt.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "max_elements_per_contract_table": {
             "description": "If present, stores max number of elements in a single contract's table",
             "format": "uint",
@@ -6735,6 +6771,7 @@
           "max_total_log_length",
           "max_total_prepaid_gas",
           "max_actions_per_receipt",
+          "max_deploy_actions_per_receipt",
           "max_number_bytes_method_names",
           "max_length_method_name",
           "max_arguments_length",

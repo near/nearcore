@@ -226,6 +226,7 @@ snapshot_kind: text
       "max_total_log_length": 16384,
       "max_total_prepaid_gas": 1000000000000000,
       "max_actions_per_receipt": 100,
+      "max_deploy_actions_per_receipt": 10,
       "max_number_bytes_method_names": 2000,
       "max_length_method_name": 256,
       "max_arguments_length": 4194304,

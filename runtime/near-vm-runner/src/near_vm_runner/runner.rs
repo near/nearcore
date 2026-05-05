@@ -546,7 +546,7 @@ impl near_vm_vm::Tunables for &NearVM {
     }
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<'_, Output = u64>> {
         Box::new(GasCostCfg(u64::from(self.config.regular_op_cost)))
     }
 }
@@ -590,6 +590,9 @@ struct GasCostCfg(u64);
 macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
+            // The macro produces many visitor functions with unused arguments, the easiest
+            // solution is to ignore the warnings.
+            #[allow(unused_variables)]
             fn $visit(&mut self $($(, $arg: $argty)*)?) -> u64 {
                 gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
             }
