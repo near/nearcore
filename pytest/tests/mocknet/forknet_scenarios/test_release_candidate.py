@@ -149,13 +149,11 @@ class TestReleaseCandidate(TestSetup):
 
     def _schedule_slow_compile_stress_test(self, delay_minutes: int = 30):
         """
-        Sparse-checkout nearcore on the traffic node, then schedule
-        slow_compile_adversarial.py to start delay_minutes after the
+        Schedule slow_compile_adversarial.py to start delay_minutes after the
         network start. The traffic node is itself an RPC node, so we
         point the script at localhost:3030. The script signs as the
         forknet-injected full-access key for `astro-stakers.poolv1.near`.
         """
-        self._checkout_nearcore_on_traffic()
 
         run_at = datetime.now() + timedelta(minutes=delay_minutes)
         run_cmd_args = copy.deepcopy(self.args)
@@ -169,6 +167,13 @@ class TestReleaseCandidate(TestSetup):
                                        value=time_to_str(run_at))
         run_cmd_args.schedule_id = "slow-compile-adversarial"
         run_remote_cmd(CommandContext(run_cmd_args))
+
+    def before_test_setup(self):
+        """
+        Use this event to run any commands before the test is started.
+        """
+        super().before_test_setup()
+        self._checkout_nearcore_on_traffic()
 
     def after_test_start(self):
         """
