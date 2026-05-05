@@ -319,7 +319,7 @@ impl BlocksDelayTracker {
                 ChunkTrackingStats::new(chunk_header)
             })
             .completed_timestamp
-            .get_or_insert(self.clock.now_utc());
+            .get_or_insert_with(|| self.clock.now_utc());
     }
 
     pub fn mark_chunk_requested(&mut self, chunk_header: &ShardChunkHeader) {
@@ -331,7 +331,7 @@ impl BlocksDelayTracker {
                 ChunkTrackingStats::new(chunk_header)
             })
             .requested_timestamp
-            .get_or_insert(self.clock.now_utc());
+            .get_or_insert_with(|| self.clock.now_utc());
     }
 
     fn update_head(&mut self, head_height: BlockHeight) {
