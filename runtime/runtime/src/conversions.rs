@@ -40,6 +40,7 @@ mod prepare_error {
                 From::InstrumentedCodeTooLarge => Self::InstrumentedCodeTooLarge,
                 From::TooManyBlocksPerFunction => Self::TooManyBlocksPerFunction,
                 From::TooManyBlocksPerContract => Self::TooManyBlocksPerContract,
+                From::TooManyTypes => Self::TooManyTypes,
             }
         }
     }

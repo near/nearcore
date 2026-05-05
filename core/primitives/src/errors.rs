@@ -1332,6 +1332,8 @@ pub enum PrepareError {
     TooManyBlocksPerFunction = 13,
     /// A contract contains too many basic blocks.
     TooManyBlocksPerContract = 14,
+    /// Contract declares too many distinct types (function signatures).
+    TooManyTypes = 15,
 }
 
 /// A kind of a trap happened during execution of a binary

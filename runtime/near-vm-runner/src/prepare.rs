@@ -305,6 +305,54 @@ mod tests {
         });
     }
 
+    /// Build a wasm module that declares `n` distinct (func) types in the
+    /// type section. Each type takes a distinct number of i32 params so they
+    /// don't dedupe. One trivial `main` function exercises type 0 so the
+    /// module is otherwise valid.
+    fn contract_with_n_types(n: u32) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+            TypeSection, ValType,
+        };
+        assert!(n >= 1, "need at least one type for the main function");
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        for i in 0..n {
+            let params = vec![ValType::I32; i as usize];
+            types.ty().function(params, []);
+        }
+        module.section(&types);
+        let mut functions = FunctionSection::new();
+        functions.function(0);
+        module.section(&functions);
+        let mut exports = ExportSection::new();
+        exports.export("main", ExportKind::Func, 0);
+        module.section(&exports);
+        let mut code = CodeSection::new();
+        let mut main_fn = Function::new([]);
+        main_fn.instruction(&Instruction::End);
+        code.function(&main_fn);
+        module.section(&code);
+        module.finish()
+    }
+
+    #[test]
+    fn too_many_types() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 16;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_types_per_contract = Some(limit);
+
+            let wasm = contract_with_n_types(limit as u32 + 1);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyTypes));
+
+            let wasm = contract_with_n_types(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
     #[test]
     fn instrumented_code_too_large() {
         with_vm_variants(|kind| {

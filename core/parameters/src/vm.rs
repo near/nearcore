@@ -145,6 +145,11 @@ pub struct LimitConfig {
     /// This caps total compilation time for a contract.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_blocks_per_contract: Option<u64>,
+    /// If present, stores max number of distinct type-section entries (function
+    /// signatures) declared by a contract. Caps single-deploy Winch compile
+    /// time, which scales super-linearly in declared type count.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_types_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
