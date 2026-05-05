@@ -4,9 +4,8 @@ use crate::types as primitives;
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time;
-use near_crypto::Signature;
 use near_primitives::account::id::AccountId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::AnnounceAccount;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::DBCol;
 use std::io;
@@ -55,33 +54,6 @@ impl BorshRepr for ConnectionInfoRepr {
             )
             .map_err(invalid_data)?,
         })
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub(super) struct EdgeRepr {
-    key: (PeerId, PeerId),
-    nonce: u64,
-    signature0: Signature,
-    signature1: Signature,
-    removal_info: Option<(bool, Signature)>,
-}
-
-impl BorshRepr for EdgeRepr {
-    type T = primitives::Edge;
-
-    fn to_repr(e: &Self::T) -> Self {
-        Self {
-            key: e.key().clone(),
-            nonce: e.nonce(),
-            signature0: e.signature0().clone(),
-            signature1: e.signature1().clone(),
-            removal_info: e.removal_info().cloned(),
-        }
-    }
-    fn from_repr(e: Self) -> Result<Self::T, Error> {
-        Ok(primitives::Edge::new(e.key.0, e.key.1, e.nonce, e.signature0, e.signature1)
-            .with_removal_info(e.removal_info))
     }
 }
 
@@ -171,18 +143,6 @@ impl<R: BorshRepr> BorshRepr for Vec<R> {
     }
     fn from_repr(a: Vec<R>) -> Result<Self::T, Error> {
         a.into_iter().map(R::from_repr).collect()
-    }
-}
-
-// Little endian representation for u64.
-pub struct U64LE;
-impl Format for U64LE {
-    type T = u64;
-    fn encode<W: io::Write>(a: &u64, w: &mut W) -> io::Result<()> {
-        w.write_all(&a.to_le_bytes())
-    }
-    fn decode(a: &[u8]) -> Result<u64, Error> {
-        a.try_into().map(u64::from_le_bytes).map_err(invalid_data)
     }
 }
 
