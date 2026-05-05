@@ -277,7 +277,7 @@ fn check_action_gas_exceeds_limit(
     // Until action compute costs are actually changed, no difference in gas vs
     // compute should be observed.
     let outcome = logic.compute_outcome();
-    assert_eq!(gas_attached, outcome.compute_usage, "used gas should be no more than burnt gas",);
+    assert_eq!(gas_attached, outcome.compute_usage);
 }
 
 /// Check consistent result when exceeding attached gas on a specific action gas
@@ -329,11 +329,7 @@ fn check_action_gas_exceeds_attached(
     // Until action compute costs are actually changed, no difference in gas vs
     // compute should be observed.
     let outcome = logic.compute_outcome();
-    assert_eq!(
-        outcome.burnt_gas.as_gas(),
-        outcome.compute_usage,
-        "used gas should be no more than burnt gas",
-    );
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage,);
 }
 
 // Below are a bunch of `out_of_gas_*` tests. These test that when we run out of

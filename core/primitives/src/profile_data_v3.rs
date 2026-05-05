@@ -128,7 +128,7 @@ impl ProfileDataV3 {
     ///                                     GasCounter and passed in as argument
     ///                                     here.
     ///
-    /// Note: Consider marking this as deprecated, this is copy-pasted code of
+    /// TODO(#15666): Consider marking this as deprecated, this is copy-pasted code of
     /// that doesn't seem to have a good reason to be exposed publicly here.
     pub fn total_compute_usage(
         &self,

@@ -341,7 +341,7 @@ impl GasCounter {
             // Special case: we ran out of gas (`HostError::GasLimitExceeded` or
             // `HostError::GasExceeded`).
             // To preserve backwards-compatibility, burn compute costs exactly
-            // equal to the gas cost for this last step. Even it if should be an
+            // equal to the gas cost for this last step. Even if it should be an
             // increased compute cost. This could be a problem if the last step
             // has a high compute cost.
             // Changing this behaviour would be a protocol change.

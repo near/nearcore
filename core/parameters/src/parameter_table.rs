@@ -20,7 +20,6 @@ pub(crate) enum ParameterValue {
     U64(u64),
     Rational { numerator: i32, denominator: i32 },
     ParameterCost { gas: u64, compute: u64 },
-    // TODO: think about openapi breakage
     Fee { send_sir: FeeComponent, send_not_sir: FeeComponent, execution: FeeComponent },
     // Can be used to store either a string or u128. Ideally, we would use a dedicated enum member
     // for u128, but this is currently impossible to express in YAML (see
