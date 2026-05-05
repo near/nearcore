@@ -4,7 +4,7 @@ Test case classes for release tests on forknet.
 from typing import Dict
 
 from .base import TestSetup, NodeHardware, time_to_str
-from mirror import CommandContext, update_config_cmd, run_remote_cmd
+from mirror import CommandContext, update_config_cmd, run_remote_cmd, start_nodes_cmd
 
 import copy
 from utils import PartitionSelector, ScheduleMode
@@ -39,6 +39,7 @@ class TestReleaseCandidate(TestSetup):
         self.upgrade_interval_minutes = 15  # 15 minutes between each upgrade batch.
         self.first_upgrade_delay_minutes = 45
         self.second_upgrade_delay_minutes = 75
+        self.stress_start_delay_minutes = 90
 
     def amend_epoch_config(self):
         """
@@ -147,7 +148,7 @@ class TestReleaseCandidate(TestSetup):
         run_cmd_args.cmd = cmd
         run_remote_cmd(CommandContext(run_cmd_args))
 
-    def _schedule_slow_compile_stress_test(self, delay_minutes: int = 30):
+    def _schedule_slow_compile_stress_test(self, schedule_id, run_at: datetime):
         """
         Schedule slow_compile_adversarial.py to start delay_minutes after the
         network start. The traffic node is itself an RPC node, so we
@@ -155,18 +156,87 @@ class TestReleaseCandidate(TestSetup):
         forknet-injected full-access key for `astro-stakers.poolv1.near`.
         """
 
-        run_at = datetime.now() + timedelta(minutes=delay_minutes)
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = 'traffic'
         run_cmd_args.cmd = (
             "cd /home/ubuntu/nearcore "
-            "&& python3 pytest/tests/mocknet/slow_compile_adversarial.py "
+            "&& /home/ubuntu/.near/target/neard-runner/venv/bin/python pytest/tests/mocknet/slow_compile_adversarial.py "
             "--rpc-url http://localhost:3030 "
             "--tps 1")
         run_cmd_args.on = ScheduleMode(mode="calendar",
                                        value=time_to_str(run_at))
-        run_cmd_args.schedule_id = "slow-compile-adversarial"
+        run_cmd_args.schedule_id = schedule_id
         run_remote_cmd(CommandContext(run_cmd_args))
+
+    def _schedule_stop_stress_test(self, filter_str, run_at: datetime):
+        # run_at = datetime.now() + timedelta(minutes=delay_minutes)
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'traffic'
+        cmd = f'systemctl --user stop "*{filter_str}"; systemctl --user reset-failed "*{filter_str}"'
+        run_cmd_args.cmd = cmd
+        run_cmd_args.on = ScheduleMode(mode="calendar",
+                                       value=time_to_str(run_at))
+        run_cmd_args.schedule_id = f"stop-{filter_str}"
+        run_remote_cmd(CommandContext(run_cmd_args))
+
+    def _schedule_config_change(self, max_block_production_delay,
+                                max_block_wait_delay, run_at: datetime):
+        cfg = [
+            f'consensus.max_block_production_delay={{"secs":{max_block_production_delay[0]},"nanos":{max_block_production_delay[1]}}}',
+            f'consensus.max_block_wait_delay={{"secs":{max_block_wait_delay[0]},"nanos":{max_block_wait_delay[1]}}}'
+        ]
+        cfg_args = copy.deepcopy(self.args)
+        cfg_args.host_type = 'nodes'
+        cfg_args.set = ';'.join(cfg)
+        cfg_args.on = ScheduleMode(mode="calendar", value=time_to_str(run_at))
+        cfg_args.schedule_id = f"config-change-{max_block_production_delay[0]}"
+        update_config_cmd(CommandContext(cfg_args))
+
+    def _schedule_binary_restart(self, idx, run_at: datetime):
+        start_nodes_args = copy.deepcopy(self.args)
+        start_nodes_args.host_type = 'nodes'
+        start_nodes_args.force_restart = True
+        start_nodes_args.on = ScheduleMode(mode="calendar",
+                                           value=time_to_str(run_at))
+        start_nodes_args.schedule_id = f"neard-restart-{idx}"
+        start_nodes_cmd(CommandContext(start_nodes_args))
+
+    def _schedule_looping_stress_test(self):
+        now = datetime.now()
+        max_block_production_delay_to_test = [(30, 0), (15, 0), (7, 0), (3, 0),
+                                              (1, 800000000)]
+        max_block_wait_delay_to_test = [(30, 0), (15, 0), (7, 0), (6, 0),
+                                        (6, 0)]
+
+        # time to first run
+        stress_start_delay_minutes = self.stress_start_delay_minutes
+        # time to stop the first test
+        stress_stop_delay_minutes = stress_start_delay_minutes + 10
+        # time to first config change. This will only take effect after restarting neard.
+        config_change_delay_minutes = stress_stop_delay_minutes + 2
+        # time to restart neard to pickup the new config. We will give the node 25 minutes after stopping the stress test to recover.
+        neard_restart_delay_minutes = stress_stop_delay_minutes + 25
+        # then 5 more minutes after the restart to make sure the node is stable before we start the next iteration of the stress test.
+        test_period_minutes = 30
+
+        for i, (max_block_production_delay, max_block_wait_delay) in enumerate(
+                zip(max_block_production_delay_to_test,
+                    max_block_wait_delay_to_test)):
+            schedule_id = f"stress-test-{i}"
+            self._schedule_slow_compile_stress_test(
+                schedule_id,
+                datetime.now() + timedelta(minutes=stress_start_delay_minutes +
+                                           i * test_period_minutes))
+            self._schedule_stop_stress_test(
+                schedule_id, now + timedelta(minutes=stress_stop_delay_minutes +
+                                             i * test_period_minutes))
+            self._schedule_config_change(
+                max_block_production_delay, max_block_wait_delay,
+                now + timedelta(minutes=config_change_delay_minutes +
+                                i * test_period_minutes))
+            self._schedule_binary_restart(
+                i, now + timedelta(minutes=neard_restart_delay_minutes +
+                                   i * test_period_minutes))
 
     def before_test_setup(self):
         """
@@ -181,7 +251,7 @@ class TestReleaseCandidate(TestSetup):
         """
         super().after_test_start()
         self._upgrade_nodes_in_four_batches()
-        self._schedule_slow_compile_stress_test()
+        self._schedule_looping_stress_test()
 
 
 class TestReleaseCandidateFast(TestReleaseCandidate):
