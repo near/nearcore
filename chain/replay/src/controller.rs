@@ -68,8 +68,6 @@ pub struct PreparedReplay<'a> {
 }
 
 impl PreparedReplay<'_> {
-    /// Executes the prepared replay, consuming the handle and returning the
-    /// result.
     #[tracing::instrument(
         target = "replay",
         level = "debug",

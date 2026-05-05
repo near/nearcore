@@ -148,14 +148,6 @@ impl ReplayProgress {
         let pos = self.head_marker.saturating_sub(replayed_height);
         self.bar.set_position(pos);
     }
-
-    fn finish(&self) {
-        self.bar.finish();
-    }
-
-    fn abandon(&self) {
-        self.bar.abandon();
-    }
 }
 
 /// Replays chunks for a single shard, walking backwards from the chain head.
@@ -180,15 +172,15 @@ fn replay_shard(
     )
     .context("failed to create replay controller")?;
 
-    let progress = ReplayProgress::new(chain_store, shard_id, num_blocks, show_progress);
-
     tracing::info!(
         target: "replay",
         %shard_id,
         num_blocks = num_blocks.map(|n| n.to_string()).unwrap_or_else(|| "all".into()),
-        "starting shard replay"
+        "start shard replay"
     );
 
+    let progress = ReplayProgress::new(chain_store, shard_id, num_blocks, show_progress);
+    let mut last_replayed_height = None;
     for i in 0..num_blocks.unwrap_or(u64::MAX) {
         let prepared = match controller.prepare_next_replay() {
             Ok(p) => p,
@@ -201,6 +193,7 @@ fn replay_shard(
                 tracing::info!(
                     target: "replay",
                     %shard_id,
+                    ?last_replayed_height,
                     tail,
                     ?err,
                     "stopping replay, likely reached chain tail",
@@ -212,7 +205,6 @@ fn replay_shard(
         let height = result.block_height;
         if let Err(e) = result.verify() {
             if fail_fast {
-                progress.abandon();
                 return Err(
                     anyhow::anyhow!(e).context(format!("chunk mismatch at height {}", height))
                 );
@@ -220,7 +212,8 @@ fn replay_shard(
             tracing::warn!(target: "replay", %shard_id, %height, "chunk mismatch: {:#}", e);
         }
         progress.update(height);
-        tracing::debug!(
+        last_replayed_height = Some(height);
+        tracing::trace!(
             target: "replay",
             block = i + 1,
             %shard_id,
@@ -228,8 +221,6 @@ fn replay_shard(
             "replayed chunk"
         );
     }
-
-    progress.finish();
     Ok(())
 }
 
