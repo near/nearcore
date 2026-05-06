@@ -101,7 +101,18 @@ impl StateRequestActor {
             return Ok(None);
         }
         let header = self.chain_store.get_block_header(block_hash)?;
-        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
+        let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        else {
+            return Ok(None);
+        };
+        if !near_chain::state_sync::is_spice_sync_hash_satisfied(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &sync_hash,
+        )? {
+            return Ok(None);
+        }
+        Ok(Some(sync_hash))
     }
 
     /// Checks if the sync_hash belongs to an epoch that we know.

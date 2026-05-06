@@ -3,6 +3,7 @@ use crate::spice_core::{
     record_uncertified_chunks_for_block, verify_endorsement_quorum_for_certified_execution_result,
 };
 use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use crate::state_sync::is_spice_sync_hash_satisfied;
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -1818,4 +1819,89 @@ fn test_verify_endorsement_quorum_chunk_id_mismatch() {
     )
     .unwrap_err();
     assert_matches!(err, VerifyEndorsementQuorumError::ChunkIdMismatch { .. });
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_is_spice_sync_hash_satisfied_returns_false_until_all_cers_present() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    // Build sync_prev (a child of genesis) and sync_hash (a child of sync_prev).
+    let sync_prev = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, sync_prev.clone());
+    let sync_block = build_block(&mut chain, &sync_prev, vec![]);
+    process_block(&mut chain, sync_block.clone());
+
+    // No CERs for sync_prev yet → not satisfied.
+    assert!(
+        !is_spice_sync_hash_satisfied(
+            &chain.chain_store().chain_store(),
+            chain.epoch_manager.as_ref(),
+            sync_block.hash(),
+        )
+        .unwrap()
+    );
+
+    // Save one shard's CER → still missing the other shards.
+    let shard_layout = chain.epoch_manager.get_shard_layout(sync_prev.header().epoch_id()).unwrap();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+    save_execution_result_for_block(
+        &chain,
+        &sync_prev,
+        shard_ids[0],
+        ChunkExecutionResult {
+            chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+            outgoing_receipts_root: CryptoHash::default(),
+        },
+    );
+    assert!(
+        !is_spice_sync_hash_satisfied(
+            &chain.chain_store().chain_store(),
+            chain.epoch_manager.as_ref(),
+            sync_block.hash(),
+        )
+        .unwrap()
+    );
+
+    // Save remaining shards' CERs → now satisfied.
+    for shard_id in &shard_ids[1..] {
+        save_execution_result_for_block(
+            &chain,
+            &sync_prev,
+            *shard_id,
+            ChunkExecutionResult {
+                chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+                outgoing_receipts_root: CryptoHash::default(),
+            },
+        );
+    }
+    assert!(
+        is_spice_sync_hash_satisfied(
+            &chain.chain_store().chain_store(),
+            chain.epoch_manager.as_ref(),
+            sync_block.hash(),
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_is_spice_sync_hash_satisfied_returns_true_when_sync_prev_is_genesis() {
+    // sync_prev = genesis case: there are no CERs to wait for; genesis CERs are
+    // synthesized from the genesis chunk_extra in SpiceCoreReader.
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let sync_block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, sync_block.clone());
+
+    assert!(
+        is_spice_sync_hash_satisfied(
+            &chain.chain_store().chain_store(),
+            chain.epoch_manager.as_ref(),
+            sync_block.hash(),
+        )
+        .unwrap()
+    );
 }
