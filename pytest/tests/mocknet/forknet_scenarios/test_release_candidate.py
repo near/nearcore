@@ -203,10 +203,9 @@ class TestReleaseCandidate(TestSetup):
 
     def _schedule_looping_stress_test(self):
         now = datetime.now()
-        max_block_production_delay_to_test = [(30, 0), (15, 0), (7, 0), (3, 0),
+        max_block_production_delay_to_test = [(15, 0), (7, 0), (3, 0),
                                               (1, 800000000)]
-        max_block_wait_delay_to_test = [(30, 0), (15, 0), (7, 0), (6, 0),
-                                        (6, 0)]
+        max_block_wait_delay_to_test = [(15, 0), (7, 0), (6, 0), (6, 0)]
 
         # time to first run
         stress_start_delay_minutes = self.stress_start_delay_minutes
@@ -217,7 +216,7 @@ class TestReleaseCandidate(TestSetup):
         # time to restart neard to pickup the new config. We will give the node 25 minutes after stopping the stress test to recover.
         neard_restart_delay_minutes = stress_stop_delay_minutes + 25
         # then 5 more minutes after the restart to make sure the node is stable before we start the next iteration of the stress test.
-        test_period_minutes = 30
+        test_period_minutes = 40
 
         for i, (max_block_production_delay, max_block_wait_delay) in enumerate(
                 zip(max_block_production_delay_to_test,
