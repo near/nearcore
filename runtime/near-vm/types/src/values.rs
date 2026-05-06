@@ -37,23 +37,6 @@ pub enum Value<T> {
     V128(u128),
 }
 
-impl<T> PartialEq for Value<T> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::I32(a), Self::I32(b)) => a == b,
-            (Self::I64(a), Self::I64(b)) => a == b,
-            (Self::F32(a), Self::F32(b)) => a == b,
-            (Self::F64(a), Self::F64(b)) => a == b,
-            (Self::ExternRef(a), Self::ExternRef(b)) => a == b,
-            (Self::V128(a), Self::V128(b)) => a == b,
-            (Self::FuncRef(_), Self::FuncRef(_)) => {
-                panic!("function references cannot be compared for equality")
-            }
-            _ => false,
-        }
-    }
-}
-
 macro_rules! accessors {
     ($bind:ident $(($variant:ident($ty:ty) $get:ident $unwrap:ident $cvt:expr))*) => ($(
         /// Attempt to access the underlying value of this `Value`, returning
@@ -365,6 +348,24 @@ where
 
     fn try_from(value: Value<T>) -> Result<Self, Self::Error> {
         value.f64().ok_or(NOT_F64)
+    }
+}
+
+#[cfg(any(test, feature = "test_features"))]
+impl<T> PartialEq for Value<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::I32(a), Self::I32(b)) => a == b,
+            (Self::I64(a), Self::I64(b)) => a == b,
+            (Self::F32(a), Self::F32(b)) => a == b,
+            (Self::F64(a), Self::F64(b)) => a == b,
+            (Self::ExternRef(a), Self::ExternRef(b)) => a == b,
+            (Self::V128(a), Self::V128(b)) => a == b,
+            (Self::FuncRef(_), Self::FuncRef(_)) => {
+                panic!("function references cannot be compared for equality")
+            }
+            _ => false,
+        }
     }
 }
 
