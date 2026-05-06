@@ -902,20 +902,18 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
-        // Pre-resolve the memory export so that host functions don't need to
-        // resolve it lazily via Caller::get_module_export (which can fail when
-        // the Caller's instance is a host-side trampoline for re-exported
-        // host functions). It may already be resolved if a start function
-        // triggered a host import during instantiation.
+        // Pre-resolve the memory export here (on the real, post-instantiation
+        // instance) so host functions don't need to resolve it lazily.
         //
-        // Uses string-based instance.get_memory instead of
-        // instance.get_module_export due to a wasmtime issue: for modules
-        // whose only compiled functions are trampolines (no user-defined
-        // function bodies), LoadedCode::push_module stores the module in
-        // modules_with_only_trampolines, but LoadedCode::module() only
-        // searches self.modules, causing module_for_instance to panic.
-        if let Export::Unresolved(_) = store.data().memory {
-            if let Some(memory) = instance.get_memory(&mut store, MEMORY_EXPORT) {
+        // The lazy Caller::get_module_export → module_for_instance().unwrap()
+        // path panics when the Caller's instance is a Dummy host-side
+        // trampoline for a re-exported host function (module_for_instance
+        // returns None for Dummy instances). See test_panic_re_export and
+        // test_trampoline_only_* for regression coverage.
+        if let Export::Unresolved(memory_export) = store.data().memory {
+            if let Some(Extern::Memory(memory)) =
+                instance.get_module_export(&mut store, &memory_export)
+            {
                 store.data_mut().memory = Export::Resolved(memory);
             }
         }
