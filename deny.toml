@@ -37,8 +37,6 @@ skip = [
     # wasmer and wasmtime
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },
-    { name = "rustix", version = "^0.38" },
-    { name = "linux-raw-sys", version = "^0.4" },
     { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
@@ -109,7 +107,6 @@ skip = [
     { name = "console", version = "^0.15" },
     { name = "unicode-width", version = "<0.2" },
     { name = "windows-link", version = "^0.1" },
-    { name = "windows-sys", version = "^0.60" },
 
     # http ecosystem split.
     { name = "nix", version = "^0.24" },
