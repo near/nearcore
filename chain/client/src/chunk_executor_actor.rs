@@ -110,6 +110,12 @@ pub struct ChunkExecutorActor {
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
+
+    /// Test-only stub that satisfies missing receipts by reading from peer
+    /// stores. Wired by `TestLoopBuilder::with_spice_receipt_stub()`. Production
+    /// builds replace this with the real T2 pull (PR 2/3).
+    #[cfg(feature = "test_features")]
+    pub(crate) spice_receipt_stub: Option<Arc<dyn SpiceReceiptStubAdapter>>,
 }
 
 impl ChunkExecutorActor {
@@ -148,7 +154,14 @@ impl ChunkExecutorActor {
             data_distributor_adapter,
             core_writer_sender,
             pending_unverified_receipts: HashMap::new(),
+            #[cfg(feature = "test_features")]
+            spice_receipt_stub: None,
         }
+    }
+
+    #[cfg(feature = "test_features")]
+    pub fn set_spice_receipt_stub(&mut self, stub: Arc<dyn SpiceReceiptStubAdapter>) {
+        self.spice_receipt_stub = Some(stub);
     }
 
     // TODO(spice): We should request relevant receipts from spice data distributor either
@@ -235,6 +248,33 @@ pub struct FailedToApplyChunkError {
     err: Error,
 }
 
+/// Notifies the executor that receipt proofs for `(block_hash, *, to_shard_id)`
+/// have been written to `DBCol::receipt_proofs()`. The executor retries forward
+/// execution for `block_hash`'s children.
+///
+/// Production sender (PR 2): the receipt-pull response handler on
+/// `SpiceDataDistributorActor`. Test-only sender (PR 1): `SpiceReceiptStub`.
+#[derive(Debug, Clone)]
+pub struct ReceiptProofsAvailable {
+    pub block_hash: CryptoHash,
+    pub to_shard_id: ShardId,
+}
+
+/// Test-only injection point used by `SpiceReceiptStub` in test-loop tests to
+/// supply receipt proofs from peer stores when the executor reports
+/// `MissingReceipts`. This trait is the bridge: the production executor knows
+/// nothing about peer stores; the stub holds them.
+///
+/// PR 2/3 will replace this with a real T2 receipt-pull request from
+/// `SpiceDataDistributorActor` to a chunk producer of the source shard.
+#[cfg(feature = "test_features")]
+pub trait SpiceReceiptStubAdapter: Send + Sync + std::fmt::Debug {
+    /// Asynchronously satisfy receipt proofs for `(block_hash, *, to_shard_id)`.
+    /// On success the implementor sends `ReceiptProofsAvailable` back to the
+    /// executor; the executor relies on that callback to retry execution.
+    fn satisfy(&self, block_hash: CryptoHash, to_shard_id: ShardId);
+}
+
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
         let block_hash = receipts.block_hash;
@@ -288,6 +328,23 @@ impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
+        }
+    }
+}
+
+impl Handler<ReceiptProofsAvailable> for ChunkExecutorActor {
+    fn handle(
+        &mut self,
+        ReceiptProofsAvailable { block_hash, to_shard_id }: ReceiptProofsAvailable,
+    ) {
+        tracing::debug!(
+            target: "chunk_executor",
+            %block_hash,
+            %to_shard_id,
+            "receipt proofs available, retrying forward execution",
+        );
+        if let Err(err) = self.try_process_next_blocks(&block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to process next blocks after receipts arrived");
         }
     }
 }
@@ -470,6 +527,14 @@ impl ChunkExecutorActor {
                     get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id);
                 if proofs.len() != prev_block_shard_ids.len() {
                     let to_shard_id = prev_block_shard_id;
+                    // Test-only: ask the stub to fetch the missing receipts from a
+                    // peer node's store. The stub will save them locally and send
+                    // `ReceiptProofsAvailable` to retry. PR 2/3 replaces this with
+                    // a real T2 receipt pull.
+                    #[cfg(feature = "test_features")]
+                    if let Some(stub) = &self.spice_receipt_stub {
+                        stub.satisfy(*prev_block_hash, to_shard_id);
+                    }
                     return Ok(TryApplyChunksOutcome::missing_receipts(
                         *prev_block_hash,
                         &proofs,
