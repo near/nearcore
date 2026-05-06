@@ -12,6 +12,7 @@ mod drop_column;
 mod make_snapshot;
 mod memtrie;
 mod run_migrations;
+pub mod scan_throughput;
 mod set_version;
 mod state_perf;
 mod utils;

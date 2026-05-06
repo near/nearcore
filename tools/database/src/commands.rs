@@ -13,6 +13,7 @@ use crate::memtrie::{
     SplitShardTrieCommand,
 };
 use crate::run_migrations::RunMigrationsCommand;
+use crate::scan_throughput::ScanThroughputCommand;
 use crate::set_version::SetVersionCommand;
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
@@ -80,6 +81,9 @@ enum SubCommand {
 
     /// Manually set database version
     SetVersion(SetVersionCommand),
+
+    /// Measure sequential iter throughput on a column (Phase 0 spike).
+    ScanThroughput(ScanThroughputCommand),
 }
 
 impl DatabaseCommand {
@@ -110,6 +114,7 @@ impl DatabaseCommand {
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
             SubCommand::BackfillReceiptToTx(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SetVersion(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::ScanThroughput(cmd) => cmd.run(home, genesis_validation),
         }
     }
 }
