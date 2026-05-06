@@ -4,7 +4,8 @@ use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::state_part::{StatePart, StatePartV0};
-use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
+use crate::stateless_validation::spice_chunk_endorsement::SpiceEndorsementCoreStatement;
+use crate::types::{BlockHeight, ChunkExecutionResult, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{EpochHeight, ProtocolVersion};
 use near_primitives_core::version::ProtocolFeature;
@@ -122,6 +123,37 @@ pub struct ShardStateSyncResponseHeaderV2 {
     pub state_root_node: StateRootNode,
 }
 
+/// State sync response header for SPICE chunks (V6 chunk headers are tx-only;
+/// the authoritative state root and outgoing-receipts root live in the
+/// `ChunkExecutionResult` certified by endorsement quorum, not in chunk-header
+/// fields).
+///
+/// Trust path on the requester: validator set (anchored by epoch sync) →
+/// signatures on `endorsements` → quorum stake on the chunk's validator
+/// assignment → `execution_result.chunk_extra` and
+/// `execution_result.outgoing_receipts_root` are trusted.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ShardStateSyncResponseHeaderV3 {
+    /// The anchor block `B_X^certified` whose chunk for this shard is the one
+    /// whose post-execution state we are syncing to. Under the strict sync-hash
+    /// invariant this is `sync_prev_hash` for every shard.
+    pub block_hash: CryptoHash,
+    /// The certified execution result for `(block_hash, shard_id)`. Carries
+    /// `chunk_extra` (post-execution state info, including the state root the
+    /// downloaded parts represent) and `outgoing_receipts_root` (used to verify
+    /// receipt proofs that arrive separately via the T2 pull path).
+    pub execution_result: ChunkExecutionResult,
+    /// Endorsements that together satisfy quorum stake on the chunk validator
+    /// assignment for `(epoch_of(block_hash), shard_id, height_of(block_hash))`.
+    /// PR 1 sends all available endorsements; trimming to the minimum stake-
+    /// satisfying subset is a follow-up if header size becomes a concern.
+    pub endorsements: Vec<SpiceEndorsementCoreStatement>,
+    /// Used to size the parts download (`get_num_state_parts(memory_usage)`)
+    /// and to structurally validate the trie root, now against
+    /// `execution_result.chunk_extra.state_root()`.
+    pub state_root_node: StateRootNode,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -155,6 +187,7 @@ impl BitArray {
 pub enum ShardStateSyncResponseHeader {
     V1(ShardStateSyncResponseHeaderV1) = 0,
     V2(ShardStateSyncResponseHeaderV2) = 1,
+    V3(ShardStateSyncResponseHeaderV3) = 2,
 }
 
 impl ShardStateSyncResponseHeader {
@@ -163,6 +196,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => ShardChunk::V1(header.chunk),
             Self::V2(header) => header.chunk,
+            Self::V3(_) => panic!("take_chunk: V3 is for SPICE; callers must branch on variant"),
         }
     }
 
@@ -171,6 +205,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => ShardChunk::V1(header.chunk.clone()),
             Self::V2(header) => header.chunk.clone(),
+            Self::V3(_) => panic!("cloned_chunk: V3 is for SPICE; callers must branch on variant"),
         }
     }
 
@@ -179,6 +214,9 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.prev_chunk_header.clone().map(ShardChunkHeader::V1),
             Self::V2(header) => header.prev_chunk_header.clone(),
+            Self::V3(_) => {
+                panic!("cloned_prev_chunk_header: V3 is for SPICE; callers must branch on variant")
+            }
         }
     }
 
@@ -187,6 +225,22 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.chunk.header.height_included,
             Self::V2(header) => header.chunk.height_included(),
+            Self::V3(_) => {
+                panic!("chunk_height_included: V3 is for SPICE; callers must branch on variant")
+            }
+        }
+    }
+
+    /// Returns the state root that the downloaded state parts represent.
+    /// For V1/V2 this is the chunk's `prev_state_root` (pre-execution state,
+    /// then re-applied locally). For V3 this is the certified post-execution
+    /// state root from the `ChunkExecutionResult`.
+    #[inline]
+    pub fn state_root(&self) -> StateRoot {
+        match self {
+            Self::V1(header) => header.chunk.header.inner.prev_state_root,
+            Self::V2(header) => header.chunk.prev_state_root(),
+            Self::V3(header) => *header.execution_result.chunk_extra.state_root(),
         }
     }
 
@@ -195,6 +249,9 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
             Self::V2(header) => header.chunk.prev_state_root(),
+            Self::V3(_) => panic!(
+                "chunk_prev_state_root: V3 is for SPICE; use state_root() or branch on variant"
+            ),
         }
     }
 
@@ -203,6 +260,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.chunk_proof,
             Self::V2(header) => &header.chunk_proof,
+            Self::V3(_) => panic!("chunk_proof: V3 is for SPICE; callers must branch on variant"),
         }
     }
 
@@ -211,6 +269,9 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.prev_chunk_proof,
             Self::V2(header) => &header.prev_chunk_proof,
+            Self::V3(_) => {
+                panic!("prev_chunk_proof: V3 is for SPICE; callers must branch on variant")
+            }
         }
     }
 
@@ -219,6 +280,9 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.incoming_receipts_proofs,
             Self::V2(header) => &header.incoming_receipts_proofs,
+            Self::V3(_) => {
+                panic!("incoming_receipts_proofs: V3 is for SPICE; receipts arrive via T2 pull")
+            }
         }
     }
 
@@ -227,6 +291,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.root_proofs,
             Self::V2(header) => &header.root_proofs,
+            Self::V3(_) => panic!("root_proofs: V3 is for SPICE; callers must branch on variant"),
         }
     }
 
@@ -235,6 +300,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => &header.state_root_node,
             Self::V2(header) => &header.state_root_node,
+            Self::V3(header) => &header.state_root_node,
         }
     }
 

@@ -493,6 +493,14 @@ impl<'a> ChainUpdate<'a> {
             ShardStateSyncResponseHeader::V2(shard_state_header) => {
                 (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
             }
+            // TODO(spice): SPICE branch lands in a follow-up commit; V3 is reachable only on a
+            // SPICE-feature node, and the requester-side wiring routes V3 through a different
+            // code path (no chunk replay), so this arm is unreachable in practice for now.
+            ShardStateSyncResponseHeader::V3(_) => {
+                return Err(Error::Other(
+                    "set_state_finalize: SPICE V3 path not yet wired".to_owned(),
+                ));
+            }
         };
 
         // Note that block headers are already synced and can be taken
