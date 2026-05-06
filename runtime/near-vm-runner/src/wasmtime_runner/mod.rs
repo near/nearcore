@@ -28,7 +28,8 @@ use std::sync::{Arc, LazyLock, OnceLock};
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Inlining, Instance, InstanceAllocationStrategy,
     InstancePre, Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig,
-    ResourcesRequired, Store, StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
+    RegallocAlgorithm, ResourcesRequired, Store, StoreLimits, StoreLimitsBuilder, Strategy, Val,
+    WasmBacktraceDetails,
 };
 
 mod logic;
@@ -441,9 +442,26 @@ impl WasmtimeVM {
                 .memory_init_cow(true)
                 // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
                 .max_wasm_stack(1024 * 1024 * 1024)
-                // Enable the Cranelift optimizing compiler.
-                .strategy(Strategy::Cranelift)
+                // Winch on x86_64; Cranelift elsewhere (Winch on aarch64 lacks
+                // wide-arithmetic support in wasmtime 45).
+                .strategy(if cfg!(target_arch = "x86_64") {
+                    Strategy::Winch
+                } else {
+                    Strategy::Cranelift
+                })
+                // No-op for Winch wasm bodies (single-pass codegen, no opt
+                // pipeline).
                 .cranelift_opt_level(OptLevel::None)
+                // Single-pass regalloc trades codegen quality for compile
+                // speed. Only applies to Cranelift (Winch has its own
+                // regalloc and silently ignores this setting).
+                .cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass)
+                // Disable inlining. No-op on Winch (Winch doesn't inline)
+                .compiler_inlining(Inlining::No)
+                // Despite the `cranelift_` prefix, this setting also takes
+                // effect on Winch (winch/codegen reads `enable_nan_canonicalization`
+                // from the shared compiler flags at codegen time).
+                .cranelift_nan_canonicalization(true)
                 // Enable signals-based traps. This is required to elide explicit bounds-checking.
                 .signals_based_traps(true)
                 // Configure linear memories such that explicit bounds-checking can be elided.
@@ -454,8 +472,6 @@ impl WasmtimeVM {
                 .memory_may_move(false)
                 .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
                 .memory_reservation_for_growth(0)
-                .compiler_inlining(Inlining::Yes)
-                .cranelift_nan_canonicalization(true)
                 .wasm_wide_arithmetic(true);
 
             let config = Arc::clone(&vm_key.config);
@@ -1098,5 +1114,61 @@ mod tests {
             let acquired = thread.join().expect("failed to join thread");
             assert!(acquired);
         });
+    }
+
+    /// Verifies that the engine produced by [`WasmtimeVM`] canonicalizes
+    /// floating-point NaN payloads, regardless of which compiler strategy
+    /// is selected (Cranelift on aarch64, Winch on x86_64).
+    ///
+    /// We pass a NaN with a non-canonical payload through `f{32,64}.add`
+    /// (the second operand is a runtime value to defeat constant folding)
+    /// and assert the result is the canonical NaN bit pattern.
+    #[test]
+    fn nan_canonicalization() {
+        let config = crate::tests::test_vm_config(Some(VMKind::Wasmtime));
+        let vm = WasmtimeVM::new_for_target(Arc::new(config), None).unwrap();
+
+        let wat_src = r#"
+            (module
+                (func (export "f32_add") (param f32 f32) (result f32)
+                    local.get 0
+                    local.get 1
+                    f32.add)
+                (func (export "f64_add") (param f64 f64) (result f64)
+                    local.get 0
+                    local.get 1
+                    f64.add)
+            )
+        "#;
+        let wasm = wat::parse_str(wat_src).unwrap();
+        let module = Module::new(&vm.engine, &wasm).unwrap();
+        let mut store = Store::new(&vm.engine, ());
+        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+
+        // Quiet NaN with a non-canonical payload (canonical f32 NaN is
+        // 0x7fc00000, with all-zero significand bits below the quiet bit).
+        let f32_in = f32::from_bits(0x7fc1_2345);
+        let f32_add = instance
+            .get_typed_func::<(f32, f32), f32>(&mut store, "f32_add")
+            .unwrap();
+        let out = f32_add.call(&mut store, (f32_in, 0.0)).unwrap();
+        assert_eq!(
+            out.to_bits() & 0x7fff_ffff,
+            0x7fc0_0000,
+            "f32 NaN payload not canonicalized: 0x{:08x}",
+            out.to_bits(),
+        );
+
+        let f64_in = f64::from_bits(0x7ff8_0000_0001_2345);
+        let f64_add = instance
+            .get_typed_func::<(f64, f64), f64>(&mut store, "f64_add")
+            .unwrap();
+        let out = f64_add.call(&mut store, (f64_in, 0.0)).unwrap();
+        assert_eq!(
+            out.to_bits() & 0x7fff_ffff_ffff_ffff,
+            0x7ff8_0000_0000_0000,
+            "f64 NaN payload not canonicalized: 0x{:016x}",
+            out.to_bits(),
+        );
     }
 }

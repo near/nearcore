@@ -403,6 +403,7 @@ wasmprinter = "0.236"
 wasm-smith = "0.236"
 wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", branch = "release-45.0.0", default-features = false, features = [
     "cranelift",
+    "winch",
 ] }
 wast = "40.0"
 wat = "1.0.40"
