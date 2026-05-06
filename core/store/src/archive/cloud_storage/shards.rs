@@ -49,29 +49,37 @@ pub struct ShardDataV1 {
     // state_headers: ShardStateSyncResponseHeader,
 }
 
-/// Builds a `ShardData` object for the given block height and shard ID by reading data from the store.
+/// Builds a `ShardData` object for the given block height and shard ID by
+/// reading data from the store. Returns `Ok(None)` for skipped slots and
+/// for heights where this shard's chunk is not new (chunk header reused
+/// from an earlier height).
 pub fn build_shard_data(
     store: &Store,
     genesis_height: BlockHeight,
     shard_layout: &ShardLayout,
     block_height: BlockHeight,
     shard_uid: ShardUId,
-) -> Result<ShardData, Error> {
+) -> Result<Option<ShardData>, Error> {
     let chain_store = store.chain_store();
     let chunk_store = store.chunk_store();
-    let block_hash = chain_store.get_block_hash_by_height(block_height)?;
+    let block_hash = match chain_store.get_block_hash_by_height(block_height) {
+        Ok(hash) => hash,
+        Err(Error::DBNotFoundErr(_)) => return Ok(None),
+        Err(other) => return Err(other),
+    };
     let block = chain_store.get_block(&block_hash)?;
     let shard_id = shard_uid.shard_id();
-    let chunk_hash = block
-        .chunks()
-        .iter_raw()
-        .find(|shard_header| shard_header.shard_id() == shard_id)
-        .map(|chunk_header| chunk_header.chunk_hash().clone());
-    let Some(chunk_hash) = chunk_hash else {
+    let chunk_header =
+        block.chunks().iter_raw().find(|shard_header| shard_header.shard_id() == shard_id).cloned();
+    let Some(chunk_header) = chunk_header else {
         return Err(Error::Other(format!(
             "shard {shard_id} chunk not found in block at height {block_height}"
         )));
     };
+    if !chunk_header.is_new_chunk(block_height) {
+        return Ok(None);
+    }
+    let chunk_hash = chunk_header.chunk_hash().clone();
 
     let chunk = chunk_store.get_chunk(&chunk_hash)?;
     let transactions = chunk.to_transactions().iter().cloned().collect();
@@ -116,7 +124,7 @@ pub fn build_shard_data(
         chunk_apply_stats,
         //state_headers,
     };
-    Ok(ShardData::V1(shard_data))
+    Ok(Some(ShardData::V1(shard_data)))
 }
 
 // TODO(cloud_archival) Consider calling this function once per block height instead for each shard.
@@ -179,10 +187,14 @@ pub enum ShardBatch {
 pub struct ShardBatchV1 {
     start_height: BlockHeight,
     end_height: BlockHeight,
-    data: Vec<ShardData>,
+    /// One entry per height; `None` at skipped slots or when the chunk at
+    /// that height is not new for this shard.
+    data: Vec<Option<ShardData>>,
 }
 
 /// Builds a `ShardBatch` by reading shard data for each height in `range`.
+/// Pushes `None` for skipped slots and for heights where this shard's chunk
+/// is not new.
 pub fn build_shard_batch(
     store: &Store,
     genesis_height: BlockHeight,
@@ -201,7 +213,11 @@ pub fn build_shard_batch(
 impl ShardBatch {
     /// Constructs a `ShardBatch`, asserting the length invariant.
     /// Use `validate_blob` for batches deserialized from cloud storage.
-    pub fn new(start_height: BlockHeight, end_height: BlockHeight, data: Vec<ShardData>) -> Self {
+    pub fn new(
+        start_height: BlockHeight,
+        end_height: BlockHeight,
+        data: Vec<Option<ShardData>>,
+    ) -> Self {
         let batch = Self::V1(ShardBatchV1 { start_height, end_height, data });
         batch.validate_blob().expect("ShardBatch::new called with inconsistent data");
         batch
@@ -234,10 +250,11 @@ impl ShardBatch {
         batch.end_height
     }
 
-    /// Returns the shard data at `height` within this batch. `height` must
-    /// be within the batch range — passing an out-of-range height is a
-    /// programmer error and panics.
-    pub fn get_shard_at_height(&self, height: BlockHeight) -> &ShardData {
+    /// Returns the shard data at `height` within this batch, or `None` if
+    /// the height is a skipped slot or the shard's chunk at that height is
+    /// not new. `height` must be within the batch range - passing an
+    /// out-of-range height is a programmer error and panics.
+    pub fn get_shard_at_height(&self, height: BlockHeight) -> Option<&ShardData> {
         let ShardBatch::V1(batch) = self;
         assert!(
             height >= batch.start_height && height <= batch.end_height,
@@ -246,6 +263,6 @@ impl ShardBatch {
             batch.end_height,
         );
         let index = (height - batch.start_height) as usize;
-        &batch.data[index]
+        batch.data[index].as_ref()
     }
 }

@@ -2,6 +2,7 @@ use anyhow::Context;
 use borsh::BorshDeserialize;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::block::Tip;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::ShardId;
 use near_store::DBCol;
@@ -13,7 +14,7 @@ use near_store::archive::cloud_storage::ListableCloudDir;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use near_store::db::CLOUD_BLOCK_HEAD_KEY;
-use near_store::db::CLOUD_MIN_HEAD_KEY;
+use near_store::db::CLOUD_PREV_EPOCH_END_KEY;
 use near_store::db::CLOUD_SHARD_HEAD_PREFIX;
 use near_store::db::FINAL_HEAD_KEY;
 use near_store::db::HEAD_KEY;
@@ -26,7 +27,7 @@ struct ExternalStatus {
 }
 
 struct LocalStatus {
-    cloud_min_head: Option<Tip>,
+    last_archived_epoch_last_block: Option<CryptoHash>,
     cloud_block_head: Option<BlockHeight>,
     cloud_shard_heads: Vec<(ShardId, BlockHeight)>,
     chain_head: BlockHeight,
@@ -63,7 +64,8 @@ fn collect_external(cloud_storage: &Arc<CloudStorage>) -> anyhow::Result<Externa
 }
 
 fn collect_local(store: &Store) -> anyhow::Result<LocalStatus> {
-    let cloud_min_head = store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY);
+    let last_archived_epoch_last_block =
+        store.get_ser::<CryptoHash>(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY);
     let cloud_block_head = store.get_ser(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY);
     let cloud_shard_heads = read_local_shard_heads(store);
     let chain_head =
@@ -73,7 +75,7 @@ fn collect_local(store: &Store) -> anyhow::Result<LocalStatus> {
         .context("FINAL_HEAD not found in DB")?
         .height;
     Ok(LocalStatus {
-        cloud_min_head,
+        last_archived_epoch_last_block,
         cloud_block_head,
         cloud_shard_heads,
         chain_head,
@@ -107,7 +109,10 @@ fn print_external(external: &ExternalStatus) {
 
 fn print_local(local: &LocalStatus) {
     println!("=== Local storage (DB) ===");
-    println!("  cloud min head:   {:?}", local.cloud_min_head.as_ref().map(|t| t.height));
+    println!(
+        "  last block of latest fully-archived epoch: {:?}",
+        local.last_archived_epoch_last_block
+    );
     println!("  cloud block head: {:?}", local.cloud_block_head);
     for (shard_id, height) in &local.cloud_shard_heads {
         println!("  cloud shard {} head: {}", shard_id, height);
