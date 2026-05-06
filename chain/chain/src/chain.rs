@@ -1775,6 +1775,12 @@ impl Chain {
     ) {
         // Track all children using `parent_span`, as they may be processed in parallel.
         let parent_span = Span::current();
+        // Distinguish apply tasks by block kind so test-loop tests can selectively
+        // delay one variant via the spawner's per-name artificial-delay knob.
+        let task_name = match &block {
+            BlockToApply::Optimistic(_) => "apply_chunks_optimistic",
+            BlockToApply::Normal(_) => "apply_chunks_normal",
+        };
         #[cfg(feature = "test_features")]
         let test_pause_gate = match &block {
             BlockToApply::Normal(hash) => self.test_paused_blocks.get_gate(hash),
@@ -1815,7 +1821,7 @@ impl Chain {
                 ((shard_id, cached_shard_update_key), boxed)
             })
             .collect();
-        PendingShardJobs::run("apply_chunks", self.apply_chunks_spawner.clone(), jobs, on_done);
+        PendingShardJobs::run(task_name, self.apply_chunks_spawner.clone(), jobs, on_done);
     }
 
     #[instrument(level = "debug", target = "chain", skip_all)]
@@ -2061,6 +2067,7 @@ impl Chain {
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);
                 }
                 Err(e) => {
+                    metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.inc();
                     tracing::warn!(
                         target: "chain", ?e,
                         ?prev_block_hash, %block_height, %shard_id,

@@ -4,6 +4,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::time::Duration;
+use near_chain::metrics as chain_metrics;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkRequests;
@@ -339,5 +340,82 @@ fn test_optimistic_block_with_invalidated_outcome() {
     assert!(
         producer_node_hit_delta >= producer_node_height_delta,
         "Producer of the invalid OptimisticBlock must have all hits because it itself uses correct OptimisticBlock"
+    );
+}
+
+/// Reproduces the bug where an optimistic-block apply task that runs (or is
+/// queued) long enough for `delete_until_height` to evict its prev-state root
+/// from memtrie panics inside `Trie::update -> MemTries::get_root`.
+///
+/// We give one validator's `apply_chunks_optimistic` spawner a virtual delay
+/// of several block intervals. By the time the delayed apply runs, the chain
+/// has finalized enough blocks that `update_flat_storage_and_memtrie` has
+/// GC'd the root the apply needs. The panic is caught by
+/// `PendingShardJobs::catch_unwind` and surfaces as a `NUM_FAILED_OPTIMISTIC_BLOCKS`
+/// increment + warn log "failed to process optimistic block".
+///
+/// Without the memtrie-root-pin fix, this test should observe the metric
+/// increment. With the fix, it should not.
+// TODO(spice-test): not relevant under spice; spice short-circuits the
+// optimistic-block apply path in `process_optimistic_block`.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_optimistic_apply_memtrie_gc_race() {
+    init_test_logger();
+
+    let num_shards = 3;
+    let epoch_length = 100;
+    let accounts =
+        (0..4).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    let clients = accounts.iter().cloned().collect_vec();
+    let validators_spec = ValidatorsSpec::desired_roles(
+        &accounts.iter().map(|account_id| account_id.as_str()).collect_vec(),
+        &[],
+    );
+    let shard_layout = ShardLayout::multi_shard(num_shards as u64, 1);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+
+    // Slow down `apply_chunks_optimistic` on a single node by ~5 block
+    // intervals (block production is ~1s in test-loop). That is more than
+    // enough for `last_final_block` to advance past the optimistic block's
+    // prev-height, triggering memtrie GC of the root the apply needs.
+    let slow_node = accounts[0].clone();
+    let metric_before = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
+
+    let mut env: TestLoopEnv = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .track_all_shards()
+        .task_delay_fn(move |account, task_name| {
+            (account == &slow_node && task_name == "apply_chunks_optimistic")
+                .then(|| Duration::seconds(5))
+        })
+        .skip_warmup()
+        .build();
+
+    // Run long enough for several optimistic-block applies to be scheduled and
+    // for their prev-state roots to be GC'd before they fire.
+    env.test_loop.run_for(Duration::seconds(60));
+
+    for data in &env.node_datas {
+        let head =
+            env.test_loop.data.get(&data.client_sender.actor_handle()).client.chain.head().unwrap();
+        tracing::warn!(target: "test", account = %data.account_id, height = head.height, "node chain head");
+    }
+
+    let metric_after = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
+    assert!(
+        metric_after > metric_before,
+        "expected at least one optimistic apply to fail because prev-state was GC'd, \
+         but NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES did not increase ({} -> {})",
+        metric_before,
+        metric_after,
     );
 }
