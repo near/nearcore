@@ -442,8 +442,9 @@ impl WasmtimeVM {
                 .memory_init_cow(true)
                 // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
                 .max_wasm_stack(1024 * 1024 * 1024)
-                // Winch on x86_64; Cranelift elsewhere (Winch on aarch64 lacks
-                // wide-arithmetic support in wasmtime 45).
+                // Winch on x86_64 (production); Cranelift elsewhere
+                // (e.g. aarch64 development environment) since Winch on
+                // aarch64 lacks wide-arithmetic support in wasmtime 45.
                 .strategy(if cfg!(target_arch = "x86_64") {
                     Strategy::Winch
                 } else {
@@ -1117,8 +1118,7 @@ mod tests {
     }
 
     /// Verifies that the engine produced by [`WasmtimeVM`] canonicalizes
-    /// floating-point NaN payloads, regardless of which compiler strategy
-    /// is selected (Cranelift on aarch64, Winch on x86_64).
+    /// floating-point NaN payloads.
     ///
     /// We pass a NaN with a non-canonical payload through `f{32,64}.add`
     /// (the second operand is a runtime value to defeat constant folding)
@@ -1148,9 +1148,7 @@ mod tests {
         // Quiet NaN with a non-canonical payload (canonical f32 NaN is
         // 0x7fc00000, with all-zero significand bits below the quiet bit).
         let f32_in = f32::from_bits(0x7fc1_2345);
-        let f32_add = instance
-            .get_typed_func::<(f32, f32), f32>(&mut store, "f32_add")
-            .unwrap();
+        let f32_add = instance.get_typed_func::<(f32, f32), f32>(&mut store, "f32_add").unwrap();
         let out = f32_add.call(&mut store, (f32_in, 0.0)).unwrap();
         assert_eq!(
             out.to_bits() & 0x7fff_ffff,
@@ -1160,9 +1158,7 @@ mod tests {
         );
 
         let f64_in = f64::from_bits(0x7ff8_0000_0001_2345);
-        let f64_add = instance
-            .get_typed_func::<(f64, f64), f64>(&mut store, "f64_add")
-            .unwrap();
+        let f64_add = instance.get_typed_func::<(f64, f64), f64>(&mut store, "f64_add").unwrap();
         let out = f64_add.call(&mut store, (f64_in, 0.0)).unwrap();
         assert_eq!(
             out.to_bits() & 0x7fff_ffff_ffff_ffff,
