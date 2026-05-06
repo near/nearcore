@@ -187,65 +187,47 @@ pub fn shutdown_all_actors() {
 mod tests {
     use super::*;
     use crate::futures::FutureSpawnerExt;
-    use std::time::{Duration, Instant};
+    use std::sync::mpsc;
+    use std::time::Duration;
 
-    /// Regression test for the shutdown deadlock that wedged forknet nodes:
-    /// a struct holds a `Box<dyn FutureSpawner>` AND tasks spawned on that
-    /// spawner capture `Arc<Self>` to keep the runtime alive while running.
-    /// That forms an Arc cycle whose only exit is external cancellation.
-    /// `ActorSystem::new_future_spawner` plus `stop()` must break the cycle.
+    /// `ActorSystem::stop` must cancel pending futures spawned via
+    /// `new_future_spawner`, otherwise tasks that capture an `Arc` of their
+    /// owner form a self-pin cycle that wedges shutdown indefinitely.
     #[test]
-    fn actor_system_future_spawner_breaks_self_pin_on_stop() {
-        struct SelfPinning {
-            spawner: Box<dyn FutureSpawner>,
-        }
-
+    fn future_spawner_cancels_pending_tasks_on_stop() {
         let actor_system = ActorSystem::new();
-        let outer =
-            Arc::new(SelfPinning { spawner: actor_system.new_future_spawner("test self-pin") });
-        let weak = Arc::downgrade(&outer);
+        let spawner = actor_system.new_future_spawner("test");
 
-        let captured = outer.clone();
-        outer.spawner.spawn("self-pin", async move {
-            let _hold = captured;
+        let (tx, rx) = mpsc::channel::<()>();
+        spawner.spawn("pending", async move {
+            let _tx = tx; // dropped iff this future is cancelled
             std::future::pending::<()>().await;
         });
 
-        drop(outer);
-        // The captured clone keeps strong count >= 1.
-        assert!(weak.strong_count() > 0, "spawned task should still hold an Arc clone");
-
         actor_system.stop();
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while weak.strong_count() > 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(weak.strong_count(), 0, "stop() should cancel the task and drop the Arc");
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        );
     }
 
-    /// Same property for multithread actors: tasks running on
-    /// `ActorSystem::spawn_multithread_actor` exit when the system is stopped,
-    /// even if the actor's worker thread closure captured an `Arc<Self>` style
-    /// keepalive (modeled here via `Arc::downgrade` after wiring).
+    /// Same property for multithread actors: `stop()` causes the worker thread
+    /// to exit and the actor instance to drop.
     #[test]
-    fn actor_system_multithread_actor_breaks_self_pin_on_stop() {
-        struct Holder {
-            _handle: crate::multithread::MultithreadRuntimeHandle<EmptyActor>,
-        }
+    fn multithread_actor_dropped_on_stop() {
+        struct DropProbe(#[allow(dead_code)] mpsc::Sender<()>);
+        impl Actor for DropProbe {}
 
         let actor_system = ActorSystem::new();
-        let handle = actor_system.spawn_multithread_actor(1, || EmptyActor);
-        let outer = Arc::new(Holder { _handle: handle });
-        let weak = Arc::downgrade(&outer);
+        let (tx, rx) = mpsc::channel::<()>();
+        let _handle = actor_system.spawn_multithread_actor(1, move || DropProbe(tx.clone()));
 
-        drop(outer);
         actor_system.stop();
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while weak.strong_count() > 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(weak.strong_count(), 0);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        );
     }
 }
