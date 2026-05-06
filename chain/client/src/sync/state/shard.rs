@@ -76,7 +76,7 @@ pub(super) async fn run_state_sync_for_shard(
     tracing::info!(target: "sync", %shard_id, "running state sync");
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
-    let state_root = header.chunk_prev_state_root();
+    let state_root = header.state_root();
     let num_parts = header.num_state_parts();
     let block_header =
         store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes()).ok_or_else(

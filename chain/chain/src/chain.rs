@@ -74,7 +74,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
-use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
@@ -2658,31 +2658,43 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk_height_included();
+        let is_spice = matches!(&shard_state_header, ShardStateSyncResponseHeader::V3(_));
         let mut chain_update = self.chain_update();
-        let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
-        chain_update.commit()?;
-
-        // We restored the state on height `shard_state_header.chunk.header.height_included`.
-        // Now we should build a chain up to height of `sync_hash` block.
-        loop {
-            height += 1;
-            let mut chain_update = self.chain_update();
-            // Result of successful execution of set_state_finalize_on_height is bool,
-            // should we commit and continue or stop.
-            if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
-                chain_update.commit()?;
-            } else {
-                break;
+        let shard_uid = if is_spice {
+            // SPICE: persist CER + chunk_extra at the anchor; no chunk replay,
+            // no per-height fill loop.
+            chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?
+        } else {
+            let mut height = shard_state_header.chunk_height_included();
+            let shard_uid =
+                chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
+            chain_update.commit()?;
+            // Build the chain forward from chunk.height_included up to the sync hash height.
+            loop {
+                height += 1;
+                let mut chain_update = self.chain_update();
+                if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
+                    chain_update.commit()?;
+                } else {
+                    break;
+                }
             }
-        }
+            return self.finalize_flat_storage(shard_uid, &sync_hash);
+        };
+        chain_update.commit()?;
+        self.finalize_flat_storage(shard_uid, &sync_hash)
+    }
 
+    fn finalize_flat_storage(
+        &self,
+        shard_uid: ShardUId,
+        sync_hash: &CryptoHash,
+    ) -> Result<(), Error> {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
-            let header = self.get_block_header(&sync_hash)?;
+            let header = self.get_block_header(sync_hash)?;
             flat_storage.update_flat_head(header.prev_hash()).unwrap();
         }
-
         Ok(())
     }
 

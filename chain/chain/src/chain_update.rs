@@ -24,11 +24,15 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
-use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
+use near_primitives::state_sync::{
+    ReceiptProofResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3,
+};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::utils::get_execution_results_key;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
@@ -485,6 +489,9 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<ShardUId, Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", %shard_id, ?sync_hash).entered();
+        if let ShardStateSyncResponseHeader::V3(v3) = shard_state_header {
+            return self.set_spice_state_finalize(shard_id, v3);
+        }
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -493,14 +500,7 @@ impl<'a> ChainUpdate<'a> {
             ShardStateSyncResponseHeader::V2(shard_state_header) => {
                 (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
             }
-            // TODO(spice): SPICE branch lands in a follow-up commit; V3 is reachable only on a
-            // SPICE-feature node, and the requester-side wiring routes V3 through a different
-            // code path (no chunk replay), so this arm is unreachable in practice for now.
-            ShardStateSyncResponseHeader::V3(_) => {
-                return Err(Error::Other(
-                    "set_state_finalize: SPICE V3 path not yet wired".to_owned(),
-                ));
-            }
+            ShardStateSyncResponseHeader::V3(_) => unreachable!("handled above"),
         };
 
         // Note that block headers are already synced and can be taken
@@ -625,6 +625,38 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
+        Ok(shard_uid)
+    }
+
+    /// SPICE finalization: writes the certified `ChunkExecutionResult` to
+    /// `DBCol::execution_results` and the `chunk_extra` to
+    /// `DBCol::ChunkExtras`. No chunk replay; the trust anchor is the CER's
+    /// post-execution state, and parts download has populated the trie at
+    /// `chunk_extra.state_root()`.
+    fn set_spice_state_finalize(
+        &mut self,
+        shard_id: ShardId,
+        v3: ShardStateSyncResponseHeaderV3,
+    ) -> Result<ShardUId, Error> {
+        let block_header = self.chain_store_update.get_block_header(&v3.block_hash)?;
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
+
+        let execution_results_key = get_execution_results_key(&v3.block_hash, shard_id);
+        let mut store_update = self.chain_store_update.chain_store().store_ref().store_update();
+        store_update.set_ser(
+            DBCol::execution_results(),
+            &execution_results_key,
+            &v3.execution_result,
+        );
+        self.chain_store_update.merge(store_update);
+
+        self.chain_store_update.save_chunk_extra(
+            &v3.block_hash,
+            &shard_uid,
+            Arc::new(v3.execution_result.chunk_extra),
+        );
+
         Ok(shard_uid)
     }
 

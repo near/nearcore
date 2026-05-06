@@ -1,4 +1,5 @@
 use super::state_request_tracker::StateRequestTracker;
+use crate::spice_core::verify_endorsement_quorum_for_certified_execution_result;
 use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
@@ -307,6 +308,47 @@ impl ChainStateSyncAdapter {
         }))
     }
 
+    /// Verifies a V3 state-sync response header. Checks endorsement quorum on
+    /// the certified execution result, then validates `state_root_node`
+    /// structurally against the CER's `state_root`.
+    fn verify_spice_state_response_header(
+        &self,
+        shard_id: ShardId,
+        v3: &ShardStateSyncResponseHeaderV3,
+    ) -> Result<(), Error> {
+        // Anchor block must be locally available — block sync should have
+        // brought it by now. If not, return DBNotFoundErr so the downloader
+        // retries (the same V3 will verify cleanly once the block arrives).
+        let anchor_header = self.chain_store.get_block_header(&v3.block_hash)?;
+        let chunk_id = SpiceChunkId { block_hash: v3.block_hash, shard_id };
+        verify_endorsement_quorum_for_certified_execution_result(
+            self.epoch_manager.as_ref(),
+            &chunk_id,
+            &v3.execution_result,
+            &v3.endorsements,
+            anchor_header.height(),
+            anchor_header.epoch_id(),
+        )
+        .map_err(|err| {
+            byzantine_assert!(false);
+            Error::Other(format!("V3 endorsement quorum verification failed: {err}"))
+        })?;
+
+        if matches!(
+            self.runtime_adapter.validate_state_root_node(
+                &v3.state_root_node,
+                v3.execution_result.chunk_extra.state_root(),
+            ),
+            StateRootNodeValidationResult::Invalid
+        ) {
+            byzantine_assert!(false);
+            return Err(Error::Other(
+                "V3 state_root_node does not match certified state_root".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Reads the endorsements that the core writer recorded for a certified
     /// chunk and turns them back into `SpiceEndorsementCoreStatement`s suitable
     /// for inclusion in a V3 response.
@@ -480,6 +522,18 @@ impl ChainStateSyncAdapter {
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
+        if let ShardStateSyncResponseHeader::V3(ref v3) = shard_state_header {
+            self.verify_spice_state_response_header(shard_id, v3)?;
+            // Persist the verified V3 header to cache. CER and chunk_extra are
+            // not yet written to live state — that happens during
+            // `set_state_finalize`, after parts download populates the trie.
+            let mut store_update = self.chain_store.store().store_update();
+            let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap();
+            store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header);
+            store_update.commit();
+            return Ok(());
+        }
+
         let sync_block_header = self.chain_store.get_block_header(&sync_hash)?;
 
         let chunk = shard_state_header.cloned_chunk();
@@ -648,8 +702,7 @@ impl ChainStateSyncAdapter {
         part: &StatePart,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.take_chunk();
-        let state_root = *chunk.take_header().take_inner().prev_state_root();
+        let state_root = shard_state_header.state_root();
         if matches!(
             self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part),
             StatePartValidationResult::Invalid
