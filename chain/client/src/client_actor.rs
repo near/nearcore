@@ -896,6 +896,31 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
 }
 
 /// Private to public API conversion.
+/// Returns the head against which `syncing_info` compares peer heights.
+///
+/// Under non-SPICE epochs this is the consensus head (= `chain.head()`),
+/// matching the original behavior. Under SPICE epochs this is
+/// `spice_execution_head`: the consensus head advances even when the
+/// chunk_executor is stuck waiting for state, so comparing peers'
+/// consensus-level `highest_height` against the local consensus head would
+/// hide the executor's lag and never trigger sync. Comparing against the
+/// executor head exposes the lag.
+fn effective_head_for_sync(
+    chain: &near_chain::Chain,
+    consensus_head: &near_primitives::block::Tip,
+) -> Result<near_primitives::block::Tip, near_chain::Error> {
+    let protocol_version =
+        chain.epoch_manager.get_epoch_protocol_version(&consensus_head.epoch_id)?;
+    if !ProtocolFeature::Spice.enabled(protocol_version) {
+        return Ok(consensus_head.clone());
+    }
+    match chain.chain_store().spice_execution_head() {
+        Ok(exec_head) => Ok((*exec_head).clone()),
+        Err(near_chain::Error::DBNotFoundErr(_)) => Ok(consensus_head.clone()),
+        Err(err) => Err(err),
+    }
+}
+
 fn make_peer_info(from: near_network::types::PeerInfo) -> near_client_primitives::types::PeerInfo {
     near_client_primitives::types::PeerInfo {
         id: from.id,
@@ -1652,7 +1677,14 @@ impl ClientActor {
             return Ok(SyncRequirement::AdvHeaderSyncDisabled);
         }
 
-        let head = self.client.chain.head()?;
+        // Under SPICE the consensus head advances independently of execution.
+        // A node whose chunk_executor is stuck waiting for state would still
+        // see `chain.head()` keeping pace with peers — peers' `highest_height`
+        // is the consensus tip — so no sync trigger would fire. Substitute
+        // `spice_execution_head` here so the executor's lag is what's compared
+        // against peer heights. Non-SPICE epochs behave as before.
+        let consensus_head = self.client.chain.head()?;
+        let head = effective_head_for_sync(&self.client.chain, &consensus_head)?;
         let is_syncing = self.client.sync_handler.sync_status.is_syncing();
 
         // Only consider peers whose latest block is not invalid blocks

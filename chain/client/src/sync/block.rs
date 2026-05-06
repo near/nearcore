@@ -3,6 +3,7 @@ use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::BlockKnowledge;
+use near_chain_primitives::error::Error;
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
@@ -10,6 +11,7 @@ use near_o11y::log_assert;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
+use near_primitives::version::ProtocolFeature;
 use rand::seq::IteratorRandom;
 use tracing::instrument;
 
@@ -79,8 +81,10 @@ impl BlockSync {
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "BlockSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
+        let (head_for_state_check, head_is_spice) =
+            effective_head_for_state_sync_trigger(chain, &head)?;
 
-        match self.block_sync_due(&head, &header_head) {
+        match self.block_sync_due(&head, &head_for_state_check, head_is_spice, &header_head) {
             BlockSyncDue::StateSync => {
                 tracing::debug!(target: "sync", "sync: transition to state sync");
                 return Ok(true);
@@ -105,19 +109,33 @@ impl BlockSync {
         Ok(false)
     }
 
-    /// Check if state download is required
-    fn check_state_needed(&self, head: &Tip, header_head: &Tip) -> bool {
+    /// Check if state download is required.
+    ///
+    /// `head_is_spice` is true when the supplied `head` is the SPICE execution
+    /// head rather than the consensus head. Under SPICE the execution head can
+    /// fall behind the consensus head while consensus continues to advance, so
+    /// the lag we actually care about is the executor's lag — and even a
+    /// single epoch of executor lag warrants state sync (block sync wouldn't
+    /// help: we already have the blocks, we need their state). Under non-SPICE
+    /// the same indicator is structurally equivalent and we keep the original
+    /// 2-epoch threshold to avoid switching modes unnecessarily.
+    fn check_state_needed(&self, head: &Tip, head_is_spice: bool, header_head: &Tip) -> bool {
         if self.archive || !self.state_sync_enabled {
             return false;
         }
 
         log_assert!(head.height <= header_head.height);
 
-        // Only if the header head is more than one epoch ahead, then consider State Sync.
-        // block_fetch_horizon is used for testing to prevent test nodes from switching to State Sync too eagerly.
-        let prefer_state_sync = head.epoch_id != header_head.epoch_id
-            && head.next_epoch_id != header_head.epoch_id
-            && head.height.saturating_add(self.block_fetch_horizon) < header_head.height;
+        let prefer_state_sync = if head_is_spice {
+            head.epoch_id != header_head.epoch_id
+                && head.height.saturating_add(self.block_fetch_horizon) < header_head.height
+        } else {
+            // Only if the header head is more than one epoch ahead, then consider State Sync.
+            // block_fetch_horizon is used for testing to prevent test nodes from switching to State Sync too eagerly.
+            head.epoch_id != header_head.epoch_id
+                && head.next_epoch_id != header_head.epoch_id
+                && head.height.saturating_add(self.block_fetch_horizon) < header_head.height
+        };
         if prefer_state_sync {
             tracing::debug!(
                 target: "sync",
@@ -300,10 +318,20 @@ impl BlockSync {
     }
 
     /// Returns whether block sync should request new blocks, wait, or
-    /// yield to state sync. Checks `state_needed` first, then delegates
-    /// to `block_request_due()` for the timeout/head-freshness check.
-    fn block_sync_due(&self, head: &Tip, header_head: &Tip) -> BlockSyncDue {
-        if self.check_state_needed(head, header_head) {
+    /// yield to state sync. Checks `state_needed` first against
+    /// `head_for_state_check` (which under SPICE is the executor head, not
+    /// the consensus head — see `effective_head_for_state_sync_trigger`),
+    /// then delegates to `block_request_due()` for the timeout / head-freshness
+    /// check (which uses the consensus head, since that's what tracks block
+    /// download progress).
+    fn block_sync_due(
+        &self,
+        head: &Tip,
+        head_for_state_check: &Tip,
+        head_is_spice: bool,
+        header_head: &Tip,
+    ) -> BlockSyncDue {
+        if self.check_state_needed(head_for_state_check, head_is_spice, header_head) {
             return BlockSyncDue::StateSync;
         }
         self.block_request_due(head)
@@ -345,4 +373,35 @@ enum BlockSyncDue {
     WaitForBlock,
     /// Too far behind, drop BlockSync and do StateSync instead.
     StateSync,
+}
+
+/// Returns the head to compare against `header_head` when deciding whether
+/// state sync should fire, plus a flag indicating whether SPICE-specific
+/// trigger semantics apply.
+///
+/// Under non-SPICE epochs the consensus head and the post-execution head are
+/// the same value (`chain.head()` only advances when blocks are applied). So
+/// the existing `head` is the right comparison point and the original 2-epoch
+/// threshold remains correct.
+///
+/// Under SPICE epochs the consensus head advances independently of execution.
+/// A validator that lacks state for a newly-assigned shard sees its
+/// `spice_execution_head` stall while the consensus head keeps moving with the
+/// network — `head` and `header_head` would stay close, and state sync would
+/// never trigger. Using `spice_execution_head` here makes the executor's lag
+/// visible to `check_state_needed`. The SPICE flag also relaxes the lag
+/// threshold from "2 epochs" to "1 epoch": block sync can't fix executor lag,
+/// so as soon as we're a full epoch behind in execution we want state sync.
+fn effective_head_for_state_sync_trigger(chain: &Chain, head: &Tip) -> Result<(Tip, bool), Error> {
+    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+    if !ProtocolFeature::Spice.enabled(protocol_version) {
+        return Ok((head.clone(), false));
+    }
+    match chain.chain_store().spice_execution_head() {
+        Ok(exec_head) => Ok(((*exec_head).clone(), true)),
+        // No execution head yet (e.g. fresh node still bootstrapping). Fall
+        // back to the consensus head; state sync isn't applicable yet anyway.
+        Err(Error::DBNotFoundErr(_)) => Ok((head.clone(), false)),
+        Err(err) => Err(err),
+    }
 }
