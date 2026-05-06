@@ -66,6 +66,16 @@ neard --home "$SEED_DIR" localnet \
 # docker DNS service names (validator0..validatorN-1). public_addrs is
 # emptied so peer discovery doesn't latch onto the random reserved address
 # `neard localnet` writes by default.
+#
+# We also lower `consensus.min_num_peers` so the chain keeps producing
+# blocks when one validator is byzantine or offline — essential for the
+# bounty workflow where a reporter's override binary may be a stub or a
+# misbehaving variant. `neard localnet`'s default is N-1 (every node
+# expects every other), which stalls the chain on a single failure.
+# N-2 lets one validator drop without freezing consensus; floor at 0 for
+# N=1 / N=2 where no value of min_num_peers can rescue the network anyway.
+min_peers=$(( NUM_VALIDATORS > 2 ? NUM_VALIDATORS - 2 : 0 ))
+
 for i in $(seq 0 $((NUM_VALIDATORS - 1))); do
     boot_nodes=""
     for j in $(seq 0 $((NUM_VALIDATORS - 1))); do
@@ -81,10 +91,11 @@ for i in $(seq 0 $((NUM_VALIDATORS - 1))); do
         rpc_patch='.'
     fi
 
-    jq --arg bn "$boot_nodes" \
+    jq --arg bn "$boot_nodes" --argjson mp "$min_peers" \
         ".network.addr = \"0.0.0.0:24567\"
          | .network.public_addrs = []
          | .network.boot_nodes = \$bn
+         | .consensus.min_num_peers = \$mp
          | $rpc_patch" \
         "$SEED_DIR/node$i/config.json" > "$SEED_DIR/node$i/config.patched.json"
     mv "$SEED_DIR/node$i/config.patched.json" "$SEED_DIR/node$i/config.json"
