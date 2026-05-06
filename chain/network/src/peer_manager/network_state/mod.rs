@@ -1326,7 +1326,7 @@ impl NetworkState {
                 })
                 .collect();
             for t in tasks {
-                t.await.unwrap();
+                let _ = t.await;
             }
             err
         })
@@ -1370,7 +1370,7 @@ impl NetworkState {
                 })
                 .collect();
             for t in tasks {
-                t.await.unwrap();
+                let _ = t.await;
             }
             err
         })
