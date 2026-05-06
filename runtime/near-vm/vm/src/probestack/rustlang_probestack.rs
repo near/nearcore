@@ -5,6 +5,9 @@
 // 2) remove cfg branches for architectures: "uefi", ("sgx" + "fortanix")
 // 3) remove the `#![cfg(not(feature = "mangled-names"))]` because we don't have that feature
 //
+// This is a temporary solution to facilitate the Rust toolchain upgrade. Once
+// protocol versions with NearVM are no longer supported, this file can go.
+//
 // [rust-lang/compiler-builtins]:
 //     https://github.com/rust-lang/compiler-builtins/blob/compiler_builtins-v0.1.124/src/probestack.rs
 
@@ -87,36 +90,9 @@ macro_rules! define_rust_probestack {
     };
 }
 
-#[cfg(all(target_os = "uefi", target_arch = "x86_64"))]
-macro_rules! define_rust_probestack {
-    ($body: expr) => {
-        concat!(
-            "
-            .globl __private_rust_probestack
-        __private_rust_probestack:
-            ",
-            $body
-        )
-    };
-}
-
 // Same as above, but for Mach-O. Note that the triple underscore
 // is deliberate
 #[cfg(target_vendor = "apple")]
-macro_rules! define_rust_probestack {
-    ($body: expr) => {
-        concat!(
-            "
-            .globl ___private_rust_probestack
-        ___private_rust_probestack:
-            ",
-            $body
-        )
-    };
-}
-
-// In UEFI x86 arch, triple underscore is deliberate.
-#[cfg(all(target_os = "uefi", target_arch = "x86"))]
 macro_rules! define_rust_probestack {
     ($body: expr) => {
         concat!(
