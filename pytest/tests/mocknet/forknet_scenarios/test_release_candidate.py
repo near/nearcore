@@ -169,7 +169,10 @@ class TestReleaseCandidate(TestSetup):
         run_remote_cmd(CommandContext(run_cmd_args))
 
     def _schedule_stop_stress_test(self, filter_str, run_at: datetime):
-        # run_at = datetime.now() + timedelta(minutes=delay_minutes)
+        """
+        Schedule a systemd one-shot on the traffic node that stops +
+        reset-failed any units matching `*{filter_str}`.
+        """
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = 'traffic'
         cmd = f'systemctl --user stop "*{filter_str}"; systemctl --user reset-failed "*{filter_str}"'
@@ -181,6 +184,11 @@ class TestReleaseCandidate(TestSetup):
 
     def _schedule_config_change(self, max_block_production_delay,
                                 max_block_wait_delay, run_at: datetime):
+        """
+        Schedule an `update_config` on all nodes that rewrites
+        `consensus.max_block_{production,wait}_delay`. Queued only —
+        takes effect on the next neard restart.
+        """
         cfg = [
             f'consensus.max_block_production_delay={{"secs":{max_block_production_delay[0]},"nanos":{max_block_production_delay[1]}}}',
             f'consensus.max_block_wait_delay={{"secs":{max_block_wait_delay[0]},"nanos":{max_block_wait_delay[1]}}}'
@@ -193,6 +201,10 @@ class TestReleaseCandidate(TestSetup):
         update_config_cmd(CommandContext(cfg_args))
 
     def _schedule_binary_restart(self, idx, run_at: datetime):
+        """
+        Schedule a `force_restart` of neard on all nodes; used to pick up a
+        previously-queued config change.
+        """
         start_nodes_args = copy.deepcopy(self.args)
         start_nodes_args.host_type = 'nodes'
         start_nodes_args.force_restart = True
@@ -202,33 +214,60 @@ class TestReleaseCandidate(TestSetup):
         start_nodes_cmd(CommandContext(start_nodes_args))
 
     def _schedule_looping_stress_test(self):
+        """
+        Schedule a sequence of stress-test iterations on the traffic node,
+        progressively tightening
+        `consensus.max_block_{production,wait}_delay` so we can observe how
+        the network behaves as block time shrinks under the
+        `slow_compile_adversarial` load.
+
+        Per-iteration sequence (`T` = iteration start):
+            T+0   start slow_compile_adversarial.py on traffic
+            T+10  stop the stress test
+            T+12  queue the next config change on all nodes
+                  (queued only — takes effect on the next restart)
+            T+35  restart neard on all nodes (picks up the new config)
+            T+40  next iteration starts (≈5 min settle after restart)
+
+        Iterations are `test_period_minutes = 40` apart; the first starts
+        `self.stress_start_delay_minutes` after network start (90 min).
+
+        Configs swept (max_block_production_delay, max_block_wait_delay):
+            initial (30, 30) → (15, 15) → (7, 7) → (3, 6) → (1.8, 6) seconds.
+
+        With N config entries the loop schedules N+1 stress runs but only N
+        config-change/restart pairs: the first run stresses the initial
+        baseline, the trailing run stresses the final config without
+        changing it further.
+        """
         now = datetime.now()
         max_block_production_delay_to_test = [(15, 0), (7, 0), (3, 0),
                                               (1, 800000000)]
         max_block_wait_delay_to_test = [(15, 0), (7, 0), (6, 0), (6, 0)]
 
-        # time to first run
+        # Per-iteration offsets, in minutes, relative to the iteration start.
         stress_start_delay_minutes = self.stress_start_delay_minutes
-        # time to stop the first test
         stress_stop_delay_minutes = stress_start_delay_minutes + 10
-        # time to first config change. This will only take effect after restarting neard.
         config_change_delay_minutes = stress_stop_delay_minutes + 2
-        # time to restart neard to pickup the new config. We will give the node 25 minutes after stopping the stress test to recover.
         neard_restart_delay_minutes = stress_stop_delay_minutes + 25
-        # then 5 more minutes after the restart to make sure the node is stable before we start the next iteration of the stress test.
         test_period_minutes = 40
 
-        for i, (max_block_production_delay, max_block_wait_delay) in enumerate(
-                zip(max_block_production_delay_to_test,
-                    max_block_wait_delay_to_test)):
+        n = len(max_block_production_delay_to_test)
+        # N+1 stress runs: baseline + one per config change.
+        for i in range(n + 1):
             schedule_id = f"stress-test-{i}"
             self._schedule_slow_compile_stress_test(
                 schedule_id,
-                datetime.now() + timedelta(minutes=stress_start_delay_minutes +
-                                           i * test_period_minutes))
+                now + timedelta(minutes=stress_start_delay_minutes +
+                                i * test_period_minutes))
             self._schedule_stop_stress_test(
                 schedule_id, now + timedelta(minutes=stress_stop_delay_minutes +
                                              i * test_period_minutes))
+
+        # N config-change + restart pairs, slotted between consecutive runs.
+        for i, (max_block_production_delay, max_block_wait_delay) in enumerate(
+                zip(max_block_production_delay_to_test,
+                    max_block_wait_delay_to_test)):
             self._schedule_config_change(
                 max_block_production_delay, max_block_wait_delay,
                 now + timedelta(minutes=config_change_delay_minutes +
