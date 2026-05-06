@@ -445,6 +445,8 @@ impl WasmtimeVM {
                 // Winch on x86_64 (production); Cranelift elsewhere
                 // (e.g. aarch64 development environment) since Winch on
                 // aarch64 lacks wide-arithmetic support in wasmtime 45.
+                // TODO: drop the Cranelift fallback once a wasmtime release
+                // adds wide-arithmetic to Winch on aarch64.
                 .strategy(if cfg!(target_arch = "x86_64") {
                     Strategy::Winch
                 } else {
