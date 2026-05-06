@@ -346,6 +346,16 @@ pub struct ShardStateSyncResponseV4 {
     pub part: Option<(u64, StatePart)>,
 }
 
+/// V5 carries a SPICE-anchored header (`ShardStateSyncResponseHeaderV3`).
+/// Same `part` shape as V4 — every SPICE-enabled epoch is past
+/// `ProtocolFeature::StatePartsCompression`, so the versioned `StatePart` is
+/// always available.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ShardStateSyncResponseV5 {
+    pub header: Option<ShardStateSyncResponseHeaderV3>,
+    pub part: Option<(u64, StatePart)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -354,6 +364,7 @@ pub enum ShardStateSyncResponse {
     V2(ShardStateSyncResponseV2) = 1,
     V3(ShardStateSyncResponseV3) = 2,
     V4(ShardStateSyncResponseV4) = 3,
+    V5(ShardStateSyncResponseV5) = 4,
 }
 
 impl ShardStateSyncResponse {
@@ -389,12 +400,23 @@ impl ShardStateSyncResponse {
         Self::V3(ShardStateSyncResponseV3 { header, part, cached_parts: None, can_generate: false })
     }
 
+    /// Constructs a SPICE-anchored response (V5) from a V3 header.
+    pub fn new_spice_from_header(header: Option<ShardStateSyncResponseHeaderV3>) -> Self {
+        Self::V5(ShardStateSyncResponseV5 { header, part: None })
+    }
+
+    /// Constructs a SPICE-anchored response (V5) from a state part.
+    pub fn new_spice_from_part(part: Option<(u64, StatePart)>) -> Self {
+        Self::V5(ShardStateSyncResponseV5 { header: None, part })
+    }
+
     pub fn take_header(self) -> Option<ShardStateSyncResponseHeader> {
         match self {
             Self::V1(response) => response.header.map(ShardStateSyncResponseHeader::V1),
             Self::V2(response) => response.header.map(ShardStateSyncResponseHeader::V2),
             Self::V3(response) => response.header.map(ShardStateSyncResponseHeader::V2),
             Self::V4(response) => response.header.map(ShardStateSyncResponseHeader::V2),
+            Self::V5(response) => response.header.map(ShardStateSyncResponseHeader::V3),
         }
     }
 
@@ -404,6 +426,7 @@ impl ShardStateSyncResponse {
             Self::V2(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
             Self::V3(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
             Self::V4(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
+            Self::V5(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
         }
     }
 
@@ -419,6 +442,7 @@ impl ShardStateSyncResponse {
                 response.part.map(|(idx, part)| (idx, StatePart::V0(StatePartV0(part))))
             }
             Self::V4(response) => response.part,
+            Self::V5(response) => response.part,
         }
     }
 
@@ -428,6 +452,7 @@ impl ShardStateSyncResponse {
             Self::V2(response) => response.part.as_ref().map(|(_, part)| part.len()),
             Self::V3(response) => response.part.as_ref().map(|(_, part)| part.len()),
             Self::V4(response) => response.part.as_ref().map(|(_, part)| part.payload_length()),
+            Self::V5(response) => response.part.as_ref().map(|(_, part)| part.payload_length()),
         }
     }
 }
