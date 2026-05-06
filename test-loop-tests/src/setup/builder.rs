@@ -105,9 +105,18 @@ impl TestLoopBuilder {
     /// Wire each node's chunk executor with a `SpiceReceiptStub` that copies
     /// missing receipt proofs from peer nodes' stores. Required for SPICE state
     /// sync tests until the production T2 receipt pull lands in PR 2/3.
-    #[cfg(feature = "test_features")]
-    pub(crate) fn with_spice_receipt_stub(mut self) -> Self {
-        self.spice_receipt_stub = true;
+    ///
+    /// No-op when `test_features` is disabled: tests can call this
+    /// unconditionally and have it become a no-op in non-test builds (the stub
+    /// itself only exists under `test_features`).
+    pub(crate) fn with_spice_receipt_stub(self) -> Self {
+        #[cfg(feature = "test_features")]
+        {
+            let mut this = self;
+            this.spice_receipt_stub = true;
+            return this;
+        }
+        #[allow(unreachable_code)]
         self
     }
 

@@ -155,7 +155,12 @@ fn assert_all_nodes_advanced(env: &TestLoopEnv, min_height: BlockHeight) {
 // Basic shard shuffling: 2 validators, 2 shards, no chunk drops.
 // With exactly 1 chunk producer per shard, any state sync failure causes a chain stall.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice): the V3 state-sync wire format and verifier are in place, but the
+// trigger that starts state sync when a SPICE chunk_executor is assigned to a
+// new shard at an epoch boundary is missing. Today `should_state_sync` only
+// fires on header-head lag; under SPICE the consensus head advances normally
+// while the executor stalls waiting for state. Un-ignore once the trigger
+// lands.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_two_node() {
     init_test_logger();
@@ -175,6 +180,7 @@ fn test_state_sync_simple_two_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .with_spice_receipt_stub()
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
@@ -185,7 +191,7 @@ fn test_state_sync_simple_two_node() {
 // have 2 chunk producers. A single node failing to state sync won't stall the chain (the
 // other producer covers), so we explicitly verify all nodes advanced.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice): see test_state_sync_simple_two_node — same trigger gap.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_five_node() {
     init_test_logger();
@@ -205,6 +211,7 @@ fn test_state_sync_simple_five_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .with_spice_receipt_stub()
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
@@ -218,7 +225,7 @@ fn test_state_sync_simple_five_node() {
 // 2 validators, 4 shards, no extra accounts. With only validator + "near" accounts,
 // at least one shard will be empty. Tests state syncing a shard with no account data.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice): see test_state_sync_simple_two_node — same trigger gap.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_empty_shard() {
     init_test_logger();
@@ -238,6 +245,7 @@ fn test_state_sync_empty_shard() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .with_spice_receipt_stub()
         .build();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
