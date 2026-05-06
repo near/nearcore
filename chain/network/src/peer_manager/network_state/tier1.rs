@@ -117,7 +117,9 @@ impl super::NetworkState {
                 });
                 let mut node_ips = vec![];
                 for q in queries {
-                    node_ips.extend(q.await.unwrap());
+                    if let Ok(ips) = q.await {
+                        node_ips.extend(ips);
+                    }
                 }
                 // Check that we have received non-zero responses and that they are consistent.
                 if node_ips.is_empty() {

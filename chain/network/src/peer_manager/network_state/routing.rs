@@ -38,7 +38,7 @@ impl NetworkState {
         transport: Arc<dyn NetworkTransport>,
     ) {
         let this = self.clone();
-        self.spawn("add_accounts", async move {
+        let _ = self.spawn("add_accounts", async move {
             let new_accounts = this.account_announcements.add_accounts(accounts);
             tracing::debug!(target: "network", account_id = ?this.config.validator.account_id(), ?new_accounts, "received new accounts");
             #[cfg(test)]
@@ -46,7 +46,7 @@ impl NetworkState {
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts,
             ), &*transport);
-        }).await.unwrap()
+        }).await;
     }
 
     /// Constructs a partial edge to the given peer with the nonce specified.

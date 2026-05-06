@@ -332,9 +332,10 @@ impl NetworkState {
     }
 
     /// Spawn a future on the runtime which has the same lifetime as the NetworkState instance.
-    /// In particular if the future contains the NetworkState handler, it will be run until
-    /// completion. It is safe to self.spawn(...).await.unwrap(), since runtime will be kept alive
-    /// by the reference to self.
+    /// During normal operation a captured `Arc<NetworkState>` keeps the runtime alive, so the
+    /// returned receiver resolves to the future's output. On `ActorSystem` shutdown the runtime
+    /// is cancelled and the receiver may resolve to `Err(RecvError)`; callers should treat
+    /// that as a no-op rather than `.unwrap()`-ing.
     ///
     /// It should be used to make the public methods cancellable: you spawn the
     /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
@@ -1330,7 +1331,8 @@ impl NetworkState {
             err
         })
         .await
-        .unwrap()
+        .ok()
+        .flatten()
     }
 
     pub async fn add_snapshot_hosts(
@@ -1373,7 +1375,8 @@ impl NetworkState {
             err
         })
         .await
-        .unwrap()
+        .ok()
+        .flatten()
     }
 
     /// a) there is a peer we should be connected to, but we aren't
