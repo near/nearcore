@@ -9,7 +9,8 @@ use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
 use near_chain_primitives::error::{Error, LogTransientStorageError};
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::Tip;
+use near_primitives::block::{BlockHeader, Tip};
+use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
@@ -18,9 +19,14 @@ use near_primitives::sharding::{
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
-    StateHeaderKey, StatePartKey, get_num_state_parts,
+    ShardStateSyncResponseHeaderV3, StateHeaderKey, StatePartKey, get_num_state_parts,
 };
-use near_primitives::types::ShardId;
+use near_primitives::stateless_validation::spice_chunk_endorsement::{
+    SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
+};
+use near_primitives::types::{ChunkExecutionResult, ShardId, SpiceChunkId};
+use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::RequestedStatePartsView;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
@@ -82,6 +88,12 @@ impl ChainStateSyncAdapter {
         let shard_ids = self.epoch_manager.shard_ids(sync_block_epoch_id)?;
         if !shard_ids.contains(&shard_id) {
             return Err(shard_id_out_of_bounds(shard_id));
+        }
+
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(sync_block_epoch_id)?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            return self.compute_spice_state_response_header(shard_id, sync_block_header);
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
@@ -250,6 +262,86 @@ impl ChainStateSyncAdapter {
         Ok(ShardStateSyncResponseHeader::V2(shard_state_header))
     }
 
+    /// Computes a V3 state-sync response header for SPICE epochs.
+    ///
+    /// Anchors on the certified execution result (CER) for `(sync_prev, shard_id)` rather
+    /// than on chunk-header fields. The caller's `is_spice_sync_hash_satisfied` gating
+    /// guarantees the CER is on disk by the time a sync hash is observable.
+    fn compute_spice_state_response_header(
+        &self,
+        shard_id: ShardId,
+        sync_block_header: &BlockHeader,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        let sync_prev_hash = *sync_block_header.prev_hash();
+        let sync_prev_header = self.chain_store.get_block_header(&sync_prev_hash)?;
+
+        let execution_results_key = get_execution_results_key(&sync_prev_hash, shard_id);
+        let execution_result: Arc<ChunkExecutionResult> = self
+            .chain_store
+            .store_ref()
+            .caching_get_ser(DBCol::execution_results(), &execution_results_key)
+            .ok_or_else(|| {
+                Error::Other(format!(
+                    "missing execution result for sync_prev={sync_prev_hash} shard={shard_id} \
+                     (sync hash invariant should have prevented this)"
+                ))
+            })?;
+
+        let endorsements = self.collect_spice_endorsements_for_chunk(
+            &sync_prev_header,
+            &sync_prev_hash,
+            shard_id,
+        )?;
+
+        let state_root_node = self.runtime_adapter.get_state_root_node(
+            shard_id,
+            &sync_prev_hash,
+            execution_result.chunk_extra.state_root(),
+        )?;
+
+        Ok(ShardStateSyncResponseHeader::V3(ShardStateSyncResponseHeaderV3 {
+            block_hash: sync_prev_hash,
+            execution_result: (*execution_result).clone(),
+            endorsements,
+            state_root_node,
+        }))
+    }
+
+    /// Reads the endorsements that the core writer recorded for a certified
+    /// chunk and turns them back into `SpiceEndorsementCoreStatement`s suitable
+    /// for inclusion in a V3 response.
+    fn collect_spice_endorsements_for_chunk(
+        &self,
+        sync_prev_header: &BlockHeader,
+        sync_prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Vec<SpiceEndorsementCoreStatement>, Error> {
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            sync_prev_header.epoch_id(),
+            shard_id,
+            sync_prev_header.height(),
+        )?;
+        let chunk_id = SpiceChunkId { block_hash: *sync_prev_hash, shard_id };
+        let mut endorsements = Vec::new();
+        for (account_id, _stake) in chunk_validator_assignments.assignments() {
+            let key = get_endorsements_key(sync_prev_hash, shard_id, account_id);
+            let Some(stored): Option<SpiceStoredVerifiedEndorsement> =
+                self.chain_store.store_ref().get_ser(DBCol::endorsements(), &key)
+            else {
+                continue;
+            };
+            let SpiceCoreStatement::Endorsement(endorsement) =
+                stored.into_core_statement(chunk_id.clone(), account_id.clone())
+            else {
+                unreachable!(
+                    "SpiceStoredVerifiedEndorsement always becomes an Endorsement statement"
+                );
+            };
+            endorsements.push(endorsement);
+        }
+        Ok(endorsements)
+    }
+
     /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
     /// If the header is already available in the DB, returns the cached version and doesn't recompute it.
     /// If the header was computed then it also gets cached in the DB.
@@ -309,14 +401,30 @@ impl ChainStateSyncAdapter {
             return Err(shard_id_out_of_bounds(shard_id));
         }
         let prev_block = self.chain_store.get_block(header.prev_hash())?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = prev_block
-            .chunks()
-            .get(shard_index)
-            .ok_or(Error::InvalidShardId(shard_id))?
-            .prev_state_root();
         let prev_hash = *prev_block.hash();
         let prev_prev_hash = *prev_block.header().prev_hash();
+        let state_root = if ProtocolFeature::Spice.enabled(protocol_version) {
+            // V6 chunk headers carry placeholder prev_state_root; the authoritative
+            // state root for the post-execution state lives in the CER.
+            let key = get_execution_results_key(&prev_hash, shard_id);
+            let execution_result: Arc<ChunkExecutionResult> = self
+                .chain_store
+                .store_ref()
+                .caching_get_ser(DBCol::execution_results(), &key)
+                .ok_or_else(|| {
+                    Error::Other(format!(
+                        "missing execution result for sync_prev={prev_hash} shard={shard_id}"
+                    ))
+                })?;
+            *execution_result.chunk_extra.state_root()
+        } else {
+            let shard_index = shard_layout.get_shard_index(shard_id)?;
+            prev_block
+                .chunks()
+                .get(shard_index)
+                .ok_or(Error::InvalidShardId(shard_id))?
+                .prev_state_root()
+        };
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &prev_hash, &state_root)
