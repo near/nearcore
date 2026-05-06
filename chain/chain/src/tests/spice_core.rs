@@ -1,5 +1,6 @@
 use crate::spice_core::{
-    SpiceCoreReader, find_newly_certified_block_hashes, record_uncertified_chunks_for_block,
+    SpiceCoreReader, VerifyEndorsementQuorumError, find_newly_certified_block_hashes,
+    record_uncertified_chunks_for_block, verify_endorsement_quorum_for_certified_execution_result,
 };
 use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
@@ -25,7 +26,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::spice_chunk_endorsement::testonly_create_endorsement_core_statement;
 use near_primitives::stateless_validation::spice_chunk_endorsement::{
-    SpiceChunkEndorsement, SpiceEndorsementSignedData, SpiceVerifiedEndorsement,
+    SpiceChunkEndorsement, SpiceEndorsementCoreStatement, SpiceEndorsementSignedData,
+    SpiceVerifiedEndorsement,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -1622,4 +1624,198 @@ fn test_find_newly_certified_full_certification() {
     ]);
     let result = find_newly_certified_block_hashes(&uncertified, &statements);
     assert_eq!(result, vec![block_a]);
+}
+
+/// Helpers for verify_endorsement_quorum_for_certified_execution_result tests.
+fn endorsement_core_statement_for(
+    validator: &str,
+    block: &Block,
+    chunk_header: &ShardChunkHeader,
+) -> SpiceEndorsementCoreStatement {
+    let endorsement = test_chunk_endorsement(validator, block, chunk_header);
+    let core_statement = endorsement_into_core_statement(endorsement);
+    let SpiceCoreStatement::Endorsement(endorsement) = core_statement else {
+        unreachable!("test_chunk_endorsement always produces an Endorsement core statement");
+    };
+    endorsement
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_verify_endorsement_quorum_happy_path() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() };
+    let execution_result = test_execution_result_for_chunk(chunk_header);
+
+    let endorsements: Vec<_> = test_validators()
+        .iter()
+        .map(|v| endorsement_core_statement_for(v, &block, chunk_header))
+        .collect();
+
+    verify_endorsement_quorum_for_certified_execution_result(
+        chain.epoch_manager.as_ref(),
+        &chunk_id,
+        &execution_result,
+        &endorsements,
+        block.header().height(),
+        block.header().epoch_id(),
+    )
+    .unwrap();
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_verify_endorsement_quorum_insufficient_stake() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() };
+    let execution_result = test_execution_result_for_chunk(chunk_header);
+
+    // One endorser out of four — well below 2/3 stake threshold.
+    let endorsements =
+        vec![endorsement_core_statement_for(&test_validators()[0], &block, chunk_header)];
+
+    let err = verify_endorsement_quorum_for_certified_execution_result(
+        chain.epoch_manager.as_ref(),
+        &chunk_id,
+        &execution_result,
+        &endorsements,
+        block.header().height(),
+        block.header().epoch_id(),
+    )
+    .unwrap_err();
+    assert_matches!(err, VerifyEndorsementQuorumError::InsufficientStake);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_verify_endorsement_quorum_invalid_signature() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() };
+    let execution_result = test_execution_result_for_chunk(chunk_header);
+
+    // Build an endorsement with a forged signature: keep test0's account_id but
+    // sign the data with test1's signer. verified_signed_data should reject it.
+    let signer_other = create_test_signer("test1");
+    let signed_data = SpiceEndorsementSignedData {
+        execution_result_hash: execution_result.compute_hash(),
+        chunk_id: chunk_id.clone(),
+    };
+    let signature =
+        signer_other.sign_bytes(&borsh::to_vec(&(&signed_data, "SpiceChunkEndorsement")).unwrap());
+    let forged = testonly_create_endorsement_core_statement(
+        "test0".parse().unwrap(),
+        signature,
+        signed_data,
+    );
+
+    let err = verify_endorsement_quorum_for_certified_execution_result(
+        chain.epoch_manager.as_ref(),
+        &chunk_id,
+        &execution_result,
+        &[forged],
+        block.header().height(),
+        block.header().epoch_id(),
+    )
+    .unwrap_err();
+    assert_matches!(err, VerifyEndorsementQuorumError::InvalidSignature(_));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_verify_endorsement_quorum_result_hash_mismatch() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() };
+
+    let endorsements: Vec<_> = test_validators()
+        .iter()
+        .map(|v| endorsement_core_statement_for(v, &block, chunk_header))
+        .collect();
+
+    // Pass a different execution result than the one the endorsements signed.
+    let other_result = invalid_execution_result_for_chunk(chunk_header);
+    let err = verify_endorsement_quorum_for_certified_execution_result(
+        chain.epoch_manager.as_ref(),
+        &chunk_id,
+        &other_result,
+        &endorsements,
+        block.header().height(),
+        block.header().epoch_id(),
+    )
+    .unwrap_err();
+    assert_matches!(err, VerifyEndorsementQuorumError::ResultHashMismatch(_));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_verify_endorsement_quorum_duplicate_endorsement() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() };
+    let execution_result = test_execution_result_for_chunk(chunk_header);
+
+    let endorsement = endorsement_core_statement_for(&test_validators()[0], &block, chunk_header);
+    let endorsements = vec![endorsement.clone(), endorsement];
+
+    let err = verify_endorsement_quorum_for_certified_execution_result(
+        chain.epoch_manager.as_ref(),
+        &chunk_id,
+        &execution_result,
+        &endorsements,
+        block.header().height(),
+        block.header().epoch_id(),
+    )
+    .unwrap_err();
+    assert_matches!(err, VerifyEndorsementQuorumError::DuplicateEndorsement(_));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_verify_endorsement_quorum_chunk_id_mismatch() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let execution_result = test_execution_result_for_chunk(chunk_header);
+
+    let endorsements: Vec<_> = test_validators()
+        .iter()
+        .map(|v| endorsement_core_statement_for(v, &block, chunk_header))
+        .collect();
+
+    // Pass a chunk_id with the same shard but a different block_hash than what
+    // the endorsements signed for. The validator-assignment lookup still
+    // succeeds (same shard, same epoch), so we exercise the per-endorsement
+    // chunk_id check rather than an earlier epoch-manager error.
+    let mismatched_chunk_id =
+        SpiceChunkId { block_hash: *genesis.hash(), shard_id: chunk_header.shard_id() };
+    let err = verify_endorsement_quorum_for_certified_execution_result(
+        chain.epoch_manager.as_ref(),
+        &mismatched_chunk_id,
+        &execution_result,
+        &endorsements,
+        block.header().height(),
+        block.header().epoch_id(),
+    )
+    .unwrap_err();
+    assert_matches!(err, VerifyEndorsementQuorumError::ChunkIdMismatch { .. });
 }

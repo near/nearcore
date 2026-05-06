@@ -15,7 +15,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
-    ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    EpochId, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -660,4 +660,94 @@ pub fn get_last_certified_block_header(
         );
         Ok(header)
     }
+}
+
+/// Reasons why a certified-execution-result bundle (a CER plus the endorsements
+/// claimed to satisfy quorum on it) fails verification on the requester side.
+#[derive(Debug, thiserror::Error)]
+pub enum VerifyEndorsementQuorumError {
+    #[error("epoch manager error: {0}")]
+    EpochError(#[from] near_primitives::errors::EpochError),
+    #[error("endorsement chunk_id {got:?} does not match expected {expected:?}")]
+    ChunkIdMismatch { got: SpiceChunkId, expected: SpiceChunkId },
+    #[error("endorsement account_id {0} is not in the chunk validator assignment for this shard")]
+    NotInChunkValidatorAssignment(AccountId),
+    #[error("invalid endorsement signature from {0}")]
+    InvalidSignature(AccountId),
+    #[error("endorsement execution_result_hash from {0} does not match certified result")]
+    ResultHashMismatch(AccountId),
+    #[error("duplicate endorsement from {0}")]
+    DuplicateEndorsement(AccountId),
+    #[error("endorsements do not satisfy quorum stake")]
+    InsufficientStake,
+}
+
+/// Verifies that the supplied endorsements are valid signatures over
+/// `execution_result` from members of the chunk's validator assignment, and
+/// that their combined stake satisfies the quorum threshold.
+///
+/// On success the caller may treat `execution_result` (and in particular its
+/// `chunk_extra` and `outgoing_receipts_root`) as trusted relative to the epoch
+/// validator set.
+///
+/// This is the requester-side analogue of the per-endorsement and quorum logic
+/// inside `Chain::validate_core_statements_in_block`. The block-level path
+/// keeps its current shape; the two share `compute_endorsement_state` and the
+/// signature-check pattern but differ in surrounding bookkeeping.
+pub fn verify_endorsement_quorum_for_certified_execution_result(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_id: &SpiceChunkId,
+    execution_result: &ChunkExecutionResult,
+    endorsements: &[SpiceEndorsementCoreStatement],
+    block_height: BlockHeight,
+    epoch_id: &EpochId,
+) -> Result<(), VerifyEndorsementQuorumError> {
+    use VerifyEndorsementQuorumError::*;
+
+    let chunk_validator_assignments =
+        epoch_manager.get_chunk_validator_assignments(epoch_id, chunk_id.shard_id, block_height)?;
+    let assigned_accounts: HashSet<&AccountId> = chunk_validator_assignments
+        .assignments()
+        .iter()
+        .map(|(account_id, _)| account_id)
+        .collect();
+
+    let expected_result_hash = execution_result.compute_hash();
+    let mut signatures: HashMap<&AccountId, Signature> = HashMap::new();
+
+    for endorsement in endorsements {
+        if endorsement.chunk_id() != chunk_id {
+            return Err(ChunkIdMismatch {
+                got: endorsement.chunk_id().clone(),
+                expected: chunk_id.clone(),
+            });
+        }
+
+        let account_id = endorsement.account_id();
+        if !assigned_accounts.contains(account_id) {
+            return Err(NotInChunkValidatorAssignment(account_id.clone()));
+        }
+
+        let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
+
+        let Some((signed_data, signature)) =
+            endorsement.verified_signed_data(validator.public_key())
+        else {
+            return Err(InvalidSignature(account_id.clone()));
+        };
+
+        if signed_data.execution_result_hash != expected_result_hash {
+            return Err(ResultHashMismatch(account_id.clone()));
+        }
+
+        if signatures.insert(account_id, signature.clone()).is_some() {
+            return Err(DuplicateEndorsement(account_id.clone()));
+        }
+    }
+
+    let endorsement_state = chunk_validator_assignments.compute_endorsement_state(signatures);
+    if !endorsement_state.is_endorsed {
+        return Err(InsufficientStake);
+    }
+    Ok(())
 }
