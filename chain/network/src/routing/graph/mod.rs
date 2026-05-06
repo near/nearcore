@@ -5,10 +5,11 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use ::time::ext::InstantExt as _;
 use arc_swap::ArcSwap;
+use near_async::ActorSystem;
 use near_async::messaging::{Actor, CanSendAsync, Handler};
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::time;
 use near_async::time::Clock;
-use near_async::{new_owned_multithread_actor, time};
 use near_primitives::network::PeerId;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
@@ -348,10 +349,10 @@ pub(crate) struct Graph {
 }
 
 impl Graph {
-    pub fn new(clock: Clock, config: GraphConfig) -> Arc<Self> {
+    pub fn new(clock: Clock, config: GraphConfig, actor_system: &ActorSystem) -> Arc<Self> {
         Arc::new_cyclic(|weak| {
             let weak = weak.clone();
-            let updater = new_owned_multithread_actor(1, move || GraphActor {
+            let updater = actor_system.spawn_multithread_actor(1, move || GraphActor {
                 clock: clock.clone(),
                 graph: weak.clone(),
                 inner: Inner {

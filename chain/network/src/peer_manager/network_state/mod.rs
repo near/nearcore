@@ -47,9 +47,10 @@ use crate::types::{
 };
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
+use near_async::ActorSystem;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
-use near_async::{new_owned_future_spawner, time};
+use near_async::time;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -263,6 +264,7 @@ impl From<&connection::Connection> for PeerDisconnectInfo {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
+        actor_system: &ActorSystem,
         future_spawner: &dyn FutureSpawner,
         store: store::Store,
         peer_store: peer_store::PeerStore,
@@ -278,7 +280,7 @@ impl NetworkState {
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
         Self {
-            ops_spawner: new_owned_future_spawner("NetworkState ops"),
+            ops_spawner: actor_system.new_future_spawner("NetworkState ops"),
             graph: crate::routing::Graph::new(
                 clock.clone(),
                 crate::routing::GraphConfig {
@@ -289,6 +291,7 @@ impl NetworkState {
                     max_total_edges: config.routing_graph_max_edges,
                     max_graph_peers: config.routing_graph_max_peers,
                 },
+                actor_system,
             ),
             genesis_id,
             client,

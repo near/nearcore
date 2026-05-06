@@ -164,45 +164,6 @@ impl ActorSystem {
     }
 }
 
-/// Spawns a future spawner that is NOT owned by any ActorSystem.
-/// Rather, the returned FutureSpawner, when dropped, will stop the runtime.
-pub fn new_owned_future_spawner(description: &str) -> Box<dyn FutureSpawner> {
-    Box::new(OwnedFutureSpawner {
-        handle: spawn_tokio_actor(EmptyActor, description.to_string(), CancellationToken::new()),
-    })
-}
-
-/// Spawns a multithreaded actor which is NOT owned by any ActorSystem.
-/// Rather, the returned handle, when dropped, will stop the actor and its runtime.
-pub fn new_owned_multithread_actor<A: Actor + Send + 'static>(
-    num_threads: usize,
-    make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
-) -> MultithreadRuntimeHandle<A> {
-    let (cancellation_signal, cancellation_receiver) = crossbeam_channel::bounded::<()>(0);
-    spawn_multithread_actor(
-        num_threads,
-        make_actor_fn,
-        cancellation_receiver,
-        Some(cancellation_signal), // never cancelled
-    )
-}
-
-struct OwnedFutureSpawner {
-    handle: TokioRuntimeHandle<EmptyActor>,
-}
-
-impl FutureSpawner for OwnedFutureSpawner {
-    fn spawn_boxed(&self, description: &'static str, f: crate::futures::BoxFuture<'static, ()>) {
-        self.handle.future_spawner().spawn_boxed(description, f);
-    }
-}
-
-impl Drop for OwnedFutureSpawner {
-    fn drop(&mut self) {
-        self.handle.stop();
-    }
-}
-
 /// Used to determine whether shutdown_all_actors is being used properly. If there are multiple
 /// ActorSystems, shutdown_all_actors shall not be used, but instead the test needs to manage
 /// the shutdown of each ActorSystem individually.
@@ -219,5 +180,72 @@ pub fn shutdown_all_actors() {
         if let Some(system) = systems.first() {
             system.stop();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::futures::FutureSpawnerExt;
+    use std::time::{Duration, Instant};
+
+    /// Regression test for the shutdown deadlock that wedged forknet nodes:
+    /// a struct holds a `Box<dyn FutureSpawner>` AND tasks spawned on that
+    /// spawner capture `Arc<Self>` to keep the runtime alive while running.
+    /// That forms an Arc cycle whose only exit is external cancellation.
+    /// `ActorSystem::new_future_spawner` plus `stop()` must break the cycle.
+    #[test]
+    fn actor_system_future_spawner_breaks_self_pin_on_stop() {
+        struct SelfPinning {
+            spawner: Box<dyn FutureSpawner>,
+        }
+
+        let actor_system = ActorSystem::new();
+        let outer =
+            Arc::new(SelfPinning { spawner: actor_system.new_future_spawner("test self-pin") });
+        let weak = Arc::downgrade(&outer);
+
+        let captured = outer.clone();
+        outer.spawner.spawn("self-pin", async move {
+            let _hold = captured;
+            std::future::pending::<()>().await;
+        });
+
+        drop(outer);
+        // The captured clone keeps strong count >= 1.
+        assert!(weak.strong_count() > 0, "spawned task should still hold an Arc clone");
+
+        actor_system.stop();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while weak.strong_count() > 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(weak.strong_count(), 0, "stop() should cancel the task and drop the Arc");
+    }
+
+    /// Same property for multithread actors: tasks running on
+    /// `ActorSystem::spawn_multithread_actor` exit when the system is stopped,
+    /// even if the actor's worker thread closure captured an `Arc<Self>` style
+    /// keepalive (modeled here via `Arc::downgrade` after wiring).
+    #[test]
+    fn actor_system_multithread_actor_breaks_self_pin_on_stop() {
+        struct Holder {
+            _handle: crate::multithread::MultithreadRuntimeHandle<EmptyActor>,
+        }
+
+        let actor_system = ActorSystem::new();
+        let handle = actor_system.spawn_multithread_actor(1, || EmptyActor);
+        let outer = Arc::new(Holder { _handle: handle });
+        let weak = Arc::downgrade(&outer);
+
+        drop(outer);
+        actor_system.stop();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while weak.strong_count() > 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(weak.strong_count(), 0);
     }
 }

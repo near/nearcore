@@ -7,6 +7,7 @@ use crate::network_protocol::Edge;
 use crate::network_protocol::testonly as data;
 use crate::peer_manager::network_state::EdgesWithSource;
 use crate::testonly::make_rng;
+use near_async::ActorSystem;
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
@@ -62,7 +63,7 @@ async fn empty() {
     let node_key = data::make_secret_key(rng);
     let cfg = test_graph_config(peer_id(&node_key));
     let clock = time::FakeClock::default();
-    let g = Graph::new(clock.clock(), cfg);
+    let g = Graph::new(clock.clock(), cfg, &ActorSystem::new());
     g.check(&[]);
 }
 
@@ -76,7 +77,7 @@ async fn one_edge() {
     let rng = &mut rng;
     let node_key = data::make_secret_key(rng);
     let cfg = test_graph_config(peer_id(&node_key));
-    let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
+    let g = Arc::new(Graph::new(clock.clock(), cfg.clone(), &ActorSystem::new()));
 
     let p1 = data::make_secret_key(rng);
     let e1 = data::make_edge(&node_key, &p1, 1);
@@ -125,7 +126,7 @@ async fn expired_edges() {
         prune_edges_after: Some(110 * SEC),
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
+    let g = Arc::new(Graph::new(clock.clock(), cfg.clone(), &ActorSystem::new()));
 
     let p1 = data::make_secret_key(rng);
     let p2 = data::make_secret_key(rng);
@@ -200,7 +201,7 @@ async fn source_cap_enforced() {
         max_graph_peers: 1_000,
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     let source_key = data::make_secret_key(rng);
     let source = peer_id(&source_key);
@@ -239,7 +240,7 @@ async fn source_cap_allows_updates() {
         max_graph_peers: 1_000,
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     let source_key = data::make_secret_key(rng);
     let source = peer_id(&source_key);
@@ -283,7 +284,7 @@ async fn source_cap_accumulates_across_messages() {
         max_graph_peers: 1_000,
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     let source_key = data::make_secret_key(rng);
     let source = peer_id(&source_key);
@@ -329,7 +330,7 @@ async fn global_edge_cap() {
         max_graph_peers: 1_000,
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     // Send edges from multiple sources exceeding global cap.
     for _ in 0..3 {
@@ -370,7 +371,7 @@ async fn global_peer_cap() {
         max_graph_peers: 4,
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     let source_key = data::make_secret_key(rng);
     let source = peer_id(&source_key);
@@ -407,7 +408,7 @@ async fn local_edges_obey_global_caps() {
         max_graph_peers: 1_000,
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     // Local edges should also obey max_total_edges.
     let edges: Vec<Edge> = (0..max_total + 5)
@@ -443,7 +444,7 @@ async fn limit_drops_are_non_punitive() {
         max_graph_peers: 4,
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     let source_key = data::make_secret_key(rng);
     let source = peer_id(&source_key);
@@ -484,7 +485,7 @@ async fn source_budget_recovery_after_prune() {
         prune_edges_after: Some(time::Duration::seconds(60)),
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Arc::new(Graph::new(clock.clock(), cfg, &ActorSystem::new()));
 
     let source_key = data::make_secret_key(rng);
     let source = peer_id(&source_key);
