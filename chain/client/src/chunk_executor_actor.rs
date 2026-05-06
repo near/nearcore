@@ -1154,7 +1154,7 @@ fn new_execution_result(
 
 // We depend on stored receipts for distribution, so we need to store receipt proof and not only
 // Vec<Receipt>.
-pub(crate) fn save_receipt_proof(
+pub fn save_receipt_proof(
     store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
     receipt_proof: &ReceiptProof,
@@ -1176,7 +1176,7 @@ fn set_witness(
     store_update.set(DBCol::witnesses(), &key, &value);
 }
 
-fn get_receipt_proofs_for_shard(
+pub fn get_receipt_proofs_for_shard(
     store: &Store,
     block_hash: &CryptoHash,
     to_shard_id: ShardId,

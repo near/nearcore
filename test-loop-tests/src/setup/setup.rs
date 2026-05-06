@@ -474,7 +474,11 @@ pub fn setup_client(
         Some(spice_data_distributor_adapter),
     );
 
-    test_loop.data.register_actor(identifier, chunk_executor_actor, Some(chunk_executor_adapter));
+    let chunk_executor_sender = test_loop.data.register_actor(
+        identifier,
+        chunk_executor_actor,
+        Some(chunk_executor_adapter),
+    );
 
     let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
         runtime_adapter.store().clone(),
@@ -589,6 +593,7 @@ pub fn setup_client(
         state_sync_dumper_handle,
         spice_data_distributor_sender,
         spice_core_writer_sender,
+        chunk_executor_sender,
         cold_store_sender,
         cloud_storage_sender,
         cloud_archival_writer_handle,
