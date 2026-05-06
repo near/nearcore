@@ -397,9 +397,11 @@ impl Graph {
     /// because just the last edge was invalid. Instead, we accept all the edges verified so
     /// far and return an error only afterwards.
     pub async fn update(&self, edges: Vec<EdgesWithSource>) -> (Vec<Edge>, Vec<bool>) {
-        // On shutdown the GraphActor worker may exit before the request is processed,
-        // returning an `AsyncSendError`. Treat that as "no edges accepted".
-        self.updater.send_async(UpdateEdges(edges)).await.unwrap_or_default()
+        self.updater
+            .send_async(UpdateEdges(edges))
+            .await
+            .inspect_err(|err| tracing::warn!(target: "network", ?err, "GraphActor update dropped, worker unavailable"))
+            .unwrap_or_default()
     }
 }
 

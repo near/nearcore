@@ -46,7 +46,9 @@ impl NetworkState {
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts,
             ), &*transport);
-        }).await;
+        })
+        .await
+        .inspect_err(|err| tracing::debug!(target: "network", ?err, "add_accounts cancelled, likely shutdown"));
     }
 
     /// Constructs a partial edge to the given peer with the nonce specified.

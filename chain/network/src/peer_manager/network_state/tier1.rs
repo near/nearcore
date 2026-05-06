@@ -117,7 +117,7 @@ impl super::NetworkState {
                 });
                 let mut node_ips = vec![];
                 for q in queries {
-                    if let Ok(ips) = q.await {
+                    if let Ok(ips) = q.await.inspect_err(|err| tracing::debug!(target: "network", ?err, "stun lookup_host cancelled")) {
                         node_ips.extend(ips);
                     }
                 }

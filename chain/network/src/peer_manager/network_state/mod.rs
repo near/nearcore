@@ -1326,11 +1326,12 @@ impl NetworkState {
                 })
                 .collect();
             for t in tasks {
-                let _ = t.await;
+                let _ = t.await.inspect_err(|err| tracing::debug!(target: "network", ?err, "send_accounts_data task cancelled"));
             }
             err
         })
         .await
+        .inspect_err(|err| tracing::debug!(target: "network", ?err, "add_accounts_data cancelled, likely shutdown"))
         .ok()
         .flatten()
     }
@@ -1370,11 +1371,12 @@ impl NetworkState {
                 })
                 .collect();
             for t in tasks {
-                let _ = t.await;
+                let _ = t.await.inspect_err(|err| tracing::debug!(target: "network", ?err, "send_snapshot_hosts task cancelled"));
             }
             err
         })
         .await
+        .inspect_err(|err| tracing::debug!(target: "network", ?err, "add_snapshot_hosts cancelled, likely shutdown"))
         .ok()
         .flatten()
     }
