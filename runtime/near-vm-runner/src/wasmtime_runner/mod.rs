@@ -26,9 +26,9 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock, OnceLock};
 use wasmtime::{
-    CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
-    Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig, ResourcesRequired,
-    Store, StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
+    CallHook, Engine, Extern, ExternType, Inlining, Instance, InstanceAllocationStrategy,
+    InstancePre, Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig,
+    ResourcesRequired, Store, StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
 };
 
 mod logic;
@@ -307,7 +307,7 @@ trait IntoVMError {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError>;
 }
 
-impl IntoVMError for anyhow::Error {
+impl IntoVMError for wasmtime::Error {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
         let cause = self.root_cause();
         if let Some(container) = cause.downcast_ref::<ErrorContainer>() {
@@ -432,7 +432,7 @@ impl WasmtimeVM {
                 // > unwinding information which can greatly slow down the module loading/unloading process.
                 // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
                 .native_unwind_info(false)
-                .wasm_backtrace(false)
+                .wasm_backtrace_max_frames(None)
                 .wasm_backtrace_details(WasmBacktraceDetails::Disable)
                 // Disable native -> wasm code address mappings to reduce the generated code size.
                 // This saves around 40% of total size for contracts on mainnet.
@@ -454,7 +454,7 @@ impl WasmtimeVM {
                 .memory_may_move(false)
                 .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
                 .memory_reservation_for_growth(0)
-                .compiler_inlining(true)
+                .compiler_inlining(Inlining::Yes)
                 .cranelift_nan_canonicalization(true)
                 .wasm_wide_arithmetic(true);
 
@@ -991,7 +991,7 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
           $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
         ) => {
             #[allow(unused_parens)]
-            fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+            fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> wasmtime::Result<($( $returns ),*)> {
                 const TRACE: bool = imports::should_trace_host_function(stringify!($name));
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
