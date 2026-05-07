@@ -52,6 +52,10 @@ run_cmd() {
   fi
 }
 
+function have_split_tools {
+  command -v objcopy >/dev/null 2>&1 && command -v strip >/dev/null 2>&1
+}
+
 # Split debug info out of a release binary into a `.debug` sibling file, then
 # strip the original. Adds a gnu-debuglink so gdb auto-finds the debug file
 # when both are alongside each other.
@@ -60,7 +64,7 @@ function split_debug_info {
   if [[ ! -x "${binary_path}" ]]; then
     return 0
   fi
-  if ! command -v objcopy >/dev/null 2>&1 || ! command -v strip >/dev/null 2>&1; then
+  if ! have_split_tools; then
     echo "objcopy/strip not available; skipping debug-info split for ${binary_path}" >&2
     return 0
   fi
@@ -145,7 +149,7 @@ function upload_binary {
 # not on macOS. Without the gate, the env vars below would still apply on
 # macOS and ship a fat unstripped binary. macOS releases stay on the
 # default profile; its toolchain uses dsymutil/.dSYM bundles instead.
-if command -v objcopy >/dev/null 2>&1 && command -v strip >/dev/null 2>&1; then
+if have_split_tools; then
   export CARGO_PROFILE_RELEASE_DEBUG=2
   export CARGO_PROFILE_RELEASE_STRIP=none
   SPLIT_DEBUG_INFO=1
