@@ -526,7 +526,7 @@ fn test_bucket_etl_pass_c_shuffle_places_row_in_child_prefix() {
         &pass_a_path_for_test(scratch.path(), 0x33),
         &[ReceiptExtractRow {
             receipt_id: child_id,
-            receiver_id: receiver.clone(),
+            receiver_id: receiver,
             predecessor_id: AccountId::from_str("ignored.near").unwrap(),
         }],
     )
@@ -945,7 +945,7 @@ fn test_build_receipt_to_tx_info_kernel_byte_equivalence() {
         origin: ReceiptOrigin::FromTransaction(
             near_primitives::receipt::ReceiptOriginTransaction {
                 tx_hash: outcome_id,
-                sender_account_id: sender.clone(),
+                sender_account_id: sender,
             },
         ),
         receiver_account_id: receiver.clone(),
