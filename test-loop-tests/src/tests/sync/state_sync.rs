@@ -31,8 +31,8 @@ use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
 use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -155,14 +155,6 @@ fn assert_all_nodes_advanced(env: &TestLoopEnv, min_height: BlockHeight) {
 // Basic shard shuffling: 2 validators, 2 shards, no chunk drops.
 // With exactly 1 chunk producer per shard, any state sync failure causes a chain stall.
 #[test]
-// TODO(spice): see investigation notes — under SPICE, look-ahead state sync via
-// `add_state_sync_info` at epoch boundaries fires correctly (block 22 logs
-// `shards_to_state_sync=[1]`/[0]), but `run_catchup` then sees no sync hash
-// for the new epoch yet and the chain stalls waiting for blocks to advance
-// far enough into the new epoch for the sync hash to form. The block
-// production stall is the inner blocker; resolving requires either earlier
-// sync hash availability or a different catchup-path under SPICE.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_two_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
@@ -182,6 +174,9 @@ fn test_state_sync_simple_two_node() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .with_spice_receipt_stub()
+        // SPICE V3 state sync is peer-based; skip the test-loop default
+        // external-storage path which doesn't dump V3 headers.
+        .config_modifier(|config, _idx| config.state_sync = StateSyncConfig::default())
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
