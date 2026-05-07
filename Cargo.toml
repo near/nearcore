@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2024"
-rust-version = "1.86.0"
+rust-version = "1.93.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -129,7 +129,7 @@ needless_pass_by_ref_mut = "deny"
 redundant_clone = "deny"
 same_functions_in_if_condition = "deny"
 or_fun_call = "deny"
-unchecked_duration_subtraction = "deny"
+unchecked_time_subtraction = "deny"
 unnecessary_box_returns = "deny"
 unnecessary_join = "deny"
 unnecessary_lazy_evaluations = "deny"

@@ -2,12 +2,42 @@
 
 use std::mem::size_of;
 
+mod sys {
+    #[allow(unused)]
+    extern "C" {
+        pub fn read_register(register_id: u64, ptr: u64);
+        pub fn account_balance(balance_ptr: u64);
+        pub fn attached_deposit(balance_ptr: u64);
+        pub fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: u64);
+        pub fn validator_total_stake(stake_ptr: u64);
+    }
+}
+
+unsafe fn read_register(register_id: u64, ptr: *mut u8) {
+    sys::read_register(register_id, ptr as usize as u64)
+}
+#[allow(unused)]
+unsafe fn account_balance(balance_ptr: *mut u8) {
+    sys::account_balance(balance_ptr as usize as u64)
+}
+#[allow(unused)]
+unsafe fn attached_deposit(balance_ptr: *mut u8) {
+    sys::attached_deposit(balance_ptr as usize as u64)
+}
+#[allow(unused)]
+unsafe fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: *mut u8) {
+    sys::validator_stake(account_id_len, account_id_ptr, stake_ptr as usize as u64)
+}
+#[allow(unused)]
+unsafe fn validator_total_stake(stake_ptr: *mut u8) {
+    sys::validator_total_stake(stake_ptr as usize as u64)
+}
+
 #[allow(unused)]
 extern "C" {
     // #############
     // # Registers #
     // #############
-    fn read_register(register_id: u64, ptr: u64);
     fn register_len(register_id: u64) -> u64;
     // ###############
     // # Context API #
@@ -24,8 +54,6 @@ extern "C" {
     // #################
     // # Economics API #
     // #################
-    fn account_balance(balance_ptr: u64);
-    fn attached_deposit(balance_ptr: u64);
     fn prepaid_gas() -> u64;
     fn used_gas() -> u64;
     // ############
@@ -74,10 +102,26 @@ extern "C" {
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
-    fn promise_batch_action_deploy_global_contract(promise_index: u64, code_len: u64, code_ptr: u64);
-    fn promise_batch_action_deploy_global_contract_by_account_id(promise_index: u64, code_len: u64, code_ptr: u64);
-    fn promise_batch_action_use_global_contract(promise_index: u64, code_hash_len: u64, code_hash_ptr: u64);
-    fn promise_batch_action_use_global_contract_by_account_id(promise_index: u64, account_id_len: u64, account_id_ptr: u64);
+    fn promise_batch_action_deploy_global_contract(
+        promise_index: u64,
+        code_len: u64,
+        code_ptr: u64,
+    );
+    fn promise_batch_action_deploy_global_contract_by_account_id(
+        promise_index: u64,
+        code_len: u64,
+        code_ptr: u64,
+    );
+    fn promise_batch_action_use_global_contract(
+        promise_index: u64,
+        code_hash_len: u64,
+        code_hash_ptr: u64,
+    );
+    fn promise_batch_action_use_global_contract_by_account_id(
+        promise_index: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    );
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -143,11 +187,6 @@ extern "C" {
     fn storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -> u64;
     fn storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -> u64;
     fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
-    // ###############
-    // # Validator API #
-    // ###############
-    fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: u64);
-    fn validator_total_stake(stake_ptr: u64);
     // #################
     // # alt_bn128 API #
     // #################
@@ -159,16 +198,16 @@ extern "C" {
 #[unsafe(no_mangle)]
 pub unsafe fn number_from_input() {
     input(0);
-    let value = [0u8; size_of::<u64>()];
-    read_register(0, value.as_ptr() as u64);
+    let mut value = [0u8; size_of::<u64>()];
+    read_register(0, value.as_mut_ptr());
     value_return(value.len() as u64, &value as *const u8 as u64);
 }
 
 #[unsafe(no_mangle)]
 pub unsafe fn count_sum() {
     input(0);
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
 
     let number_of_numbers = u64::from_le_bytes(data);
 
@@ -177,8 +216,8 @@ pub unsafe fn count_sum() {
     for i in 0..number_of_numbers {
         promise_result(i, 0);
 
-        let data = [0u8; size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
+        let mut data = [0u8; size_of::<u64>()];
+        read_register(0, data.as_mut_ptr());
 
         let number = u64::from_le_bytes(data);
         sum += number;
@@ -192,8 +231,8 @@ pub unsafe fn count_sum() {
 #[unsafe(no_mangle)]
 pub unsafe fn sum_of_numbers() {
     input(0);
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
 
     let number_of_numbers = u64::from_le_bytes(data);
     let mut promise_ids = vec![];
@@ -203,8 +242,8 @@ pub unsafe fn sum_of_numbers() {
         let method_name = "number_from_input".as_bytes();
         let account_id = {
             signer_account_id(0);
-            let result = vec![0; register_len(0) as usize];
-            read_register(0, result.as_ptr() as *const u64 as u64);
+            let mut result = vec![0u8; register_len(0) as usize];
+            read_register(0, result.as_mut_ptr());
             result
         };
         let arguments = i.to_le_bytes();
@@ -227,8 +266,8 @@ pub unsafe fn sum_of_numbers() {
         let method_name = "count_sum".as_bytes();
         let account_id = {
             signer_account_id(0);
-            let result = vec![0; register_len(0) as usize];
-            read_register(0, result.as_ptr() as *const u64 as u64);
+            let mut result = vec![0u8; register_len(0) as usize];
+            read_register(0, result.as_mut_ptr());
             result
         };
         let arguments = number_of_numbers.to_le_bytes();
@@ -254,8 +293,8 @@ pub fn noop() {}
 #[unsafe(no_mangle)]
 pub unsafe fn data_producer() {
     input(0);
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
     let size = u64::from_le_bytes(data);
 
     let data = vec![0u8; size as usize];
@@ -265,14 +304,14 @@ pub unsafe fn data_producer() {
 #[unsafe(no_mangle)]
 pub unsafe fn data_receipt_with_size() {
     input(0);
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
     let size = u64::from_le_bytes(data);
 
-    let buf = [0u8; 1000];
+    let mut buf = [0u8; 1000];
     current_account_id(0);
     let buf_len = register_len(0);
-    read_register(0, buf.as_ptr() as _);
+    read_register(0, buf.as_mut_ptr());
 
     let method_name = b"data_producer";
     let args = size.to_le_bytes();

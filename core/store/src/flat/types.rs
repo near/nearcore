@@ -157,6 +157,7 @@ pub enum FlatStorageCreationStatus {
 /// background and could take significant time.
 /// After all elements have been copied the new flat storages will be behind the chain head. To remediate this issue
 /// they will enter a catching up phase. The parent shard, instead, must be removed and cleaned up.
+#[allow(clippy::large_enum_variant)]
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]

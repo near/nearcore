@@ -116,6 +116,7 @@ fn apply_chunk_from_input(
         .unwrap()
 }
 
+#[allow(clippy::large_enum_variant)]
 /// Result of `get_chunk_application_input` - either input for chunk application or a reason why we can't apply the chunk and should skip it.
 enum ApplicationInputOrSkip {
     Input(ChunkApplicationInput),
