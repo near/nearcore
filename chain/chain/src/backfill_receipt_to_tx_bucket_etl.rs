@@ -42,12 +42,12 @@ use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash};
 use near_store::DBCol;
+use parking_lot::Mutex;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 /// Strict upper bound the SST ingest path enforces; mirrored here so Pass D
 /// rejects any output bucket the Phase 3 ingest would refuse.
@@ -770,7 +770,8 @@ fn pass_b_worker(
     let mut seg = list_existing_segments(scratch, worker);
 
     let marker_interval = opts.marker_block_interval.max(1);
-    let mut last_marker_height = resume_height.unwrap_or(slice_start.saturating_sub(1));
+    let mut last_marker_height =
+        resume_height.unwrap_or_else(|| slice_start.saturating_sub(1));
 
     let mut h = start;
     while h <= slice_end {
@@ -976,11 +977,11 @@ fn pass_c_resolve_parents(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u64)>
 
             for (zz, rows) in local_zz.into_iter().enumerate() {
                 if !rows.is_empty() {
-                    zz_buffers[zz].lock().unwrap().extend(rows);
+                    zz_buffers[zz].lock().extend(rows);
                 }
             }
-            *missing_total.lock().unwrap() += local_missing;
-            *total_rows.lock().unwrap() += local_emitted;
+            *missing_total.lock() += local_missing;
+            *total_rows.lock() += local_emitted;
             Ok(())
         })
     })?;
@@ -992,14 +993,14 @@ fn pass_c_resolve_parents(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u64)>
         if out.exists() {
             return Ok(());
         }
-        let mut rows = std::mem::take(&mut *zz_buffers[zz as usize].lock().unwrap());
+        let mut rows = std::mem::take(&mut *zz_buffers[zz as usize].lock());
         rows.sort_by(|a, b| a.child_id.as_ref().cmp(b.child_id.as_ref()));
         write_bucket(&out, &rows)?;
         Ok(())
     })?;
 
-    let total = *total_rows.lock().unwrap();
-    let missing = *missing_total.lock().unwrap();
+    let total = *total_rows.lock();
+    let missing = *missing_total.lock();
     Ok((total, missing))
 }
 
@@ -1077,14 +1078,14 @@ fn pass_d_final_join(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u64)> {
             let count = validated.len() as u64;
             write_bucket(&out_path, &validated)?;
 
-            *total_rows.lock().unwrap() += count;
-            *missing_children.lock().unwrap() += local_missing;
+            *total_rows.lock() += count;
+            *missing_children.lock() += local_missing;
             Ok(())
         })
     })?;
 
-    let total = *total_rows.lock().unwrap();
-    let missing = *missing_children.lock().unwrap();
+    let total = *total_rows.lock();
+    let missing = *missing_children.lock();
     Ok((total, missing))
 }
 

@@ -166,7 +166,7 @@ impl BackfillReceiptToTxActor {
     /// Halting is permanent for the life of this process: no further
     /// `run_later` is scheduled. An operator restart with the underlying
     /// fault resolved is required to resume backfill.
-    fn record_error_and_maybe_halt(&mut self, e: &anyhow::Error) -> bool {
+    fn record_error_and_maybe_halt(&self, e: &anyhow::Error) -> bool {
         if let Some(BackfillError::ValueDivergence { key, prev_value, new_value }) =
             e.downcast_ref::<BackfillError>()
         {
