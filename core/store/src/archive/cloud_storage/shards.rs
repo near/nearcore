@@ -50,9 +50,10 @@ pub struct ShardDataV1 {
 }
 
 /// Builds a `ShardData` object for the given block height and shard ID by
-/// reading data from the store. Returns `Ok(None)` for skipped slots and
-/// for heights where this shard's chunk is not new (chunk header reused
-/// from an earlier height).
+/// reading data from the store. Returns `Ok(None)` in two cases: there is
+/// no block at `block_height` (skipped slot), or there is a block but its
+/// chunk header for this shard was carried over from an earlier height (no
+/// new chunk to archive at `block_height`).
 pub fn build_shard_data(
     store: &Store,
     genesis_height: BlockHeight,
@@ -76,6 +77,9 @@ pub fn build_shard_data(
             "shard {shard_id} chunk not found in block at height {block_height}"
         )));
     };
+    // `chunk_header` is always present in `block.chunks()` for every shard,
+    // but if it's carried over from an earlier height there is no new chunk
+    // data to archive at this height.
     if !chunk_header.is_new_chunk(block_height) {
         return Ok(None);
     }

@@ -316,6 +316,7 @@ impl CloudArchivalWriter {
         &self,
         batch_range: &BatchRange,
     ) -> Result<(), CloudArchivingError> {
+        // TODO(cloud_archival): support resharding.
         let prev_epoch_end = self.get_local_prev_epoch_end()?;
         let epoch_id = self.epoch_manager.get_next_epoch_id(&prev_epoch_end)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;

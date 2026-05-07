@@ -189,10 +189,10 @@ pub fn find_snapshot_at_or_before(
             return Ok(None);
         }
 
-        // Miss: step to previous epoch. The block at `epoch_start - 1` may
-        // itself be a skipped slot (the chain only guarantees the last two
-        // blocks of an epoch are final, not that they sit at consecutive
-        // heights), so walk down to the nearest present block.
+        // Miss: step to previous epoch. The chain may have skipped slots
+        // between the last block of the previous epoch and the first block
+        // of this one, so `epoch_start - 1` itself may be missing - walk
+        // down to the nearest present block.
         let (_, prev_block) =
             find_present_block_at_or_below(cloud_storage, epoch_start_height - 1)?;
         epoch_id = *prev_block.block().header().epoch_id();

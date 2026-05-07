@@ -47,7 +47,6 @@ pub const CLOUD_SHARD_HEAD_PREFIX: &[u8] = b"CLOUD_SHARD_HEAD:";
 /// (by us or another writer). Drives the next batch range to upload.
 pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
 /// Hash of the last block of the latest epoch the writer has fully archived.
-/// Identifies the epoch preceding `CLOUD_MIN_HEAD`'s epoch in steady state.
 /// GC stops at the start of that epoch.
 pub const CLOUD_PREV_EPOCH_END_KEY: &[u8] = b"CLOUD_PREV_EPOCH_END";
 

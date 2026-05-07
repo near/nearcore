@@ -599,10 +599,9 @@ fn test_cloud_archival_custom_snapshot_cadence() {
     h.shutdown();
 }
 
-/// `find_snapshot_at_or_before` must walk back from one epoch to its
-/// predecessor even when the chain skipped the slot at `epoch_start - 1`.
-/// Drops the block at the height the walk-back probes; the function still
-/// locates the earlier epoch's snapshot.
+/// `find_snapshot_at_or_before` must skip a missing slot at `epoch_start - 1`
+/// when stepping to the previous epoch. The test drops the block at that
+/// height; the function still locates the earlier snapshot.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
@@ -615,7 +614,7 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
         .snapshot_every_n_epochs(2)
         .drop_blocks_at(&[dropped_height])
         .build();
-    h.run_until_epoch(6);
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 3);
     h.assert_snapshots_ok();
 
     let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
