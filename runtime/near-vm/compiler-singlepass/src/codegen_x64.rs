@@ -1075,12 +1075,11 @@ impl<'a> FuncGen<'a> {
         }
 
         // Align stack to 16 bytes.
-        if (self.machine.get_stack_offset()
+        if !(self.machine.get_stack_offset()
             + used_gprs.len() * 8
             + used_xmms.len() * 8
             + stack_offset)
-            % 16
-            != 0
+            .is_multiple_of(16)
         {
             self.assembler.emit_sub(Size::S64, Location::Imm32(8), Location::GPR(GPR::RSP));
             stack_offset += 8;
@@ -1180,7 +1179,7 @@ impl<'a> FuncGen<'a> {
                 Location::Imm32((stack_offset + stack_padding) as u32),
                 Location::GPR(GPR::RSP),
             );
-            if (stack_offset % 8) != 0 {
+            if !stack_offset.is_multiple_of(8) {
                 return Err(CodegenError {
                     message: "emit_call_native: Bad restoring stack alignment".to_string(),
                 });

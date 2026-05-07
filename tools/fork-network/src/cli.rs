@@ -1393,7 +1393,7 @@ impl ForkNetworkCommand {
             let shard_id = shard_layout.get_shard_id(account_prefix_idx).unwrap();
             let num_shards = shard_layout.num_shards();
             assert!(
-                chunk_producers % num_shards == 0,
+                chunk_producers.is_multiple_of(num_shards),
                 "chunk_producers ({}) must be divisible by the number of shards ({})",
                 chunk_producers,
                 num_shards

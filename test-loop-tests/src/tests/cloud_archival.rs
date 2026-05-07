@@ -322,7 +322,7 @@ fn test_cloud_archival_batching_cloud_head_at_batch_boundary() {
     // chain head is ~30, so cloud_head is at a batch boundary below it.
     let head = h.cloud_head();
     let batch_size = CloudArchiveHarness::TEST_BATCH_SIZE as u64;
-    assert!(head <= 27 && (head + 1) % batch_size == 0, "cloud_head: {head}");
+    assert!(head <= 27 && (head + 1).is_multiple_of(batch_size), "cloud_head: {head}");
     h.shutdown();
 }
 
