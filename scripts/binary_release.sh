@@ -137,14 +137,14 @@ function upload_binary {
   done
 }
 
-# Build with full DWARF debug info, then split it into a separate file and
-# strip the binary. The shipped binary stays nearly the same size as before;
-# the .debug sibling is uploaded so post-mortem investigations have symbols.
+# Build with full DWARF, then split debug info into a sibling .debug file
+# and strip the binary. The shipped binary stays roughly release-sized; the
+# .debug sibling uploads alongside for post-mortem symbol resolution.
 #
-# Only do this on platforms where we have GNU objcopy + strip available —
-# otherwise the binary would ship with debug info inline (huge) and unstripped.
-# macOS uses a different toolchain (dsymutil + .dSYM bundles) and is left at
-# the default release profile.
+# Gated on objcopy/strip being available, which holds on Linux runners but
+# not on macOS. Without the gate, the env vars below would still apply on
+# macOS and ship a fat unstripped binary. macOS releases stay on the
+# default profile; its toolchain uses dsymutil/.dSYM bundles instead.
 if command -v objcopy >/dev/null 2>&1 && command -v strip >/dev/null 2>&1; then
   export CARGO_PROFILE_RELEASE_DEBUG=2
   export CARGO_PROFILE_RELEASE_STRIP=none
