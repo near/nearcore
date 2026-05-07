@@ -25,6 +25,7 @@ pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Prov
 
 mod approval_verification;
 pub mod backfill_receipt_to_tx;
+pub mod backfill_receipt_to_tx_bucket_etl;
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
 pub mod chain;
