@@ -193,12 +193,6 @@ impl TryFrom<&ParameterValue> for Balance {
     }
 }
 
-impl From<&ParameterCost> for FeeComponent {
-    fn from(cost: &ParameterCost) -> Self {
-        FeeComponent::GasAndCompute { gas: cost.gas, compute: cost.compute }
-    }
-}
-
 impl TryFrom<&ParameterValue> for Fee {
     type Error = ValueConversionError;
 
