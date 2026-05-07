@@ -581,9 +581,12 @@ fn pass_a_receipts_extract(
                         });
                     }
                     // iter_range delivers in sorted order, so rows are already
-                    // sorted by receipt_id. Belt-and-braces sort to defend against
-                    // future iter changes.
-                    rows.sort_by(|a, b| a.receipt_id.as_ref().cmp(b.receipt_id.as_ref()));
+                    // sorted by receipt_id. Cheap debug_assert keeps a regression
+                    // net without paying for a full sort on every prefix in prod.
+                    debug_assert!(
+                        rows.windows(2).all(|w| w[0].receipt_id.as_ref() < w[1].receipt_id.as_ref()),
+                        "Pass A: iter_range broke its sorted-output contract for prefix {prefix:#04x}"
+                    );
                     let count = rows.len() as u64;
                     write_bucket(&out_path, &rows)?;
                     Ok(acc + count)
