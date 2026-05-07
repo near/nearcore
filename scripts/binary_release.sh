@@ -1,4 +1,5 @@
 #!/bin/bash
+# cspell:words czvf objcopy debuglink
 set -xeo pipefail
 
 release_type="${1:?Release type is required as the first argument}"
@@ -69,7 +70,6 @@ function split_debug_info {
   run_cmd chmod 644 "${binary_path}.debug"
 }
 
-# cspell:words czvf
 function tar_binary {
   local src="$1"
 
@@ -125,8 +125,16 @@ function upload_binary {
   local binary="$1"
   local folder="${release_type%-release}"
 
-  upload_s3 "target/release/${binary}" "${os_and_arch}/${branch}/${folder}/${binary}"
-  upload_s3 "target/release/${binary}" "${os_and_arch}/${branch}/${commit}/${folder}/${binary}"
+  local sources=("target/release/${binary}")
+  local destinations=("${binary}")
+  if [[ -f "target/release/${binary}.debug" ]]; then
+    sources+=("target/release/${binary}.debug")
+    destinations+=("${binary}.debug")
+  fi
+  for i in "${!sources[@]}"; do
+    upload_s3 "${sources[$i]}" "${os_and_arch}/${branch}/${folder}/${destinations[$i]}"
+    upload_s3 "${sources[$i]}" "${os_and_arch}/${branch}/${commit}/${folder}/${destinations[$i]}"
+  done
 }
 
 # Build with full DWARF debug info, then split it into a separate file and
@@ -136,10 +144,15 @@ export CARGO_PROFILE_RELEASE_DEBUG=2
 export CARGO_PROFILE_RELEASE_STRIP=none
 run_cmd make $release_type
 
+# Always split debug info — applies to all release types (release,
+# nightly-release, assertions-release, test-features-release). The
+# split_debug_info function is a no-op when the target binary doesn't exist
+# or when objcopy/strip aren't available (mac builds).
+split_debug_info "target/release/neard"
+split_debug_info "target/release/near-sandbox"
+
 if [ "$upload_action" = "upload-release" ]
 then
-  split_debug_info "target/release/neard"
-  split_debug_info "target/release/near-sandbox"
   upload_release_binary neard
   # near-sandbox is used by near-workspaces which is an SDK for end-to-end contracts testing that automatically 
   # spins up localnet using near-sandbox (neard with extra features useful for testing - state patching, time travel). 
