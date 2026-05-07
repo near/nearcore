@@ -73,8 +73,11 @@ pub struct BucketEtlOptions {
     /// flush accumulated buffers. Tests override to small values.
     pub marker_block_interval: u64,
     /// Test-only knob: cause Pass B to abort once any worker reaches this
-    /// height. Drives `test_bucket_etl_resumes_after_simulated_crash`.
-    #[cfg(feature = "test_features")]
+    /// height. Drives `test_bucket_etl_resumes_after_simulated_crash`. The
+    /// field is unconditional (rather than `cfg(feature = "test_features")`)
+    /// to avoid feature-mismatch initializer errors in callers that don't
+    /// declare a `test_features` feature themselves; `None` is the
+    /// production default and is checked at the only use site.
     pub crash_after_pass_b_height: Option<BlockHeight>,
 }
 
@@ -87,7 +90,6 @@ impl BucketEtlOptions {
             scratch_dir,
             output_mode: BucketEtlOutputMode::MeasureOnly,
             marker_block_interval: DEFAULT_MARKER_BLOCK_INTERVAL,
-            #[cfg(feature = "test_features")]
             crash_after_pass_b_height: None,
         }
     }
@@ -674,16 +676,13 @@ struct PassBWorkerOutcome {
     missing_outcomes: u64,
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub struct CrashAfterPassBHeight(pub BlockHeight);
-#[cfg(feature = "test_features")]
 impl std::fmt::Display for CrashAfterPassBHeight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "test-only crash_after_pass_b_height triggered at {}", self.0)
     }
 }
-#[cfg(feature = "test_features")]
 impl std::error::Error for CrashAfterPassBHeight {}
 
 fn pass_b_block_walk(
@@ -775,7 +774,6 @@ fn pass_b_worker(
 
     let mut h = start;
     while h <= slice_end {
-        #[cfg(feature = "test_features")]
         if let Some(crash_h) = opts.crash_after_pass_b_height {
             if h == crash_h {
                 // Flush whatever we have so the partial segment is durable, then

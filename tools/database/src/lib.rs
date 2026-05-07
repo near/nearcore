@@ -5,6 +5,7 @@ mod analyze_delayed_receipt;
 mod analyze_gas_usage;
 mod analyze_high_load;
 pub mod backfill_receipt_to_tx;
+pub mod backfill_receipt_to_tx_bucket_etl;
 mod block_iterators;
 pub mod commands;
 mod compact;

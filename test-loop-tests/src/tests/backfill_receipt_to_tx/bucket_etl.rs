@@ -32,7 +32,6 @@ fn default_etl_opts(scratch_dir: PathBuf) -> BucketEtlOptions {
         scratch_dir,
         output_mode: BucketEtlOutputMode::WriteToStore,
         marker_block_interval: 1_000_000,
-        #[cfg(feature = "test_features")]
         crash_after_pass_b_height: None,
     }
 }
