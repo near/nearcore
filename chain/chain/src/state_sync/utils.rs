@@ -309,16 +309,6 @@ impl Chain {
     /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
     /// it's the hash of the first block in that epoch.
     ///
-    /// Under SPICE the rule is different: the sync hash is **the first block
-    /// of the current epoch**, available the moment that block is processed.
-    /// The V3 anchor is its `prev_hash` (the last block of the previous epoch),
-    /// which is necessarily certified by the time the new epoch starts. The
-    /// non-SPICE chunk-mask + finality wait doesn't apply because under SPICE
-    /// validators need state to validate — if we waited a few blocks past the
-    /// boundary, validators without state would fail to validate, doomslug
-    /// would skip those blocks, and the chain would freeze before the sync
-    /// hash could form.
-    ///
     /// Note: under SPICE we deliberately do **not** apply
     /// `is_spice_sync_hash_satisfied` here. That gate requires the local node
     /// to already have certified results for `sync_prev` — but a node asking
@@ -333,16 +323,6 @@ impl Chain {
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::Spice.enabled(protocol_version) {
-            let block_info = self.epoch_manager.get_block_info(block_hash)?;
-            let epoch_first_block = *block_info.epoch_first_block();
-            // Genesis epoch has no usable sync target.
-            if &epoch_first_block == self.genesis().hash() {
-                return Ok(None);
-            }
-            return Ok(Some(epoch_first_block));
-        }
         Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
     }
 

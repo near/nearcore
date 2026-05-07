@@ -102,28 +102,18 @@ impl StateRequestActor {
             return Ok(None);
         }
         let header = self.chain_store.get_block_header(block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::Spice.enabled(protocol_version) {
-            // Match the requester semantics: under SPICE the sync hash is the
-            // first block of the current epoch. Then check that we (the
-            // responder) actually have the certified results for `sync_prev`
-            // — without them we can't build a V3 response. Reporting None in
-            // that case lets the requester try a different peer.
-            let block_info = self.epoch_manager.get_block_info(block_hash)?;
-            let epoch_first_block = *block_info.epoch_first_block();
-            if &epoch_first_block == &self.genesis_hash {
-                return Ok(None);
-            }
-            if !near_chain::state_sync::is_spice_sync_hash_satisfied(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                &epoch_first_block,
-            )? {
-                return Ok(None);
-            }
-            return Ok(Some(epoch_first_block));
+        let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        else {
+            return Ok(None);
+        };
+        if !near_chain::state_sync::is_spice_sync_hash_satisfied(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &sync_hash,
+        )? {
+            return Ok(None);
         }
-        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
+        Ok(Some(sync_hash))
     }
 
     /// Checks if the sync_hash belongs to an epoch that we know.
