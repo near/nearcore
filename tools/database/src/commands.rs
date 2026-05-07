@@ -5,6 +5,7 @@ use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::analyze_gas_usage::AnalyzeGasUsageCommand;
 use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::backfill_receipt_to_tx::BackfillReceiptToTxCommand;
+use crate::backfill_receipt_to_tx_bucket_etl::BackfillReceiptToTxBucketEtlCommand;
 use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
@@ -78,6 +79,11 @@ enum SubCommand {
     /// Reconstructs receipt-to-transaction mappings for the EXPERIMENTAL_receipt_to_tx RPC.
     BackfillReceiptToTx(BackfillReceiptToTxCommand),
 
+    /// Phase-1 prototype of the bucket-ETL ReceiptToTx backfill.
+    /// Validates output buckets in a scratch directory; supports a compare-mode
+    /// that runs `process_height` side-by-side. **Never writes to the DB.**
+    BackfillReceiptToTxBucketEtl(BackfillReceiptToTxBucketEtlCommand),
+
     /// Manually set database version
     SetVersion(SetVersionCommand),
 }
@@ -109,6 +115,7 @@ impl DatabaseCommand {
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
             SubCommand::BackfillReceiptToTx(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::BackfillReceiptToTxBucketEtl(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SetVersion(cmd) => cmd.run(home, genesis_validation),
         }
     }

@@ -8,7 +8,7 @@ use near_primitives::receipt::{
     ReceiptToTxInfoV1,
 };
 use near_primitives::transaction::ExecutionOutcomeWithProof;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash};
 use near_store::{DBCol, NodeStorage, Store};
 use rayon::prelude::*;
@@ -169,6 +169,54 @@ struct StagedOutcome {
     outcome_id: CryptoHash,
     shard_id: ShardId,
     outcome: ExecutionOutcomeWithProof,
+}
+
+/// Resolved primitives needed to assemble a `ReceiptToTxInfo`.
+///
+/// Both `process_height` (single-height MultiGet path) and the bucket-ETL
+/// pipeline produce these by their own routes; the kernel
+/// [`build_receipt_to_tx_info`] consumes them and produces byte-identical
+/// output. Skipping (missing parent / child / outcome) is decided by the
+/// caller — once a `BuiltOriginInputs` is constructed, an entry will be
+/// produced.
+pub struct BuiltOriginInputs {
+    pub outcome_id: CryptoHash,
+    pub shard_id: ShardId,
+    pub child_receiver_id: AccountId,
+    pub origin: BuiltOrigin,
+}
+
+pub enum BuiltOrigin {
+    FromTransaction { sender_id: AccountId },
+    FromReceipt { parent_predecessor_id: AccountId },
+}
+
+/// Assemble a `ReceiptToTxInfo` from already-resolved primitives.
+///
+/// This is the shared kernel between `process_height` and the bucket-ETL
+/// pipeline. Producing the same `BuiltOriginInputs` from either path is the
+/// guarantee the equivalence tests rely on.
+pub fn build_receipt_to_tx_info(inputs: BuiltOriginInputs) -> ReceiptToTxInfo {
+    let BuiltOriginInputs { outcome_id, shard_id, child_receiver_id, origin } = inputs;
+    let origin = match origin {
+        BuiltOrigin::FromTransaction { sender_id } => {
+            ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                tx_hash: outcome_id,
+                sender_account_id: sender_id,
+            })
+        }
+        BuiltOrigin::FromReceipt { parent_predecessor_id } => {
+            ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                parent_receipt_id: outcome_id,
+                parent_predecessor_id,
+            })
+        }
+    };
+    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+        origin,
+        receiver_account_id: child_receiver_id,
+        shard_id,
+    })
 }
 
 /// Process a single height: read all execution outcomes and build ReceiptToTxInfo entries.
@@ -355,15 +403,8 @@ pub fn process_height(
             }
         };
 
-        let info = if is_tx {
-            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
-                    tx_hash: s.outcome_id,
-                    sender_account_id: outcome.executor_id.clone(),
-                }),
-                receiver_account_id: child_receipt.receiver_id().clone(),
-                shard_id: s.shard_id,
-            })
+        let origin = if is_tx {
+            BuiltOrigin::FromTransaction { sender_id: outcome.executor_id.clone() }
         } else {
             let parent = match parent_by_staged_idx.get(staged_idx) {
                 Some(r) => r,
@@ -377,16 +418,15 @@ pub fn process_height(
                     continue;
                 }
             };
-            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                    parent_receipt_id: s.outcome_id,
-                    parent_predecessor_id: parent.predecessor_id().clone(),
-                }),
-                receiver_account_id: child_receipt.receiver_id().clone(),
-                shard_id: s.shard_id,
-            })
+            BuiltOrigin::FromReceipt { parent_predecessor_id: parent.predecessor_id().clone() }
         };
 
+        let info = build_receipt_to_tx_info(BuiltOriginInputs {
+            outcome_id: s.outcome_id,
+            shard_id: s.shard_id,
+            child_receiver_id: child_receipt.receiver_id().clone(),
+            origin,
+        });
         entries.push((*child_receipt_id, info));
     }
 
