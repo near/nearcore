@@ -101,7 +101,10 @@ pub enum BucketEtlOutputMode {
     /// used on the production VM to gate the run.
     MeasureOnly,
     /// Test-only mode: write the validated output to `BackfillStorage.write_store`
-    /// via the legacy per-key insert path. Not exposed via the CLI.
+    /// via the legacy per-key insert path. Compile-time-gated to
+    /// `test`/`test_features` so the production CLI cannot reach this path even
+    /// by accident; production ingest is gated to Phase 3.
+    #[cfg(any(test, feature = "test_features"))]
     WriteToStore,
     /// Run `process_height` over `[from_height, to_height]` after Pass D and
     /// byte-compare resulting `ReceiptToTx` entries.
@@ -518,15 +521,19 @@ fn pass_b_seg_needs_parent_path(scratch: &Path, worker: usize, seg: u32, prefix:
         .join(format!("needs_parent_{prefix:02x}.bucket"))
 }
 
-fn pass_b_consolidated_demand_path(scratch: &Path, prefix: u8) -> PathBuf {
+pub fn pass_a_path_for_test(scratch: &Path, prefix: u8) -> PathBuf {
+    pass_a_path(scratch, prefix)
+}
+
+pub fn pass_b_consolidated_demand_path(scratch: &Path, prefix: u8) -> PathBuf {
     scratch.join(STAGE_B).join("demand_by_child").join(format!("prefix_{prefix:02x}.bucket"))
 }
 
-fn pass_b_consolidated_needs_parent_path(scratch: &Path, prefix: u8) -> PathBuf {
+pub fn pass_b_consolidated_needs_parent_path(scratch: &Path, prefix: u8) -> PathBuf {
     scratch.join(STAGE_B).join("needs_parent_by_parent").join(format!("prefix_{prefix:02x}.bucket"))
 }
 
-fn pass_c_consolidated_path(scratch: &Path, prefix: u8) -> PathBuf {
+pub fn pass_c_consolidated_path(scratch: &Path, prefix: u8) -> PathBuf {
     scratch.join(STAGE_C).join("demand_by_child").join(format!("prefix_{prefix:02x}.bucket"))
 }
 
@@ -964,7 +971,7 @@ fn pass_b_consolidate(scratch: &Path, num_workers: usize) -> anyhow::Result<()> 
 
 // ===== Pass C: resolve parent predecessors =====
 
-fn pass_c_resolve_parents(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u64)> {
+pub fn pass_c_resolve_parents(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u64)> {
     let scratch = &opts.scratch_dir;
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(opts.num_threads.max(1))
@@ -1130,6 +1137,7 @@ fn pass_d_final_join(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u64)> {
 
 // ===== Output-mode handlers =====
 
+#[cfg(any(test, feature = "test_features"))]
 fn write_outputs_to_store(
     storage: &BackfillStorage,
     opts: &BucketEtlOptions,
@@ -1339,6 +1347,7 @@ pub fn run_bucket_etl(
         BucketEtlOutputMode::MeasureOnly => {
             tracing::info!("bucket-ETL: measure-only mode, no DB writes");
         }
+        #[cfg(any(test, feature = "test_features"))]
         BucketEtlOutputMode::WriteToStore => {
             tracing::info!(
                 "bucket-ETL: WriteToStore (test-only) — writing to BackfillStorage.write_store"

@@ -8,8 +8,9 @@ use near_chain::backfill_receipt_to_tx::{
 use near_chain::backfill_receipt_to_tx_bucket_etl::{
     BucketEtlOptions, BucketEtlOutputMode, BucketReader, BucketWriter, NeedsParentRow, OutputRow,
     ReceiptExtractRow, ReceiptOriginDemandRow, TxOriginDemandRow, compare_against_actor,
-    finalize_output_bucket_with_max, pass_d_output_path, run_bucket_etl,
-    validate_output_bucket_file, validate_output_bucket_file_with_max,
+    finalize_output_bucket_with_max, pass_a_path_for_test, pass_b_consolidated_needs_parent_path,
+    pass_c_consolidated_path, pass_c_resolve_parents, pass_d_output_path, run_bucket_etl,
+    validate_output_bucket_file, validate_output_bucket_file_with_max, write_bucket,
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -342,6 +343,15 @@ fn test_bucket_etl_resolves_cross_prefix_parents() {
         }
     }
     eprintln!("test_bucket_etl_resolves_cross_prefix_parents: cross_prefix cases = {cross_prefix}");
+    // Direct coverage: with non-zero gas_prices the diverse traffic produces
+    // FromReceipt entries, and uniform hash distribution across ~30+ children
+    // makes a same-prefix-only outcome statistically negligible. If this ever
+    // flakes, build_env_with_traffic should be augmented rather than this
+    // assertion weakened — the test name promises cross-prefix coverage.
+    assert!(
+        cross_prefix > 0,
+        "test traffic must produce at least one cross-prefix parent→child case; got 0"
+    );
 
     // Equivalence end-to-end.
     let original = collect_organic_entries(&store);
@@ -479,9 +489,156 @@ fn test_bucket_etl_rejects_invalid_output_bucket() {
     assert!(format!("{err:#}").contains("exceeds 100 bytes"), "expected size-limit error: {err:#}");
 }
 
+/// Direct unit test for the Pass B → Pass C deterministic shuffle: a
+/// `NeedsParentRow` with `parent_receipt_id` first byte ≠ `child_id` first
+/// byte must end up in the ZZ bucket (child_id first byte), with
+/// `parent_predecessor_id` resolved from the YY-prefix Pass A extract.
+///
+/// Drives `pass_c_resolve_parents` against a hand-crafted scratch dir; no
+/// chain_store needed.
+#[test]
+fn test_bucket_etl_pass_c_shuffle_places_row_in_child_prefix() {
+    init_test_logger();
+    let scratch = TempDir::new().unwrap();
+
+    let parent_id = CryptoHash([0xaa; 32]); // first byte = 0xaa  (YY)
+    let mut child_bytes = [0xee; 32];
+    child_bytes[0] = 0x33; // first byte = 0x33  (ZZ ≠ YY)
+    let child_id = CryptoHash(child_bytes);
+
+    let predecessor = AccountId::from_str("predecessor.near").unwrap();
+    let receiver = AccountId::from_str("receiver.near").unwrap();
+    let shard_id = near_primitives::types::ShardId::new(0);
+
+    // Pass A extract for prefix YY=0xaa: contains the parent receipt.
+    write_bucket(
+        &pass_a_path_for_test(scratch.path(), 0xaa),
+        &[ReceiptExtractRow {
+            receipt_id: parent_id,
+            receiver_id: AccountId::from_str("ignored.near").unwrap(),
+            predecessor_id: predecessor.clone(),
+        }],
+    )
+    .unwrap();
+    // Pass A extract for prefix ZZ=0x33: contains the child receipt
+    // (Pass D will need it later, but the test only checks Pass C output).
+    write_bucket(
+        &pass_a_path_for_test(scratch.path(), 0x33),
+        &[ReceiptExtractRow {
+            receipt_id: child_id,
+            receiver_id: receiver.clone(),
+            predecessor_id: AccountId::from_str("ignored.near").unwrap(),
+        }],
+    )
+    .unwrap();
+    // Pass B consolidated needs_parent for prefix YY=0xaa: one row whose
+    // child_id is in prefix ZZ — the cross-prefix case.
+    write_bucket(
+        &pass_b_consolidated_needs_parent_path(scratch.path(), 0xaa),
+        &[NeedsParentRow { child_id, shard_id, parent_receipt_id: parent_id }],
+    )
+    .unwrap();
+
+    let opts = BucketEtlOptions {
+        from_height: None,
+        to_height: None,
+        num_threads: 1,
+        scratch_dir: scratch.path().to_owned(),
+        output_mode: BucketEtlOutputMode::MeasureOnly,
+        marker_block_interval: 1_000_000,
+        crash_after_pass_b_height: None,
+    };
+    let (rows_emitted, missing) =
+        pass_c_resolve_parents(&opts).expect("pass C should succeed");
+    assert_eq!(rows_emitted, 1, "exactly one resolved demand row expected");
+    assert_eq!(missing, 0, "parent receipt was present, no missing");
+
+    // Row landed in ZZ=0x33, NOT YY=0xaa.
+    let zz_rows: Vec<ReceiptOriginDemandRow> =
+        near_chain::backfill_receipt_to_tx_bucket_etl::read_bucket(&pass_c_consolidated_path(
+            scratch.path(),
+            0x33,
+        ))
+        .unwrap();
+    assert_eq!(zz_rows.len(), 1, "ZZ bucket must have the resolved row");
+    assert_eq!(zz_rows[0].child_id, child_id);
+    assert_eq!(zz_rows[0].parent_receipt_id, parent_id);
+    assert_eq!(
+        zz_rows[0].parent_predecessor_id, predecessor,
+        "predecessor must be resolved from the YY-prefix extract"
+    );
+    assert_eq!(zz_rows[0].shard_id, shard_id);
+
+    let yy_rows: Vec<ReceiptOriginDemandRow> =
+        near_chain::backfill_receipt_to_tx_bucket_etl::read_bucket(&pass_c_consolidated_path(
+            scratch.path(),
+            0xaa,
+        ))
+        .unwrap();
+    assert!(
+        yy_rows.is_empty(),
+        "YY (parent's prefix) bucket must NOT contain the row — shuffle keys on child_id"
+    );
+}
+
+/// `check_or_write_options_hash` rejects a resume against a scratch dir
+/// fingerprinted with different options. Without this safety net, a user
+/// could resume a partial run with a smaller height range and end up with
+/// inconsistent stage markers vs actual on-disk state.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_bucket_etl_options_hash_rejects_resume_with_different_options() {
+    init_test_logger();
+    let env = build_env_with_traffic();
+    let store = env.validator().store();
+    let chain_store = env.validator().client().chain.chain_store();
+    let genesis = chain_store.get_genesis_height();
+    let head = env.validator().head().height;
+
+    wipe_receipt_to_tx(&store);
+    let scratch = TempDir::new().unwrap();
+
+    // First run with a specific from_height.
+    let opts_first = BucketEtlOptions {
+        from_height: Some(genesis),
+        to_height: Some(head),
+        num_threads: 2,
+        scratch_dir: scratch.path().to_owned(),
+        output_mode: BucketEtlOutputMode::WriteToStore,
+        marker_block_interval: 1_000_000,
+        crash_after_pass_b_height: None,
+    };
+    run_bucket_etl(chain_store, &shared_storage(&store, None), opts_first)
+        .expect("first run should succeed");
+
+    // Re-run with a different num_threads against the same scratch dir → reject.
+    let opts_changed = BucketEtlOptions {
+        from_height: Some(genesis),
+        to_height: Some(head),
+        num_threads: 4, // different
+        scratch_dir: scratch.path().to_owned(),
+        output_mode: BucketEtlOutputMode::WriteToStore,
+        marker_block_interval: 1_000_000,
+        crash_after_pass_b_height: None,
+    };
+    let err = run_bucket_etl(chain_store, &shared_storage(&store, None), opts_changed)
+        .expect_err("hash mismatch must be rejected");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("hash mismatch") || msg.contains("different options"),
+        "expected hash-mismatch error, got: {msg}"
+    );
+}
+
 /// Crash mid-Pass-B at a specific height; resume with the knob unset; final
-/// output equals a clean single-shot run. Closes the load-bearing
-/// restart-correctness gap.
+/// output AND stats counters both equal a clean single-shot run. Closes the
+/// load-bearing restart-correctness gap.
+///
+/// Stats parity is the second-order check: a regression that under-counted by
+/// the crashed-segment delta would still pass the entry-equality assertion
+/// alone, because the resumed run *also* wrote the missing entries via
+/// `WriteToStore`. The stats comparison catches the case where Pass B's
+/// resume re-processes the wrong height set.
 #[test]
 #[cfg(feature = "test_features")]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -492,16 +649,30 @@ fn test_bucket_etl_resumes_after_simulated_crash() {
     let chain_store = env.validator().client().chain.chain_store();
 
     let original = collect_organic_entries(&store);
-    wipe_receipt_to_tx(&store);
 
     let head = env.validator().head().height;
     let genesis = chain_store.get_genesis_height();
-    // Pick a crash height in the middle of the slice and a tight marker
-    // interval so workers actually persist a marker before the crash.
     let mid = genesis + (head - genesis) / 2;
-    let scratch = TempDir::new().unwrap();
 
-    // First pass: crash at `mid`.
+    // Baseline: clean single-shot run from a fresh scratch dir, capturing stats.
+    wipe_receipt_to_tx(&store);
+    let baseline_scratch = TempDir::new().unwrap();
+    let opts_baseline = BucketEtlOptions {
+        from_height: Some(genesis),
+        to_height: Some(head),
+        num_threads: 2,
+        scratch_dir: baseline_scratch.path().to_owned(),
+        output_mode: BucketEtlOutputMode::WriteToStore,
+        marker_block_interval: 3,
+        crash_after_pass_b_height: None,
+    };
+    let baseline_stats =
+        run_bucket_etl(chain_store, &shared_storage(&store, None), opts_baseline)
+            .expect("baseline run should succeed");
+
+    // Now exercise the crash + resume path against a separate scratch dir.
+    wipe_receipt_to_tx(&store);
+    let scratch = TempDir::new().unwrap();
     let opts_crash = BucketEtlOptions {
         from_height: Some(genesis),
         to_height: Some(head),
@@ -539,7 +710,7 @@ fn test_bucket_etl_resumes_after_simulated_crash() {
         marker_block_interval: 3,
         crash_after_pass_b_height: None,
     };
-    run_bucket_etl(chain_store, &shared_storage(&store, None), opts_resume)
+    let resume_stats = run_bucket_etl(chain_store, &shared_storage(&store, None), opts_resume)
         .expect("resume should succeed");
 
     let backfilled = collect_organic_entries(&store);
@@ -548,6 +719,43 @@ fn test_bucket_etl_resumes_after_simulated_crash() {
         assert_eq!(k1, k2);
         assert_eq!(v1, v2);
     }
+
+    // Stats parity for resume-invariant counters. Stats fall into two
+    // groups depending on whether the value is computed from on-disk
+    // consolidated state (invariant across crash/resume) or from this-run
+    // emits (legitimately partial on resume):
+    //
+    //   Invariant: pass_a_rows (recovered by reading buckets on resume),
+    //              pass_c_rows, pass_d_rows, missing_child_receipts,
+    //              missing_parent_receipts (all computed from consolidated
+    //              Pass B/C input).
+    //   This-run-emits: pass_b_*_rows, blocks_processed, missing_outcomes,
+    //              heights_skipped — these reflect what Pass B did during
+    //              the call, not the cumulative total. On resume, Pass B
+    //              only re-emits heights past the marker, so the resumed
+    //              run reports only the post-crash subset. (The output
+    //              bucket files reflect the full set, which is what the
+    //              entry-equality assertion above pins.)
+    assert_eq!(
+        resume_stats.pass_a_rows, baseline_stats.pass_a_rows,
+        "resume pass_a_rows mismatch"
+    );
+    assert_eq!(
+        resume_stats.pass_c_rows, baseline_stats.pass_c_rows,
+        "resume pass_c_rows mismatch"
+    );
+    assert_eq!(
+        resume_stats.pass_d_rows, baseline_stats.pass_d_rows,
+        "resume pass_d_rows mismatch"
+    );
+    assert_eq!(
+        resume_stats.missing_child_receipts, baseline_stats.missing_child_receipts,
+        "resume missing_child_receipts mismatch"
+    );
+    assert_eq!(
+        resume_stats.missing_parent_receipts, baseline_stats.missing_parent_receipts,
+        "resume missing_parent_receipts mismatch"
+    );
 }
 
 /// Compare-mode catches injected divergences. Run bucket-ETL to completion,
@@ -712,13 +920,63 @@ fn pick_child_receipt_id(chain_store: &near_chain::ChainStore) -> Option<CryptoH
     None
 }
 
-// Silence unused-import warnings on configurations where some imports aren't used.
-#[allow(dead_code)]
-fn _unused_imports_silencer(_: BuiltOriginInputs, _: BuiltOrigin) -> ReceiptToTxInfo {
-    build_receipt_to_tx_info(BuiltOriginInputs {
-        outcome_id: CryptoHash::default(),
-        shard_id: 0u64.into(),
-        child_receiver_id: AccountId::from_str("a").unwrap(),
-        origin: BuiltOrigin::FromTransaction { sender_id: AccountId::from_str("a").unwrap() },
-    })
+/// Direct coverage of the kernel extracted in commit 1. The
+/// `process_height` path tests it transitively via the byte-equivalence
+/// suite, but the kernel is the load-bearing boundary between the actor and
+/// the bucket-ETL — so it deserves a unit test that pins both branches of
+/// `BuiltOrigin` against manually-constructed expected `ReceiptToTxInfo`.
+#[test]
+fn test_build_receipt_to_tx_info_kernel_byte_equivalence() {
+    init_test_logger();
+    let outcome_id = CryptoHash([0xaa; 32]);
+    let receiver = AccountId::from_str("bob.near").unwrap();
+    let sender = AccountId::from_str("alice.near").unwrap();
+    let predecessor = AccountId::from_str("system").unwrap();
+    let shard_id = near_primitives::types::ShardId::new(7);
+
+    // FromTransaction
+    let got_tx = build_receipt_to_tx_info(BuiltOriginInputs {
+        outcome_id,
+        shard_id,
+        child_receiver_id: receiver.clone(),
+        origin: BuiltOrigin::FromTransaction { sender_id: sender.clone() },
+    });
+    let want_tx = ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+        origin: ReceiptOrigin::FromTransaction(
+            near_primitives::receipt::ReceiptOriginTransaction {
+                tx_hash: outcome_id,
+                sender_account_id: sender.clone(),
+            },
+        ),
+        receiver_account_id: receiver.clone(),
+        shard_id,
+    });
+    assert_eq!(got_tx, want_tx, "FromTransaction kernel branch must match");
+    assert_eq!(
+        borsh::to_vec(&got_tx).unwrap(),
+        borsh::to_vec(&want_tx).unwrap(),
+        "FromTransaction byte-encoding must match"
+    );
+
+    // FromReceipt
+    let got_r = build_receipt_to_tx_info(BuiltOriginInputs {
+        outcome_id,
+        shard_id,
+        child_receiver_id: receiver.clone(),
+        origin: BuiltOrigin::FromReceipt { parent_predecessor_id: predecessor.clone() },
+    });
+    let want_r = ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+        origin: ReceiptOrigin::FromReceipt(near_primitives::receipt::ReceiptOriginReceipt {
+            parent_receipt_id: outcome_id,
+            parent_predecessor_id: predecessor,
+        }),
+        receiver_account_id: receiver,
+        shard_id,
+    });
+    assert_eq!(got_r, want_r, "FromReceipt kernel branch must match");
+    assert_eq!(
+        borsh::to_vec(&got_r).unwrap(),
+        borsh::to_vec(&want_r).unwrap(),
+        "FromReceipt byte-encoding must match"
+    );
 }
