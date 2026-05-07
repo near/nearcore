@@ -51,6 +51,24 @@ run_cmd() {
   fi
 }
 
+# Split debug info out of a release binary into a `.debug` sibling file, then
+# strip the original. Adds a gnu-debuglink so gdb auto-finds the debug file
+# when both are alongside each other.
+function split_debug_info {
+  local binary_path="$1"
+  if [[ ! -x "${binary_path}" ]]; then
+    return 0
+  fi
+  if ! command -v objcopy >/dev/null 2>&1 || ! command -v strip >/dev/null 2>&1; then
+    echo "objcopy/strip not available; skipping debug-info split for ${binary_path}" >&2
+    return 0
+  fi
+  run_cmd objcopy --only-keep-debug "${binary_path}" "${binary_path}.debug"
+  run_cmd strip --strip-debug --strip-unneeded "${binary_path}"
+  run_cmd objcopy --add-gnu-debuglink="${binary_path}.debug" "${binary_path}"
+  run_cmd chmod 644 "${binary_path}.debug"
+}
+
 # cspell:words czvf
 function tar_binary {
   local src="$1"
@@ -88,6 +106,11 @@ function upload_release_binary {
 
   local sources=("target/release/${binary}" "${tar_file}")
   local destinations=("${binary}" "${tar_file}")
+  # Include the split-out debug file if it exists (for post-mortem debugging).
+  if [[ -f "target/release/${binary}.debug" ]]; then
+    sources+=("target/release/${binary}.debug")
+    destinations+=("${binary}.debug")
+  fi
 
   for i in "${!sources[@]}"; do
     local src=${sources[$i]}
@@ -106,10 +129,17 @@ function upload_binary {
   upload_s3 "target/release/${binary}" "${os_and_arch}/${branch}/${commit}/${folder}/${binary}"
 }
 
+# Build with full DWARF debug info, then split it into a separate file and
+# strip the binary. The shipped binary stays nearly the same size as before;
+# the .debug sibling is uploaded so post-mortem investigations have symbols.
+export CARGO_PROFILE_RELEASE_DEBUG=2
+export CARGO_PROFILE_RELEASE_STRIP=none
 run_cmd make $release_type
 
 if [ "$upload_action" = "upload-release" ]
 then
+  split_debug_info "target/release/neard"
+  split_debug_info "target/release/near-sandbox"
   upload_release_binary neard
   # near-sandbox is used by near-workspaces which is an SDK for end-to-end contracts testing that automatically 
   # spins up localnet using near-sandbox (neard with extra features useful for testing - state patching, time travel). 
