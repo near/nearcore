@@ -915,8 +915,21 @@ fn flush_segment(
     Ok(())
 }
 
-/// After all Pass B workers complete, k-way merge per-prefix segment files
-/// into a single sorted `pass_b/{demand_by_child,needs_parent_by_parent}/prefix_XX.bucket`.
+/// After all Pass B workers complete, merge per-prefix segment files into a
+/// single sorted `pass_b/{demand_by_child,needs_parent_by_parent}/prefix_XX.bucket`.
+///
+/// Phase 1 implementation: load all (worker × segment) segments for one
+/// prefix into a single `Vec`, then `sort_by`. Inputs are pre-sorted (each
+/// segment was sorted at flush time), so a true k-way merge would be
+/// optimal — but at prototype scale this is in the noise. Memory peak is
+/// ~4× max-per-prefix-total under the default 4-thread rayon pool; on the
+/// production VM (64 GB+ RAM) this stays well within budget per the Phase
+/// 0 measurements.
+///
+/// TODO(phase-3): replace concat-then-sort with k-way merge over
+/// `BucketReader` streams (`BinaryHeap<Reverse<(Key, ReaderIdx)>>`).
+/// Eliminates the per-prefix in-memory peak and lets external-sort
+/// fallback land naturally if any prefix outgrows RAM.
 fn pass_b_consolidate(scratch: &Path, num_workers: usize) -> anyhow::Result<()> {
     // Discover number of segments per worker.
     let segs_per_worker: Vec<u32> =
@@ -1052,6 +1065,18 @@ pub fn pass_c_resolve_parents(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u
 
 // ===== Pass D: final per-prefix join =====
 
+/// Per-prefix join of (Pass A extract for receiver) ⨝ (Pass B tx-origin
+/// demands ∪ Pass C resolved receipt-origin demands) → `OutputRow`.
+///
+/// Phase 1 implementation: build a `HashMap<CryptoHash, AccountId>` from the
+/// Pass A extract for receiver lookup, iterate the demand streams. Both
+/// inputs are sorted by `child_id` (Pass A naturally; demand buckets via
+/// `pass_b_consolidate`/`pass_c_resolve_parents`), so a sort-merge join
+/// would not need the receiver map at all — saving ~5 GB per prefix per
+/// thread on mainnet. Acceptable at prototype scale; flagged for measurement.
+///
+/// TODO(phase-3): replace HashMap-based receiver join with sort-merge over
+/// pre-sorted child_id-keyed streams.
 fn pass_d_final_join(opts: &BucketEtlOptions) -> anyhow::Result<(u64, u64)> {
     let scratch = &opts.scratch_dir;
     let pool = rayon::ThreadPoolBuilder::new()
@@ -1163,6 +1188,19 @@ fn write_outputs_to_store(
     Ok(())
 }
 
+/// Run `process_height` over `[from_height, to_height]` and byte-compare
+/// against the bucket-ETL output bucket files.
+///
+/// **Memory:** materializes both sides as `HashMap<CryptoHash, Vec<u8>>` over
+/// the full height range. For ~1M blocks this is ~4 GB per side; for full
+/// mainnet (~150M blocks) it is well outside a single VM's RAM. Use against
+/// bounded ranges only — the CLI's `--compare-from-height`/`--compare-to-height`
+/// flags exist so the operator can sweep the chain in chunks.
+///
+/// TODO(phase-3): replace with a sort-merge walk over both streams. Both
+/// sides are naturally sortable by `child_id` (the bucket-ETL output is
+/// per-prefix-sorted; the actor side can be sorted incrementally per height
+/// then merged across heights), eliminating the `HashMap` entirely.
 pub fn compare_against_actor(
     chain_store: &ChainStore,
     opts: &BucketEtlOptions,

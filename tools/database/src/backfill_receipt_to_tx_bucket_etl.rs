@@ -51,6 +51,11 @@ pub(crate) struct BackfillReceiptToTxBucketEtlCommand {
     /// Run `process_height` over `[compare_from_height, compare_to_height]`
     /// after Pass D and byte-compare resulting `ReceiptToTx` entries against
     /// the bucket-ETL output. Mutually requires `--compare-to-height`.
+    ///
+    /// MEMORY: the comparator materializes both sides as a HashMap over
+    /// the height range — roughly 4 GB per ~1M blocks. Use bounded ranges
+    /// (e.g. 100k–1M blocks per invocation) and sweep the chain in chunks.
+    /// A streaming sort-merge is a Phase 3 follow-up.
     #[arg(long, requires = "compare_to_height")]
     compare_from_height: Option<BlockHeight>,
 
