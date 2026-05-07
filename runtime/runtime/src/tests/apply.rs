@@ -2396,7 +2396,7 @@ fn test_contract_accesses_when_validating_chunk() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
-            &[call_receipt.clone()],
+            std::slice::from_ref(&call_receipt),
             SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),

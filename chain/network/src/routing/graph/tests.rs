@@ -85,17 +85,17 @@ async fn one_edge() {
     tracing::info!(target:"test", "add an active edge, update rt with pruning");
     // NOOP, since p1 is reachable.
     g.simple_update(vec![e1.clone()]).await;
-    g.check(&[e1.clone()]);
+    g.check(std::slice::from_ref(&e1));
 
     tracing::info!(target:"test", "override with an inactive edge");
     g.simple_update(vec![e1v2.clone()]).await;
-    g.check(&[e1v2.clone()]);
+    g.check(std::slice::from_ref(&e1v2));
 
     tracing::info!(target:"test", "after 2s, simple_update rt with pruning unreachable for 3s");
     // NOOP, since p1 is unreachable for 2s.
     clock.advance(2 * SEC);
     g.simple_update(vec![]).await;
-    g.check(&[e1v2.clone()]);
+    g.check(std::slice::from_ref(&e1v2));
 
     tracing::info!(target:"test", "update rt with pruning unreachable for 1s");
     // p1 should be moved to DB.
@@ -143,12 +143,12 @@ async fn expired_edges() {
     // e1 should stay - as it is fresh, but old_e2 should be removed.
     clock.advance(40 * SEC);
     g.simple_update(vec![]).await;
-    g.check(&[e1.clone()]);
+    g.check(std::slice::from_ref(&e1));
 
     tracing::info!(target:"test", "adding 'still old' edge to e2 should fail");
     // (as it is older than the last prune_edges_older_than)
     g.simple_update(vec![still_old_e2.clone()]).await;
-    g.check(&[e1.clone()]);
+    g.check(std::slice::from_ref(&e1));
 
     tracing::info!(target:"test", "but adding the fresh edge should work");
     g.simple_update(vec![fresh_e2.clone()]).await;
@@ -163,12 +163,12 @@ async fn expired_edges() {
     let e1v2 = data::make_edge(&node_key, &p1, to_active_nonce(clock.now_utc()))
         .remove_edge(peer_id(&p1), &p1);
     g.simple_update(vec![e1v2.clone()]).await;
-    g.check(&[e1v2.clone()]);
+    g.check(std::slice::from_ref(&e1v2));
 
     // Advance time a bit. The edge should stay.
     clock.advance(20 * SEC);
     g.simple_update(vec![]).await;
-    g.check(&[e1v2.clone()]);
+    g.check(std::slice::from_ref(&e1v2));
 
     // Advance time a lot. The edge should be pruned.
     clock.advance(100 * SEC);

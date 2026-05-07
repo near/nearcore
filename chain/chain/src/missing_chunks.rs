@@ -30,7 +30,8 @@ impl<T: BlockLike> PartialEq for HeightOrdered<T> {
 impl<T: BlockLike> Eq for HeightOrdered<T> {}
 impl<T: BlockLike> PartialOrd for HeightOrdered<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.0.height().cmp(&other.0.height()))
+        // use cmp defined a few lines below
+        Some(HeightOrdered::cmp(&self, other))
     }
 }
 impl<T: BlockLike> Ord for HeightOrdered<T> {
