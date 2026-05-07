@@ -205,7 +205,7 @@ impl ApplyChunksResultCache {
     ) -> Option<ShardUpdateResult> {
         let shard_id_label = shard_id.to_string();
         if let Some(result) = self.cache.pop(key) {
-            self.hits.set(self.hits.get() + 1);
+            self.hits.update(|v| v + 1);
             if record_metric {
                 metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
                     .with_label_values(&[shard_id_label.as_str()])
@@ -214,7 +214,7 @@ impl ApplyChunksResultCache {
             return Some(result);
         }
 
-        self.misses.set(self.misses.get() + 1);
+        self.misses.update(|v| v + 1);
         if record_metric {
             metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
                 .with_label_values(&[shard_id_label.as_str()])

@@ -479,7 +479,7 @@ async fn run_single_check_with_3_retries(
             Err(_) if retries < MAX_RETRIES => {
                 tracing::info!(%shard_id, epoch_height, "run_single_check failure, will retry",);
                 retries += 1;
-                tokio::time::sleep(Duration::from_secs(60)).await;
+                tokio::time::sleep(Duration::from_mins(1)).await;
             }
             Err(_) => {
                 tracing::info!(
@@ -779,7 +779,7 @@ async fn process_header_with_3_retries(
     loop {
         let chain_id = chain_id.clone();
         let external = external.clone();
-        let timeout_duration = tokio::time::Duration::from_secs(60);
+        let timeout_duration = tokio::time::Duration::from_mins(1);
         res = timeout(
             timeout_duration,
             process_header(chain_id, epoch_id, epoch_height, shard_id, external),
