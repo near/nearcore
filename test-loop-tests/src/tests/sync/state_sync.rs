@@ -155,14 +155,12 @@ fn assert_all_nodes_advanced(env: &TestLoopEnv, min_height: BlockHeight) {
 // Basic shard shuffling: 2 validators, 2 shards, no chunk drops.
 // With exactly 1 chunk producer per shard, any state sync failure causes a chain stall.
 #[test]
-// TODO(spice): V3 wire format, verifier, sync-hash gate, and per-block-sync
-// state-sync trigger relaxation are all in place. Remaining gap: under SPICE,
-// block production stalls in lockstep with the executor (production gates on
-// `prev_block_is_caught_up` at epoch boundaries), so the chain never falls
-// far enough behind for the peer-lag-based sync trigger to fire. The proper
-// fix is an executor-driven trigger ("I'm tracking shard X but have no
-// `chunk_extra` for prev_block") that bypasses peer-lag heuristics. Un-ignore
-// once that lands.
+// TODO(spice): the V3 state-sync wire format and verifier are in place, but the
+// trigger that starts state sync when a SPICE chunk_executor is assigned to a
+// new shard at an epoch boundary is missing. Today `should_state_sync` only
+// fires on header-head lag; under SPICE the consensus head advances normally
+// while the executor stalls waiting for state. Un-ignore once the trigger
+// lands.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_two_node() {
     init_test_logger();
