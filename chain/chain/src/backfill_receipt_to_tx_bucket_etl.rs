@@ -401,23 +401,40 @@ fn options_hash_path(scratch: &Path) -> PathBuf {
     scratch.join("options.json")
 }
 
-fn compute_options_hash(opts: &BucketEtlOptions) -> String {
-    // Hash the load-bearing fields. `output_mode` is excluded — running
-    // measure-only first then compare-mode against the same scratch is a
-    // legitimate use case.
+/// Hash the load-bearing fields of an invocation. Takes the *resolved*
+/// `from`/`to` heights (after `genesis`/`head` defaults are applied) so a
+/// no-arg run that picks up new heights between invocations does NOT match
+/// the previous fingerprint and silently skip Pass B. `output_mode` is
+/// excluded — running measure-only first then compare-mode against the
+/// same scratch is a legitimate use case.
+///
+/// Path bytes go in via `as_os_str().as_encoded_bytes()` so non-UTF-8 paths
+/// fingerprint distinctly (`to_string_lossy` would collapse them).
+fn compute_options_hash(
+    scratch_dir: &Path,
+    from: BlockHeight,
+    to: BlockHeight,
+    num_threads: usize,
+    marker_block_interval: u64,
+) -> String {
     let mut buf = Vec::with_capacity(64);
-    buf.extend_from_slice(&opts.from_height.unwrap_or(0).to_le_bytes());
-    buf.extend_from_slice(&opts.to_height.unwrap_or(u64::MAX).to_le_bytes());
-    buf.extend_from_slice(&(opts.num_threads as u64).to_le_bytes());
-    buf.extend_from_slice(&opts.marker_block_interval.to_le_bytes());
-    buf.extend_from_slice(opts.scratch_dir.to_string_lossy().as_bytes());
-    let hash = CryptoHash::hash_bytes(&buf);
-    hash.to_string()
+    buf.extend_from_slice(&from.to_le_bytes());
+    buf.extend_from_slice(&to.to_le_bytes());
+    buf.extend_from_slice(&(num_threads as u64).to_le_bytes());
+    buf.extend_from_slice(&marker_block_interval.to_le_bytes());
+    buf.extend_from_slice(scratch_dir.as_os_str().as_encoded_bytes());
+    CryptoHash::hash_bytes(&buf).to_string()
 }
 
-fn check_or_write_options_hash(scratch: &Path, opts: &BucketEtlOptions) -> anyhow::Result<()> {
+fn check_or_write_options_hash(
+    scratch: &Path,
+    from: BlockHeight,
+    to: BlockHeight,
+    num_threads: usize,
+    marker_block_interval: u64,
+) -> anyhow::Result<()> {
     let path = options_hash_path(scratch);
-    let want = compute_options_hash(opts);
+    let want = compute_options_hash(scratch, from, to, num_threads, marker_block_interval);
     if path.exists() {
         let got = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         if got.trim() != want {
@@ -440,13 +457,32 @@ fn worker_marker_path(scratch: &Path, worker: usize) -> PathBuf {
     scratch.join(STAGE_B).join(format!("worker_{worker}")).join("marker")
 }
 
-fn read_resume_height(scratch: &Path, worker: usize) -> Option<BlockHeight> {
+/// Read the per-worker height marker.
+///
+/// Returns `Ok(None)` when the marker file is missing (legitimate first run).
+/// Returns `Err(...)` when the file exists but its contents are invalid —
+/// silently re-doing all of Pass B's work for a worker because of a corrupt
+/// 8-byte file would erase the resume guarantee, so we fail loudly instead.
+fn read_resume_height(scratch: &Path, worker: usize) -> anyhow::Result<Option<BlockHeight>> {
     let path = worker_marker_path(scratch, worker);
-    let bytes = fs::read(path).ok()?;
+    let bytes = match fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(anyhow::Error::from(e))
+                .with_context(|| format!("read worker {worker} marker at {}", path.display()));
+        }
+    };
     if bytes.len() != 8 {
-        return None;
+        bail!(
+            "worker {worker} marker at {} has {} bytes; expected 8 — corruption suspected, \
+             refusing to re-do completed work",
+            path.display(),
+            bytes.len()
+        );
     }
-    Some(u64::from_le_bytes(bytes.try_into().ok()?))
+    let arr: [u8; 8] = bytes.try_into().expect("checked length above");
+    Ok(Some(u64::from_le_bytes(arr)))
 }
 
 fn write_resume_height(scratch: &Path, worker: usize, height: BlockHeight) -> anyhow::Result<()> {
@@ -742,7 +778,7 @@ fn pass_b_worker(
     slice_end: BlockHeight,
 ) -> anyhow::Result<PassBWorkerOutcome> {
     let scratch = &opts.scratch_dir;
-    let resume_height = read_resume_height(scratch, worker);
+    let resume_height = read_resume_height(scratch, worker)?;
     let start = match resume_height {
         Some(h) if h >= slice_start && h <= slice_end => h + 1,
         _ => slice_start,
@@ -1208,11 +1244,13 @@ pub fn run_bucket_etl(
 ) -> anyhow::Result<BucketEtlStats> {
     fs::create_dir_all(&opts.scratch_dir)
         .with_context(|| format!("mkdir {}", opts.scratch_dir.display()))?;
-    check_or_write_options_hash(&opts.scratch_dir, &opts)?;
 
     let mut stats = BucketEtlStats::default();
 
-    // Resolve height range.
+    // Resolve the height range *before* writing the options-hash so the
+    // fingerprint pins to concrete heights. Otherwise a no-arg run that
+    // resumes after the chain head moves would match the previous hash and
+    // silently skip the new heights via `STAGE_B.done`.
     let genesis_height = chain_store.get_genesis_height();
     let head_height = chain_store.head().context("get chain head")?.height;
     let from = opts.from_height.unwrap_or(genesis_height).max(genesis_height);
@@ -1221,6 +1259,13 @@ pub fn run_bucket_etl(
         tracing::info!(from, to, "bucket-ETL: empty height range");
         return Ok(stats);
     }
+    check_or_write_options_hash(
+        &opts.scratch_dir,
+        from,
+        to,
+        opts.num_threads,
+        opts.marker_block_interval,
+    )?;
 
     // Pass A.
     if !stage_done(&opts.scratch_dir, STAGE_A) {
