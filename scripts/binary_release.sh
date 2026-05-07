@@ -52,23 +52,17 @@ run_cmd() {
   fi
 }
 
-function have_split_tools {
-  command -v objcopy >/dev/null 2>&1 && command -v strip >/dev/null 2>&1
-}
-
 # Split debug info out of a release binary into a `.debug` sibling file, then
 # strip the original. Adds a gnu-debuglink so gdb auto-finds the debug file
-# when both are alongside each other.
+# when both are alongside each other. Compresses the debug sections (zlib)
+# since uncompressed DWARF for neard runs to ~1 GB; gdb reads the compressed
+# form transparently. Caller is responsible for ensuring objcopy/strip exist.
 function split_debug_info {
   local binary_path="$1"
   if [[ ! -x "${binary_path}" ]]; then
     return 0
   fi
-  if ! have_split_tools; then
-    echo "objcopy/strip not available; skipping debug-info split for ${binary_path}" >&2
-    return 0
-  fi
-  run_cmd objcopy --only-keep-debug "${binary_path}" "${binary_path}.debug"
+  run_cmd objcopy --only-keep-debug --compress-debug-sections=zlib "${binary_path}" "${binary_path}.debug"
   run_cmd strip --strip-debug --strip-unneeded "${binary_path}"
   run_cmd objcopy --add-gnu-debuglink="${binary_path}.debug" "${binary_path}"
   run_cmd chmod 644 "${binary_path}.debug"
@@ -145,19 +139,24 @@ function upload_binary {
 # and strip the binary. The shipped binary stays roughly release-sized; the
 # .debug sibling uploads alongside for post-mortem symbol resolution.
 #
-# Gated on objcopy/strip being available, which holds on Linux runners but
-# not on macOS. Without the gate, the env vars below would still apply on
-# macOS and ship a fat unstripped binary. macOS releases stay on the
-# default profile; its toolchain uses dsymutil/.dSYM bundles instead.
-if have_split_tools; then
-  export CARGO_PROFILE_RELEASE_DEBUG=2
-  export CARGO_PROFILE_RELEASE_STRIP=none
-  SPLIT_DEBUG_INFO=1
+# Tagged releases (upload_action=upload-release) always include debug info;
+# other invocations opt in via WITH_DEBUG_INFO=1. Either way requires
+# objcopy/strip, which Linux runners have but macOS doesn't. Mac releases
+# use dsymutil/.dSYM separately and stay on the default release profile.
+SPLIT_DEBUG_INFO=
+if [[ "${upload_action}" == "upload-release" || -n "${WITH_DEBUG_INFO:-}" ]]; then
+  if command -v objcopy >/dev/null 2>&1 && command -v strip >/dev/null 2>&1; then
+    SPLIT_DEBUG_INFO=1
+    export CARGO_PROFILE_RELEASE_DEBUG=2
+    export CARGO_PROFILE_RELEASE_STRIP=none
+  else
+    echo "objcopy/strip unavailable; building without split debug info" >&2
+  fi
 fi
 
 run_cmd make $release_type
 
-if [[ -n "${SPLIT_DEBUG_INFO:-}" ]]; then
+if [[ -n "${SPLIT_DEBUG_INFO}" ]]; then
   split_debug_info "target/release/neard"
   split_debug_info "target/release/near-sandbox"
 fi
