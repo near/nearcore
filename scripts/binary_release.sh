@@ -140,16 +140,23 @@ function upload_binary {
 # Build with full DWARF debug info, then split it into a separate file and
 # strip the binary. The shipped binary stays nearly the same size as before;
 # the .debug sibling is uploaded so post-mortem investigations have symbols.
-export CARGO_PROFILE_RELEASE_DEBUG=2
-export CARGO_PROFILE_RELEASE_STRIP=none
+#
+# Only do this on platforms where we have GNU objcopy + strip available —
+# otherwise the binary would ship with debug info inline (huge) and unstripped.
+# macOS uses a different toolchain (dsymutil + .dSYM bundles) and is left at
+# the default release profile.
+if command -v objcopy >/dev/null 2>&1 && command -v strip >/dev/null 2>&1; then
+  export CARGO_PROFILE_RELEASE_DEBUG=2
+  export CARGO_PROFILE_RELEASE_STRIP=none
+  SPLIT_DEBUG_INFO=1
+fi
+
 run_cmd make $release_type
 
-# Always split debug info — applies to all release types (release,
-# nightly-release, assertions-release, test-features-release). The
-# split_debug_info function is a no-op when the target binary doesn't exist
-# or when objcopy/strip aren't available (mac builds).
-split_debug_info "target/release/neard"
-split_debug_info "target/release/near-sandbox"
+if [[ -n "${SPLIT_DEBUG_INFO:-}" ]]; then
+  split_debug_info "target/release/neard"
+  split_debug_info "target/release/near-sandbox"
+fi
 
 if [ "$upload_action" = "upload-release" ]
 then
