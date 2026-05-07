@@ -308,22 +308,24 @@ impl Chain {
     /// If syncing to the state of that epoch (the new way), this block hash might not yet be known,
     /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
     /// it's the hash of the first block in that epoch.
-    ///
-    /// Note: under SPICE we deliberately do **not** apply
-    /// `is_spice_sync_hash_satisfied` here. That gate requires the local node
-    /// to already have certified results for `sync_prev` — but a node asking
-    /// for a sync hash is by definition the one that doesn't have the state
-    /// yet, and would never satisfy the gate (chicken-and-egg). The gate is
-    /// still useful on the responder side, where local CERs are needed to
-    /// build a V3 response; on the requester side we just emit the candidate
-    /// and rely on peers that have the data to serve it.
     pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
         if block_hash == self.genesis().hash() {
             // We shouldn't be trying to sync state from before the genesis block
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
+        let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        else {
+            return Ok(None);
+        };
+        if !is_spice_sync_hash_satisfied(
+            &self.chain_store.chain_store(),
+            self.epoch_manager.as_ref(),
+            &sync_hash,
+        )? {
+            return Ok(None);
+        }
+        Ok(Some(sync_hash))
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
