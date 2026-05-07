@@ -1,5 +1,5 @@
 #!/bin/bash
-# cspell:words czvf objcopy debuglink
+# cspell:words czvf objcopy debuglink dsymutil
 set -xeo pipefail
 
 release_type="${1:?Release type is required as the first argument}"
