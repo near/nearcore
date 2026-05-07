@@ -643,7 +643,10 @@ impl StateDumper {
             .with_context(|| {
                 format!("Failed getting state response header for {} {}", shard_id, sync_hash)
             })?;
-        let state_root = state_header.chunk_prev_state_root();
+        // Use the unified `state_root()` accessor: under V1/V2 it's the
+        // chunk's `prev_state_root`; under SPICE V3 it's the certified
+        // post-execution `chunk_extra.state_root` from the CER.
+        let state_root = state_header.state_root();
         let num_parts = state_header.num_state_parts();
         metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
             .with_label_values(&[&shard_id.to_string()])
