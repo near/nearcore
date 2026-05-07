@@ -670,51 +670,26 @@ impl Client {
         pending_transaction_queue.lock().clear();
 
         let uncertified_chunks = chain.spice_core_reader.get_uncertified_chunks(head_hash)?;
-        let mut uncertified_block_hashes: HashSet<CryptoHash> = HashSet::new();
-        for chunk_info in &uncertified_chunks {
-            uncertified_block_hashes.insert(chunk_info.chunk_id.block_hash);
-        }
+        let uncertified_block_hashes: HashSet<CryptoHash> =
+            uncertified_chunks.iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
 
-        let total_blocks = uncertified_block_hashes.len();
-        let mut loaded_blocks = 0usize;
         for block_hash in &uncertified_block_hashes {
-            let block = match chain.get_block(block_hash) {
-                Ok(block) => block,
-                Err(err) => {
-                    tracing::warn!(
-                        target: "client",
-                        ?block_hash,
-                        ?err,
-                        "failed to load block for pending transaction queue initialization"
-                    );
-                    continue;
-                }
-            };
-            let Ok(epoch_id) = epoch_manager.get_epoch_id(block_hash) else {
-                continue;
-            };
-            let Ok(protocol_version) = epoch_manager.get_epoch_protocol_version(&epoch_id) else {
-                continue;
-            };
+            let block = chain.get_block(block_hash)?;
+            let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
+            let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let config = runtime_adapter.get_runtime_config(protocol_version);
-            let Ok(prev_header) = chain.get_block_header(block.header().prev_hash()) else {
-                continue;
-            };
+            let prev_header = chain.get_block_header(block.header().prev_hash())?;
             let gas_price = prev_header.next_gas_price();
 
             for chunk_header in block.chunks().iter_new() {
                 let shard_id = chunk_header.shard_id();
-                let Ok(shard_uid) = shard_id_to_uid(epoch_manager, shard_id, &epoch_id) else {
-                    continue;
-                };
+                let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
                 if !shard_tracker
                     .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
                 {
                     continue;
                 }
-                let Ok(chunk) = chain.get_chunk(&chunk_header.chunk_hash()) else {
-                    continue;
-                };
+                let chunk = chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
@@ -723,15 +698,6 @@ impl Client {
                     gas_price,
                 );
             }
-            loaded_blocks += 1;
-        }
-        if loaded_blocks < total_blocks {
-            tracing::warn!(
-                target: "client",
-                loaded_blocks,
-                total_blocks,
-                "pending transaction queue reinitialized with incomplete uncertified blocks"
-            );
         }
         Ok(())
     }
