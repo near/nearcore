@@ -41,30 +41,21 @@ fn gas_cost_per_transfer() -> Balance {
 }
 
 /// Submit `count` transfer transactions from `sender` to `receiver`.
-/// Returns the tx hashes. Increments `next_nonce`.
+/// Returns the tx hashes. Nonces are auto-tracked by `TestLoopNode`.
 fn submit_transfers(
     env: &TestLoopEnv,
     sender: &AccountId,
     receiver: &AccountId,
-    next_nonce: &mut u64,
     count: usize,
 ) -> Vec<CryptoHash> {
-    let block_hash = env.validator().head().last_block_hash;
-    let mut tx_hashes = Vec::new();
-    for _ in 0..count {
-        let tx = SignedTransaction::send_money(
-            *next_nonce,
-            sender.clone(),
-            receiver.clone(),
-            &create_user_test_signer(sender),
-            Balance::from_millinear(1),
-            block_hash,
-        );
-        *next_nonce += 1;
-        tx_hashes.push(tx.get_hash());
-        env.validator().submit_tx(tx);
-    }
-    tx_hashes
+    (0..count)
+        .map(|_| {
+            let tx = env.validator().tx_send_money(sender, receiver, Balance::from_millinear(1));
+            let hash = tx.get_hash();
+            env.validator().submit_tx(tx);
+            hash
+        })
+        .collect()
 }
 
 /// Deploy a contract on `account` and wait for certification to advance past
@@ -102,8 +93,7 @@ fn test_ptq_p_max_contract_account() {
 
     // Submit P_MAX + 2 transfer transactions from the contract account.
     let num_txs = P_MAX + 2;
-    let mut next_nonce = env.validator().get_next_nonce(&contract_account);
-    let tx_hashes = submit_transfers(&env, &contract_account, &receiver, &mut next_nonce, num_txs);
+    let tx_hashes = submit_transfers(&env, &contract_account, &receiver, num_txs);
     // Only P_MAX txs should be included before certification.
     env.validator_runner().run_until_included(&tx_hashes[..P_MAX]);
     for tx_hash in &tx_hashes[P_MAX..] {
@@ -136,8 +126,7 @@ fn test_ptq_no_p_max_for_non_contract_account() {
     let mut env = env.warmup();
 
     let num_txs = P_MAX + 2;
-    let mut next_nonce: u64 = 1;
-    let tx_hashes = submit_transfers(&env, &sender, &receiver, &mut next_nonce, num_txs);
+    let tx_hashes = submit_transfers(&env, &sender, &receiver, num_txs);
     // All should be included without P_MAX throttling.
     env.validator_runner().run_until_included(&tx_hashes);
 }
@@ -282,19 +271,16 @@ fn test_ptq_accumulates_across_blocks() {
     // then submit the rest. Total across uncertified blocks should be P_MAX.
     let first_batch_size = P_MAX / 2;
     let second_batch_size = P_MAX - first_batch_size;
-    let mut next_nonce = env.validator().get_next_nonce(&contract_account);
-    let first_batch =
-        submit_transfers(&env, &contract_account, &receiver, &mut next_nonce, first_batch_size);
+    let first_batch = submit_transfers(&env, &contract_account, &receiver, first_batch_size);
     let first_inclusion_height = env.validator_runner().run_until_included(&first_batch);
 
     // Submit and include the second batch.
-    let second_batch =
-        submit_transfers(&env, &contract_account, &receiver, &mut next_nonce, second_batch_size);
+    let second_batch = submit_transfers(&env, &contract_account, &receiver, second_batch_size);
     env.validator_runner().run_until_included(&second_batch);
 
     // Submit a (P_MAX+1)th tx. This should be blocked by P_MAX since there
     // are already P_MAX uncertified txs from this contract account.
-    let extra = submit_transfers(&env, &contract_account, &receiver, &mut next_nonce, 1);
+    let extra = submit_transfers(&env, &contract_account, &receiver, 1);
     let extra_hash = extra[0];
 
     // Run blocks up to just before the first batch gets certified.
@@ -333,14 +319,13 @@ fn test_ptq_cleanup_on_certification() {
     deploy_contract_and_certify(&mut env, &contract_account);
 
     // Submit P_MAX transactions and wait for inclusion + certification.
-    let mut next_nonce = env.validator().get_next_nonce(&contract_account);
-    let first_batch = submit_transfers(&env, &contract_account, &receiver, &mut next_nonce, P_MAX);
+    let first_batch = submit_transfers(&env, &contract_account, &receiver, P_MAX);
     env.validator_runner().run_until_included(&first_batch);
     let height = env.validator().head().height;
     env.validator_runner().run_until_certified(height);
 
     // Submit P_MAX more. All should be admitted since the first batch is certified.
-    let second_batch = submit_transfers(&env, &contract_account, &receiver, &mut next_nonce, P_MAX);
+    let second_batch = submit_transfers(&env, &contract_account, &receiver, P_MAX);
     env.validator_runner().run_until_included(&second_batch);
 }
 
