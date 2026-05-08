@@ -93,6 +93,7 @@ fn test_ptq_p_max_contract_account() {
         .validators(1, 1)
         .add_user_account(&contract_account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
@@ -128,6 +129,7 @@ fn test_ptq_no_p_max_for_non_contract_account() {
         .validators(1, 1)
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
@@ -157,6 +159,7 @@ fn test_ptq_nonce_constraint() {
         .validators(1, 1)
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
@@ -208,6 +211,7 @@ fn test_ptq_deploy_exclusivity() {
         .validators(1, 1)
         .add_user_account(&account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
@@ -267,6 +271,7 @@ fn test_ptq_accumulates_across_blocks() {
         .validators(1, 1)
         .add_user_account(&contract_account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
@@ -320,6 +325,7 @@ fn test_ptq_cleanup_on_certification() {
         .validators(1, 1)
         .add_user_account(&contract_account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
+        .delay_warmup()
         .build();
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
@@ -359,6 +365,7 @@ fn setup_gas_key_spice_env(
         .add_user_account(account, Balance::from_near(1_000))
         .add_user_account(receiver, Balance::from_near(0))
         .gas_prices(TEST_GAS_PRICE, TEST_GAS_PRICE)
+        .delay_warmup()
         .build();
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
