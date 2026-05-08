@@ -7,16 +7,18 @@ use super::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use super::lookup::memtrie_lookup;
 use super::memtrie_update::{MemTrieUpdate, TrackingMode, construct_root_from_changes};
 use super::node::{MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
-use crate::Trie;
 use crate::trie::MemTrieChanges;
 use crate::trie::mem::arena::ArenaMut;
 use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
+use crate::{ShardTries, Trie};
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, StateRoot};
+use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// `MemTries` (logically) owns the memory of multiple tries.
 /// Tries may share nodes with each other via refcounting. The way the
@@ -179,7 +181,22 @@ impl MemTries {
         }
     }
 
-    fn delete_root(&mut self, state_root: &CryptoHash) {
+    /// Bumps the refcount of the in-memory root for `state_root`. Returns
+    /// an error if the root is not currently present in this memtrie.
+    /// Pair every successful call with exactly one [`Self::delete_root`].
+    pub(crate) fn add_root_ref(&mut self, state_root: &CryptoHash) -> Result<(), StorageError> {
+        let ids = self.roots.get(state_root).ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "failed to find root node {:?} in memtrie when adding ref",
+                state_root
+            ))
+        })?;
+        let last_id = *ids.last().unwrap();
+        last_id.add_ref(self.arena.memory_mut());
+        Ok(())
+    }
+
+    pub(crate) fn delete_root(&mut self, state_root: &CryptoHash) {
         if let Some(ids) = self.roots.get_mut(state_root) {
             let last_id = ids.last().unwrap();
             let new_ref = last_id.remove_ref(&mut self.arena);
@@ -249,6 +266,91 @@ impl MemTries {
     /// Used for unit testing and integration testing.
     pub fn num_roots(&self) -> usize {
         self.heights.iter().map(|(_, v)| v.len()).sum()
+    }
+}
+
+/// RAII handle that holds an extra refcount on a memtrie root, preventing
+/// `delete_until_height` from freeing it while an in-flight chunk apply
+/// still needs it. Acquired on the chain thread before scheduling an
+/// apply task and dropped after the task completes.
+pub struct MemTrieRootPin {
+    state_root: StateRoot,
+    shard_uid: ShardUId,
+    memtries: Arc<RwLock<MemTries>>,
+}
+
+impl MemTrieRootPin {
+    /// Bumps the refcount on `state_root` in `memtries`. Errors if the root
+    /// is not currently in the memtrie (already evicted or never inserted).
+    pub(crate) fn acquire(
+        memtries: &Arc<RwLock<MemTries>>,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+    ) -> Result<Self, StorageError> {
+        memtries.write().add_root_ref(&state_root)?;
+        Ok(Self { state_root, shard_uid, memtries: memtries.clone() })
+    }
+}
+
+/// Opaque handle returned by [`ShardTries::maybe_pin_memtrie_root`]. Holds a
+/// refcount on the memtrie root for the apply's `state_root` so that the GC
+/// can't free it while an in-flight apply is queued. Chain treats it as
+/// opaque; the runtime validates it at the entry of `apply_chunk`.
+///
+/// Carries an `Arc`-cheap reference to [`ShardTries`] (when not constructed
+/// via [`Self::none`]) so [`Self::assert_pinned`] can decide on its own
+/// whether memtrie is actually configured for the shard.
+pub struct MaybePinnedMemtrieRoot {
+    /// `Some` when the handle was produced by [`ShardTries::maybe_pin_memtrie_root`].
+    /// `None` for [`Self::none`] — paths that statically don't go through
+    /// memtrie (replay, recorded-storage validation, etc.).
+    inner: Option<MaybePinnedMemtrieRootInner>,
+}
+
+struct MaybePinnedMemtrieRootInner {
+    tries: ShardTries,
+    /// `None` when no memtrie was configured for the shard at acquisition
+    /// time. The validate call re-queries `tries` so a memtrie loaded
+    /// between acquisition and validate doesn't slip past unpinned.
+    pin: Option<MemTrieRootPin>,
+}
+
+impl MaybePinnedMemtrieRoot {
+    /// Empty handle. Use only for paths that statically don't consult
+    /// memtrie (replay, recorded-storage chunk validation, etc.).
+    pub fn none() -> Self {
+        Self { inner: None }
+    }
+
+    pub(crate) fn from_inner(tries: ShardTries, pin: Option<MemTrieRootPin>) -> Self {
+        Self { inner: Some(MaybePinnedMemtrieRootInner { tries, pin }) }
+    }
+
+    /// Asserts that whenever memtrie is configured for `shard_uid` this
+    /// handle holds a pin matching `(shard_uid, state_root)`. Skips the
+    /// check when the handle was constructed via [`Self::none`], when
+    /// `state_root` is the empty-trie sentinel, or when no memtrie is
+    /// configured for the shard.
+    pub fn assert_pinned(&self, shard_uid: ShardUId, state_root: &StateRoot) {
+        // Empty-trie sentinel has no memtrie node to pin.
+        if state_root == &CryptoHash::default() {
+            return;
+        }
+        // Caller statically opted out of memtrie via `none()`.
+        let Some(inner) = &self.inner else { return };
+        // Memtrie isn't configured for this shard, so an empty handle is fine.
+        if inner.tries.get_memtries(shard_uid).is_none() {
+            return;
+        }
+        let pin = inner.pin.as_ref().expect("apply_chunk: memtrie configured but no pin provided");
+        assert_eq!(pin.shard_uid, shard_uid, "memtrie pin shard_uid mismatch");
+        assert_eq!(&pin.state_root, state_root, "memtrie pin state_root mismatch");
+    }
+}
+
+impl Drop for MemTrieRootPin {
+    fn drop(&mut self) {
+        self.memtries.write().delete_root(&self.state_root);
     }
 }
 

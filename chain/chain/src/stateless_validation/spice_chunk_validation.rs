@@ -2,6 +2,7 @@ use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, a
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
+use crate::types::MaybePinnedMemtrieRoot;
 use crate::types::{RuntimeAdapter, StorageDataSource};
 use crate::validate::validate_chunk_proofs;
 use crate::{Chain, ChainStore};
@@ -213,6 +214,8 @@ pub fn spice_validate_chunk_state_witness(
             pre_validation_output.new_chunk_data,
             ShardContext { shard_uid, should_apply_chunk: true },
             runtime_adapter,
+            // Recorded-storage replay; no memtrie path.
+            MaybePinnedMemtrieRoot::none(),
             None,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
@@ -1498,12 +1501,19 @@ mod tests {
                 .unwrap(),
                 storage_context,
             };
+            let memtrie_pin = self
+                .chain
+                .runtime_adapter
+                .get_tries()
+                .maybe_pin_memtrie_root(shard_uid, *prev_chunk_chunk_extra.state_root())
+                .expect("memtrie root pin should be acquirable in chunk-application simulator");
             let NewChunkResult { shard_uid: _, gas_limit, apply_result } = apply_new_chunk(
                 ApplyChunkReason::UpdateTrackedShard,
                 &Span::none(),
                 new_chunk_data,
                 ShardContext { shard_uid, should_apply_chunk: true },
                 self.chain.runtime_adapter.as_ref(),
+                memtrie_pin,
                 None,
             )
             .unwrap();

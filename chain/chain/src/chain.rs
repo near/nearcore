@@ -3413,6 +3413,16 @@ impl Chain {
         tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "creating shard update job");
 
         let mut on_post_state_ready = None;
+        // Resolve the prev-state root that the apply task will need so we can
+        // pin it in memtrie before scheduling. This guards against the GC race
+        // where `delete_memtrie_roots_up_to_height` evicts the root while the
+        // apply task is still queued (e.g. an optimistic-block apply waiting
+        // behind a slow contract precompile).
+        let prev_state_root = if is_new_chunk {
+            chunk_header.prev_state_root()
+        } else {
+            *self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?.state_root()
+        };
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
@@ -3495,6 +3505,8 @@ impl Chain {
         };
 
         let runtime = self.runtime_adapter.clone();
+        let memtrie_pin =
+            runtime.get_tries().maybe_pin_memtrie_root(shard_context.shard_uid, prev_state_root)?;
         Ok(Some((
             shard_id,
             cached_shard_update_key,
@@ -3504,6 +3516,7 @@ impl Chain {
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    memtrie_pin,
                     on_post_state_ready,
                 )?)
             }),

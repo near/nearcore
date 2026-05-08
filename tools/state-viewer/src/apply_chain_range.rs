@@ -4,8 +4,8 @@ use crate::progress_reporter::ProgressReporter;
 use core::panic;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, MaybePinnedMemtrieRoot,
+    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::{
     Block, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
@@ -102,6 +102,7 @@ fn apply_chunk_from_input(
         gas_limit: chunk_header.gas_limit(),
         is_new_chunk: chunk_header.is_new_chunk(block.header().height()),
         on_post_state_ready: None,
+        memtrie_pin: MaybePinnedMemtrieRoot::none(),
     };
 
     runtime_adapter

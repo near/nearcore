@@ -1,7 +1,7 @@
 use super::*;
 use crate::types::{
-    BlockType, ChainConfig, HasContract, RuntimeStorageConfig, StatePartValidationResult,
-    StateRootNodeValidationResult,
+    BlockType, ChainConfig, HasContract, MaybePinnedMemtrieRoot, RuntimeStorageConfig,
+    StatePartValidationResult, StateRootNodeValidationResult,
 };
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
@@ -266,6 +266,7 @@ impl TestEnv {
                     gas_limit,
                     is_new_chunk: true,
                     on_post_state_ready: None,
+                    memtrie_pin: MaybePinnedMemtrieRoot::none(),
                 },
                 ApplyChunkBlockContext {
                     block_type: BlockType::Normal,

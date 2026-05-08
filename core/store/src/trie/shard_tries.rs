@@ -1,5 +1,5 @@
 use super::TrieRefcountSubtraction;
-use super::mem::memtries::MemTries;
+use super::mem::memtries::{MaybePinnedMemtrieRoot, MemTrieRootPin, MemTries};
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
@@ -618,6 +618,26 @@ impl ShardTries {
     pub fn get_memtries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
         let guard = self.0.memtries.read();
         guard.get(&shard_uid).cloned()
+    }
+
+    /// Bumps the refcount on `state_root` in the shard's memtrie so that
+    /// `delete_until_height` can't free it while the returned handle is
+    /// alive. The returned handle is empty if no memtrie is configured for
+    /// the shard or if `state_root` is the empty-trie sentinel. Returns
+    /// `Err` if memtrie is configured but the root isn't present.
+    pub fn maybe_pin_memtrie_root(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+    ) -> Result<MaybePinnedMemtrieRoot, StorageError> {
+        if state_root == CryptoHash::default() {
+            return Ok(MaybePinnedMemtrieRoot::from_inner(self.clone(), None));
+        }
+        let Some(memtries) = self.get_memtries(shard_uid) else {
+            return Ok(MaybePinnedMemtrieRoot::from_inner(self.clone(), None));
+        };
+        let pin = MemTrieRootPin::acquire(&memtries, shard_uid, state_root)?;
+        Ok(MaybePinnedMemtrieRoot::from_inner(self.clone(), Some(pin)))
     }
 
     /// Finalize a completed background memtrie load: apply any remaining deltas

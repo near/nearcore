@@ -177,6 +177,7 @@ pub fn apply_chunk(
                 gas_limit: chunk_header.gas_limit(),
                 is_new_chunk: true,
                 on_post_state_ready: None,
+                memtrie_pin: near_chain::types::MaybePinnedMemtrieRoot::none(),
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,

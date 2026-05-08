@@ -1,7 +1,7 @@
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, MaybePinnedMemtrieRoot,
+    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use near_async::time::Clock;
 use near_chain_primitives::Error;
@@ -94,6 +94,7 @@ pub fn process_shard_update(
     runtime: &dyn RuntimeAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
+    memtrie_pin: MaybePinnedMemtrieRoot,
     on_post_state_ready: Option<PostStateReadyCallback>,
 ) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
@@ -103,6 +104,7 @@ pub fn process_shard_update(
             data,
             shard_context,
             runtime,
+            memtrie_pin,
             on_post_state_ready,
         )?),
         ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
@@ -111,6 +113,7 @@ pub fn process_shard_update(
             data,
             shard_context,
             runtime,
+            memtrie_pin,
         )?),
     })
 }
@@ -123,6 +126,7 @@ pub fn apply_new_chunk(
     data: NewChunkData,
     shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
+    memtrie_pin: MaybePinnedMemtrieRoot,
     on_post_state_ready: Option<PostStateReadyCallback>,
 ) -> Result<NewChunkResult, Error> {
     let NewChunkData {
@@ -166,6 +170,7 @@ pub fn apply_new_chunk(
             gas_limit,
             is_new_chunk: true,
             on_post_state_ready,
+            memtrie_pin,
         },
         block,
         &receipts,
@@ -187,6 +192,7 @@ pub fn apply_old_chunk(
     data: OldChunkData,
     shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
+    memtrie_pin: MaybePinnedMemtrieRoot,
 ) -> Result<OldChunkResult, Error> {
     let OldChunkData { prev_chunk_extra, block, storage_context } = data;
     let shard_id = shard_context.shard_uid.shard_id();
@@ -216,6 +222,7 @@ pub fn apply_old_chunk(
             gas_limit: prev_chunk_extra.gas_limit(),
             is_new_chunk: false,
             on_post_state_ready: None,
+            memtrie_pin,
         },
         block,
         &[],

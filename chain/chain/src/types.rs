@@ -43,6 +43,7 @@ use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
+pub use near_store::trie::mem::memtries::MaybePinnedMemtrieRoot;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -396,6 +397,13 @@ pub struct ApplyChunkShardContext<'a> {
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
     pub on_post_state_ready: Option<PostStateReadyCallback>,
+    /// Holds the memtrie root refcount for `storage.state_root` for the
+    /// duration of `apply_chunk`. Acquired on the chain thread before
+    /// scheduling the apply task. The runtime asserts this is non-empty
+    /// whenever it would actually use memtrie. Pass
+    /// [`MaybePinnedMemtrieRoot::none`] for paths that don't go through
+    /// memtrie.
+    pub memtrie_pin: MaybePinnedMemtrieRoot,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -599,6 +607,12 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Apply transactions and receipts to given state root and return store update
     /// and new state root.
     /// Also returns transaction result for each transaction and new receipts.
+    ///
+    /// The `memtrie_pin` field on `chunk` keeps `storage.state_root` alive
+    /// in the memtrie for the duration of this call. It must hold a real pin
+    /// whenever the runtime would use memtrie for the target shard; the
+    /// runtime asserts this on entry. Acquire one via
+    /// [`ShardTries::maybe_pin_memtrie_root`] before scheduling the apply.
     fn apply_chunk(
         &self,
         storage: RuntimeStorageConfig,

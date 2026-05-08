@@ -343,19 +343,19 @@ fn test_optimistic_block_with_invalidated_outcome() {
     );
 }
 
-/// Reproduces the bug where an optimistic-block apply task that runs (or is
-/// queued) long enough for `delete_until_height` to evict its prev-state root
-/// from memtrie panics inside `Trie::update -> MemTries::get_root`.
+/// Regression test for the optimistic-apply / memtrie GC race.
 ///
-/// We give one validator's `apply_chunks_optimistic` spawner a virtual delay
-/// of several block intervals. By the time the delayed apply runs, the chain
-/// has finalized enough blocks that `update_flat_storage_and_memtrie` has
-/// GC'd the root the apply needs. The panic is caught by
-/// `PendingShardJobs::catch_unwind` and surfaces as a `NUM_FAILED_OPTIMISTIC_BLOCKS`
-/// increment + warn log "failed to process optimistic block".
+/// One validator's `apply_chunks_optimistic` spawner is given a virtual delay
+/// of several block intervals. While the apply task waits in the queue, the
+/// chain finalizes enough blocks that without protection
+/// `update_flat_storage_and_memtrie -> delete_memtrie_roots_up_to_height`
+/// would evict the prev-state root the delayed apply still needs.
 ///
-/// Without the memtrie-root-pin fix, this test should observe the metric
-/// increment. With the fix, it should not.
+/// With the fix, `get_update_shard_job` acquires a `MemTrieRootPin` for the
+/// prev-state root before the apply task is scheduled, holding a refcount
+/// that prevents `delete_memtrie_roots_up_to_height` from freeing the root
+/// while the task is queued. The delayed apply finds its root and succeeds,
+/// so `NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES` does not increase.
 // TODO(spice-test): not relevant under spice; spice short-circuits the
 // optimistic-block apply path in `process_optimistic_block`.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -411,11 +411,10 @@ fn test_optimistic_apply_memtrie_gc_race() {
     }
 
     let metric_after = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
-    assert!(
-        metric_after > metric_before,
-        "expected at least one optimistic apply to fail because prev-state was GC'd, \
-         but NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES did not increase ({} -> {})",
-        metric_before,
-        metric_after,
+    assert_eq!(
+        metric_before, metric_after,
+        "optimistic apply failed (NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES rose {} -> {}); \
+         the memtrie-root pin in `get_update_shard_job` is missing or broken",
+        metric_before, metric_after,
     );
 }
