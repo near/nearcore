@@ -68,7 +68,7 @@ curl -s -H 'Content-Type: application/json' http://localhost:3030 -d '{
 }' | jq
 ```
 
-For richer flows (transfers, contract deploys), point your favourite NEAR
+For richer flows (transfers, contract deploys), point your favorite NEAR
 client at `http://localhost:3030` and use `reporter-key.json` as the signer.
 
 ## Demoing byzantine validators
