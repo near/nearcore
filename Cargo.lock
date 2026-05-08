@@ -8467,6 +8467,7 @@ dependencies = [
  "near-vm-runner",
  "near-wallet-contract",
  "nearcore",
+ "node-runtime",
  "p256",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
