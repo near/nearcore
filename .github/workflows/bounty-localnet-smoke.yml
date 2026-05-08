@@ -45,16 +45,21 @@ jobs:
         run: cp .env.example .env
 
       - name: Build images via bake (GHA layer cache)
-        # bake reads docker-compose.yml, builds every service's `build:`
-        # target, tags with names compose recognizes, and loads them into
-        # the local daemon. The GHA cache is only active on github runners,
-        # so reporters running locally are unaffected. First PR pays the
-        # full ~10–30 min build; subsequent PRs pull layers from the cache
-        # and finish in seconds.
+        # bake reads docker-compose.yml, builds the targets listed below,
+        # and loads them into the local daemon. We only build `init` and
+        # `validator0` because all 8 validator services share the same
+        # `image: bounty-localnet-neard:local` tag — building one validator
+        # tags the image for all of them. The GHA cache is only active on
+        # github runners; reporters running locally are unaffected. First
+        # PR pays the full ~10–30 min build; subsequent PRs pull layers
+        # from the cache and finish in seconds.
         uses: docker/bake-action@v5
         with:
           workdir: tools/bounty-localnet
           files: docker-compose.yml
+          targets: |
+            init
+            validator0
           load: true
           set: |
             *.cache-from=type=gha

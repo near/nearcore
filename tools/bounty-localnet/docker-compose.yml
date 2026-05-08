@@ -13,7 +13,14 @@ x-validator-build: &validator-build
   args:
     make_target: neard-release
 
+# All validator services share a single image. Both `docker compose build`
+# and `docker buildx bake` produce one tagged image, so adding more
+# validators doesn't multiply the build time, memory pressure, or layer
+# storage. Pinning explicit tags also keeps compose's expected names in
+# sync with whatever the build tool produces (bake's defaults differ from
+# compose's project-prefixed defaults).
 x-validator-defaults: &validator-defaults
+  image: bounty-localnet-neard:local
   build: *validator-build
   depends_on:
     init:
@@ -24,6 +31,7 @@ x-validator-defaults: &validator-defaults
 
 services:
   init:
+    image: bounty-localnet-init:local
     build:
       context: ../..
       dockerfile: tools/bounty-localnet/Dockerfile.init
