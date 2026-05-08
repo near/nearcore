@@ -12,6 +12,7 @@ struct PrepareContext<'a> {
     local_limit: u64,
     table_limit: u32,
     table_element_limit: u32,
+    type_limit: u64,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -39,6 +40,7 @@ impl<'a> PrepareContext<'a> {
             local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
+            type_limit: limits.max_types_per_contract.unwrap_or(u64::MAX),
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -75,6 +77,10 @@ impl<'a> PrepareContext<'a> {
                 }
 
                 wp::Payload::TypeSection(reader) => {
+                    self.type_limit = self
+                        .type_limit
+                        .checked_sub(u64::from(reader.count()))
+                        .ok_or(PrepareError::TooManyTypes)?;
                     self.validator
                         .type_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
