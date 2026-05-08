@@ -2302,18 +2302,6 @@ impl Client {
         }
     }
 
-    /// Collects block approvals.
-    ///
-    /// We send the approval to doomslug given the epoch of the current tip iff:
-    ///  1. We are the block producer for the target height in the tip's epoch;
-    ///  2. The signature matches that of the account;
-    /// If we are not the block producer, but we also don't know the previous block, we add the
-    /// approval to `pending_approvals`, since it could be that the approval is from the next epoch.
-    ///
-    /// # Arguments
-    /// * `approval` - the approval to be collected
-    /// * `approval_type`  - whether the approval was just produced by us (in which case skip validation,
-    ///                      only check whether we are the next block producer and store in Doomslug)
     /// Resolve the parent block hash for a skip approval.
     ///
     /// Multiple blocks can exist at `parent_height` when there are forks
@@ -2330,25 +2318,40 @@ impl Client {
         my_account_id: Option<&AccountId>,
     ) -> Option<CryptoHash> {
         let hashes = self.chain.chain_store().get_all_block_hashes_by_height(parent_height);
-        let mut first = None;
-        let chosen = hashes.values().flatten().find(|hash| {
-            if first.is_none() {
-                first = Some(**hash);
-            }
-            my_account_id.is_some_and(|id| {
-                self.epoch_manager
-                    .get_epoch_id_from_prev_block(hash)
-                    .and_then(|epoch_id| {
-                        self.epoch_manager.get_block_producer(&epoch_id, target_height)
-                    })
-                    .ok()
-                    .as_ref()
-                    == Some(id)
-            })
-        });
-        chosen.copied().or(first)
+        let mut iter = hashes.values().flatten().copied();
+        let first = iter.next()?;
+        let Some(my_account_id) = my_account_id else {
+            return Some(first);
+        };
+        let is_producer = |hash: &CryptoHash| {
+            self.epoch_manager
+                .get_epoch_id_from_prev_block(hash)
+                .and_then(|epoch_id| {
+                    self.epoch_manager.get_block_producer(&epoch_id, target_height)
+                })
+                .ok()
+                .as_ref()
+                == Some(my_account_id)
+        };
+        if is_producer(&first) {
+            Some(first)
+        } else {
+            Some(iter.find(is_producer).unwrap_or(first))
+        }
     }
 
+    /// Collects block approvals.
+    ///
+    /// We send the approval to doomslug given the epoch of the current tip iff:
+    ///  1. We are the block producer for the target height in the tip's epoch;
+    ///  2. The signature matches that of the account;
+    /// If we are not the block producer, but we also don't know the previous block, we add the
+    /// approval to `pending_approvals`, since it could be that the approval is from the next epoch.
+    ///
+    /// # Arguments
+    /// * `approval` - the approval to be collected
+    /// * `approval_type`  - whether the approval was just produced by us (in which case skip validation,
+    ///                      only check whether we are the next block producer and store in Doomslug)
     pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
         let Approval { inner, account_id, target_height, signature } = approval;
         tracing::debug!(target: "client",
