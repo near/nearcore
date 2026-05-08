@@ -3378,6 +3378,20 @@ impl Chain {
             return Ok(None);
         }
 
+        // Register this in-flight apply_chunk job so memtrie GC can cancel us if the
+        // prev_block memtrie root we depend on is about to be pruned. We register at
+        // `prev_block.header().height()` — the height at which the memtrie root we
+        // need was inserted — NOT `block.height`, since they differ when heights are
+        // skipped and the cancel predicate must match `MemTries::delete_until_height`'s
+        // boundary exactly. The handle is moved into the spawned closure so it
+        // deregisters on completion; its `flag()` is plumbed into apply_chunk as a
+        // separate parameter so two competing forks each see only their own flag.
+        let cancel_handle = self
+            .runtime_adapter
+            .get_tries()
+            .register_apply_chunk(shard_uid, prev_block.header().height());
+        let cancel_flag = cancel_handle.flag();
+
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
@@ -3484,12 +3498,17 @@ impl Chain {
             shard_id,
             cached_shard_update_key,
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
+                // The cancel handle is moved into this closure so it lives exactly as
+                // long as the worker job; on closure return its slot is removed from
+                // the `ShardTries` registry.
+                let _cancel_handle = cancel_handle;
                 Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
                     on_post_state_ready,
+                    Some(cancel_flag),
                 )?)
             }),
         )))

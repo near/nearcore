@@ -214,6 +214,7 @@ pub fn spice_validate_chunk_state_witness(
             ShardContext { shard_uid, should_apply_chunk: true },
             runtime_adapter,
             None,
+            None,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
         let chunk_extra = main_apply_result.to_chunk_extra(gas_limit);
@@ -1504,6 +1505,7 @@ mod tests {
                 new_chunk_data,
                 ShardContext { shard_uid, should_apply_chunk: true },
                 self.chain.runtime_adapter.as_ref(),
+                None,
                 None,
             )
             .unwrap();

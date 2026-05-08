@@ -584,6 +584,7 @@ pub fn validate_chunk_state_witness_impl(
                     ShardContext { shard_uid, should_apply_chunk: true },
                     runtime_adapter,
                     None,
+                    None,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
                 let chunk_extra = main_apply_result.to_chunk_extra(chunk_gas_limit);
@@ -666,6 +667,7 @@ pub fn validate_chunk_state_witness_impl(
                     old_chunk_data,
                     shard_context,
                     runtime_adapter,
+                    None,
                 )?;
                 let congestion_info = chunk_extra.congestion_info();
                 (shard_uid, apply_result.new_root, congestion_info)

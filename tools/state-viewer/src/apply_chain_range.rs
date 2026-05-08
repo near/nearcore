@@ -112,6 +112,7 @@ fn apply_chunk_from_input(
             block_context,
             &receipts,
             transactions,
+            None,
         )
         .unwrap()
 }

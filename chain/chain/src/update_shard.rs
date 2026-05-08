@@ -14,6 +14,8 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{Gas, StateRoot};
 use node_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
@@ -89,12 +91,19 @@ pub struct StorageContext {
 
 /// Processes shard update with given block and shard.
 /// Doesn't modify chain, only produces result to be applied later.
+///
+/// `cancel`, if `Some`, is the per-job cancellation flag flipped by
+/// `ShardTries::delete_memtrie_roots_up_to_height` when the prev_block memtrie
+/// root this update depends on is about to be pruned. The runtime polls it and
+/// returns a recoverable error rather than panicking. Pass `None` from paths
+/// that don't register with `ShardTries` (state-viewer tools, tests).
 pub fn process_shard_update(
     parent_span: &tracing::Span,
     runtime: &dyn RuntimeAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
     on_post_state_ready: Option<PostStateReadyCallback>,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
@@ -104,6 +113,7 @@ pub fn process_shard_update(
             shard_context,
             runtime,
             on_post_state_ready,
+            cancel,
         )?),
         ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
             ApplyChunkReason::UpdateTrackedShard,
@@ -111,6 +121,7 @@ pub fn process_shard_update(
             data,
             shard_context,
             runtime,
+            cancel,
         )?),
     })
 }
@@ -124,6 +135,7 @@ pub fn apply_new_chunk(
     shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
     on_post_state_ready: Option<PostStateReadyCallback>,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<NewChunkResult, Error> {
     let NewChunkData {
         gas_limit,
@@ -170,6 +182,7 @@ pub fn apply_new_chunk(
         block,
         &receipts,
         transactions,
+        cancel,
     ) {
         Ok(apply_result) => {
             Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
@@ -187,6 +200,7 @@ pub fn apply_old_chunk(
     data: OldChunkData,
     shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<OldChunkResult, Error> {
     let OldChunkData { prev_chunk_extra, block, storage_context } = data;
     let shard_id = shard_context.shard_uid.shard_id();
@@ -220,6 +234,7 @@ pub fn apply_old_chunk(
         block,
         &[],
         SignedValidPeriodTransactions::empty(),
+        cancel,
     ) {
         Ok(apply_result) => Ok(OldChunkResult { shard_uid: shard_context.shard_uid, apply_result }),
         Err(err) => Err(err),

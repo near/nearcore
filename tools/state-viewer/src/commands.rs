@@ -118,6 +118,7 @@ pub(crate) fn apply_block(
                 ),
                 &receipts,
                 SignedValidPeriodTransactions::new(transactions, valid_txs),
+                None,
             )
             .unwrap()
     } else {
@@ -144,6 +145,7 @@ pub(crate) fn apply_block(
                 ),
                 &[],
                 SignedValidPeriodTransactions::empty(),
+                None,
             )
             .unwrap()
     };

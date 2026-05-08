@@ -190,6 +190,7 @@ pub fn apply_chunk(
             },
             &receipts,
             SignedValidPeriodTransactions::new(transactions, valid_txs),
+            None,
         )?,
         chunk_header.gas_limit(),
     ))

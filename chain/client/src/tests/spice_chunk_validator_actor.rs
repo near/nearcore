@@ -526,6 +526,7 @@ fn simulate_chunk_application(
             },
             &TEST_RECEIPTS,
             transactions,
+            None,
         )
         .unwrap();
 

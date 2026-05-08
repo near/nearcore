@@ -336,8 +336,14 @@ impl ReplayController {
             })
         };
 
-        let shard_update_result =
-            process_shard_update(&span, self.runtime.as_ref(), update_reason, shard_context, None)?;
+        let shard_update_result = process_shard_update(
+            &span,
+            self.runtime.as_ref(),
+            update_reason,
+            shard_context,
+            None,
+            None,
+        )?;
 
         let output = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult {

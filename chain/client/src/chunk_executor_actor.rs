@@ -912,6 +912,7 @@ impl ChunkExecutorActor {
                     shard_update_reason,
                     ShardContext { shard_uid, should_apply_chunk: true },
                     None,
+                    None,
                 )?)
             }),
         ))

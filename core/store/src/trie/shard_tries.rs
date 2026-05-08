@@ -26,6 +26,7 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::instrument;
 
 /// Result of a background memtrie loading: the loaded memtries and the
@@ -71,10 +72,57 @@ struct ShardTriesInner {
     /// the memtrie is being loaded in a background thread. The receiver will yield the loaded
     /// `MemTries` once the thread completes.
     memtries_loading: Mutex<HashMap<ShardUId, MemtrieLoadingEntry>>,
+    /// In-flight apply_chunk jobs registered for cancellation when memtrie roots they
+    /// depend on are about to be pruned. Each entry is
+    /// `(shard_uid, prev_block_height, flag)`, where `prev_block_height` is the
+    /// height at which the memtrie root the job reads was inserted — i.e. the
+    /// `prev_block`'s height, NOT the height of the block being applied (these
+    /// differ when heights are skipped). The cancel predicate mirrors
+    /// `MemTries::delete_until_height` exactly: a job is cancelled when its
+    /// `prev_block_height` is strictly less than the pruning threshold. On drop,
+    /// the corresponding `ApplyChunkCancelHandle` removes its slot. Linear scan
+    /// is fine — at any moment the registry holds at most a handful of entries.
+    apply_chunk_cancel_flags: Mutex<Vec<(ShardUId, BlockHeight, Arc<AtomicBool>)>>,
 }
 
 #[derive(Clone)]
 pub struct ShardTries(Arc<ShardTriesInner>);
+
+/// RAII guard for an `apply_chunk` job registered with [`ShardTries::register_apply_chunk`].
+///
+/// While this handle is alive, the registry knows about the
+/// `(shard_uid, prev_block_height)` job and `delete_memtrie_roots_up_to_height`
+/// can signal cancellation to it. On `Drop`, the handle removes its slot from
+/// the registry. Workers don't query the registry directly — they hold a clone
+/// of [`flag`](Self::flag) and load that atomic, so two distinct registrations
+/// at the same key (e.g. two competing forks whose prev_block is at the same
+/// height) each see only their own state.
+pub struct ApplyChunkCancelHandle {
+    shard_uid: ShardUId,
+    prev_block_height: BlockHeight,
+    flag: Arc<AtomicBool>,
+    inner: Arc<ShardTriesInner>,
+}
+
+impl ApplyChunkCancelHandle {
+    /// Clone of the cancel flag for this job. Pass to workers (e.g. via
+    /// `ApplyChunkBlockContext::cancel`) so they can check their own state without
+    /// going through the shared registry.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.flag.clone()
+    }
+}
+
+impl Drop for ApplyChunkCancelHandle {
+    fn drop(&mut self) {
+        let mut flags = self.inner.apply_chunk_cancel_flags.lock();
+        if let Some(pos) = flags.iter().position(|(uid, h, f)| {
+            *uid == self.shard_uid && *h == self.prev_block_height && Arc::ptr_eq(f, &self.flag)
+        }) {
+            flags.swap_remove(pos);
+        }
+    }
+}
 
 impl ShardTries {
     pub fn new(
@@ -96,6 +144,7 @@ impl ShardTries {
             state_snapshot_config,
             temp_split_shard_map: Default::default(),
             memtries_loading: Default::default(),
+            apply_chunk_cancel_flags: Default::default(),
         }))
     }
 
@@ -637,10 +686,48 @@ impl ShardTries {
 
     /// Garbage collects the in-memory tries for the shard up to (and including) the given
     /// height.
+    ///
+    /// Before pruning, signal cancellation to any in-flight `apply_chunk` jobs whose
+    /// memtrie root is about to disappear. The cancel predicate
+    /// (`prev_block_height < height`) mirrors `MemTries::delete_until_height`'s
+    /// own deletion predicate (`inserted_height < height`) so the boundary is
+    /// computed identically — this is robust to skipped heights, where a job's
+    /// `prev_block_height` is not simply `block.height - 1`.
     pub fn delete_memtrie_roots_up_to_height(&self, shard_uid: ShardUId, height: BlockHeight) {
+        {
+            let flags = self.0.apply_chunk_cancel_flags.lock();
+            for (uid, prev_block_height, flag) in flags.iter() {
+                if *uid == shard_uid && *prev_block_height < height {
+                    flag.store(true, Ordering::Release);
+                }
+            }
+        }
         if let Some(memtries) = self.get_memtries(shard_uid) {
             memtries.write().delete_until_height(height);
         }
+    }
+
+    /// Register an in-flight `apply_chunk` job.
+    ///
+    /// `prev_block_height` is the height at which the memtrie root the job will
+    /// read was inserted — i.e. `prev_block.header().height()`. **Do not pass
+    /// the height of the block being applied**: with skipped heights they are
+    /// not equal, and the cancel predicate would miss the prune.
+    ///
+    /// The returned [`ApplyChunkCancelHandle`] is a RAII guard: hold it for the
+    /// duration of the job (e.g. by capturing it in the closure spawned on the
+    /// apply_chunks worker pool). When dropped, its slot is removed from the
+    /// registry. While the slot is alive, [`delete_memtrie_roots_up_to_height`]
+    /// can flip its flag, and the worker observes the flip by loading from a
+    /// clone of [`ApplyChunkCancelHandle::flag`].
+    pub fn register_apply_chunk(
+        &self,
+        shard_uid: ShardUId,
+        prev_block_height: BlockHeight,
+    ) -> ApplyChunkCancelHandle {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.0.apply_chunk_cancel_flags.lock().push((shard_uid, prev_block_height, flag.clone()));
+        ApplyChunkCancelHandle { shard_uid, prev_block_height, flag, inner: self.0.clone() }
     }
 
     /// Freezes in-memory trie for parent shard and copies reference from it to children shards.
@@ -1101,5 +1188,66 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+    }
+
+    #[test]
+    fn test_apply_chunk_cancel_signal() {
+        let tries = create_trie();
+        let shard_a = ShardUId { version: 1, shard_id: 0 };
+        let shard_b = ShardUId { version: 1, shard_id: 1 };
+
+        // Each handle is registered with its `prev_block_height` — the height
+        // at which the memtrie root the job reads was inserted.
+        let prev10 = tries.register_apply_chunk(shard_a, 10);
+        let prev11 = tries.register_apply_chunk(shard_a, 11);
+        let prev12_b = tries.register_apply_chunk(shard_b, 12);
+
+        // Initially nothing is cancelled.
+        assert!(!prev10.flag().load(Ordering::Acquire));
+        assert!(!prev11.flag().load(Ordering::Acquire));
+        assert!(!prev12_b.flag().load(Ordering::Acquire));
+
+        // `delete_memtrie_roots_up_to_height(shard_a, 11)` deletes memtrie
+        // entries inserted at heights `< 11`, i.e. height 10 (and below).
+        // The cancel predicate uses the same `<` boundary, so:
+        //   - prev10 (depends on root at 10): cancelled ✓
+        //   - prev11 (depends on root at 11): NOT cancelled (11 is still there)
+        //   - prev12_b: different shard, untouched
+        tries.delete_memtrie_roots_up_to_height(shard_a, 11);
+        assert!(prev10.flag().load(Ordering::Acquire));
+        assert!(!prev11.flag().load(Ordering::Acquire));
+        assert!(!prev12_b.flag().load(Ordering::Acquire));
+
+        // Pruning at 12 does delete root 11, so prev11 is cancelled now.
+        tries.delete_memtrie_roots_up_to_height(shard_a, 12);
+        assert!(prev11.flag().load(Ordering::Acquire));
+        assert!(!prev12_b.flag().load(Ordering::Acquire));
+
+        // Skipped-height case: a fork block whose prev_block is at height 8
+        // (i.e. heights 9, 10 skipped). Pruning at height 9 must cancel it,
+        // because the dep root at 8 is freed (`8 < 9`). With the buggy
+        // `block_height <= prune_height` predicate, registering by the block's
+        // own height (say 11) and pruning at 9 would incorrectly skip it.
+        let skipped_dep = tries.register_apply_chunk(shard_a, 8);
+        tries.delete_memtrie_roots_up_to_height(shard_a, 9);
+        assert!(skipped_dep.flag().load(Ordering::Acquire));
+
+        // Fork-collision: two distinct registrations at the same key see only
+        // their own flag. Re-register at prev_block_height=12 (still alive
+        // since we only pruned up to 12 — heights `< 12`).
+        let prev12_a_fresh = tries.register_apply_chunk(shard_a, 12);
+        assert!(!prev12_a_fresh.flag().load(Ordering::Acquire));
+
+        // Pruning at 13 cancels both shard_a entries at height 12.
+        tries.delete_memtrie_roots_up_to_height(shard_a, 13);
+        assert!(prev12_a_fresh.flag().load(Ordering::Acquire));
+        assert!(!prev12_b.flag().load(Ordering::Acquire), "shard_b unaffected");
+
+        drop(prev10);
+        drop(prev11);
+        drop(prev12_b);
+        drop(skipped_dep);
+        drop(prev12_a_fresh);
+        assert_eq!(tries.0.apply_chunk_cancel_flags.lock().len(), 0);
     }
 }

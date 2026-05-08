@@ -599,6 +599,13 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Apply transactions and receipts to given state root and return store update
     /// and new state root.
     /// Also returns transaction result for each transaction and new receipts.
+    ///
+    /// `cancel`, if `Some`, is an out-of-band cancellation flag flipped by
+    /// `ShardTries::delete_memtrie_roots_up_to_height` when the prev_block memtrie
+    /// root this apply depends on is about to be pruned. The runtime polls it and
+    /// bails with a recoverable error rather than panicking on missing memtrie
+    /// state. `None` for paths that don't register with `ShardTries`
+    /// (state-viewer tools, tests, code outside the live apply_chunks pool).
     fn apply_chunk(
         &self,
         storage: RuntimeStorageConfig,
@@ -607,6 +614,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: SignedValidPeriodTransactions,
+        cancel: Option<Arc<AtomicBool>>,
     ) -> Result<ApplyChunkResult, Error>;
 
     /// Query runtime with given `path` and `data`.

@@ -560,6 +560,7 @@ impl<'a> ChainUpdate<'a> {
             },
             &receipts,
             transactions,
+            None,
         )?;
 
         let (_, outcome_proofs) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -675,6 +676,7 @@ impl<'a> ChainUpdate<'a> {
             ),
             &[],
             SignedValidPeriodTransactions::empty(),
+            None,
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
