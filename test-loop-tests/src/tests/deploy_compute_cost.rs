@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
@@ -10,6 +8,7 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::transaction::ExecutionStatus;
 use near_primitives::types::Balance;
 use near_primitives::version::PROTOCOL_VERSION;
+use std::sync::Arc;
 
 /// Verifies base compute costs for deploy contract actions work.
 ///
