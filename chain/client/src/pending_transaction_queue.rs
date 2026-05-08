@@ -8,7 +8,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
 use node_runtime::config::tx_cost;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// Checked subtraction that falls back to `Default::default()` on underflow,
@@ -78,12 +78,42 @@ pub struct PendingTransactionQueue {
     pending_gas_key_costs: HashMap<(AccountId, PublicKey), Balance>,
 }
 
-/// Nonce tracking for a single (account, key, nonce_index).
+/// Nonce tracking for a single (account, key, nonce_index). Stores each
+/// contributing chunk's max nonce as a sorted multiset, so `max_nonce()`
+/// reflects only currently-uncertified chunks. In case a chunk contains an
+/// invalid transaction, this limits its impact to only that chunk.
+#[derive(Default)]
 struct PendingNonce {
-    max_nonce: Nonce,
-    /// Number of chunks contributing to this entry. When this drops to zero
-    /// on chunk removal, the entry is removed.
-    chunk_count: usize,
+    /// nonce -> number of chunks contributing this value.
+    chunk_nonces: BTreeMap<Nonce, usize>,
+}
+
+impl PendingNonce {
+    fn add(&mut self, nonce: Nonce) {
+        *self.chunk_nonces.entry(nonce).or_insert(0) += 1;
+    }
+
+    fn remove(&mut self, nonce: Nonce) {
+        if let Some(count) = self.chunk_nonces.get_mut(&nonce) {
+            *count = checked_sub_or_default!(*count, 1, "chunk count underflow in PendingNonce");
+            if *count == 0 {
+                self.chunk_nonces.remove(&nonce);
+            }
+        }
+    }
+
+    fn max_nonce(&self) -> Nonce {
+        self.chunk_nonces.last_key_value().map(|(&k, _)| k).unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    fn chunk_count(&self) -> usize {
+        self.chunk_nonces.values().sum()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.chunk_nonces.is_empty()
+    }
 }
 
 /// Per-chunk aggregate. No individual transaction records stored.
@@ -266,12 +296,7 @@ impl PendingTransactionQueue {
             total_account.add(chunk_account);
         }
         for (nonce_key, &chunk_nonce) in &chunk_data.nonces {
-            let entry = self
-                .pending_nonces
-                .entry(nonce_key.clone())
-                .or_insert(PendingNonce { max_nonce: 0, chunk_count: 0 });
-            entry.max_nonce = std::cmp::max(entry.max_nonce, chunk_nonce);
-            entry.chunk_count += 1;
+            self.pending_nonces.entry(nonce_key.clone()).or_default().add(chunk_nonce);
         }
         for (gas_key, &chunk_gas_key_cost) in &chunk_data.gas_key_costs {
             let entry = self.pending_gas_key_costs.entry(gas_key.clone()).or_insert(Balance::ZERO);
@@ -306,16 +331,10 @@ impl PendingTransactionQueue {
             }
         }
 
-        // Reverse nonce tracking. Note: max_nonce is NOT recomputed on removal -- this is not an
-        // issue as chunks should become certified in order.
-        for (nonce_key, _) in &chunk_data.nonces {
+        for (nonce_key, &chunk_nonce) in &chunk_data.nonces {
             if let Some(entry) = self.pending_nonces.get_mut(nonce_key) {
-                entry.chunk_count = checked_sub_or_default!(
-                    entry.chunk_count,
-                    1,
-                    "chunk_count underflow in remove_certified_chunk"
-                );
-                if entry.chunk_count == 0 {
+                entry.remove(chunk_nonce);
+                if entry.is_empty() {
                     self.pending_nonces.remove(nonce_key);
                 }
             }
@@ -362,7 +381,7 @@ impl PendingTransactionQueue {
             self.pending_gas_key_costs.get(&gas_key).copied().unwrap_or(Balance::ZERO);
 
         let nonce_key = (gas_key.0, gas_key.1, nonce_index);
-        let max_nonce = self.pending_nonces.get(&nonce_key).map(|n| n.max_nonce).unwrap_or(0);
+        let max_nonce = self.pending_nonces.get(&nonce_key).map(|n| n.max_nonce()).unwrap_or(0);
 
         PendingConstraints { paid_from_balance, paid_from_gas_key, max_nonce }
     }
@@ -485,8 +504,8 @@ mod tests {
                 ptq.pending_accounts.get(&signer.get_account_id()).unwrap().access_key_tx_count,
                 2
             );
-            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().chunk_count, 2);
-            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().max_nonce, 2);
+            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().chunk_count(), 2);
+            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().max_nonce(), 2);
         });
         with_shard_ptq(&sharded, |ptq| ptq.remove_certified_chunk_by_block_hash(&hash1));
         with_shard_ptq(&sharded, |ptq| {
@@ -494,10 +513,34 @@ mod tests {
                 ptq.pending_accounts.get(&signer.get_account_id()).unwrap().access_key_tx_count,
                 1
             );
-            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().chunk_count, 1);
+            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().chunk_count(), 1);
         });
         with_shard_ptq(&sharded, |ptq| ptq.remove_certified_chunk_by_block_hash(&hash2));
         with_shard_ptq(&sharded, |ptq| assert!(ptq.is_empty()));
+    }
+
+    #[test]
+    fn test_max_nonce_recomputed_after_partial_removal() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let hash1 = CryptoHash::hash_bytes(&[1]);
+        let hash2 = CryptoHash::hash_bytes(&[2]);
+        let tx1 = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
+        let tx2 = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
+        add_chunk_txs(&sharded, hash1, &[tx1], &config, TEST_GAS_PRICE);
+        add_chunk_txs(&sharded, hash2, &[tx2], &config, TEST_GAS_PRICE);
+        let nonce_key = (signer.get_account_id(), signer.public_key(), None);
+
+        with_shard_ptq(&sharded, |ptq| {
+            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().max_nonce(), 2);
+        });
+        // Remove the chunk with the higher nonce first.
+        with_shard_ptq(&sharded, |ptq| ptq.remove_certified_chunk_by_block_hash(&hash2));
+        with_shard_ptq(&sharded, |ptq| {
+            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().chunk_count(), 1);
+            assert_eq!(ptq.pending_nonces.get(&nonce_key).unwrap().max_nonce(), 1);
+        });
     }
 
     #[test]
