@@ -241,7 +241,7 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
 ///
 /// This is used when making state snapshots, because in that case we don't need to wait for the "sync_hash"
 /// block to be finalized to take a snapshot of the state as of its prev prev block
-pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> Result<bool, Error> {
+pub fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> Result<bool, Error> {
     // Usually, if we're returning true from this function, this call to get_current_epoch_sync_hash()
     // will return None because we're calling it during block preprocessing and the sync hash hasn't been
     // found yet. But we still need to check this because it's possible that the sync hash was found
@@ -292,9 +292,16 @@ pub fn is_spice_sync_hash_satisfied(
         // Genesis CERs are constructed from genesis_chunk_extra; nothing to wait for.
         return Ok(true);
     }
-    let shard_layout = epoch_manager.get_shard_layout(sync_prev_header.epoch_id())?;
+    let sync_prev_prev_header = chain_store.get_block_header(sync_prev_header.prev_hash())?;
+    if sync_prev_prev_header.is_genesis() {
+        return Ok(true);
+    }
+    // V3 anchors at sync_prev_prev (one block earlier than V1/V2's view) so
+    // that the CER's `chunk_extra.state_root` corresponds to the same trie
+    // node the snapshot at `sync_prev_prev` already contains.
+    let shard_layout = epoch_manager.get_shard_layout(sync_prev_prev_header.epoch_id())?;
     for shard_id in shard_layout.shard_ids() {
-        let key = get_execution_results_key(sync_prev_header.hash(), shard_id);
+        let key = get_execution_results_key(sync_prev_prev_header.hash(), shard_id);
         if !chain_store.store_ref().exists(DBCol::execution_results(), &key) {
             return Ok(false);
         }

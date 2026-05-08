@@ -231,6 +231,18 @@ impl ShardStateSyncResponseHeader {
         }
     }
 
+    /// Block hash to set as the flat-storage head for the synced shard.
+    /// V1/V2 anchor at the chunk's `prev_block` (the block whose state the
+    /// chunk's `prev_state_root` matches). V3 carries the anchor block hash
+    /// (sync_prev_prev) directly.
+    #[inline]
+    pub fn flat_head_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(_) | Self::V2(_) => *self.cloned_chunk().prev_block(),
+            Self::V3(header) => header.block_hash,
+        }
+    }
+
     /// Returns the state root that the downloaded state parts represent.
     /// For V1/V2 this is the chunk's `prev_state_root` (pre-execution state,
     /// then re-applied locally). For V3 this is the certified post-execution

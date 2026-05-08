@@ -226,6 +226,7 @@ type MakeSnapshotCallback = Arc<
 
 type DeleteSnapshotCallback = Arc<dyn Fn() -> () + Send + Sync + 'static>;
 
+#[derive(Clone)]
 pub struct SnapshotCallbacks {
     pub make_snapshot_callback: MakeSnapshotCallback,
     pub delete_snapshot_callback: DeleteSnapshotCallback,

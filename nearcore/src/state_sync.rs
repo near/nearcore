@@ -1022,11 +1022,6 @@ async fn do_state_sync_dump(
     handle: Arc<StateSyncDumpHandle>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) {
-    // TODO(spice): Make state sync work with spice.
-    if cfg!(feature = "protocol_feature_spice") {
-        return;
-    }
-
     if let Err(error) = state_sync_dump(
         clock,
         chain,

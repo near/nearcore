@@ -642,9 +642,15 @@ impl<'a> ChainUpdate<'a> {
         let shard_uid =
             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
 
+        // CERs are byte-deterministic for a given `(block_hash, shard_id)` —
+        // every node that derives the CER from a quorum of endorsements gets
+        // the same bytes. The insert-only column's debug `assert_no_overwrite`
+        // therefore passes if the key was already written (e.g. by
+        // `SpiceCoreWriterActor` after processing a block whose
+        // `spice_core_statements` carried this CER).
         let execution_results_key = get_execution_results_key(&v3.block_hash, shard_id);
         let mut store_update = self.chain_store_update.chain_store().store_ref().store_update();
-        store_update.set_ser(
+        store_update.insert_ser(
             DBCol::execution_results(),
             &execution_results_key,
             &v3.execution_result,

@@ -17,6 +17,8 @@ use near_chain::spice_chunk_application::build_spice_apply_chunk_block_context;
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::state_sync::is_sync_prev_hash;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::Tip;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
@@ -105,6 +107,13 @@ pub struct ChunkExecutorActor {
     pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
 
+    /// Under SPICE chunk apply is asynchronous, so the chain-side snapshot
+    /// trigger (`Chain::process_snapshot`) fires too early and is gated off.
+    /// The executor instead invokes the callback after `process_apply_chunk_results`
+    /// commits, so the snapshot freezes a trie that actually contains the
+    /// post-execution state for tracked shards.
+    snapshot_callbacks: Option<SnapshotCallbacks>,
+
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
 
@@ -131,6 +140,7 @@ impl ChunkExecutorActor {
         myself_sender: Sender<ExecutorApplyChunksDone>,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
         config: ChunkExecutorConfig,
     ) -> Self {
         let core_reader =
@@ -153,6 +163,7 @@ impl ChunkExecutorActor {
             core_reader,
             data_distributor_adapter,
             core_writer_sender,
+            snapshot_callbacks,
             pending_unverified_receipts: HashMap::new(),
             #[cfg(feature = "test_features")]
             spice_receipt_stub: None,
@@ -173,6 +184,38 @@ impl ChunkExecutorActor {
         self.process_apply_chunk_results(block_hash, apply_results)
             .map_err(HandleExecutorApplyChunksDoneError::ProcessApplyChunk)?;
         assert!(self.blocks_in_execution.remove(&block_hash));
+        // Race fix: a parallel catchup of `prev` may have committed prev's
+        // catchup-shard chunk_extra *while* our regular apply was running. The
+        // cascade inside `process_apply_chunk_results` for that prev-catchup
+        // walked `BlocksToCatchup[prev]` and saw this block, but bailed with
+        // `BlockAlreadyAccepted` because we were still in `blocks_in_execution`.
+        // Now that we've cleared `blocks_in_execution`, retry CatchingUp — but
+        // only when `prev` is fully caught up (otherwise CatchingUp would
+        // defer again, violating `try_apply_chunks_with_mode`'s assert that
+        // CatchingUp produces no defers).
+        if let Ok(header) = self.chain_store.get_block_header(&block_hash) {
+            let prev_hash = *header.prev_hash();
+            let block_in_catchup =
+                self.chain_store.get_blocks_to_catchup(&prev_hash).contains(&block_hash);
+            let prev_caught_up =
+                self.chain_store.get_block_header(&prev_hash).ok().is_none_or(|prev_header| {
+                    !self
+                        .chain_store
+                        .get_blocks_to_catchup(prev_header.prev_hash())
+                        .contains(&prev_hash)
+                });
+            if block_in_catchup && prev_caught_up {
+                if let Err(err) =
+                    self.try_apply_chunks_with_mode(&block_hash, Some(ApplyChunksMode::CatchingUp))
+                {
+                    tracing::error!(
+                        target: "chunk_executor",
+                        ?err, %block_hash,
+                        "failed self-catchup retry after regular apply",
+                    );
+                }
+            }
+        }
         self.try_process_next_blocks(&block_hash)
             .map_err(HandleExecutorApplyChunksDoneError::TryProcessNextBlocks)
     }
@@ -260,6 +303,17 @@ pub struct ReceiptProofsAvailable {
     pub to_shard_id: ShardId,
 }
 
+/// Sent after `Chain::set_state_finalize` writes the chunk_extra at `sync_hash`
+/// for a newly-synced shard. The executor walks `BlocksToCatchup(sync_hash)`
+/// and retries `try_apply_chunks` for each child whose deferred shard now has
+/// its prev chunk_extra available. Successful applies cascade forward via the
+/// existing `try_process_next_blocks` plumbing.
+#[derive(Debug, Clone)]
+pub struct SpiceStateSyncFinalized {
+    pub sync_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
 /// Test-only injection point used by `SpiceReceiptStub` in test-loop tests to
 /// supply receipt proofs from peer stores when the executor reports
 /// `MissingReceipts`. This trait is the bridge: the production executor knows
@@ -345,6 +399,58 @@ impl Handler<ReceiptProofsAvailable> for ChunkExecutorActor {
         );
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to process next blocks after receipts arrived");
+        }
+    }
+}
+
+impl Handler<SpiceStateSyncFinalized> for ChunkExecutorActor {
+    fn handle(&mut self, SpiceStateSyncFinalized { sync_hash, shard_id }: SpiceStateSyncFinalized) {
+        // V3 anchors at sync_prev_prev — that's the block whose chunk_extra we
+        // just persisted via `set_state_finalize`. Catchup walks forward from
+        // there: children of sync_prev_prev are the first blocks needing apply
+        // for the newly-synced shard.
+        let sync_prev_prev_hash = match self.chain_store.get_block_header(&sync_hash) {
+            Ok(sync_header) => match self.chain_store.get_block_header(sync_header.prev_hash()) {
+                Ok(sync_prev_header) => *sync_prev_header.prev_hash(),
+                Err(err) => {
+                    tracing::error!(target: "chunk_executor", ?err, %sync_hash, "missing sync_prev header");
+                    return;
+                }
+            },
+            Err(err) => {
+                tracing::error!(target: "chunk_executor", ?err, %sync_hash, "missing sync_hash header");
+                return;
+            }
+        };
+        let pending = self.chain_store.get_blocks_to_catchup(&sync_prev_prev_hash);
+        tracing::debug!(
+            target: "chunk_executor",
+            %sync_hash, %sync_prev_prev_hash, %shard_id, num_pending=pending.len(),
+            "state sync finalized for shard, retrying deferred catchup blocks",
+        );
+        for block_hash in pending {
+            // Catchup mode restricts to next-epoch shards we'll newly track —
+            // exactly what state sync just delivered. Mirrors pre-SPICE
+            // `catchup_blocks_step`.
+            match self.try_apply_chunks_with_mode(&block_hash, Some(ApplyChunksMode::CatchingUp)) {
+                Ok(TryApplyChunksOutcome::Scheduled)
+                | Ok(TryApplyChunksOutcome::BlockIrrelevant)
+                | Ok(TryApplyChunksOutcome::BlockAlreadyAccepted) => {}
+                Ok(TryApplyChunksOutcome::NotReady(reason)) => {
+                    tracing::debug!(
+                        target: "chunk_executor",
+                        ?reason, %block_hash, %shard_id,
+                        "catchup block still not ready after state sync finalize",
+                    );
+                }
+                Err(err) => {
+                    tracing::error!(
+                        target: "chunk_executor",
+                        ?err, %block_hash, %shard_id,
+                        "failed to apply catchup block after state sync finalize",
+                    );
+                }
+            }
         }
     }
 }
@@ -453,11 +559,29 @@ impl ChunkExecutorActor {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<TryApplyChunksOutcome, Error> {
+        self.try_apply_chunks_with_mode(block_hash, None)
+    }
+
+    /// Same as `try_apply_chunks` but allows the caller (catchup walk) to
+    /// override the apply mode to `CatchingUp`, which restricts to the
+    /// newly-tracked next-epoch shards (mirroring pre-SPICE
+    /// `catchup_blocks_step`).
+    fn try_apply_chunks_with_mode(
+        &mut self,
+        block_hash: &CryptoHash,
+        mode_override: Option<ApplyChunksMode>,
+    ) -> Result<TryApplyChunksOutcome, Error> {
         if self.blocks_in_execution.contains(block_hash) {
             return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
         }
         let block = self.chain_store.get_block(block_hash)?;
-        if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
+        // Catchup intentionally re-applies blocks that may already be at or
+        // before `spice_final_execution_head` (final advanced from
+        // `last_final_block` independently of catchup progress on synced
+        // shards). Skip the descendant check in catchup mode.
+        let in_catchup = matches!(mode_override, Some(ApplyChunksMode::CatchingUp));
+        if !in_catchup && !is_descendant_of_final_execution_head(&self.chain_store, block.header())
+        {
             tracing::warn!(
                 target: "chunk_executor",
                 ?block_hash,
@@ -490,33 +614,46 @@ impl ChunkExecutorActor {
         }
 
         let mut chunk_contexts = Vec::new();
+        let mut deferred_shards: Vec<ShardId> = Vec::new();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
         let prev_block_shard_ids = self.epoch_manager.shard_ids(&prev_block_epoch_id)?;
         let current_block_shard_layout =
             self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
+        let apply_chunks_mode = match mode_override {
+            Some(mode) => mode,
+            None => apply_chunks_mode_from_prev_hash(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                &self.shard_tracker,
+                prev_block_hash,
+            )?,
+        };
         for &prev_block_shard_id in &prev_block_shard_ids {
             // TODO(spice-resharding): convert `prev_block_shard_id` into `shard_id` for
             // the current shard layout
             let current_block_shard_id = prev_block_shard_id;
             if !self.shard_tracker.should_apply_chunk(
-                ApplyChunksMode::IsCaughtUp,
+                apply_chunks_mode,
                 prev_block_hash,
                 current_block_shard_id,
             ) {
                 continue;
             }
-            // Existing chunk extra means that the chunk for that shard was already applied
+            // Existing chunk extra means that the chunk for that shard was already applied.
             if self.chunk_extra_exists(block_hash, current_block_shard_id)? {
-                return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
+                continue;
             }
 
             let Some(prev_chunk_chunk_extra) =
                 self.get_chunk_extra(prev_block_hash, prev_block_shard_id)?
             else {
-                return Ok(TryApplyChunksOutcome::previous_block_is_not_executed(
-                    *prev_block_hash,
-                    prev_block_shard_id,
-                ));
+                // No local prev chunk_extra for this shard. Typically a cross-epoch
+                // shard switch where this validator didn't track this shard in the
+                // previous epoch and is waiting on state sync to populate the
+                // chunk_extra at the sync hash. Defer this shard; once state sync
+                // completes the catchup walk will retry.
+                deferred_shards.push(prev_block_shard_id);
+                continue;
             };
 
             let incoming_receipts = if prev_block.header().is_genesis() {
@@ -535,6 +672,10 @@ impl ChunkExecutorActor {
                     if let Some(stub) = &self.spice_receipt_stub {
                         stub.satisfy(*prev_block_hash, to_shard_id);
                     }
+                    // Receipts arrive via network; don't add to the catchup column.
+                    // The block stays in the executor's regular retry path, driven
+                    // by `ReceiptProofsAvailable`. Bail on the whole block so we
+                    // don't half-apply with stale state.
                     return Ok(TryApplyChunksOutcome::missing_receipts(
                         *prev_block_hash,
                         &proofs,
@@ -561,6 +702,27 @@ impl ChunkExecutorActor {
                 chunk_header,
             });
         }
+
+        // In NotCaughtUp mode the per-shard loop only iterates currently-tracked
+        // shards, so it won't push the awaiting-state-sync shard onto
+        // `deferred_shards` (it never reaches the chunk_extra check). Without
+        // this, descendants of a catching-up block don't end up in
+        // `BlocksToCatchup` and the catchup cascade fizzles. Match pre-SPICE
+        // (`Chain::start_process_block_impl`'s `if !is_caught_up { add_block_to_catchup(...) }`).
+        if apply_chunks_mode == ApplyChunksMode::NotCaughtUp || !deferred_shards.is_empty() {
+            self.add_block_to_catchup(prev_block_hash, block_hash)?;
+        }
+
+        if chunk_contexts.is_empty() {
+            if let Some(&first_deferred) = deferred_shards.first() {
+                return Ok(TryApplyChunksOutcome::previous_block_is_not_executed(
+                    *prev_block_hash,
+                    first_deferred,
+                ));
+            }
+            return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
+        }
+
         self.schedule_apply_chunks(
             &block,
             chunk_contexts,
@@ -572,15 +734,45 @@ impl ChunkExecutorActor {
         Ok(TryApplyChunksOutcome::Scheduled)
     }
 
+    /// Persist that `block_hash` has at least one shard pending catchup, keyed by `prev_hash`.
+    /// Idempotent — duplicate calls are a no-op. Used after `try_apply_chunks` decides to
+    /// defer one or more shards because the local chunk_extra for the prev block is missing
+    /// (typically a cross-epoch shard switch awaiting state sync).
+    fn add_block_to_catchup(
+        &self,
+        prev_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let mut existing = self.chain_store.get_blocks_to_catchup(prev_hash);
+        if existing.contains(block_hash) {
+            return Ok(());
+        }
+        existing.push(*block_hash);
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &existing);
+        store_update.commit();
+        Ok(())
+    }
+
     fn try_process_next_blocks(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash);
+        let catchup_block_hashes: HashSet<CryptoHash> =
+            self.chain_store.get_blocks_to_catchup(block_hash).into_iter().collect();
         if next_block_hashes.is_empty() {
             // Next block wasn't received yet.
             tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
             return Ok(());
         }
         for next_block_hash in next_block_hashes {
-            match self.try_apply_chunks(&next_block_hash)? {
+            // If this child is in `BlocksToCatchup`, retry it in catchup mode
+            // so the newly-tracked next-epoch shard gets applied. Other
+            // descendants run with the regular (NotCaughtUp/IsCaughtUp) mode.
+            let mode_override = if catchup_block_hashes.contains(&next_block_hash) {
+                Some(ApplyChunksMode::CatchingUp)
+            } else {
+                None
+            };
+            match self.try_apply_chunks_with_mode(&next_block_hash, mode_override)? {
                 TryApplyChunksOutcome::Scheduled | TryApplyChunksOutcome::BlockIrrelevant => {}
                 TryApplyChunksOutcome::NotReady(reason) => {
                     tracing::debug!(target: "chunk_executor", ?reason, %next_block_hash, "not yet ready for processing");
@@ -683,7 +875,14 @@ impl ChunkExecutorActor {
         results: Result<Vec<ShardUpdateResult>, FailedToApplyChunkError>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(&block_hash).unwrap();
-        if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
+        // Catchup applies blocks at heights at or below `spice_final_execution_head`
+        // (final advanced based on last_final_block independently of catchup
+        // progress on synced shards). Skip the descendant check for catchup
+        // targets — symmetric to the skip in `try_apply_chunks_with_mode`.
+        let prev_hash = block.header().prev_hash();
+        let in_catchup = self.chain_store.get_blocks_to_catchup(prev_hash).contains(&block_hash);
+        if !in_catchup && !is_descendant_of_final_execution_head(&self.chain_store, block.header())
+        {
             tracing::warn!(
                 target: "chunk_executor",
                 ?block_hash,
@@ -761,10 +960,127 @@ impl ChunkExecutorActor {
         let final_execution_head = chain_update.update_spice_final_execution_head(&block)?;
         chain_update.save_spice_execution_head(block.header())?;
         chain_update.commit()?;
+        // If the just-completed apply finished off the last pending shard for this
+        // block, drop its catchup entry so future state-sync walks don't revisit it.
+        self.maybe_remove_block_from_catchup(&block)?;
+        // If this apply was part of a catchup walk (i.e. children of this block
+        // are in BlocksToCatchup awaiting the new shard), cascade the walk
+        // forward using CatchingUp mode so the new-shard chunk_extras get
+        // populated for the descendant blocks too.
+        for child_hash in self.chain_store.get_blocks_to_catchup(&block_hash) {
+            if let Err(err) =
+                self.try_apply_chunks_with_mode(&child_hash, Some(ApplyChunksMode::CatchingUp))
+            {
+                tracing::error!(
+                    target: "chunk_executor",
+                    ?err, %child_hash,
+                    "failed catchup cascade",
+                );
+            }
+        }
+        // Pre-SPICE the snapshot trigger fires from chain processing because
+        // chunks are applied synchronously inside `start_process_block_impl`.
+        // Under SPICE chunk apply is async — the chain trigger is gated off
+        // (see `Chain::should_make_snapshot`) and we fire it here instead, so
+        // the snapshot freezes a trie that actually contains the just-applied
+        // post-execution state for the shards we track.
+        self.maybe_make_spice_snapshot(&block)?;
         if let Some(final_execution_head) = final_execution_head {
             self.update_flat_storage_head(&shard_layout, &final_execution_head)?;
             self.gc_memtrie_roots(&shard_layout, &final_execution_head);
         }
+        Ok(())
+    }
+
+    /// Fire the state snapshot callback if `block` is the prev block of an
+    /// upcoming sync_hash (`is_sync_prev_hash`). Mirrors the per-shard filter
+    /// from `Chain::process_snapshot`.
+    fn maybe_make_spice_snapshot(&self, block: &Block) -> Result<(), Error> {
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+        let tip = Tip::from_header(block.header());
+        if !is_sync_prev_hash(&self.chain_store, &tip)? {
+            return Ok(());
+        }
+        let prev_prev_hash = block.header().prev_hash();
+        let mut min_chunk_prev_height = None;
+        for chunk in block.chunks().iter() {
+            let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
+                0
+            } else {
+                self.chain_store.get_block_header(chunk.prev_block_hash())?.height()
+            };
+            min_chunk_prev_height = Some(match min_chunk_prev_height {
+                Some(m) => std::cmp::min(m, prev_height),
+                None => prev_height,
+            });
+        }
+        let min_chunk_prev_height = min_chunk_prev_height.unwrap_or(0);
+        let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(prev_prev_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev_prev_hash)?;
+        let shard_uids = shard_layout
+            .shard_uids()
+            .enumerate()
+            .filter(|&(_, shard_uid)| {
+                self.shard_tracker.cares_about_shard(prev_prev_hash, shard_uid.shard_id())
+            })
+            .collect();
+        (snapshot_callbacks.make_snapshot_callback)(
+            min_chunk_prev_height,
+            epoch_height,
+            shard_uids,
+            Arc::new(block.clone()),
+        );
+        Ok(())
+    }
+
+    /// If every shard this validator tracks for `block` now has a chunk_extra (i.e.
+    /// no shards remain deferred for catchup), drop the block's entry from
+    /// `BlocksToCatchup`. Idempotent.
+    ///
+    /// The "fully caught up" question is independent of the dynamic apply
+    /// mode used in `try_apply_chunks`: a block is only ready to leave
+    /// `BlocksToCatchup` once *every* shard we'd track including next-epoch
+    /// pre-apply (i.e. `IsCaughtUp` shards) has a chunk_extra. Otherwise we'd
+    /// drop the entry the moment the current-epoch shard applied, leaving the
+    /// next-epoch shard quietly stuck.
+    fn maybe_remove_block_from_catchup(&self, block: &Block) -> Result<(), Error> {
+        let block_hash = block.hash();
+        let prev_block_hash = block.header().prev_hash();
+        let prev_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
+        let shard_ids = self.epoch_manager.shard_ids(&prev_epoch_id)?;
+        for shard_id in shard_ids {
+            if !self.shard_tracker.should_apply_chunk(
+                ApplyChunksMode::IsCaughtUp,
+                prev_block_hash,
+                shard_id,
+            ) {
+                continue;
+            }
+            if !self.chunk_extra_exists(block_hash, shard_id)? {
+                return Ok(());
+            }
+        }
+        self.remove_block_from_catchup(prev_block_hash, block_hash)
+    }
+
+    fn remove_block_from_catchup(
+        &self,
+        prev_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let mut existing = self.chain_store.get_blocks_to_catchup(prev_hash);
+        let initial_len = existing.len();
+        existing.retain(|h| h != block_hash);
+        if existing.len() == initial_len {
+            return Ok(());
+        }
+        let mut store_update = self.chain_store.store().store_update();
+        if existing.is_empty() {
+            store_update.delete(DBCol::BlocksToCatchup, prev_hash.as_ref());
+        } else {
+            store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &existing);
+        }
+        store_update.commit();
         Ok(())
     }
 
@@ -1253,6 +1569,47 @@ pub fn receipt_proof_exists(
 type UpdateShardJob =
     (ShardId, Box<dyn FnOnce(&tracing::Span) -> Result<ShardUpdateResult, Error> + Send + 'static>);
 
+/// Picks the apply-chunks mode for the block whose `prev_hash` is given.
+/// Returns `NotCaughtUp` if either:
+/// - the prev block is in `DBCol::BlocksToCatchup` (state-sync catchup is in
+///   flight for one of its shards), or
+/// - the block being processed is the first of a new epoch and the chain has
+///   shards we need to state-sync for the next epoch.
+/// Otherwise returns `IsCaughtUp`, which permits speculatively pre-applying
+/// next-epoch shards.
+///
+/// This mirrors the pre-SPICE `is_caught_up` decision in
+/// `Chain::get_catchup_and_state_sync_infos`: not-caught-up either because of
+/// in-flight catchup, or because we're entering an epoch where a shard we'll
+/// track in the *next* epoch needs syncing.
+pub(crate) fn apply_chunks_mode_from_prev_hash(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
+    prev_hash: &CryptoHash,
+) -> Result<ApplyChunksMode, Error> {
+    let prev_header = chain_store.get_block_header(prev_hash)?;
+    let prev_is_caught_up = ChainStore::prev_block_is_caught_up(
+        chain_store,
+        prev_header.prev_hash(),
+        prev_header.hash(),
+    );
+    if !prev_is_caught_up {
+        return Ok(ApplyChunksMode::NotCaughtUp);
+    }
+    // `is_next_block_epoch_start(prev_hash)` means the block after `prev_hash`
+    // is the first of a new epoch. The block_hash arg to `get_state_sync_info`
+    // is only used to populate the returned StateSyncInfo and doesn't affect
+    // the empty/non-empty decision, so we can pass `prev_hash` as a stand-in
+    // when we don't have the new block's hash yet.
+    if epoch_manager.is_next_block_epoch_start(prev_hash)? {
+        if shard_tracker.get_state_sync_info(prev_hash, prev_hash)?.is_some() {
+            return Ok(ApplyChunksMode::NotCaughtUp);
+        }
+    }
+    Ok(ApplyChunksMode::IsCaughtUp)
+}
+
 pub(crate) fn is_descendant_of_final_execution_head(
     chain_store: &ChainStoreAdapter,
     header: &BlockHeader,
@@ -1369,6 +1726,7 @@ pub mod testonly {
                     myself_sender,
                     core_writer_sender,
                     data_distributor_adapter,
+                    None,
                     chunk_executor_config,
                 ),
                 actor_rc,

@@ -193,6 +193,7 @@ impl TestActor {
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,
+            None,
             ChunkExecutorConfig::default(),
         );
         TestActor { chain, actor, actor_rc, tasks_rc }

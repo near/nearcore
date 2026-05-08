@@ -2658,6 +2658,13 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
+        // Under V3 (SPICE) the synced state is anchored at v3.block_hash
+        // (sync_prev_prev), so flat storage's head moves there. Under V1/V2
+        // it stays at sync_prev.
+        let flat_head_hash = match &shard_state_header {
+            ShardStateSyncResponseHeader::V3(v3) => v3.block_hash,
+            _ => *self.get_block_header(&sync_hash)?.prev_hash(),
+        };
         let is_spice = matches!(&shard_state_header, ShardStateSyncResponseHeader::V3(_));
         let mut chain_update = self.chain_update();
         let shard_uid = if is_spice {
@@ -2679,21 +2686,20 @@ impl Chain {
                     break;
                 }
             }
-            return self.finalize_flat_storage(shard_uid, &sync_hash);
+            return self.finalize_flat_storage(shard_uid, &flat_head_hash);
         };
         chain_update.commit()?;
-        self.finalize_flat_storage(shard_uid, &sync_hash)
+        self.finalize_flat_storage(shard_uid, &flat_head_hash)
     }
 
     fn finalize_flat_storage(
         &self,
         shard_uid: ShardUId,
-        sync_hash: &CryptoHash,
+        flat_head_hash: &CryptoHash,
     ) -> Result<(), Error> {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
-            let header = self.get_block_header(sync_hash)?;
-            flat_storage.update_flat_head(header.prev_hash()).unwrap();
+            flat_storage.update_flat_head(flat_head_hash).unwrap();
         }
         Ok(())
     }
@@ -3653,6 +3659,17 @@ impl Chain {
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
             // genesis block, do not snapshot
+            return Ok(SnapshotAction::None);
+        }
+
+        // Under SPICE chunk application is asynchronous in `chunk_executor_actor`,
+        // so when chain processing reaches sync_hash the post-apply trie state
+        // for sync_prev isn't yet committed. Snapshotting now would freeze an
+        // incomplete trie. The executor fires the snapshot from
+        // `process_apply_chunk_results` once apply has actually committed.
+        let head_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        if ProtocolFeature::Spice.enabled(head_protocol_version) {
             return Ok(SnapshotAction::None);
         }
 

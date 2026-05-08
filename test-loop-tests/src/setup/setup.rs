@@ -138,6 +138,7 @@ pub fn setup_client(
         runtime_adapter.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
+    let spice_snapshot_callbacks = snapshot_callbacks.clone();
 
     let signer = custom_signer.unwrap_or_else(|| Arc::new(create_test_signer(account_id.as_str())));
     let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
@@ -280,6 +281,11 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
+    let chunk_executor_state_sync_finalized_sender = if cfg!(feature = "protocol_feature_spice") {
+        chunk_executor_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
     let spice_chunk_validator_sender = if cfg!(feature = "protocol_feature_spice") {
         spice_chunk_validator_adapter.as_sender()
     } else {
@@ -314,6 +320,7 @@ pub fn setup_client(
         None,
         sync_jobs_adapter.as_multi_sender(),
         chunk_executor_sender,
+        chunk_executor_state_sync_finalized_sender,
         spice_chunk_validator_sender,
         spice_data_distributor_sender,
         spice_core_writer_sender,
@@ -460,6 +467,7 @@ pub fn setup_client(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
+        Some(spice_snapshot_callbacks),
         ChunkExecutorConfig {
             save_trie_changes: client_config.save_trie_changes,
             save_tx_outcomes: client_config.save_tx_outcomes,

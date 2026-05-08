@@ -10,7 +10,7 @@
 //! Each test-loop node has its own stub holding handles to the other nodes'
 //! stores. Cross-node store access is a test-only convenience; production code
 //! never reads peer stores directly.
-use near_async::messaging::{CanSend, Sender};
+use near_async::messaging::Sender;
 use near_client::chunk_executor_actor::{
     ReceiptProofsAvailable, SpiceReceiptStubAdapter, get_receipt_proofs_for_shard,
     receipt_proof_exists, save_receipt_proof,
@@ -20,6 +20,11 @@ use near_primitives::types::{ChunkExecutionResult, ShardId};
 use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
 use near_store::Store;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Total number of receipt proofs the stub has saved across all nodes in the
+/// current test process. Tests can read this to confirm the stub actually fired.
+pub static SPICE_STUB_PROOFS_SAVED: AtomicU64 = AtomicU64::new(0);
 
 pub struct SpiceReceiptStub {
     own_store: Store,
@@ -49,7 +54,7 @@ impl SpiceReceiptStub {
     /// peers yet", not a failure.
     fn satisfy_inner(&self, block_hash: CryptoHash, to_shard_id: ShardId) -> bool {
         let mut store_update = self.own_store.store_update();
-        let mut newly_saved = 0;
+        let mut newly_saved: u64 = 0;
         for peer_store in &self.peer_stores {
             let peer_proofs = get_receipt_proofs_for_shard(peer_store, &block_hash, to_shard_id);
             for proof in peer_proofs {
@@ -79,6 +84,7 @@ impl SpiceReceiptStub {
             return false;
         }
         store_update.commit();
+        SPICE_STUB_PROOFS_SAVED.fetch_add(newly_saved, Ordering::Relaxed);
         self.executor_sender.send(ReceiptProofsAvailable { block_hash, to_shard_id });
         true
     }

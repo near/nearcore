@@ -155,13 +155,6 @@ fn assert_all_nodes_advanced(env: &TestLoopEnv, min_height: BlockHeight) {
 // Basic shard shuffling: 2 validators, 2 shards, no chunk drops.
 // With exactly 1 chunk producer per shard, any state sync failure causes a chain stall.
 #[test]
-// TODO(spice): the V3 state-sync wire format and verifier are in place, but the
-// trigger that starts state sync when a SPICE chunk_executor is assigned to a
-// new shard at an epoch boundary is missing. Today `should_state_sync` only
-// fires on header-head lag; under SPICE the consensus head advances normally
-// while the executor stalls waiting for state. Un-ignore once the trigger
-// lands.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_two_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
@@ -185,6 +178,12 @@ fn test_state_sync_simple_two_node() {
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
+    let stub_proofs_saved = crate::utils::spice_receipt_stub::SPICE_STUB_PROOFS_SAVED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    eprintln!("spice_receipt_stub: total proofs saved across all nodes = {stub_proofs_saved}");
+
+    #[cfg(feature = "protocol_feature_spice")]
+    assert!(stub_proofs_saved > 0, "stub never fired — catchup wasn't exercised");
 }
 
 // 5 validators, 4 shards, no chunk drops. More validators than shards means some shards

@@ -141,6 +141,7 @@ fn setup_network_node_with_tcp(
         block_notification_watch_sender,
         SpiceClientConfig {
             chunk_executor_sender: noop().into_sender(),
+            chunk_executor_state_sync_finalized_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),

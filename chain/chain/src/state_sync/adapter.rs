@@ -265,43 +265,51 @@ impl ChainStateSyncAdapter {
 
     /// Computes a V3 state-sync response header for SPICE epochs.
     ///
-    /// Anchors on the certified execution result (CER) for `(sync_prev, shard_id)` rather
-    /// than on chunk-header fields. The caller's `is_spice_sync_hash_satisfied` gating
-    /// guarantees the CER is on disk by the time a sync hash is observable.
+    /// Anchors on the certified execution result (CER) for
+    /// `(sync_prev_prev, shard_id)` so that `state_root` matches the
+    /// pre-SPICE V1/V2 semantic of "state at the chunk's prev block":
+    /// V1/V2's `chunk.prev_state_root` for sync_prev's chunk equals the
+    /// post-execution state of sync_prev_prev's chunk for that shard, which
+    /// is exactly what `chunk_extra.state_root` of sync_prev_prev's CER
+    /// carries. Keeping the same anchor lets the existing snapshot logic —
+    /// keyed by `sync_prev_prev_hash` — line up unchanged.
+    /// The caller's `is_spice_sync_hash_satisfied` gating guarantees the CER
+    /// is on disk by the time a sync hash is observable.
     fn compute_spice_state_response_header(
         &self,
         shard_id: ShardId,
         sync_block_header: &BlockHeader,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let sync_prev_hash = *sync_block_header.prev_hash();
-        let sync_prev_header = self.chain_store.get_block_header(&sync_prev_hash)?;
+        let sync_prev_header = self.chain_store.get_block_header(sync_block_header.prev_hash())?;
+        let sync_prev_prev_hash = *sync_prev_header.prev_hash();
+        let sync_prev_prev_header = self.chain_store.get_block_header(&sync_prev_prev_hash)?;
 
-        let execution_results_key = get_execution_results_key(&sync_prev_hash, shard_id);
+        let execution_results_key = get_execution_results_key(&sync_prev_prev_hash, shard_id);
         let execution_result: Arc<ChunkExecutionResult> = self
             .chain_store
             .store_ref()
             .caching_get_ser(DBCol::execution_results(), &execution_results_key)
             .ok_or_else(|| {
                 Error::Other(format!(
-                    "missing execution result for sync_prev={sync_prev_hash} shard={shard_id} \
-                     (sync hash invariant should have prevented this)"
+                    "missing execution result for sync_prev_prev={sync_prev_prev_hash} \
+                     shard={shard_id} (sync hash invariant should have prevented this)"
                 ))
             })?;
 
         let endorsements = self.collect_spice_endorsements_for_chunk(
-            &sync_prev_header,
-            &sync_prev_hash,
+            &sync_prev_prev_header,
+            &sync_prev_prev_hash,
             shard_id,
         )?;
 
         let state_root_node = self.runtime_adapter.get_state_root_node(
             shard_id,
-            &sync_prev_hash,
+            &sync_prev_prev_hash,
             execution_result.chunk_extra.state_root(),
         )?;
 
         Ok(ShardStateSyncResponseHeader::V3(ShardStateSyncResponseHeaderV3 {
-            block_hash: sync_prev_hash,
+            block_hash: sync_prev_prev_hash,
             execution_result: (*execution_result).clone(),
             endorsements,
             state_root_node,

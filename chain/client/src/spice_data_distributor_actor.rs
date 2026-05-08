@@ -1,4 +1,5 @@
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::apply_chunks_mode_from_prev_hash;
 use crate::chunk_executor_actor::get_contract_accesses;
 use crate::chunk_executor_actor::get_receipt_proof;
 use crate::chunk_executor_actor::get_witness;
@@ -21,7 +22,6 @@ use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
-use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -849,16 +849,18 @@ impl SpiceDataDistributorActor {
 
         let block = self.chain_store.get_block(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
+        let apply_mode_for_block = apply_chunks_mode_from_prev_hash(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            block.header().prev_hash(),
+        )?;
 
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
                 let prev_hash = block.header().prev_hash();
-                self.shard_tracker.should_apply_chunk(
-                    ApplyChunksMode::IsCaughtUp,
-                    prev_hash,
-                    *shard_id,
-                )
+                self.shard_tracker.should_apply_chunk(apply_mode_for_block, prev_hash, *shard_id)
             })
             .collect();
 
@@ -881,12 +883,20 @@ impl SpiceDataDistributorActor {
             }
         }
 
+        // For the next block (where this block becomes the prev), derive the
+        // mode using this block's hash as the prev_hash.
+        let apply_mode_for_next_block = apply_chunks_mode_from_prev_hash(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            block.hash(),
+        )?;
         let shards_we_apply_in_next_block: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
                 let prev_hash = block.hash();
                 self.shard_tracker.should_apply_chunk(
-                    ApplyChunksMode::IsCaughtUp,
+                    apply_mode_for_next_block,
                     prev_hash,
                     *shard_id,
                 )
