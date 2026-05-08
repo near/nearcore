@@ -12,7 +12,7 @@ use near_primitives::receipt::{
     ReceiptToTxInfo, ReceiptToTxInfoV1,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
-use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
+use near_primitives::types::{AccountId, Compute, EpochInfoProvider, ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieAccess as _, TrieUpdate};
@@ -133,7 +133,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
     receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
-) -> Result<(), RuntimeError> {
+) -> Result<Compute, RuntimeError> {
     let _span = tracing::debug_span!(
         target: "runtime",
         "apply_global_contract_distribution_receipt",
@@ -143,7 +143,8 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt() else {
         unreachable!("given receipt should be an global contract distribution receipt")
     };
-    apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update)?;
+    let compute =
+        apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update)?;
     forward_distribution_next_shard(
         receipt,
         global_contract_data,
@@ -154,7 +155,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
         receipt_to_tx,
     )?;
 
-    Ok(())
+    Ok(compute)
 }
 
 fn initiate_distribution(
@@ -223,7 +224,7 @@ fn apply_distribution_current_shard(
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
-) -> Result<(), RuntimeError> {
+) -> Result<Compute, RuntimeError> {
     let identifier = match &global_contract_data.id() {
         GlobalContractIdentifier::CodeHash(hash) => GlobalContractCodeIdentifier::CodeHash(*hash),
         GlobalContractIdentifier::AccountId(account_id) => {
@@ -234,7 +235,7 @@ fn apply_distribution_current_shard(
     let is_nonce_fresh =
         check_and_update_nonce(global_contract_data, &identifier, apply_state, state_update)?;
     if !is_nonce_fresh {
-        return Ok(());
+        return Ok(0);
     }
 
     let config = apply_state.config.wasm_config.clone();
@@ -251,7 +252,11 @@ fn apply_distribution_current_shard(
         apply_state.cache.as_deref(),
     );
     near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");
-    Ok(())
+    // TODO: charge dedicated compute cost here for global contract distribution
+    // receipt processing (precompilation in particular). The plumbing back to
+    // the chunk's compute total is in place at the call site; only the value
+    // needs to be set once benchmarked.
+    Ok(0)
 }
 
 // Checks if the incoming nonce is fresh and updates the stored nonce. Returns
