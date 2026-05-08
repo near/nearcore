@@ -44,6 +44,24 @@ impl ProfileDataV3 {
         profile_data
     }
 
+    /// Create a test profile valid for a specific config.
+    ///
+    /// Unlike `test()`, only assigns gas to ext costs that have non-zero gas in `config`,
+    /// satisfying the invariant that a non-zero profile value implies a non-zero gas cost.
+    pub fn test_with_config(config: &ExtCostsConfig) -> Self {
+        let mut profile = ProfileDataV3::default();
+        for (i, cost) in ExtCosts::iter().enumerate() {
+            let unit = cost.gas(config);
+            if unit != Gas::ZERO {
+                profile.add_ext_cost(cost, unit.checked_mul(i as u64 + 1).unwrap_or(unit));
+            }
+        }
+        for (i, cost) in ActionCosts::iter().enumerate() {
+            profile.add_action_cost(cost, Gas::from_gas(i as u64 + 1000));
+        }
+        profile
+    }
+
     #[inline]
     pub fn merge(&mut self, other: &ProfileDataV3) {
         for ((_, gas), (_, other_gas)) in
@@ -110,8 +128,24 @@ impl ProfileDataV3 {
             .fold(Gas::ZERO, |acc, x| acc.saturating_add(x))
     }
 
-    /// Returns total compute usage of host calls.
-    pub fn total_compute_usage(&self, ext_costs_config: &ExtCostsConfig) -> Compute {
+    /// Returns total compute usage of the function call.
+    ///
+    /// Compute usage has three potential sources:
+    ///
+    /// - wasm op cost (`regular_op_cost`): this currently doesn't support
+    ///                                     compute costs, compute = gas
+    /// - ext_costs (host functions):       calculated from the profile
+    /// - SEND cost for outgoing receipts:  since the profile does not count
+    ///                                     SEND/EXEC/SEND_SIR separately, it
+    ///                                     cannot be calculated from the
+    ///                                     profile. It is accounted for in the
+    ///                                     GasCounter and passed in as argument
+    ///                                     here.
+    pub fn total_compute_usage(
+        &self,
+        ext_costs_config: &ExtCostsConfig,
+        send_action_compute_usage: Compute,
+    ) -> Compute {
         let ext_compute_cost = self
             .wasm_ext_profile
             .iter()
@@ -134,10 +168,9 @@ impl ProfileDataV3 {
             })
             .fold(0, Compute::saturating_add);
 
-        // We currently only support compute costs for host calls. In the future we might add
-        // them for actions as well.
+        // We currently don't support compute costs for WASM operation costs
         ext_compute_cost
-            .saturating_add(self.action_gas().as_gas())
+            .saturating_add(send_action_compute_usage)
             .saturating_add(self.get_wasm_cost().as_gas())
     }
 }
@@ -430,8 +463,8 @@ mod test {
         profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
 
         assert_eq!(
-            profile_data.total_compute_usage(&ext_costs_config),
-            3 * profile_data.host_gas().as_gas() + profile_data.action_gas().as_gas()
+            profile_data.total_compute_usage(&ext_costs_config, 0),
+            3 * profile_data.host_gas().as_gas()
         );
     }
 

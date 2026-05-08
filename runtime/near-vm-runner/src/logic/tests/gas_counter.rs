@@ -27,6 +27,7 @@ fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     // Just avoid hard-coding super-precise amount of gas burnt.
     assert!(outcome.burnt_gas < Gas::from_gas(gas_limit / 2));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -48,6 +49,7 @@ fn test_limit_wasm_gas_after_attaching_gas() {
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
     assert!(Gas::from_gas(gas_limit / 2) < outcome.burnt_gas);
     assert!(outcome.burnt_gas < Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -65,6 +67,7 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit * 2));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -82,6 +85,7 @@ fn test_cant_burn_more_than_prepaid_gas() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -100,6 +104,7 @@ fn test_hit_max_gas_burnt_limit() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert!(outcome.used_gas > Gas::from_gas(gas_limit * 2));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -118,6 +123,7 @@ fn test_hit_prepaid_gas_limit() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -137,6 +143,7 @@ fn function_call_no_weight_refund() {
 
     // Verify that unused gas was not allocated to function call
     assert!(outcome.used_gas < Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -267,6 +274,10 @@ fn check_action_gas_exceeds_limit(
         logic.gas_counter().used_gas(),
         "used gas should be no more than burnt gas",
     );
+    // Until action compute costs are actually changed, no difference in gas vs
+    // compute should be observed.
+    let outcome = logic.compute_outcome();
+    assert_eq!(gas_attached, outcome.compute_usage);
 }
 
 /// Check consistent result when exceeding attached gas on a specific action gas
@@ -314,6 +325,11 @@ fn check_action_gas_exceeds_attached(
         logic.gas_counter().used_gas().as_gas()
     );
     expected.assert_eq(&actual);
+
+    // Until action compute costs are actually changed, no difference in gas vs
+    // compute should be observed.
+    let outcome = logic.compute_outcome();
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage,);
 }
 
 // Below are a bunch of `out_of_gas_*` tests. These test that when we run out of

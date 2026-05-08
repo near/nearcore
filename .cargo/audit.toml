@@ -31,10 +31,6 @@ ignore = [
     # TODO(#14768): Remove this and updated necessary crates to get rid of rustls-pemfile
     "RUSTSEC-2025-0134",
 
-    # time has a DoS vulnerability (stack exhaustion), fixed in 0.3.47+ which requires Rust 1.88
-    # TODO(#15026): Remove this when rust-toolchain.toml is updated to >= 1.88
-    "RUSTSEC-2026-0009",
-
     # libsecp256k1 is unmaintained, but every version of aurora-engine-transactions pulls it in
     # (via aurora-engine-precompiles in 1.1, or aurora-engine-sdk in 1.2+). In the main workspace
     # it's only a dev-dependency (test-loop-tests, integration-tests). It is also a transitive

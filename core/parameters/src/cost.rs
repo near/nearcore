@@ -1,7 +1,9 @@
 use crate::parameter::Parameter;
+use crate::parameter_table::FeeComponent;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::account::{AccessKey, GasKeyInfo};
+use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::trie_key::access_key_key_len;
 use near_primitives_core::types::{Balance, Compute, Gas, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
@@ -11,54 +13,93 @@ use num_rational::Rational32;
 /// by the receiver).
 /// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
 /// And `execution` fee is burned when the item is being executed.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.
-    pub send_sir: Gas,
+    pub send_sir: FeeComponent,
     /// Fee for sending an object potentially across the shards.
-    pub send_not_sir: Gas,
+    pub send_not_sir: FeeComponent,
     /// Fee for executing the object.
-    pub execution: Gas,
+    pub execution: FeeComponent,
 }
 
 impl Fee {
     pub fn new(send_sir: u64, send_not_sir: u64, execution: u64) -> Self {
         Self {
-            send_sir: Gas::from_gas(send_sir),
-            send_not_sir: Gas::from_gas(send_not_sir),
-            execution: Gas::from_gas(execution),
+            send_sir: FeeComponent::Gas(Gas::from_gas(send_sir)),
+            send_not_sir: FeeComponent::Gas(Gas::from_gas(send_not_sir)),
+            execution: FeeComponent::Gas(Gas::from_gas(execution)),
         }
     }
 
     #[inline]
-    pub fn send_fee(&self, sir: bool) -> Gas {
-        if sir { self.send_sir } else { self.send_not_sir }
+    pub fn send_fee(&self, sir: bool) -> ParameterCost {
+        if sir { self.send_sir.cost() } else { self.send_not_sir.cost() }
     }
 
-    pub fn exec_fee(&self) -> Gas {
-        self.execution
+    pub fn exec_fee(&self) -> ParameterCost {
+        self.execution.cost()
     }
 
-    /// The minimum fee to send and execute.
+    /// The minimum gas fee to send and execute.
     pub fn min_send_and_exec_fee(&self) -> Gas {
-        std::cmp::min(self.send_sir, self.send_not_sir).checked_add(self.execution).unwrap()
+        std::cmp::min(self.send_sir.gas(), self.send_not_sir.gas())
+            .checked_add(self.execution.gas())
+            .unwrap()
     }
 
-    fn test_value(value: u64) -> Self {
+    fn test_value(value: u64, factor: u64) -> Self {
         Self {
-            send_sir: Gas::from_gas(value),
-            send_not_sir: Gas::from_gas(value),
-            execution: Gas::from_gas(value),
+            send_sir: FeeComponent::GasAndCompute {
+                gas: Gas::from_gas(value),
+                compute: value * factor,
+            },
+            send_not_sir: FeeComponent::GasAndCompute {
+                gas: Gas::from_gas(value),
+                compute: value * factor,
+            },
+            execution: FeeComponent::GasAndCompute {
+                gas: Gas::from_gas(value),
+                compute: value * factor,
+            },
         }
     }
 }
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ParameterCost {
     pub gas: Gas,
     pub compute: Compute,
+}
+
+impl ParameterCost {
+    pub const ZERO: ParameterCost = ParameterCost { gas: Gas::ZERO, compute: 0 };
+
+    pub fn new(gas: Gas, compute: Compute) -> Self {
+        Self { gas, compute }
+    }
+
+    pub fn checked_add(self, rhs: Self) -> Option<Self> {
+        let gas = self.gas.checked_add(rhs.gas)?;
+        let compute = self.compute.checked_add(rhs.compute)?;
+        Some(Self { gas, compute })
+    }
+
+    pub fn checked_add_result(self, rhs: Self) -> Result<Self, IntegerOverflowError> {
+        self.checked_add(rhs).ok_or(IntegerOverflowError)
+    }
+
+    pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+        let gas = self.gas.checked_sub(rhs.gas)?;
+        let compute = self.compute.checked_sub(rhs.compute)?;
+        Some(Self { gas, compute })
+    }
+
+    pub fn checked_mul(self, rhs: u64) -> Option<Self> {
+        let gas = self.gas.checked_mul(rhs)?;
+        let compute = self.compute.checked_mul(rhs)?;
+        Some(Self { gas, compute })
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -494,7 +535,9 @@ impl RuntimeFeesConfig {
         &self.action_fees[cost]
     }
 
-    pub fn test() -> Self {
+    /// Convenience constructor to use in tests where the exact gas cost does
+    /// not need to correspond to a specific protocol version.
+    pub fn test_with_undercharging_factor(factor: u64) -> Self {
         Self {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
@@ -502,25 +545,25 @@ impl RuntimeFeesConfig {
             gas_refund_penalty: Rational32::new(5, 100),
             min_gas_refund_penalty: Gas::from_teragas(1),
             action_fees: enum_map::enum_map! {
-                ActionCosts::create_account => Fee::test_value(3_850_000_000_000),
-                ActionCosts::delete_account => Fee::test_value(147489000000),
-                ActionCosts::deploy_contract_base => Fee::test_value(184765750000),
-                ActionCosts::deploy_contract_byte => Fee::test_value(6812999),
-                ActionCosts::function_call_base => Fee::test_value(2319861500000),
-                ActionCosts::function_call_byte => Fee::test_value(2235934),
-                ActionCosts::transfer => Fee::test_value(115123062500),
+                ActionCosts::create_account => Fee::test_value(3_850_000_000_000, factor),
+                ActionCosts::delete_account => Fee::test_value(147489000000, factor),
+                ActionCosts::deploy_contract_base => Fee::test_value(184765750000, factor),
+                ActionCosts::deploy_contract_byte => Fee::test_value(6812999, factor),
+                ActionCosts::function_call_base => Fee::test_value(2319861500000, factor),
+                ActionCosts::function_call_byte => Fee::test_value(2235934, factor),
+                ActionCosts::transfer => Fee::test_value(115123062500, factor),
                 ActionCosts::stake => Fee::new(141715687500, 141715687500, 102217625000),
-                ActionCosts::add_full_access_key => Fee::test_value(101765125000),
-                ActionCosts::add_function_call_key_base => Fee::test_value(102217625000),
-                ActionCosts::add_function_call_key_byte => Fee::test_value(1925331),
-                ActionCosts::delete_key => Fee::test_value(94946625000),
-                ActionCosts::new_action_receipt => Fee::test_value(108059500000),
-                ActionCosts::new_data_receipt_base => Fee::test_value(4697339419375),
-                ActionCosts::new_data_receipt_byte => Fee::test_value(59357464),
-                ActionCosts::delegate => Fee::test_value(200_000_000_000),
-                ActionCosts::deploy_global_contract_base => Fee::test_value(184_765_750_000),
+                ActionCosts::add_full_access_key => Fee::test_value(101765125000, factor),
+                ActionCosts::add_function_call_key_base => Fee::test_value(102217625000, factor),
+                ActionCosts::add_function_call_key_byte => Fee::test_value(1925331, factor),
+                ActionCosts::delete_key => Fee::test_value(94946625000, factor),
+                ActionCosts::new_action_receipt => Fee::test_value(108059500000, factor),
+                ActionCosts::new_data_receipt_base => Fee::test_value(4697339419375, factor),
+                ActionCosts::new_data_receipt_byte => Fee::test_value(59357464, factor),
+                ActionCosts::delegate => Fee::test_value(200_000_000_000, factor),
+                ActionCosts::deploy_global_contract_base => Fee::test_value(184_765_750_000, factor),
                 ActionCosts::deploy_global_contract_byte => Fee::new(6_812_999, 6_812_999, 70_000_000),
-                ActionCosts::use_global_contract_base => Fee::test_value(184_765_750_000),
+                ActionCosts::use_global_contract_base => Fee::test_value(184_765_750_000, factor),
                 ActionCosts::use_global_contract_byte => Fee::new(6_812_999, 47_683_715, 64_572_944),
                 ActionCosts::deterministic_state_init_base => Fee::new(3_850_000_000_000, 3_850_000_000_000, 4_080_000_000_000),
                 ActionCosts::deterministic_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
@@ -530,6 +573,11 @@ impl RuntimeFeesConfig {
                 ActionCosts::gas_key_nonce_write_base => Fee::new(0, 0, 64_196_736_000),
             },
         }
+    }
+
+    /// `test_with_undercharging_factor` with a factor of 1.
+    pub fn test() -> RuntimeFeesConfig {
+        Self::test_with_undercharging_factor(1)
     }
 
     pub fn free() -> Self {
@@ -603,7 +651,7 @@ pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
-) -> Gas {
+) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
@@ -632,7 +680,7 @@ pub fn transfer_send_fee(
     sender_is_receiver: bool,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
-) -> Gas {
+) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
@@ -659,12 +707,12 @@ pub fn transfer_send_fee(
 /// Gas fee split into base and per-byte components, so callers can attribute
 /// them to separate `ActionCosts` in the gas profile.
 pub struct GasKeyTransferFee {
-    pub base: Gas,
-    pub per_byte: Gas,
+    pub base: ParameterCost,
+    pub per_byte: ParameterCost,
 }
 
 impl GasKeyTransferFee {
-    pub fn total(&self) -> Gas {
+    pub fn total(&self) -> ParameterCost {
         self.base.checked_add(self.per_byte).unwrap()
     }
 }
@@ -708,12 +756,12 @@ pub fn gas_key_transfer_exec_fee(
 /// GasKeyFullAccess permissions, split into base (`gas_key_nonce_write_base`)
 /// and per-byte (`gas_key_byte`) components.
 pub struct GasKeyAddFee {
-    pub base: Gas,
-    pub per_byte: Gas,
+    pub base: ParameterCost,
+    pub per_byte: ParameterCost,
 }
 
 impl GasKeyAddFee {
-    pub fn total(&self) -> Gas {
+    pub fn total(&self) -> ParameterCost {
         self.base.checked_add(self.per_byte).unwrap()
     }
 }
@@ -721,7 +769,10 @@ impl GasKeyAddFee {
 /// Additional send fee for gas_key_byte when adding a gas key (AddKey with
 /// GasKeyFullAccess or GasKeyFunctionCall permission). Covers the serialized
 /// GasKeyInfo bytes.
-pub fn gas_key_add_key_send_fee(cfg: &RuntimeFeesConfig, sender_is_receiver: bool) -> Gas {
+pub fn gas_key_add_key_send_fee(
+    cfg: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+) -> ParameterCost {
     cfg.fee(ActionCosts::gas_key_byte)
         .send_fee(sender_is_receiver)
         .checked_mul(GasKeyInfo::borsh_len() as u64)

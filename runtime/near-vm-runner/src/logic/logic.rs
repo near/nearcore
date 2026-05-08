@@ -16,8 +16,9 @@ use ExtCosts::*;
 use near_crypto::Secp256K1Signature;
 use near_parameters::vm::Config;
 use near_parameters::{
-    ActionCosts, ExtCosts, RuntimeFeesConfig, gas_key_add_key_exec_fee, gas_key_add_key_send_fee,
-    gas_key_transfer_exec_fee, gas_key_transfer_send_fee, transfer_exec_fee, transfer_send_fee,
+    ActionCosts, ExtCosts, ParameterCost, RuntimeFeesConfig, gas_key_add_key_exec_fee,
+    gas_key_add_key_send_fee, gas_key_transfer_exec_fee, gas_key_transfer_send_fee,
+    transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
@@ -133,7 +134,10 @@ impl ExecutionResultState {
 
         let mut profile = self.gas_counter.profile_data();
         profile.compute_wasm_instruction_cost(burnt_gas);
-        let compute_usage = profile.total_compute_usage(&self.config.ext_costs);
+        let compute_usage = profile.total_compute_usage(
+            &self.config.ext_costs,
+            self.gas_counter.send_action_compute_usage,
+        );
 
         VMOutcome {
             balance: self.current_account_balance,
@@ -1956,21 +1960,21 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// DataReceipt.
     fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
         let fees_config_cfg = &self.fees_config;
-        let mut burn_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).send_fee(sir);
-        let mut use_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).exec_fee();
+        let mut burn_cost = fees_config_cfg.fee(ActionCosts::new_action_receipt).send_fee(sir);
+        let mut use_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).exec_fee().gas;
         for dep in data_dependencies {
             // Both creation and execution for data receipts are considered burnt gas.
-            burn_gas = burn_gas
+            burn_cost = burn_cost
                 .checked_add(fees_config_cfg.fee(ActionCosts::new_data_receipt_base).send_fee(*dep))
                 .ok_or(HostError::IntegerOverflow)?
                 .checked_add(fees_config_cfg.fee(ActionCosts::new_data_receipt_base).exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+        use_gas = use_gas.checked_add(burn_cost.gas).ok_or(HostError::IntegerOverflow)?;
         // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
         // But we have to keep charing these two together unless we make a protocol change.
         self.result_state.gas_counter.pay_action_accumulated(
-            burn_gas,
+            burn_cost,
             use_gas,
             ActionCosts::new_action_receipt,
         )
@@ -2911,10 +2915,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             self.config.eth_implicit_accounts,
             receiver_id.get_account_type(),
         );
-        let burn_gas = send_fee;
-        let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
+        let burn_gas = send_fee.gas;
+        let use_gas = burn_gas.checked_add(exec_fee.gas).ok_or(HostError::IntegerOverflow)?;
         self.result_state.gas_counter.pay_action_accumulated(
-            burn_gas,
+            send_fee,
             use_gas,
             ActionCosts::transfer,
         )?;
@@ -2967,14 +2971,16 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             public_key_len as usize,
         );
         let burn_base = send.base;
-        let use_base = burn_base.checked_add(exec.base).ok_or(HostError::IntegerOverflow)?;
+        let use_base =
+            burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
         self.result_state.gas_counter.pay_action_accumulated(
             burn_base,
             use_base,
             ActionCosts::gas_key_transfer_base,
         )?;
         let burn_byte = send.per_byte;
-        let use_byte = burn_byte.checked_add(exec.per_byte).ok_or(HostError::IntegerOverflow)?;
+        let use_byte =
+            burn_byte.gas.checked_add(exec.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
         self.result_state.gas_counter.pay_action_accumulated(
             burn_byte,
             use_byte,
@@ -3615,7 +3621,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
         let return_val = get_memory_or_register!(self, value_ptr, value_len)?;
-        let mut burn_gas = Gas::ZERO;
+        let mut burn_cost = ParameterCost::ZERO;
         let num_bytes = return_val.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
             return Err(HostError::ReturnedValueLengthExceeded {
@@ -3633,7 +3639,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             // refund in this situation. Which we avoid by just paying for execution of
             // data receipt that might not be performed.
             // The gas here is considered burnt, cause we'll prepay for it upfront.
-            burn_gas = burn_gas
+            burn_cost = burn_cost
                 .checked_add(
                     self.fees_config
                         .fee(ActionCosts::new_data_receipt_byte)
@@ -3648,8 +3654,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
                 .ok_or(HostError::IntegerOverflow)?;
         }
         self.result_state.gas_counter.pay_action_accumulated(
-            burn_gas,
-            burn_gas,
+            burn_cost,
+            burn_cost.gas,
             ActionCosts::new_data_receipt_byte,
         )?;
         self.result_state.return_data = ReturnData::Value(return_val.into_owned());
@@ -4237,10 +4243,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// A helper function to pay base cost gas fee for batching an action.
     pub fn pay_action_base(&mut self, action: ActionCosts, sir: bool) -> Result<()> {
         let base_fee = self.fees_config.fee(action);
-        let burn_gas = base_fee.send_fee(sir);
+        let burn_cost = base_fee.send_fee(sir);
         let use_gas =
-            burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
-        self.result_state.gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+            burn_cost.gas.checked_add(base_fee.exec_fee().gas).ok_or(HostError::IntegerOverflow)?;
+        self.result_state.gas_counter.pay_action_accumulated(burn_cost, use_gas, action)
     }
 
     /// A helper function to pay per byte gas fee for batching an action.
@@ -4251,14 +4257,19 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         sir: bool,
     ) -> Result<()> {
         let per_byte_fee = self.fees_config.fee(action);
-        let burn_gas =
+        let burn_cost =
             per_byte_fee.send_fee(sir).checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
-        let use_gas = burn_gas
+        let use_gas = burn_cost
+            .gas
             .checked_add(
-                per_byte_fee.exec_fee().checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
+                per_byte_fee
+                    .exec_fee()
+                    .gas
+                    .checked_mul(num_bytes)
+                    .ok_or(HostError::IntegerOverflow)?,
             )
             .ok_or(HostError::IntegerOverflow)?;
-        self.result_state.gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+        self.result_state.gas_counter.pay_action_accumulated(burn_cost, use_gas, action)
     }
 }
 

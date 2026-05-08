@@ -239,6 +239,7 @@
         "multiexp",
         "multinode",
         "multishard",
+        "multiset",
         "multizip",
         "nacl",
         "nagisa",

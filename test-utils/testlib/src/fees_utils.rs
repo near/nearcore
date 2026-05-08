@@ -60,13 +60,15 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .checked_add(create_account_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
             .checked_add(create_account_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
@@ -89,7 +91,8 @@ impl FeeHelper {
             .checked_add(transfer_exec_fee)
             .unwrap()
             .checked_add(add_full_access_key_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
@@ -99,7 +102,8 @@ impl FeeHelper {
             .checked_add(transfer_send_fee)
             .unwrap()
             .checked_add(add_full_access_key_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         exec_gas.checked_add(send_gas).unwrap()
     }
 
@@ -116,7 +120,8 @@ impl FeeHelper {
             .checked_add(create_account_exec_fee)
             .unwrap()
             .checked_add(transfer_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
@@ -124,7 +129,8 @@ impl FeeHelper {
             .checked_add(create_account_send_fee)
             .unwrap()
             .checked_add(transfer_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         exec_gas.checked_add(send_gas).unwrap()
     }
 
@@ -155,7 +161,8 @@ impl FeeHelper {
             .checked_add(transfer_exec_fee)
             .unwrap()
             .checked_add(add_full_access_key_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
@@ -165,7 +172,8 @@ impl FeeHelper {
             .checked_add(transfer_send_fee)
             .unwrap()
             .checked_add(add_full_access_key_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(send_gas).checked_add(self.gas_to_balance_inflated(exec_gas)).unwrap()
     }
 
@@ -181,7 +189,8 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .checked_add(create_account_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
@@ -191,7 +200,8 @@ impl FeeHelper {
             .checked_add(transfer_send_fee)
             .unwrap()
             .checked_add(add_full_access_key_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
@@ -212,7 +222,8 @@ impl FeeHelper {
             .checked_add(deploy_contract_base_exec_fee)
             .unwrap()
             .checked_add(deploy_contract_byte_exec_fee.checked_mul(num_bytes).unwrap())
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
@@ -220,7 +231,8 @@ impl FeeHelper {
             .checked_add(deploy_contract_base_send_fee)
             .unwrap()
             .checked_add(deploy_contract_byte_send_fee.checked_mul(num_bytes).unwrap())
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
@@ -237,6 +249,7 @@ impl FeeHelper {
             .unwrap()
             .checked_add(function_call_byte_exec_fee.checked_mul(num_bytes).unwrap())
             .unwrap()
+            .gas
     }
 
     pub fn function_call_cost(&self, num_bytes: u64, prepaid_gas: u64) -> Balance {
@@ -253,7 +266,8 @@ impl FeeHelper {
             .checked_add(function_call_base_send_fee)
             .unwrap()
             .checked_add(function_call_byte_send_fee.checked_mul(num_bytes).unwrap())
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(
             exec_gas
                 .checked_add(send_gas)
@@ -272,13 +286,15 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .checked_add(transfer_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
             .checked_add(transfer_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         exec_gas.checked_add(send_gas).unwrap()
     }
 
@@ -295,13 +311,15 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .checked_add(stake_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
             .checked_add(stake_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
@@ -322,7 +340,8 @@ impl FeeHelper {
             .checked_add(add_function_call_key_base_exec_fee)
             .unwrap()
             .checked_add(add_function_call_key_byte_exec_fee.checked_mul(num_bytes).unwrap())
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
@@ -330,7 +349,8 @@ impl FeeHelper {
             .checked_add(add_function_call_key_base_send_fee)
             .unwrap()
             .checked_add(add_function_call_key_byte_send_fee.checked_mul(num_bytes).unwrap())
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
@@ -345,13 +365,15 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .checked_add(add_full_access_key_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
             .checked_add(add_full_access_key_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
@@ -364,13 +386,15 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .checked_add(delete_key_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
             .checked_add(delete_key_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
@@ -383,13 +407,15 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .checked_add(delete_account_exec_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
             .checked_add(delete_account_send_fee)
-            .unwrap();
+            .unwrap()
+            .gas;
 
         let total_fee = exec_gas.checked_add(send_gas).unwrap();
 
@@ -417,7 +443,8 @@ impl FeeHelper {
                 node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver)
                     .unwrap(),
             )
-            .unwrap();
+            .unwrap()
+            .gas;
         self.gas_to_balance(total_gas)
     }
 
