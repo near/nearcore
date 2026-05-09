@@ -18,7 +18,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice_core::SpiceCoreReader;
+use crate::spice_core::{SpiceCoreReader, record_uncertified_chunks_with_prev};
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -1606,10 +1606,83 @@ impl Chain {
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
+        // SPICE: seed `uncertified_chunks` for the anchor (sync_prev_prev) and
+        // sync_prev once per state-sync completion. Per-shard
+        // `set_spice_state_finalize` calls only run for tracked shards, but
+        // the seed is needed regardless — a non-validator with `NoShards`
+        // never enters that path, yet still has to process blocks above
+        // sync_hash without panicking on missing uncertified_chunks. We do
+        // this here because reset_heads_post_state_sync runs once whether or
+        // not any shard was state-synced.
+        let prev_prev_hash = *prev_block.header().prev_hash();
+        self.spice_seed_uncertified_chunks_post_state_sync(prev_prev_hash, prev_hash)?;
+
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
         self.check_orphans(prev_hash, block_processing_artifacts, apply_chunks_done_sender);
+        Ok(())
+    }
+
+    /// Seed `uncertified_chunks` for the state-sync anchor (sync_prev_prev) and
+    /// sync_prev, and advance `spice_final_execution_head` to the anchor.
+    /// No-op on non-SPICE chains. Idempotent: skips when the anchor's entry is
+    /// already on disk (re-tracking-shard joiner) — the existing entry was
+    /// computed against the real chain history and we shouldn't clobber it.
+    fn spice_seed_uncertified_chunks_post_state_sync(
+        &mut self,
+        anchor_hash: CryptoHash,
+        sync_prev_hash: CryptoHash,
+    ) -> Result<(), Error> {
+        let anchor_header = self.get_block_header(&anchor_hash)?;
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(anchor_header.epoch_id())?;
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
+            return Ok(());
+        }
+        let store = self.chain_store.store_ref();
+        if store.exists(DBCol::uncertified_chunks(), anchor_hash.as_ref()) {
+            return Ok(());
+        }
+
+        let anchor_tip = Tip::from_header(&anchor_header);
+        let epoch_manager = self.epoch_manager.clone();
+        let mut chain_store_update = self.mut_chain_store().store_update();
+
+        let mut store_update = chain_store_update.chain_store().store_ref().store_update();
+        let empty_uncertified: Vec<near_primitives::types::SpiceUncertifiedChunkInfo> = Vec::new();
+        store_update.insert_ser(
+            DBCol::uncertified_chunks(),
+            anchor_hash.as_ref(),
+            &empty_uncertified,
+        );
+        chain_store_update.merge(store_update);
+
+        // Compute sync_prev's uncertified_chunks against the just-seeded empty
+        // anchor list. Pass the empty prev list explicitly because the seed
+        // for the anchor is only buffered in this transaction, not yet
+        // visible on disk to `record_uncertified_chunks_for_block`'s read.
+        let sync_prev_block = chain_store_update.get_block(&sync_prev_hash)?;
+        record_uncertified_chunks_with_prev(
+            &mut chain_store_update,
+            epoch_manager.as_ref(),
+            sync_prev_block.as_ref(),
+            Vec::new(),
+        )?;
+
+        // Default `spice_final_execution_head` is genesis, which makes
+        // `is_descendant_of_final_execution_head` walk back all the way past
+        // headers that BlockSync's window never covered. Anchoring on the
+        // state-sync anchor keeps the walk bounded to header-synced territory.
+        let needs_update = match chain_store_update.spice_final_execution_head() {
+            Ok(current) => current.height < anchor_tip.height,
+            Err(Error::DBNotFoundErr(_)) => true,
+            Err(err) => return Err(err),
+        };
+        if needs_update {
+            chain_store_update.save_spice_final_execution_head(&Arc::new(anchor_tip))?;
+        }
+        chain_store_update.commit()?;
         Ok(())
     }
 

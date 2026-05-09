@@ -5,8 +5,8 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-#[cfg(feature = "test_features")]
 pub use crate::chunk_executor_actor::SpiceStateSyncFinalized;
+#[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;

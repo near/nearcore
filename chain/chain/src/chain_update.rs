@@ -2,7 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
-use crate::spice_core::{record_uncertified_chunks_for_block, record_uncertified_chunks_with_prev};
+use crate::spice_core::record_uncertified_chunks_for_block;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
@@ -636,7 +636,7 @@ impl<'a> ChainUpdate<'a> {
     fn set_spice_state_finalize(
         &mut self,
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        _sync_hash: CryptoHash,
         v3: ShardStateSyncResponseHeaderV3,
     ) -> Result<ShardUId, Error> {
         let block_header = self.chain_store_update.get_block_header(&v3.block_hash)?;
@@ -659,33 +659,6 @@ impl<'a> ChainUpdate<'a> {
             let key = get_execution_results_key(&v3.block_hash, *other_shard_id);
             store_update.insert_ser(DBCol::execution_results(), &key, cer);
         }
-        // Only seed `uncertified_chunks` for the anchor and sync_prev when the
-        // anchor doesn't already have them on disk. A retracking-shard joiner
-        // already accept_block'd these blocks via the normal path, so the
-        // entries exist with real (possibly non-empty) values; overwriting
-        // with our derived-from-empty values would trip `assert_no_overwrite`
-        // (write-once column). Only a fresh joiner needs the seed because it
-        // never went through `record_uncertified_chunks_for_block` for these
-        // blocks.
-        let store = self.chain_store_update.chain_store().store_ref();
-        let anchor_uncertified_present =
-            store.exists(DBCol::uncertified_chunks(), v3.block_hash.as_ref());
-        if !anchor_uncertified_present {
-            // Seed `DBCol::uncertified_chunks` for the anchor with an empty
-            // list: every shard's CER at the anchor is now on disk (just
-            // inserted above), so no chunk at the anchor is uncertified.
-            // Subsequent blocks processed via `record_uncertified_chunks_for_block`
-            // walk back to this entry to build their own — without this
-            // seed, the first block after the anchor would hit the "missing
-            // uncertified chunks" panic in `get_uncertified_chunks`.
-            let empty_uncertified: Vec<near_primitives::types::SpiceUncertifiedChunkInfo> =
-                Vec::new();
-            store_update.insert_ser(
-                DBCol::uncertified_chunks(),
-                v3.block_hash.as_ref(),
-                &empty_uncertified,
-            );
-        }
         self.chain_store_update.merge(store_update);
 
         self.chain_store_update.save_chunk_extra(
@@ -694,50 +667,10 @@ impl<'a> ChainUpdate<'a> {
             Arc::new(v3.execution_result.chunk_extra),
         );
 
-        if !anchor_uncertified_present {
-            // Body head is set to sync_prev (= prev of sync_hash) by
-            // `reset_heads_post_state_sync`, so when sync_hash is processed
-            // `preprocess_block` calls
-            // `get_last_certified_execution_results_for_next_block` which
-            // loads sync_prev's `uncertified_chunks`. sync_prev was never
-            // accept_block'd on a fresh joiner, so seed its entry now from
-            // sync_prev_prev's (just-seeded) empty list plus sync_prev's own
-            // body — this matches what `record_uncertified_chunks_for_block`
-            // would have computed if sync_prev had gone through normal block
-            // acceptance. Pass the empty prev list explicitly because the
-            // seed write for sync_prev_prev is only buffered in this
-            // transaction, not yet visible on disk. Idempotent across shards:
-            // the helper writes the same bytes for the same key on each
-            // shard call.
-            let sync_block_header = self.chain_store_update.get_block_header(&sync_hash)?;
-            let sync_prev_hash = *sync_block_header.prev_hash();
-            let sync_prev_block = self.chain_store_update.get_block(&sync_prev_hash)?;
-            record_uncertified_chunks_with_prev(
-                &mut self.chain_store_update,
-                self.epoch_manager.as_ref(),
-                sync_prev_block.as_ref(),
-                Vec::new(),
-            )?;
-
-            // Advance `spice_final_execution_head` to the anchor block.
-            // Default value is genesis, which makes
-            // `is_descendant_of_final_execution_head` walk back from a
-            // current block via `prev_hash` to genesis — under far-horizon
-            // state sync, headers between genesis and the anchor may never
-            // have been downloaded (epoch sync skips them), so the walk
-            // panics. Anchoring on sync_prev_prev — every shard's CER is on
-            // disk there — keeps the walk bounded to header-synced
-            // territory.
-            let final_tip = Tip::from_header(&block_header);
-            if self
-                .chain_store_update
-                .spice_final_execution_head()
-                .map(|head| head.height < final_tip.height)
-                .unwrap_or(true)
-            {
-                self.chain_store_update.save_spice_final_execution_head(&Arc::new(final_tip))?;
-            }
-        }
+        // The uncertified_chunks seed and spice_final_execution_head advance
+        // happen once per state-sync completion in `reset_heads_post_state_sync`,
+        // not per shard — a non-validator that tracks 0 shards never reaches
+        // this path but still needs the seed for the chain to make progress.
 
         Ok(shard_uid)
     }

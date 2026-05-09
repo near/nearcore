@@ -304,8 +304,6 @@ fn test_far_horizon_archival_skips_epoch_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_header_sync() {
     if !SYNC_V2_ENABLED {
         return;
@@ -381,8 +379,6 @@ fn test_far_horizon_restart_during_header_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_state_sync() {
     if !SYNC_V2_ENABLED {
         return;
@@ -455,8 +451,6 @@ fn test_far_horizon_restart_during_state_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_block_sync() {
     if !SYNC_V2_ENABLED {
         return;
@@ -693,8 +687,6 @@ fn test_far_horizon_staking_state() {
 //   - Sync status sequence is correct
 //   - At least some txs were injected (counter > 0)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_tx_during_sync() {
     if !SYNC_V2_ENABLED {
         return;

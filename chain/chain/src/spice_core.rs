@@ -524,9 +524,18 @@ fn get_uncertified_chunks(
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
         else {
+            tracing::error!(
+                target: "spice",
+                %block_hash,
+                height = block.header().height(),
+                prev_hash = %block.header().prev_hash(),
+                "missing uncertified_chunks for spice block"
+            );
             debug_assert!(
                 false,
-                "spice blocks in store should always have uncertified_chunks present"
+                "spice blocks in store should always have uncertified_chunks present (block {} height {})",
+                block_hash,
+                block.header().height(),
             );
             return Err(Error::Other(format!("missing uncertified chunks for {}", block_hash)));
         };

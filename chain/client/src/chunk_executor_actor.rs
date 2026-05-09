@@ -193,17 +193,6 @@ impl ChunkExecutorActor {
         // only when `prev` is fully caught up (otherwise CatchingUp would
         // defer again, violating `try_apply_chunks_with_mode`'s assert that
         // CatchingUp produces no defers).
-        // Also retry the block in default (regular) mode now that we just
-        // applied a chunk and saved its outgoing receipts. Other shards on the
-        // same block may have been deferred for `MissingReceipts` against the
-        // shard we just applied; this gives them a chance to proceed.
-        if let Err(err) = self.try_apply_chunks_with_mode(&block_hash, None) {
-            tracing::error!(
-                target: "chunk_executor",
-                ?err, %block_hash,
-                "failed regular-mode self-retry after apply",
-            );
-        }
         if let Ok(header) = self.chain_store.get_block_header(&block_hash) {
             let prev_hash = *header.prev_hash();
             let block_in_catchup =
@@ -639,6 +628,7 @@ impl ChunkExecutorActor {
                 prev_block_hash,
             )?,
         };
+        let mut already_applied_any = false;
         for &prev_block_shard_id in &prev_block_shard_ids {
             // TODO(spice-resharding): convert `prev_block_shard_id` into `shard_id` for
             // the current shard layout
@@ -652,6 +642,7 @@ impl ChunkExecutorActor {
             }
             // Existing chunk extra means that the chunk for that shard was already applied.
             if self.chunk_extra_exists(block_hash, current_block_shard_id)? {
+                already_applied_any = true;
                 continue;
             }
 
@@ -725,7 +716,15 @@ impl ChunkExecutorActor {
                     first_deferred,
                 ));
             }
-            return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
+            // Empty chunk_contexts can mean either "every tracked shard is
+            // already applied" or "we don't track any shard for this block".
+            // Only the former is `BlockAlreadyAccepted`; the latter must
+            // schedule an empty apply so the cascade in
+            // `try_process_next_blocks` walks forward (matching pre-PR
+            // behavior).
+            if already_applied_any {
+                return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
+            }
         }
 
         self.schedule_apply_chunks(
