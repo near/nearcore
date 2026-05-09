@@ -193,6 +193,17 @@ impl ChunkExecutorActor {
         // only when `prev` is fully caught up (otherwise CatchingUp would
         // defer again, violating `try_apply_chunks_with_mode`'s assert that
         // CatchingUp produces no defers).
+        // Also retry the block in default (regular) mode now that we just
+        // applied a chunk and saved its outgoing receipts. Other shards on the
+        // same block may have been deferred for `MissingReceipts` against the
+        // shard we just applied; this gives them a chance to proceed.
+        if let Err(err) = self.try_apply_chunks_with_mode(&block_hash, None) {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err, %block_hash,
+                "failed regular-mode self-retry after apply",
+            );
+        }
         if let Ok(header) = self.chain_store.get_block_header(&block_hash) {
             let prev_hash = *header.prev_hash();
             let block_in_catchup =
@@ -703,13 +714,7 @@ impl ChunkExecutorActor {
             });
         }
 
-        // In NotCaughtUp mode the per-shard loop only iterates currently-tracked
-        // shards, so it won't push the awaiting-state-sync shard onto
-        // `deferred_shards` (it never reaches the chunk_extra check). Without
-        // this, descendants of a catching-up block don't end up in
-        // `BlocksToCatchup` and the catchup cascade fizzles. Match pre-SPICE
-        // (`Chain::start_process_block_impl`'s `if !is_caught_up { add_block_to_catchup(...) }`).
-        if apply_chunks_mode == ApplyChunksMode::NotCaughtUp || !deferred_shards.is_empty() {
+        if !deferred_shards.is_empty() {
             self.add_block_to_catchup(prev_block_hash, block_hash)?;
         }
 
@@ -1414,12 +1419,52 @@ impl ChunkExecutorActor {
     fn gc_memtrie_roots(&self, shard_layout: &ShardLayout, final_execution_head: &Tip) {
         let header =
             self.chain_store.get_block_header(&final_execution_head.last_block_hash).unwrap();
-        let Some(prev_height) = header.prev_height() else {
+        let Some(chain_prev_height) = header.prev_height() else {
             return;
         };
         for shard_uid in shard_layout.shard_uids() {
+            // Under SPICE the executor's catchup walk for a newly-tracked shard runs
+            // async and may lag chain finality. We must not delete memtrie state for
+            // heights the catchup walk hasn't reached yet, otherwise the next apply
+            // would fail to find its prev state in memtrie.
+            //
+            // Find the highest block on the canonical-from-final-execution-head chain
+            // for which we have a chunk_extra for this shard — that's our local
+            // executed head for this shard. Cap the gc threshold by it.
+            let shard_executed_height = self.find_executed_head_height_for_shard(
+                &final_execution_head.last_block_hash,
+                shard_uid,
+            );
+            let prev_height = match shard_executed_height {
+                Some(h) if h >= header.height() => chain_prev_height,
+                Some(h) => h.saturating_sub(1).min(chain_prev_height),
+                None => continue,
+            };
             let tries = self.runtime_adapter.get_tries();
             tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
+        }
+    }
+
+    /// Walks back from `final_head_hash` along prev_hash links until it finds a
+    /// block for which the validator has a `chunk_extra` saved for `shard_uid`.
+    /// Returns that block's height, or `None` if no such block exists in the
+    /// chain (e.g. shard never tracked locally).
+    fn find_executed_head_height_for_shard(
+        &self,
+        final_head_hash: &CryptoHash,
+        shard_uid: ShardUId,
+    ) -> Option<BlockHeight> {
+        let mut hash = *final_head_hash;
+        loop {
+            if self.chain_store.get_chunk_extra(&hash, &shard_uid).is_ok() {
+                let header = self.chain_store.get_block_header(&hash).ok()?;
+                return Some(header.height());
+            }
+            let header = self.chain_store.get_block_header(&hash).ok()?;
+            if header.is_genesis() {
+                return None;
+            }
+            hash = *header.prev_hash();
         }
     }
 
@@ -1626,9 +1671,24 @@ pub(crate) fn is_descendant_of_final_execution_head(
     if height <= final_execution_head.height {
         return false;
     }
+    // Walk back via `prev_hash` until we either reach `final_execution_head`'s
+    // height, or hit a header that isn't on disk. Missing headers are expected
+    // — the BlockSync window doesn't go down to genesis, and `final_execution_head`
+    // defaults to genesis until the chunk_executor advances it. If the walk
+    // can't reach `final_execution_head`, we know this header isn't above it
+    // along the same chain, so treat as not-a-descendant (skip the apply).
+    //
+    // TODO(spice): a tighter alternative is to plumb `Provenance` through
+    // `ProcessedBlock` to the chunk_executor and skip this descendant check
+    // for `Provenance::SYNC` blocks (mirroring the existing `in_catchup`
+    // skip), so we don't depend on header availability at all.
     let mut prev_hash = *header.prev_hash();
     while height > final_execution_head.height {
-        let header = chain_store.get_block_header(&prev_hash).unwrap();
+        let header = match chain_store.get_block_header(&prev_hash) {
+            Ok(h) => h,
+            Err(Error::DBNotFoundErr(_)) => return false,
+            Err(err) => panic!("failed to load block header during descendant check: {err:?}"),
+        };
         prev_hash = *header.prev_hash();
         height = header.height();
     }

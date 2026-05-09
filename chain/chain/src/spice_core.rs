@@ -541,6 +541,21 @@ pub fn record_uncertified_chunks_for_block(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<(), Error> {
+    let prev_hash = block.header().prev_hash();
+    let prev_uncertified = get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    record_uncertified_chunks_with_prev(chain_store_update, epoch_manager, block, prev_uncertified)
+}
+
+/// Same as `record_uncertified_chunks_for_block` but accepts the previous block's
+/// `uncertified_chunks` explicitly instead of loading them from disk. Used during
+/// state-sync finalize, where the prev's entry has been seeded earlier in the same
+/// in-memory transaction (and so isn't yet readable from disk).
+pub fn record_uncertified_chunks_with_prev(
+    chain_store_update: &mut ChainStoreUpdate,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    prev_uncertified: Vec<SpiceUncertifiedChunkInfo>,
+) -> Result<(), Error> {
     let block_endorsements: HashMap<(&SpiceChunkId, &AccountId), &SpiceEndorsementCoreStatement> =
         block
             .spice_core_statements()
@@ -550,9 +565,7 @@ pub fn record_uncertified_chunks_for_block(
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
 
-    let prev_hash = block.header().prev_hash();
-    let mut uncertified_chunks =
-        get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    let mut uncertified_chunks = prev_uncertified;
     uncertified_chunks
         .retain(|chunk_info| !block_execution_results.contains_key(&chunk_info.chunk_id));
     for chunk_info in &mut uncertified_chunks {

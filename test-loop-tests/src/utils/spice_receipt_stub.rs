@@ -20,6 +20,7 @@ use near_primitives::types::{ChunkExecutionResult, ShardId};
 use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
 use near_store::Store;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Total number of receipt proofs the stub has saved across all nodes in the
@@ -55,10 +56,17 @@ impl SpiceReceiptStub {
     fn satisfy_inner(&self, block_hash: CryptoHash, to_shard_id: ShardId) -> bool {
         let mut store_update = self.own_store.store_update();
         let mut newly_saved: u64 = 0;
+        // Track shards we've already staged in this transaction — multiple
+        // peers may have the same proof, but a single StoreUpdate can't
+        // contain the same key twice.
+        let mut staged_from_shards: HashSet<ShardId> = HashSet::new();
         for peer_store in &self.peer_stores {
             let peer_proofs = get_receipt_proofs_for_shard(peer_store, &block_hash, to_shard_id);
             for proof in peer_proofs {
                 let from_shard_id = proof.1.from_shard_id;
+                if staged_from_shards.contains(&from_shard_id) {
+                    continue;
+                }
                 if receipt_proof_exists(&self.own_store, &block_hash, to_shard_id, from_shard_id) {
                     continue;
                 }
@@ -77,6 +85,7 @@ impl SpiceReceiptStub {
                      test fixture inconsistency",
                 );
                 save_receipt_proof(&mut store_update, &block_hash, &proof);
+                staged_from_shards.insert(from_shard_id);
                 newly_saved += 1;
             }
         }

@@ -263,7 +263,15 @@ impl ChunkProducer {
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let prev_block_hash = *prev_block.hash();
-        if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(prev_block.header().epoch_id())?;
+        // Under SPICE, chunk production uses a placeholder `chunk_extra` (see
+        // below) and execution is async, so prev needing catchup doesn't block
+        // chunk production. The pre-SPICE check below was needed because the
+        // producer applied state to build the chunk synchronously.
+        if !ProtocolFeature::Spice.enabled(protocol_version)
+            && self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)?
+        {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
             // If we are to start new epoch, check if the previous block is
             // caught up. If it is not the case, we wouldn't be able to

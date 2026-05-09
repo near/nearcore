@@ -152,6 +152,16 @@ pub struct ShardStateSyncResponseHeaderV3 {
     /// and to structurally validate the trie root, now against
     /// `execution_result.chunk_extra.state_root()`.
     pub state_root_node: StateRootNode,
+    /// All shards' certified execution results at `block_hash` (including the
+    /// requested shard's, for symmetry). Each tuple is
+    /// `(shard_id, certified execution result, endorsements satisfying quorum
+    /// for that chunk)`. The requester saves these to `DBCol::execution_results`
+    /// during state-sync finalization so subsequent block processing can
+    /// reference the certifications without waiting for them to arrive via
+    /// block bodies — and so the sync-handler's `is_spice_sync_hash_satisfied`
+    /// gate can succeed on a freshly-joining node.
+    pub anchor_execution_results:
+        Vec<(ShardId, ChunkExecutionResult, Vec<SpiceEndorsementCoreStatement>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]

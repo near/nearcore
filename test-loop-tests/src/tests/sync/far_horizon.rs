@@ -47,8 +47,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 //   - New node runs for 2+ additional epochs after catch-up
 //   - Account balances match source validator
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_full_pipeline() {
     if !SYNC_V2_ENABLED {
         return;
@@ -105,8 +103,6 @@ fn test_far_horizon_full_pipeline() {
 //   - new_node1 syncs despite new_node0 lacking old headers (epoch-synced)
 //   - Account balances match source validator on both nodes
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_chained_epoch_sync() {
     if !SYNC_V2_ENABLED {
         return;
@@ -182,8 +178,6 @@ fn test_far_horizon_chained_epoch_sync() {
 //   - Node 0 detects it is stale, triggers EpochSyncDataReset, and gets denylisted
 //   - Node 0's head remains near the kill height (did not sync)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_stale_node_shutdown() {
     if !SYNC_V2_ENABLED {
         return;
@@ -237,8 +231,6 @@ fn test_far_horizon_stale_node_shutdown() {
 //   - Sync status sequence does NOT include "EpochSync"
 //   - Near-horizon status sequence (BlockSync only)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_archival_skips_epoch_sync() {
     if !SYNC_V2_ENABLED {
         return;
@@ -535,8 +527,6 @@ fn test_far_horizon_restart_during_block_sync() {
 // Assertions:
 //   - Restarted node is denylisted (data reset triggered)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_after_long_downtime() {
     if !SYNC_V2_ENABLED {
         return;
@@ -620,8 +610,6 @@ fn test_far_horizon_restart_after_long_downtime() {
 //   - Account balances match source validator (including staking accounts)
 //   - Full far-horizon sync status sequence
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_staking_state() {
     if !SYNC_V2_ENABLED {
         return;

@@ -190,8 +190,6 @@ fn test_state_sync_simple_two_node() {
 // have 2 chunk producers. A single node failing to state sync won't stall the chain (the
 // other producer covers), so we explicitly verify all nodes advanced.
 #[test]
-// TODO(spice): see test_state_sync_simple_two_node — same trigger gap.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_simple_five_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -219,13 +217,17 @@ fn test_state_sync_simple_five_node() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
+    let stub_proofs_saved = crate::utils::spice_receipt_stub::SPICE_STUB_PROOFS_SAVED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    eprintln!("spice_receipt_stub: total proofs saved across all nodes = {stub_proofs_saved}");
+
+    #[cfg(feature = "protocol_feature_spice")]
+    assert!(stub_proofs_saved > 0, "stub never fired — catchup wasn't exercised");
 }
 
 // 2 validators, 4 shards, no extra accounts. With only validator + "near" accounts,
 // at least one shard will be empty. Tests state syncing a shard with no account data.
 #[test]
-// TODO(spice): see test_state_sync_simple_two_node — same trigger gap.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_empty_shard() {
     init_test_logger();
     // 2 validators with 4 shards: each validator tracks 2 shards, but some shards
@@ -248,13 +250,19 @@ fn test_state_sync_empty_shard() {
         .build();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
+    let stub_proofs_saved = crate::utils::spice_receipt_stub::SPICE_STUB_PROOFS_SAVED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    eprintln!("spice_receipt_stub: total proofs saved across all nodes = {stub_proofs_saved}");
+
+    #[cfg(feature = "protocol_feature_spice")]
+    assert!(stub_proofs_saved > 0, "stub never fired — catchup wasn't exercised");
 }
 
 // Drop shard 0's chunk at offset 0 (first block of each epoch). The sync hash requires
 // all shards to have included >=2 new chunks, so missing shard 0's first chunk shifts the
 // sync hash later by one block.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-cleanup): Missing chunks not relevant for spice, delete test after transition.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_first_block() {
     init_test_logger();
@@ -293,7 +301,7 @@ fn test_state_sync_miss_chunks_first_block() {
 // Drop shards 0 and 1 chunks at offset 1 (second block of each epoch). Similar to
 // first_block but the miss is one block later.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-cleanup): Missing chunks not relevant for spice, delete test after transition.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_second_block() {
     init_test_logger();
@@ -330,7 +338,7 @@ fn test_state_sync_miss_chunks_second_block() {
 // Drop shards 0 and 2 chunks at offset 2 (third block of each epoch). The sync hash is
 // shifted one block later than usual.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-cleanup): Missing chunks not relevant for spice, delete test after transition.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_third_block() {
     init_test_logger();
@@ -367,7 +375,7 @@ fn test_state_sync_miss_chunks_third_block() {
 // Miss chunks at the sync hash block itself (4th block, shards 0, 1). The sync hash block
 // has missing chunks, testing that state sync handles this edge case correctly.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-cleanup): Missing chunks not relevant for spice, delete test after transition.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_sync_block() {
     init_test_logger();
@@ -405,7 +413,7 @@ fn test_state_sync_miss_chunks_sync_block() {
 // Miss shard 1 at offset 3 (sync hash block) and shard 3 at offset 1. Combines an early
 // miss with a miss at the sync hash — a composite of the first_block and sync_block patterns.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-cleanup): Missing chunks not relevant for spice, delete test after transition.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_sync_prev_block() {
     init_test_logger();
@@ -443,7 +451,7 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
 // up to the sync hash. Each shard reaches its "2 new chunks" threshold at a different block,
 // significantly delaying the sync hash relative to epoch start.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-cleanup): Missing chunks not relevant for spice, delete test after transition.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_before_last_chunk_included() {
     init_test_logger();
@@ -483,7 +491,7 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
 // shard 0: miss near sync hash    shard 1: miss at AND past sync hash
 // shard 2: interleaved early      shard 3: miss only at sync hash block
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-cleanup): Missing chunks not relevant for spice, delete test after transition.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_miss_chunks_multiple() {
     init_test_logger();
@@ -524,8 +532,6 @@ fn test_state_sync_miss_chunks_multiple() {
 // while picking up shards 2 and 3 at different epochs. We verify the extra node's head
 // advances, since chain progression alone wouldn't catch a silent state sync failure on it.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_untrack_then_track() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
@@ -562,20 +568,25 @@ fn test_state_sync_untrack_then_track() {
             }
             config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
         })
+        .with_spice_receipt_stub()
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &validators);
+    let stub_proofs_saved = crate::utils::spice_receipt_stub::SPICE_STUB_PROOFS_SAVED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    eprintln!("spice_receipt_stub: total proofs saved across all nodes = {stub_proofs_saved}");
+
+    #[cfg(feature = "protocol_feature_spice")]
+    assert!(stub_proofs_saved > 0, "stub never fired — catchup wasn't exercised");
 }
 
 // Drop the block at the sync hash height, creating a fork. The block producer for this
 // height creates the block but it gets skipped on the canonical chain. This variant tests
 // that the fork-producing node can still provide valid state to others.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_from_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -597,20 +608,25 @@ fn test_state_sync_from_fork() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .delay_warmup()
+        .with_spice_receipt_stub()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
+    let stub_proofs_saved = crate::utils::spice_receipt_stub::SPICE_STUB_PROOFS_SAVED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    eprintln!("spice_receipt_stub: total proofs saved across all nodes = {stub_proofs_saved}");
+
+    #[cfg(feature = "protocol_feature_spice")]
+    assert!(stub_proofs_saved > 0, "stub never fired — catchup wasn't exercised");
 }
 
 // Same fork scenario with 6 validators (vs 5 in from_fork) so a different node produces
 // the skipped block. That node must sync FROM the majority that have a different finalized
 // sync hash — the reverse direction of from_fork.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_to_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -632,20 +648,25 @@ fn test_state_sync_to_fork() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .delay_warmup()
+        .with_spice_receipt_stub()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
+    let stub_proofs_saved = crate::utils::spice_receipt_stub::SPICE_STUB_PROOFS_SAVED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    eprintln!("spice_receipt_stub: total proofs saved across all nodes = {stub_proofs_saved}");
+
+    #[cfg(feature = "protocol_feature_spice")]
+    assert!(stub_proofs_saved > 0, "stub never fired — catchup wasn't exercised");
 }
 
 // Skip a block ONE AFTER the sync hash (delta=+1). The sync hash block is finalized
 // normally, but the next block is missing — finality jumps over it. Tests that sync hash
 // detection doesn't rely on seeing the sync hash as a final block.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_fork_after_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -667,6 +688,7 @@ fn test_state_sync_fork_after_sync() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .delay_warmup()
+        .with_spice_receipt_stub()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
@@ -678,8 +700,6 @@ fn test_state_sync_fork_after_sync() {
 // Skip a block ONE BEFORE the sync hash (delta=-1). The fork is right before the state
 // snapshot point, testing that sync hash selection handles a gap in its predecessor.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_fork_before_sync() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -701,6 +721,7 @@ fn test_state_sync_fork_before_sync() {
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .delay_warmup()
+        .with_spice_receipt_stub()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
@@ -760,8 +781,6 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 // succeed), then one more (should be rejected), waits for the rate limit to reset, then
 // sends one more (should succeed again).
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_request() {
     init_test_logger();
     let validators_spec = create_validators_spec(4, 0);
@@ -778,6 +797,7 @@ fn test_state_request() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
+        .with_spice_receipt_stub()
         .build();
     spam_state_sync_header_reqs(&mut env);
 }
@@ -785,8 +805,6 @@ fn test_state_request() {
 // State sync during protocol upgrade. Starts at PROTOCOL_VERSION - 1, and the chain
 // upgrades mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_protocol_upgrade() {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
@@ -806,6 +824,7 @@ fn test_state_sync_protocol_upgrade() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .with_spice_receipt_stub()
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
@@ -814,4 +833,10 @@ fn test_state_sync_protocol_upgrade() {
     let version = client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
     assert_eq!(version, PROTOCOL_VERSION);
     assert_shard_shuffling_happened(&env, &clients);
+    let stub_proofs_saved = crate::utils::spice_receipt_stub::SPICE_STUB_PROOFS_SAVED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    eprintln!("spice_receipt_stub: total proofs saved across all nodes = {stub_proofs_saved}");
+
+    #[cfg(feature = "protocol_feature_spice")]
+    assert!(stub_proofs_saved > 0, "stub never fired — catchup wasn't exercised");
 }

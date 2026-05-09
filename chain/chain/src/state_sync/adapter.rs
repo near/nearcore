@@ -308,11 +308,37 @@ impl ChainStateSyncAdapter {
             execution_result.chunk_extra.state_root(),
         )?;
 
+        // Bundle every shard's CER + endorsements at the anchor block. The
+        // requester saves all of these on finalize so its `execution_results`
+        // column is populated for sync_prev_prev across all shards — a
+        // freshly-joining node otherwise has no way to satisfy
+        // `is_spice_sync_hash_satisfied`.
+        let shard_layout = self.epoch_manager.get_shard_layout(sync_prev_prev_header.epoch_id())?;
+        let mut anchor_execution_results = Vec::new();
+        for shard_id_other in shard_layout.shard_ids() {
+            let key = get_execution_results_key(&sync_prev_prev_hash, shard_id_other);
+            let Some(cer): Option<Arc<ChunkExecutionResult>> =
+                self.chain_store.store_ref().caching_get_ser(DBCol::execution_results(), &key)
+            else {
+                return Err(Error::Other(format!(
+                    "missing execution result for sync_prev_prev={sync_prev_prev_hash} \
+                     shard={shard_id_other} when bundling anchor execution results"
+                )));
+            };
+            let endorsements_other = self.collect_spice_endorsements_for_chunk(
+                &sync_prev_prev_header,
+                &sync_prev_prev_hash,
+                shard_id_other,
+            )?;
+            anchor_execution_results.push((shard_id_other, (*cer).clone(), endorsements_other));
+        }
+
         Ok(ShardStateSyncResponseHeader::V3(ShardStateSyncResponseHeaderV3 {
             block_hash: sync_prev_prev_hash,
             execution_result: (*execution_result).clone(),
             endorsements,
             state_root_node,
+            anchor_execution_results,
         }))
     }
 
@@ -353,6 +379,59 @@ impl ChainStateSyncAdapter {
             return Err(Error::Other(
                 "V3 state_root_node does not match certified state_root".into(),
             ));
+        }
+
+        // Verify the anchor execution results bundle. Each entry covers a shard
+        // at `block_hash`; verify endorsement quorum so the requester can
+        // safely save these CERs on finalize.
+        let mut seen_shards = std::collections::HashSet::new();
+        for (other_shard_id, cer, endorsements) in &v3.anchor_execution_results {
+            if !seen_shards.insert(*other_shard_id) {
+                byzantine_assert!(false);
+                return Err(Error::Other(format!(
+                    "V3 anchor_execution_results has duplicate shard {other_shard_id}"
+                )));
+            }
+            let chunk_id_other =
+                SpiceChunkId { block_hash: v3.block_hash, shard_id: *other_shard_id };
+            verify_endorsement_quorum_for_certified_execution_result(
+                self.epoch_manager.as_ref(),
+                &chunk_id_other,
+                cer,
+                endorsements,
+                anchor_header.height(),
+                anchor_header.epoch_id(),
+            )
+            .map_err(|err| {
+                byzantine_assert!(false);
+                Error::Other(format!(
+                    "V3 anchor_execution_results endorsement quorum failed for shard \
+                     {other_shard_id}: {err}"
+                ))
+            })?;
+        }
+        // The requested shard must be in the bundle and its CER must match.
+        let bundled_for_requested = v3
+            .anchor_execution_results
+            .iter()
+            .find(|(s, _, _)| *s == shard_id)
+            .map(|(_, cer, _)| cer);
+        match bundled_for_requested {
+            Some(cer) if cer == &v3.execution_result => {}
+            Some(_) => {
+                byzantine_assert!(false);
+                return Err(Error::Other(
+                    "V3 anchor_execution_results entry for requested shard does not match \
+                     execution_result"
+                        .into(),
+                ));
+            }
+            None => {
+                byzantine_assert!(false);
+                return Err(Error::Other(
+                    "V3 anchor_execution_results missing entry for requested shard".into(),
+                ));
+            }
         }
         Ok(())
     }

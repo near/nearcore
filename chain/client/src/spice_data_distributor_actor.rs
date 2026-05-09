@@ -937,7 +937,7 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn schedule_data_fetching(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
+    fn schedule_data_fetching(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.request_waiting_on_data();
 
         ctx.run_later(
@@ -950,14 +950,26 @@ impl SpiceDataDistributorActor {
         );
     }
 
-    fn request_waiting_on_data(&self) {
+    fn request_waiting_on_data(&mut self) {
         // TODO(spice): Allow requesting data without signer using route back.
         let Some(signer) = self.validator_signer.get() else {
             tracing::debug!(target: "spice_data_distribution", "no validator signer to request waiting on data");
             return;
         };
         let me = signer.validator_id();
-        // TODO(spice): Stop waiting on witnesses past final certification head.
+        // TODO(spice): Stop waiting on witnesses past final certification head. This loop is a
+        // fallback that drops entries only once GC has pruned the block; ideally entries are
+        // dropped proactively when they pass final certification head.
+        let stale_ids: Vec<_> = self
+            .waiting_on_data
+            .keys()
+            .filter(|id| self.chain_store.get_block(id.block_hash()).is_err())
+            .cloned()
+            .collect();
+        for id in &stale_ids {
+            tracing::debug!(target: "spice_data_distribution", ?id, "dropping stale waiting_on_data entry: block no longer in chain store");
+            self.waiting_on_data.remove(id);
+        }
 
         for (id, _data_parts) in &self.waiting_on_data {
             let block = self

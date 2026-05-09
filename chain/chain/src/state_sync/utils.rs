@@ -325,13 +325,11 @@ impl Chain {
         else {
             return Ok(None);
         };
-        if !is_spice_sync_hash_satisfied(
-            &self.chain_store.chain_store(),
-            self.epoch_manager.as_ref(),
-            &sync_hash,
-        )? {
-            return Ok(None);
-        }
+        // NOTE: under SPICE the V3 state-sync response carries all shards' CERs
+        // at sync_prev_prev (see `ShardStateSyncResponseHeaderV3.anchor_execution_results`),
+        // so requesters don't need CERs on disk before starting state sync.
+        // Responders that need to construct a V3 response check
+        // `is_spice_sync_hash_satisfied` explicitly (see `state_request_actor`).
         Ok(Some(sync_hash))
     }
 

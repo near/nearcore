@@ -153,7 +153,6 @@ fn run_gc_after_far_horizon_sync(gc_blocks_limit: Option<u64>) {
 // Covers the regression from #2980 where state sync cleared block infos needed for
 // `gc_stop_height` computation.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_boundary_after_sync() {
     run_gc_after_far_horizon_sync(None);
 }
@@ -164,7 +163,6 @@ fn test_gc_boundary_after_sync() {
 // code path where `gc_stop_height` computation runs across multiple small batches —
 // the specific path that failed in #2980.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_incremental() {
     run_gc_after_far_horizon_sync(Some(2));
 }
@@ -194,7 +192,6 @@ fn test_gc_incremental() {
 // Under V2 stale nodes get their DB wiped (EpochSyncDataReset), making the
 // multi-sync GC scenario redundant. This near-horizon variant is more meaningful.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_boundary_after_near_horizon_sync() {
     if !SYNC_V2_ENABLED {
         return;

@@ -2563,7 +2563,19 @@ impl Chain {
         if !self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash), None));
         }
-        if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
+        // Pre-SPICE this returned Error::Orphan to defer the block until prev's
+        // catchup finished — the block couldn't be applied without prev's state.
+        // Under SPICE chunk apply is decoupled from chain processing; the
+        // executor runs catchup async and chain doesn't need prev caught up to
+        // accept the next block. Worse, chain's `check_orphans` only runs on
+        // its own block processing, so an orphan added here would never be
+        // resolved when the executor later finishes prev's catchup.
+        let prev_protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&self.epoch_manager.get_epoch_id(prev_hash)?)?;
+        if !ProtocolFeature::Spice.enabled(prev_protocol_version)
+            && !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)
+        {
             // The previous block is not caught up for the next epoch relative to the previous
             // block, which is the current epoch for this block, so this block cannot be applied
             // at all yet, needs to be orphaned
