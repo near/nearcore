@@ -34,7 +34,7 @@ pub struct RuntimeFeesConfigView {
     /// - `send` cost is burned when a receipt is created using `promise_create` or
     ///     `promise_batch_create`
     /// - `exec` cost is burned when the receipt is being executed.
-    pub action_receipt_creation_config: Fee,
+    pub action_receipt_creation_config: FeeView,
     /// Describes the cost of creating a data receipt, `DataReceipt`.
     pub data_receipt_creation_config: DataReceiptCreationConfigView,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
@@ -73,12 +73,12 @@ pub struct DataReceiptCreationConfigView {
     /// NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.
     /// Even if the last action is not a function call (in case of success it will return empty
     /// value).
-    pub base_cost: Fee,
+    pub base_cost: FeeView,
     /// Additional cost per byte sent.
     /// Both `send` and `exec` costs are burned when a function call finishes execution and returns
     /// `N` bytes of data to every output dependency. For each output dependency the cost is
     /// `(send(sir) + exec()) * N`.
-    pub cost_per_byte: Fee,
+    pub cost_per_byte: FeeView,
 }
 
 /// Describes the cost of creating a specific action, `Action`. Includes all variants.
@@ -86,37 +86,37 @@ pub struct DataReceiptCreationConfigView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ActionCreationConfigView {
     /// Base cost of creating an account.
-    pub create_account_cost: Fee,
+    pub create_account_cost: FeeView,
 
     /// Base cost of deploying a contract.
-    pub deploy_contract_cost: Fee,
+    pub deploy_contract_cost: FeeView,
     /// Cost per byte of deploying a contract.
-    pub deploy_contract_cost_per_byte: Fee,
+    pub deploy_contract_cost_per_byte: FeeView,
 
     /// Base cost of calling a function.
-    pub function_call_cost: Fee,
+    pub function_call_cost: FeeView,
     /// Cost per byte of method name and arguments of calling a function.
-    pub function_call_cost_per_byte: Fee,
+    pub function_call_cost_per_byte: FeeView,
 
     /// Base cost of making a transfer.
-    pub transfer_cost: Fee,
+    pub transfer_cost: FeeView,
 
     /// Base cost of staking.
-    pub stake_cost: Fee,
+    pub stake_cost: FeeView,
 
     /// Base cost of adding a key.
     pub add_key_cost: AccessKeyCreationConfigView,
 
     /// Base cost of deleting a key.
-    pub delete_key_cost: Fee,
+    pub delete_key_cost: FeeView,
 
     /// Base cost of deleting an account.
-    pub delete_account_cost: Fee,
+    pub delete_account_cost: FeeView,
 
     /// Base cost for processing a delegate action.
     ///
     /// This is on top of the costs for the actions inside the delegate action.
-    pub delegate_cost: Fee,
+    pub delegate_cost: FeeView,
 }
 
 /// Describes the cost of creating an access key.
@@ -124,11 +124,11 @@ pub struct ActionCreationConfigView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyCreationConfigView {
     /// Base cost of creating a full access access-key.
-    pub full_access_cost: Fee,
+    pub full_access_cost: FeeView,
     /// Base cost of creating an access-key restricted to specific functions.
-    pub function_call_cost: Fee,
+    pub function_call_cost: FeeView,
     /// Cost per byte of method_names of creating a restricted access-key.
-    pub function_call_cost_per_byte: Fee,
+    pub function_call_cost_per_byte: FeeView,
 }
 
 /// Describes cost of storage per block
@@ -149,42 +149,39 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 action_receipt_creation_config: config
                     .fees
                     .fee(ActionCosts::new_action_receipt)
-                    .clone(),
+                    .into(),
                 data_receipt_creation_config: DataReceiptCreationConfigView {
-                    base_cost: config.fees.fee(ActionCosts::new_data_receipt_base).clone(),
-                    cost_per_byte: config.fees.fee(ActionCosts::new_data_receipt_byte).clone(),
+                    base_cost: config.fees.fee(ActionCosts::new_data_receipt_base).into(),
+                    cost_per_byte: config.fees.fee(ActionCosts::new_data_receipt_byte).into(),
                 },
                 action_creation_config: ActionCreationConfigView {
-                    create_account_cost: config.fees.fee(ActionCosts::create_account).clone(),
-                    deploy_contract_cost: config
-                        .fees
-                        .fee(ActionCosts::deploy_contract_base)
-                        .clone(),
+                    create_account_cost: config.fees.fee(ActionCosts::create_account).into(),
+                    deploy_contract_cost: config.fees.fee(ActionCosts::deploy_contract_base).into(),
                     deploy_contract_cost_per_byte: config
                         .fees
                         .fee(ActionCosts::deploy_contract_byte)
-                        .clone(),
-                    function_call_cost: config.fees.fee(ActionCosts::function_call_base).clone(),
+                        .into(),
+                    function_call_cost: config.fees.fee(ActionCosts::function_call_base).into(),
                     function_call_cost_per_byte: config
                         .fees
                         .fee(ActionCosts::function_call_byte)
-                        .clone(),
-                    transfer_cost: config.fees.fee(ActionCosts::transfer).clone(),
-                    stake_cost: config.fees.fee(ActionCosts::stake).clone(),
+                        .into(),
+                    transfer_cost: config.fees.fee(ActionCosts::transfer).into(),
+                    stake_cost: config.fees.fee(ActionCosts::stake).into(),
                     add_key_cost: AccessKeyCreationConfigView {
-                        full_access_cost: config.fees.fee(ActionCosts::add_full_access_key).clone(),
+                        full_access_cost: config.fees.fee(ActionCosts::add_full_access_key).into(),
                         function_call_cost: config
                             .fees
                             .fee(ActionCosts::add_function_call_key_base)
-                            .clone(),
+                            .into(),
                         function_call_cost_per_byte: config
                             .fees
                             .fee(ActionCosts::add_function_call_key_byte)
-                            .clone(),
+                            .into(),
                     },
-                    delete_key_cost: config.fees.fee(ActionCosts::delete_key).clone(),
-                    delete_account_cost: config.fees.fee(ActionCosts::delete_account).clone(),
-                    delegate_cost: config.fees.fee(ActionCosts::delegate).clone(),
+                    delete_key_cost: config.fees.fee(ActionCosts::delete_key).into(),
+                    delete_account_cost: config.fees.fee(ActionCosts::delete_account).into(),
+                    delegate_cost: config.fees.fee(ActionCosts::delegate).into(),
                 },
                 storage_usage_config: StorageUsageConfigView {
                     num_bytes_account: config.fees.storage_usage_config.num_bytes_account,
@@ -848,6 +845,33 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
             outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
             outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
+        }
+    }
+}
+
+/// Costs associated with an object that can only be sent over the network (and executed
+/// by the receiver).
+/// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
+/// And `execution` fee is burned when the item is being executed.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename = "Fee")]
+pub struct FeeView {
+    /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
+    /// the shard.
+    pub send_sir: Gas,
+    /// Fee for sending an object potentially across the shards.
+    pub send_not_sir: Gas,
+    /// Fee for executing the object.
+    pub execution: Gas,
+}
+
+impl From<&Fee> for FeeView {
+    fn from(other: &Fee) -> Self {
+        Self {
+            send_sir: other.send_sir.gas(),
+            send_not_sir: other.send_not_sir.gas(),
+            execution: other.execution.gas(),
         }
     }
 }

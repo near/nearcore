@@ -13,6 +13,7 @@ use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
+use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
@@ -353,7 +354,8 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
         .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     apply_state.gas_limit = Some(receipt_gas_cost.checked_mul(3).unwrap());
 
     let n = 40;
@@ -408,7 +410,8 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
         .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
 
     let n = 120;
     let receipts = generate_receipts(small_transfer, n);
@@ -573,7 +576,8 @@ fn test_apply_delayed_receipts_local_tx() {
     let receipt_exec_gas_fee = Gas::from_gas(1000);
     let mut free_config = RuntimeConfig::free();
     let fees = Arc::make_mut(&mut free_config.fees);
-    fees.action_fees[ActionCosts::new_action_receipt].execution = receipt_exec_gas_fee;
+    fees.action_fees[ActionCosts::new_action_receipt].execution =
+        FeeComponent::Gas(receipt_exec_gas_fee);
     apply_state.config = Arc::new(free_config);
     // This allows us to execute 3 receipts per apply.
     apply_state.gas_limit = Some(receipt_exec_gas_fee.checked_mul(3).unwrap());
@@ -846,7 +850,8 @@ fn test_apply_surplus_gas_for_transfer() {
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
         .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
 
     let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
     let expected_receipts = 0;
@@ -885,7 +890,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -979,7 +985,8 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1053,7 +1060,8 @@ fn test_apply_surplus_gas_for_function_call() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),

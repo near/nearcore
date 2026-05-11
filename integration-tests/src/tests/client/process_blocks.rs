@@ -1532,7 +1532,8 @@ fn test_gas_price_change() {
         .checked_add(transaction_costs.fee(ActionCosts::transfer).exec_fee())
         .unwrap()
         .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     let min_gas_price =
         target_num_tokens_left.checked_div(u128::from(send_money_total_gas.as_gas())).unwrap();
     let gas_limit = 1000000000000;
@@ -2405,7 +2406,8 @@ fn test_execution_metadata() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .execution
-        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
+        .gas()
+        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee().gas)
         .unwrap()
         .checked_add(
             config
@@ -2413,7 +2415,8 @@ fn test_execution_metadata() {
                 .fee(ActionCosts::function_call_byte)
                 .exec_fee()
                 .checked_mul("main".len() as u64)
-                .unwrap(),
+                .unwrap()
+                .gas,
         )
         .unwrap()
         .as_gas();

@@ -1,6 +1,7 @@
 use near_async::time::Duration;
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter,
+    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter,
 };
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
@@ -141,6 +142,7 @@ impl PrepareTransactionsJob {
             &inputs.tx_validity_period_check,
             &inputs.validate_tx_ttl,
             inputs.prev_chunk_tx_hashes,
+            &mut PendingTxCheckResult::always_admit(),
             inputs.time_limit,
             Some((&self).cancel.clone()),
         );

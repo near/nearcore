@@ -50,6 +50,7 @@ pub mod debug;
 pub mod gc_actor;
 mod info;
 pub mod metrics;
+pub mod pending_transaction_queue;
 mod prepare_transactions;
 mod rpc_handler;
 pub mod spice_chunk_validator_actor;

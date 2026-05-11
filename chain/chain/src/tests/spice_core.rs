@@ -1,4 +1,6 @@
-use crate::spice_core::{SpiceCoreReader, record_uncertified_chunks_for_block};
+use crate::spice_core::{
+    SpiceCoreReader, find_newly_certified_block_hashes, record_uncertified_chunks_for_block,
+};
 use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
@@ -30,7 +32,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     Balance, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
-    SpiceChunkId,
+    SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
@@ -1438,6 +1440,27 @@ fn test_proposal(account: &str, stake: u128) -> ValidatorStake {
     ValidatorStake::new(account.parse().unwrap(), signer.public_key(), Balance::from_near(stake))
 }
 
+fn uncertified_chunk_info(block_hash: CryptoHash, shard_id: ShardId) -> SpiceUncertifiedChunkInfo {
+    SpiceUncertifiedChunkInfo {
+        chunk_id: SpiceChunkId { block_hash, shard_id },
+        missing_endorsements: vec![],
+        present_endorsements: vec![],
+    }
+}
+
+fn execution_result_core_statement(
+    block_hash: CryptoHash,
+    shard_id: ShardId,
+) -> SpiceCoreStatement {
+    SpiceCoreStatement::ChunkExecutionResult {
+        chunk_id: SpiceChunkId { block_hash, shard_id },
+        execution_result: ChunkExecutionResult {
+            chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+            outgoing_receipts_root: CryptoHash::default(),
+        },
+    }
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_uncertified_validator_proposals_single_chunk() {
@@ -1459,6 +1482,13 @@ fn test_uncertified_validator_proposals_single_chunk() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].account_id().as_str(), "test0");
     assert_eq!(result[0].stake(), Balance::from_near(100));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_find_newly_certified_empty_inputs() {
+    let result = find_newly_certified_block_hashes(&[], SpiceCoreStatements::empty());
+    assert!(result.is_empty());
 }
 
 #[test]
@@ -1494,6 +1524,23 @@ fn test_uncertified_validator_proposals_multiple_heights_different_accounts() {
     assert_eq!(result[0].stake(), Balance::from_near(100));
     assert_eq!(result[1].account_id().as_str(), "test1");
     assert_eq!(result[1].stake(), Balance::from_near(200));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_find_newly_certified_partial_certification() {
+    let block_hash = CryptoHash::hash_bytes(&[1]);
+    let shard_0 = ShardId::new(0);
+    let shard_1 = ShardId::new(1);
+    let uncertified = vec![
+        uncertified_chunk_info(block_hash, shard_0),
+        uncertified_chunk_info(block_hash, shard_1),
+    ];
+    // Only shard 0 gets certified.
+    let statements =
+        SpiceCoreStatements::new(vec![execution_result_core_statement(block_hash, shard_0)]);
+    let result = find_newly_certified_block_hashes(&uncertified, &statements);
+    assert!(result.is_empty());
 }
 
 #[test]
@@ -1552,4 +1599,27 @@ fn test_uncertified_validator_proposals_execution_results_fallback() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].account_id().as_str(), "test0");
     assert_eq!(result[0].stake(), Balance::from_near(100));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_find_newly_certified_full_certification() {
+    let block_a = CryptoHash::hash_bytes(&[1]);
+    let block_b = CryptoHash::hash_bytes(&[2]);
+    let shard_0 = ShardId::new(0);
+    let shard_1 = ShardId::new(1);
+    let uncertified = vec![
+        uncertified_chunk_info(block_a, shard_0),
+        uncertified_chunk_info(block_a, shard_1),
+        uncertified_chunk_info(block_b, shard_0),
+        uncertified_chunk_info(block_b, shard_1),
+    ];
+    // Block A is fully certified, block B only partially.
+    let statements = SpiceCoreStatements::new(vec![
+        execution_result_core_statement(block_a, shard_0),
+        execution_result_core_statement(block_a, shard_1),
+        execution_result_core_statement(block_b, shard_0),
+    ]);
+    let result = find_newly_certified_block_hashes(&uncertified, &statements);
+    assert_eq!(result, vec![block_a]);
 }

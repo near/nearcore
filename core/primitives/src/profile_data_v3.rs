@@ -114,8 +114,27 @@ impl ProfileDataV3 {
             .fold(Gas::ZERO, |acc: Gas, gas: Gas| acc.saturating_add(gas))
     }
 
-    /// Returns total compute usage of host calls.
-    pub fn total_compute_usage(&self, ext_costs_config: &ExtCostsConfig) -> Compute {
+    /// Returns total compute usage of the function call.
+    ///
+    /// Compute usage has three potential sources:
+    ///
+    /// - wasm op cost (`regular_op_cost`): this currently doesn't support
+    ///                                     compute costs, compute = gas
+    /// - ext_costs (host functions):       calculated from the profile
+    /// - SEND cost for outgoing receipts:  since the profile does not count
+    ///                                     SEND/EXEC/SEND_SIR separately, it
+    ///                                     cannot be calculated from the
+    ///                                     profile. It is accounted for in the
+    ///                                     GasCounter and passed in as argument
+    ///                                     here.
+    ///
+    /// TODO(#15666): Consider marking this as deprecated, this is copy-pasted code of
+    /// that doesn't seem to have a good reason to be exposed publicly here.
+    pub fn total_compute_usage(
+        &self,
+        ext_costs_config: &ExtCostsConfig,
+        send_action_compute_usage: Compute,
+    ) -> Compute {
         let ext_compute_cost = self
             .wasm_ext_profile
             .iter()
@@ -142,7 +161,7 @@ impl ProfileDataV3 {
         // We currently only support compute costs for host calls. In the future we might add
         // them for actions as well.
         ext_compute_cost
-            .saturating_add(self.action_gas().as_gas())
+            .saturating_add(send_action_compute_usage)
             .saturating_add(self.get_wasm_cost().as_gas())
     }
 }
@@ -256,6 +275,7 @@ impl fmt::Debug for ProfileDataV3 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use near_parameters::RuntimeFeesConfig;
 
     #[test]
     #[cfg(not(feature = "nightly"))]
@@ -423,19 +443,30 @@ mod test {
     #[test]
     fn test_total_compute_usage() {
         let ext_costs_config = ExtCostsConfig::test_with_undercharging_factor(3);
+        let runtime_config = RuntimeFeesConfig::test();
         let mut profile_data = ProfileDataV3::default();
+        let mut compute_cost = 0;
         profile_data.add_ext_cost(
             ExtCosts::storage_read_base,
             ExtCosts::storage_read_base.gas(&ext_costs_config).checked_mul(2).unwrap(),
         );
+        compute_cost +=
+            ExtCosts::storage_read_base.compute(&ext_costs_config).checked_mul(2).unwrap();
+
         profile_data.add_ext_cost(
             ExtCosts::storage_write_base,
             ExtCosts::storage_write_base.gas(&ext_costs_config).checked_mul(5).unwrap(),
         );
-        profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
+        compute_cost +=
+            ExtCosts::storage_write_base.compute(&ext_costs_config).checked_mul(5).unwrap();
+
+        let action_cost =
+            runtime_config.action_fees[ActionCosts::function_call_base].send_fee(false);
+        profile_data.add_action_cost(ActionCosts::function_call_base, action_cost.gas);
+        compute_cost += action_cost.compute;
 
         assert_eq!(
-            profile_data.total_compute_usage(&ext_costs_config),
+            profile_data.total_compute_usage(&ext_costs_config, action_cost.compute),
             profile_data
                 .host_gas()
                 .checked_mul(3)
@@ -443,6 +474,11 @@ mod test {
                 .checked_add(profile_data.action_gas())
                 .unwrap()
                 .as_gas()
+        );
+
+        assert_eq!(
+            profile_data.total_compute_usage(&ext_costs_config, action_cost.compute),
+            compute_cost
         );
     }
 
