@@ -1,3 +1,4 @@
+// cspell:words cfgs
 // `xshell::cmd!` emits `cfg(trick_rust_analyzer_into_highlighting_interpolated_bits)`.
 #![allow(unexpected_cfgs)]
 
