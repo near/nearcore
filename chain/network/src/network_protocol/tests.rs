@@ -59,6 +59,37 @@ fn bad_account_data_size() {
 }
 
 #[test]
+fn handshake_tracked_shards_too_many() {
+    use crate::network_protocol::MAX_TRACKED_SHARDS_PER_PEER;
+    use crate::network_protocol::proto;
+    use crate::network_protocol::proto_conv::ParsePeerChainInfoV2Error;
+
+    let mut rng = make_rng(8475629384);
+    let mut clock = time::FakeClock::default();
+    let chain = data::Chain::make(&mut clock, &mut rng, 12);
+    // `get_peer_chain_info` returns a `PeerChainInfoV2` with empty `tracked_shards`,
+    // so converting it to proto does not trip the send-side debug_assert.
+    let base = proto::PeerChainInfo::from(&chain.get_peer_chain_info());
+
+    // len == cap: must succeed.
+    let mut ok_proto = base.clone();
+    ok_proto.tracked_shards = (0..MAX_TRACKED_SHARDS_PER_PEER as u64).collect();
+    let parsed = PeerChainInfoV2::try_from(&ok_proto).expect("at-cap parse should succeed");
+    assert_eq!(parsed.tracked_shards.len(), MAX_TRACKED_SHARDS_PER_PEER);
+
+    // len == cap + 1: must fail with TooManyTrackedShards, before any per-shard allocation.
+    let mut too_many_proto = base;
+    too_many_proto.tracked_shards = (0..=MAX_TRACKED_SHARDS_PER_PEER as u64).collect();
+    match PeerChainInfoV2::try_from(&too_many_proto) {
+        Err(ParsePeerChainInfoV2Error::TooManyTrackedShards { count, max }) => {
+            assert_eq!(count, MAX_TRACKED_SHARDS_PER_PEER + 1);
+            assert_eq!(max, MAX_TRACKED_SHARDS_PER_PEER);
+        }
+        other => panic!("expected TooManyTrackedShards, got: {other:?}"),
+    }
+}
+
+#[test]
 fn serialize_deserialize_protobuf_only() {
     let mut rng = make_rng(39521947542);
     let mut clock = time::FakeClock::default();
