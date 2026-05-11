@@ -11,6 +11,7 @@ use crate::Trie;
 use crate::trie::MemTrieChanges;
 use crate::trie::mem::arena::ArenaMut;
 use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
+use itertools::Itertools;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -168,17 +169,11 @@ impl MemTries {
     /// is expired but is still used at a higher height, it will still be
     /// valid until all references to that root expires.
     pub fn delete_until_height(&mut self, block_height: BlockHeight) {
-        let mut to_delete = vec![];
-        self.heights.retain(|height, state_roots| {
-            if *height < block_height {
-                for state_root in state_roots {
-                    to_delete.push(*state_root)
-                }
-                false
-            } else {
-                true
-            }
-        });
+        let to_delete = self
+            .heights
+            .extract_if(.., |height, _| *height < block_height)
+            .flat_map(|(_, state_roots)| state_roots)
+            .collect_vec();
         for state_root in to_delete {
             self.delete_root(&state_root);
         }
