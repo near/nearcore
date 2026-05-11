@@ -13337,6 +13337,10 @@
             "description": "Skip waiting for sync (for testing or single node testnet).",
             "type": "boolean"
           },
+          "spice_pending_transaction_queue_enabled": {
+            "description": "If true, SPICE nodes track uncertified transactions in a pending\ntransaction queue to enforce P_MAX, nonce, gas-key, and deploy\nconstraints during chunk production and RPC validation. Disabled by\ndefault; only meaningful when SPICE is active.",
+            "type": "boolean"
+          },
           "state_request_server_threads": {
             "description": "Number of threads for StateRequestActor pool.",
             "format": "uint",
