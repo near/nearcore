@@ -91,18 +91,6 @@ fn compute_type_hash(
 const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
-    #[cfg(enable_const_type_id)]
-    {
-        // For some reason, `LatestWitnessesInfo` structs is not picked up
-        // on macos. This is a workaround around that. It is enough to put only
-        // `LatestWitnessesInfo` and `ServerError` here but I don't know why as well.
-        // The issue may be related to the large size of crates. Other workaround
-        // is to move these types to smaller crates.
-        // TODO (#11755): find the reason and remove this workaround.
-        LatestWitnessesInfo::ensure_registration();
-        ServerError::ensure_registration();
-    }
-
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")
         .map(std::path::PathBuf::from)
@@ -166,7 +154,7 @@ fn main() {
     }
 }
 
-#[cfg(all(test, enable_const_type_id))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use near_schema_checker_lib::ProtocolSchema;

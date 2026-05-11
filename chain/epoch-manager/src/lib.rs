@@ -1794,7 +1794,7 @@ impl EpochManager {
             return Ok(None);
         }
 
-        if cfg!(debug) {
+        if cfg!(debug_assertions) {
             let agg_hash = self.epoch_info_aggregator.last_block_hash;
             let agg_height = self.get_block_info(&agg_hash)?.height();
             let block_height = self.get_block_info(block_hash)?.height();

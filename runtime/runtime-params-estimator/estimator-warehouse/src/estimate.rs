@@ -1,3 +1,6 @@
+// `xshell::cmd!` emits `cfg(trick_rust_analyzer_into_highlighting_interpolated_bits)`.
+#![allow(unexpected_cfgs)]
+
 use crate::{db::Db, import::ImportConfig};
 use nix::unistd::Uid;
 use xshell::{Shell, cmd};
