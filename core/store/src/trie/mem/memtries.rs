@@ -277,17 +277,6 @@ pub(crate) struct MemTrieRootPin {
     memtries: Arc<RwLock<MemTries>>,
 }
 
-impl MemTrieRootPin {
-    pub(crate) fn acquire(
-        memtries: &Arc<RwLock<MemTries>>,
-        shard_uid: ShardUId,
-        state_root: StateRoot,
-    ) -> Result<Self, StorageError> {
-        memtries.write().add_root_ref(&state_root)?;
-        Ok(Self { state_root, shard_uid, memtries: memtries.clone() })
-    }
-}
-
 /// Opaque handle for the runtime; validated at the entry of `apply_chunk`.
 pub struct MaybePinnedMemtrieRoot {
     pin: Option<MemTrieRootPin>,
@@ -300,8 +289,15 @@ impl MaybePinnedMemtrieRoot {
         Self { pin: None }
     }
 
-    pub(crate) fn from_pin(pin: MemTrieRootPin) -> Self {
-        Self { pin: Some(pin) }
+    pub(crate) fn acquire(
+        memtries: &Arc<RwLock<MemTries>>,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+    ) -> Result<Self, StorageError> {
+        memtries.write().add_root_ref(&state_root)?;
+        Ok(Self {
+            pin: Some(MemTrieRootPin { state_root, shard_uid, memtries: memtries.clone() }),
+        })
     }
 
     /// Panics if the handle is inconsistent with `tries`: an unpinned

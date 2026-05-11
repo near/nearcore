@@ -1,5 +1,5 @@
 use super::TrieRefcountSubtraction;
-use super::mem::memtries::{MaybePinnedMemtrieRoot, MemTrieRootPin, MemTries};
+use super::mem::memtries::{MaybePinnedMemtrieRoot, MemTries};
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
@@ -635,8 +635,7 @@ impl ShardTries {
         let Some(memtries) = self.get_memtries(shard_uid) else {
             return Ok(MaybePinnedMemtrieRoot::no_memtries());
         };
-        let pin = MemTrieRootPin::acquire(&memtries, shard_uid, state_root)?;
-        Ok(MaybePinnedMemtrieRoot::from_pin(pin))
+        MaybePinnedMemtrieRoot::acquire(&memtries, shard_uid, state_root)
     }
 
     /// Finalize a completed background memtrie load: apply any remaining deltas
