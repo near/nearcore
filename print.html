@@ -13434,6 +13434,36 @@ stabilized features to the new protocol version.</p>
 Unless it is a security-related fix, a protocol feature cannot be included in
 any release until at least <strong>one</strong> week after its stabilization. This is to ensure
 that feature implementation and stabilization are not rushed.</p>
+<h3 id="release-tracker-issue"><a class="header" href="#release-tracker-issue">Release tracker issue</a></h3>
+<p>Every published release opens or updates a &quot;release tracker&quot; GitHub issue that
+lists the commits present on the release tag but not on <code>master</code>. This closes
+the gap where cherry-picked vulnerability fixes go into a release branch first
+and never make it back to <code>master</code>, causing regressions on the next release.</p>
+<p>The tracker is maintained by <code>.github/workflows/neard_release.yml</code> via
+<code>scripts/track_release_commits.py</code>. It runs on every <code>release: published</code>
+event:</p>
+<ul>
+<li><strong>Scope by master base.</strong> All patch releases cut from the same point on
+master (e.g. 2.10.0, 2.10.1, 2.10.2, …) share a single tracker issue,
+keyed by <code>git merge-base origin/master &lt;tag&gt;</code>. A new minor release cut
+from a later master opens a new issue. Local invocations against a
+fork can override the master ref with <code>--master-ref upstream/master</code>.</li>
+<li><strong>Auto-checking.</strong> Commits whose patch is already on master (as detected
+by <code>git cherry -v</code>, which uses patch-ids) are pre-checked <code>[x]</code>. Only the
+<code>[ ]</code> entries need release-owner attention.</li>
+<li><strong>Reopen on new release.</strong> A closed tracker is automatically reopened
+when a new release is cut from the same master base, in case there are
+new commits to review.</li>
+</ul>
+<p><strong>What release owners should do.</strong> For each unchecked item, either:</p>
+<ul>
+<li>merge the corresponding change into <code>master</code> via a PR and tick the box
+once the PR lands, or</li>
+<li>tick the box and briefly note <em>why</em> the commit doesn't belong on master
+(e.g. &quot;version bump&quot;, &quot;voting date&quot;, &quot;release-only workaround&quot;).</li>
+</ul>
+<p>Once every box is ticked, close the issue. If another patch release is cut
+from the same base afterwards, the workflow will reopen it automatically.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <p>This document describes the advanced network options that you can configure
 by modifying the &quot;network&quot; section of your &quot;config.json&quot; file:</p>
