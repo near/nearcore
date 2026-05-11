@@ -365,10 +365,10 @@ pub fn verify_and_charge_tx_ephemeral(
     };
 
     // Validate FunctionCall permission constraints if applicable
-    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
-        if let Err(e) = verify_function_call_permission(function_call_permission, tx) {
-            return TxVerdict::Failed(e);
-        }
+    if let Some(function_call_permission) = access_key.permission.function_call_permission()
+        && let Err(e) = verify_function_call_permission(function_call_permission, tx)
+    {
+        return TxVerdict::Failed(e);
     }
 
     TxVerdict::Success(VerificationResult {
@@ -469,10 +469,10 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     let new_gas_key_balance = gas_key_info.balance.checked_sub(gas_cost).unwrap();
 
     // Validate FunctionCall permission constraints if applicable
-    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
-        if let Err(e) = verify_function_call_permission(function_call_permission, tx) {
-            return TxVerdict::Failed(e);
-        }
+    if let Some(function_call_permission) = access_key.permission.function_call_permission()
+        && let Err(e) = verify_function_call_permission(function_call_permission, tx)
+    {
+        return TxVerdict::Failed(e);
     }
     let gas_key_update =
         AccessKeyUpdate::GasKey { new_balance: new_gas_key_balance, nonce_index, nonce: tx_nonce };

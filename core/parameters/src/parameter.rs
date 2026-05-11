@@ -211,6 +211,7 @@ pub enum Parameter {
     MaxInstrumentedCodeSize,
     MaxBlocksPerFunction,
     MaxBlocksPerContract,
+    MaxTypesPerContract,
 
     // Contract runtime features
     FlatStorageReads,
@@ -347,6 +348,7 @@ impl Parameter {
             Parameter::MaxInstrumentedCodeSize,
             Parameter::MaxBlocksPerFunction,
             Parameter::MaxBlocksPerContract,
+            Parameter::MaxTypesPerContract,
         ]
         .iter()
     }

@@ -627,7 +627,7 @@ mod tests {
     /// And so on, the phases repeat.
     fn generate_random_operation(rng: &mut impl Rng, i: usize) -> RandomOperation {
         // The mode of operations switches every 100 operations.
-        let mode = if (i / 100) % 2 == 0 { "random_balanced" } else { "mostly_pops" };
+        let mode = if (i / 100).is_multiple_of(2) { "random_balanced" } else { "mostly_pops" };
 
         let weighted_items = match mode {
             "random_balanced" => {

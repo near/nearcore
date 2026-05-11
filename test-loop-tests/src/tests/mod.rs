@@ -18,6 +18,8 @@ mod create_delete_account;
 mod cross_shard_tx;
 mod deploy_compute_cost;
 mod deterministic_account_id;
+#[cfg(feature = "test_features")]
+mod doomslug;
 mod early_prepare_transactions;
 #[cfg(feature = "test_features")]
 mod eth_implicit_global_contract;
@@ -39,6 +41,7 @@ mod multinode_stateless_validators;
 mod network_drop;
 mod optimistic_block;
 mod p256_verify;
+mod pending_transaction_queue;
 mod process_blocks;
 mod processed_receipts_gc;
 mod protocol_upgrade;

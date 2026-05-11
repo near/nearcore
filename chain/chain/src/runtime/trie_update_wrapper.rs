@@ -413,7 +413,7 @@ mod tests {
             assert!(value < 16);
             assert!(nibble_index < 2 * bytes.len());
 
-            if nibble_index % 2 == 0 {
+            if nibble_index.is_multiple_of(2) {
                 bytes[nibble_index / 2] = (bytes[nibble_index / 2] & 0xF0) | value;
             } else {
                 bytes[nibble_index / 2] = (bytes[nibble_index / 2] & 0x0F) | (value >> 4);

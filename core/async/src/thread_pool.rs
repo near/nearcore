@@ -299,7 +299,7 @@ pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
         let thread_limit = std::thread::available_parallelism().map_or(4, |n| n.get());
         Arc::new(ThreadPool::new(
             "contract_compilation",
-            Duration::from_secs(3600),
+            Duration::from_hours(1),
             thread_limit,
             PRIORITY_CONTRACT_COMPILATION,
         ))
