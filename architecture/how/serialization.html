@@ -151,13 +151,7 @@ them.</p>
 ProtocolSchema trait:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// First, the schema checksums (hashes) are calculated at compile time and
-// require `TypeId` for cross-navigation. However, it is a nightly feature,
-// so we enable it manually by putting this in lib.rs:
-
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
-// Then, import schema calculation functionality by putting in Cargo.toml:
+</span>// Import schema calculation functionality by putting in Cargo.toml:
 // near-schema-checker-lib.workspace = true
 
 [features]
