@@ -269,10 +269,8 @@ impl MemTries {
     }
 }
 
-/// RAII handle that holds an extra refcount on a memtrie root, preventing
-/// `delete_until_height` from freeing it while an in-flight chunk apply
-/// still needs it. Acquired on the chain thread before scheduling an
-/// apply task and dropped after the task completes.
+/// RAII handle holding an extra refcount on a memtrie root, blocking
+/// `delete_until_height` from freeing it while an in-flight apply needs it.
 pub struct MemTrieRootPin {
     state_root: StateRoot,
     shard_uid: ShardUId,
@@ -280,8 +278,6 @@ pub struct MemTrieRootPin {
 }
 
 impl MemTrieRootPin {
-    /// Bumps the refcount on `state_root` in `memtries`. Errors if the root
-    /// is not currently in the memtrie (already evicted or never inserted).
     pub(crate) fn acquire(
         memtries: &Arc<RwLock<MemTries>>,
         shard_uid: ShardUId,
@@ -292,57 +288,37 @@ impl MemTrieRootPin {
     }
 }
 
-/// Opaque handle returned by [`ShardTries::maybe_pin_memtrie_root`]. Holds a
-/// refcount on the memtrie root for the apply's `state_root` so that the GC
-/// can't free it while an in-flight apply is queued. Chain treats it as
-/// opaque; the runtime validates it at the entry of `apply_chunk`.
-///
-/// Carries an `Arc`-cheap reference to [`ShardTries`] (when not constructed
-/// via [`Self::none`]) so [`Self::assert_pinned`] can decide on its own
-/// whether memtrie is actually configured for the shard.
+/// Opaque handle for the runtime; validated at the entry of `apply_chunk`.
 pub struct MaybePinnedMemtrieRoot {
-    /// `Some` when the handle was produced by [`ShardTries::maybe_pin_memtrie_root`].
-    /// `None` for [`Self::none`] — paths that statically don't go through
-    /// memtrie (replay, recorded-storage validation, etc.).
-    inner: Option<MaybePinnedMemtrieRootInner>,
-}
-
-struct MaybePinnedMemtrieRootInner {
-    tries: ShardTries,
-    /// `None` when no memtrie was configured for the shard at acquisition
-    /// time. The validate call re-queries `tries` so a memtrie loaded
-    /// between acquisition and validate doesn't slip past unpinned.
     pin: Option<MemTrieRootPin>,
 }
 
 impl MaybePinnedMemtrieRoot {
-    /// Empty handle. Use only for paths that statically don't consult
-    /// memtrie (replay, recorded-storage chunk validation, etc.).
-    pub fn none() -> Self {
-        Self { inner: None }
+    /// For callers whose apply path doesn't go through memtrie. Panics in
+    /// [`Self::assert_pinned`] if memtrie is actually loaded for the shard.
+    pub fn no_memtries() -> Self {
+        Self { pin: None }
     }
 
-    pub(crate) fn from_inner(tries: ShardTries, pin: Option<MemTrieRootPin>) -> Self {
-        Self { inner: Some(MaybePinnedMemtrieRootInner { tries, pin }) }
+    pub(crate) fn from_pin(pin: MemTrieRootPin) -> Self {
+        Self { pin: Some(pin) }
     }
 
-    /// Asserts that whenever memtrie is configured for `shard_uid` this
-    /// handle holds a pin matching `(shard_uid, state_root)`. Skips the
-    /// check when the handle was constructed via [`Self::none`], when
-    /// `state_root` is the empty-trie sentinel, or when no memtrie is
-    /// configured for the shard.
-    pub fn assert_pinned(&self, shard_uid: ShardUId, state_root: &StateRoot) {
-        // Empty-trie sentinel has no memtrie node to pin.
+    /// Panics if the handle is inconsistent with `tries`: an unpinned
+    /// handle requires no memtrie loaded for `shard_uid`; a pinned handle
+    /// must match `(shard_uid, state_root)`.
+    pub fn assert_pinned(&self, tries: &ShardTries, shard_uid: ShardUId, state_root: &StateRoot) {
         if state_root == &CryptoHash::default() {
             return;
         }
-        // Caller statically opted out of memtrie via `none()`.
-        let Some(inner) = &self.inner else { return };
-        // Memtrie isn't configured for this shard, so an empty handle is fine.
-        if inner.tries.get_memtries(shard_uid).is_none() {
+        let Some(pin) = &self.pin else {
+            assert!(
+                tries.get_memtries(shard_uid).is_none(),
+                "apply_chunk for {shard_uid:?}: memtrie is loaded but no pin held; \
+                 call ShardTries::maybe_pin_memtrie_root() instead of no_memtries()",
+            );
             return;
-        }
-        let pin = inner.pin.as_ref().expect("apply_chunk: memtrie configured but no pin provided");
+        };
         assert_eq!(pin.shard_uid, shard_uid, "memtrie pin shard_uid mismatch");
         assert_eq!(&pin.state_root, state_root, "memtrie pin state_root mismatch");
     }

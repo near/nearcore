@@ -903,8 +903,8 @@ impl ChunkExecutorActor {
 
         let runtime = self.runtime_adapter.clone();
         let shard_uid = chunk_context.shard_uid;
-        // Pin the prev-state root in memtrie so the async apply task can't lose
-        // it to `gc_memtrie_roots` before it runs.
+        // Pin so `gc_memtrie_roots` can't evict the prev-state root before
+        // the async apply task runs.
         let memtrie_pin = runtime
             .get_tries()
             .maybe_pin_memtrie_root(shard_uid, *prev_chunk_chunk_extra.state_root())?;

@@ -15,7 +15,8 @@ use itertools::ChunkBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, MaybePinnedMemtrieRoot,
+    RuntimeAdapter,
 };
 use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error, ReceiptFilter,
@@ -109,7 +110,7 @@ pub(crate) fn apply_block(
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     on_post_state_ready: None,
-                    memtrie_pin: near_chain::types::MaybePinnedMemtrieRoot::none(),
+                    memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -136,7 +137,7 @@ pub(crate) fn apply_block(
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     on_post_state_ready: None,
-                    memtrie_pin: near_chain::types::MaybePinnedMemtrieRoot::none(),
+                    memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),

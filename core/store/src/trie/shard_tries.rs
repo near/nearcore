@@ -620,24 +620,23 @@ impl ShardTries {
         guard.get(&shard_uid).cloned()
     }
 
-    /// Bumps the refcount on `state_root` in the shard's memtrie so that
-    /// `delete_until_height` can't free it while the returned handle is
-    /// alive. The returned handle is empty if no memtrie is configured for
-    /// the shard or if `state_root` is the empty-trie sentinel. Returns
-    /// `Err` if memtrie is configured but the root isn't present.
+    /// Pins `state_root` in the shard's memtrie so `delete_until_height`
+    /// can't free it while the handle lives. Returns an unpinned handle if
+    /// no memtrie is loaded or `state_root` is empty; errors if memtrie is
+    /// loaded but the root is missing.
     pub fn maybe_pin_memtrie_root(
         &self,
         shard_uid: ShardUId,
         state_root: StateRoot,
     ) -> Result<MaybePinnedMemtrieRoot, StorageError> {
         if state_root == CryptoHash::default() {
-            return Ok(MaybePinnedMemtrieRoot::from_inner(self.clone(), None));
+            return Ok(MaybePinnedMemtrieRoot::no_memtries());
         }
         let Some(memtries) = self.get_memtries(shard_uid) else {
-            return Ok(MaybePinnedMemtrieRoot::from_inner(self.clone(), None));
+            return Ok(MaybePinnedMemtrieRoot::no_memtries());
         };
         let pin = MemTrieRootPin::acquire(&memtries, shard_uid, state_root)?;
-        Ok(MaybePinnedMemtrieRoot::from_inner(self.clone(), Some(pin)))
+        Ok(MaybePinnedMemtrieRoot::from_pin(pin))
     }
 
     /// Finalize a completed background memtrie load: apply any remaining deltas

@@ -347,68 +347,37 @@ fn test_optimistic_block_with_invalidated_outcome() {
 ///
 /// One validator's `apply_chunks_optimistic` spawner is given a virtual delay
 /// of several block intervals. While the apply task waits in the queue, the
-/// chain finalizes enough blocks that without protection
-/// `update_flat_storage_and_memtrie -> delete_memtrie_roots_up_to_height`
-/// would evict the prev-state root the delayed apply still needs.
-///
-/// With the fix, `get_update_shard_job` acquires a `MemTrieRootPin` for the
-/// prev-state root before the apply task is scheduled, holding a refcount
-/// that prevents `delete_memtrie_roots_up_to_height` from freeing the root
-/// while the task is queued. The delayed apply finds its root and succeeds,
-/// so `NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES` does not increase.
-// TODO(spice-test): not relevant under spice; spice short-circuits the
-// optimistic-block apply path in `process_optimistic_block`.
+/// chain finalizes enough blocks that without the pin in `get_update_shard_job`,
+/// `delete_memtrie_roots_up_to_height` would evict the prev-state root the
+/// delayed apply needs and `NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES` would rise.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[test]
 fn test_optimistic_apply_memtrie_gc_race() {
-    init_test_logger();
-
     let num_shards = 3;
-    let epoch_length = 100;
-    let accounts =
-        (0..4).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().cloned().collect_vec();
-    let validators_spec = ValidatorsSpec::desired_roles(
-        &accounts.iter().map(|account_id| account_id.as_str()).collect_vec(),
-        &[],
-    );
-    let shard_layout = ShardLayout::multi_shard(num_shards as u64, 1);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
-    // Slow down `apply_chunks_optimistic` on a single node by ~5 block
-    // intervals (block production is ~1s in test-loop). That is more than
-    // enough for `last_final_block` to advance past the optimistic block's
-    // prev-height, triggering memtrie GC of the root the apply needs.
-    let slow_node = accounts[0].clone();
+    // Delay one node's `apply_chunks_optimistic` by several block intervals
+    // so `last_final_block` advances past the optimistic block's prev-height
+    // while the apply task is still queued.
+    let slow_node: AccountId = "account0".parse().unwrap();
+    let slow_node_for_closure = slow_node.clone();
     let metric_before = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
 
-    let mut env: TestLoopEnv = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+    // `skip_warmup`: default warmup asserts all chunks produced in the first
+    // few blocks, too tight while one node's optimistic-apply is slowed.
+    let mut env: TestLoopEnv = get_builder(num_shards)
         .track_all_shards()
         .task_delay_fn(move |account, task_name| {
-            (account == &slow_node && task_name == "apply_chunks_optimistic")
+            (account == &slow_node_for_closure && task_name == "apply_chunks_optimistic")
                 .then(|| Duration::seconds(5))
         })
         .skip_warmup()
         .build();
 
-    // Run long enough for several optimistic-block applies to be scheduled and
-    // for their prev-state roots to be GC'd before they fire.
+    // `run_for` (not `run_until_head_height`): the bug is time-based — the
+    // 5s-delayed optimistic apply tasks need virtual time to fire after their
+    // memtrie roots are GC'd. A head-based condition would exit too soon.
     env.test_loop.run_for(Duration::seconds(60));
-
-    for data in &env.node_datas {
-        let head =
-            env.test_loop.data.get(&data.client_sender.actor_handle()).client.chain.head().unwrap();
-        tracing::warn!(target: "test", account = %data.account_id, height = head.height, "node chain head");
-    }
 
     let metric_after = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
     assert_eq!(

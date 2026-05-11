@@ -215,7 +215,7 @@ pub fn spice_validate_chunk_state_witness(
             ShardContext { shard_uid, should_apply_chunk: true },
             runtime_adapter,
             // Recorded-storage replay; no memtrie path.
-            MaybePinnedMemtrieRoot::none(),
+            MaybePinnedMemtrieRoot::no_memtries(),
             None,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);

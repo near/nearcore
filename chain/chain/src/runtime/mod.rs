@@ -199,7 +199,7 @@ impl NightshadeRuntime {
             gas_limit,
             is_new_chunk,
             on_post_state_ready,
-            // Pin holds memtrie root refcount until the end of the function.
+            // Held until end of fn so the memtrie root stays alive.
             memtrie_pin: _memtrie_pin,
         } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -1169,11 +1169,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             .with_label_values(&[&apply_reason.to_string(), &shard_id.to_string()])
             .start_timer();
 
-        // `chunk.memtrie_pin` keeps `state_root` alive in memtrie for the
-        // duration of this call; otherwise GC could free the root mid-apply.
         if matches!(storage_config.source, StorageDataSource::Db) {
             let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, &block.prev_block_hash)?;
-            chunk.memtrie_pin.assert_pinned(shard_uid, &storage_config.state_root);
+            chunk.memtrie_pin.assert_pinned(&self.tries, shard_uid, &storage_config.state_root);
         }
 
         let mut trie = match storage_config.source {

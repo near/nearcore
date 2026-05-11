@@ -10,7 +10,9 @@ use near_chain::spice_core_writer_actor::{
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
-use near_chain::types::{ApplyChunkShardContext, RuntimeStorageConfig, StorageDataSource};
+use near_chain::types::{
+    ApplyChunkShardContext, MaybePinnedMemtrieRoot, RuntimeStorageConfig, StorageDataSource,
+};
 use near_chain::{
     ApplyChunksSpawner, Block, BlockProcessingArtifact, Chain, ChainGenesis, Provenance,
 };
@@ -519,7 +521,7 @@ fn simulate_chunk_application(
                 gas_limit: GAS_LIMIT,
                 is_new_chunk: true,
                 on_post_state_ready: None,
-                memtrie_pin: near_chain::types::MaybePinnedMemtrieRoot::none(),
+                memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
             },
             {
                 let is_new_chunk = true;

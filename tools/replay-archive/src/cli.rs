@@ -342,7 +342,7 @@ impl ReplayController {
             update_reason,
             shard_context,
             // Replay uses `DbTrieOnly` storage; no memtrie path.
-            MaybePinnedMemtrieRoot::none(),
+            MaybePinnedMemtrieRoot::no_memtries(),
             None,
         )?;
 

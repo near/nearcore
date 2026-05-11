@@ -1775,8 +1775,7 @@ impl Chain {
     ) {
         // Track all children using `parent_span`, as they may be processed in parallel.
         let parent_span = Span::current();
-        // Distinguish apply tasks by block kind so test-loop tests can selectively
-        // delay one variant via the spawner's per-name artificial-delay knob.
+        // Distinguish apply tasks by block kind so tests can delay one variant.
         let task_name = match &block {
             BlockToApply::Optimistic(_) => "apply_chunks_optimistic",
             BlockToApply::Normal(_) => "apply_chunks_normal",
@@ -3413,11 +3412,8 @@ impl Chain {
         tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "creating shard update job");
 
         let mut on_post_state_ready = None;
-        // Resolve the prev-state root that the apply task will need so we can
-        // pin it in memtrie before scheduling. This guards against the GC race
-        // where `delete_memtrie_roots_up_to_height` evicts the root while the
-        // apply task is still queued (e.g. an optimistic-block apply waiting
-        // behind a slow contract precompile).
+        // Pin the prev-state root so memtrie GC can't free it while the apply
+        // task sits in the queue.
         let prev_state_root = if is_new_chunk {
             chunk_header.prev_state_root()
         } else {

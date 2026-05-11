@@ -586,7 +586,7 @@ pub fn validate_chunk_state_witness_impl(
                     ShardContext { shard_uid, should_apply_chunk: true },
                     runtime_adapter,
                     // Recorded-storage replay; no memtrie path.
-                    MaybePinnedMemtrieRoot::none(),
+                    MaybePinnedMemtrieRoot::no_memtries(),
                     None,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
@@ -671,7 +671,7 @@ pub fn validate_chunk_state_witness_impl(
                     shard_context,
                     runtime_adapter,
                     // Recorded-storage replay; no memtrie path.
-                    MaybePinnedMemtrieRoot::none(),
+                    MaybePinnedMemtrieRoot::no_memtries(),
                 )?;
                 let congestion_info = chunk_extra.congestion_info();
                 (shard_uid, apply_result.new_root, congestion_info)

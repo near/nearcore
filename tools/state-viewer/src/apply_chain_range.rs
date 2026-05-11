@@ -102,7 +102,7 @@ fn apply_chunk_from_input(
         gas_limit: chunk_header.gas_limit(),
         is_new_chunk: chunk_header.is_new_chunk(block.header().height()),
         on_post_state_ready: None,
-        memtrie_pin: MaybePinnedMemtrieRoot::none(),
+        memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
     };
 
     runtime_adapter
