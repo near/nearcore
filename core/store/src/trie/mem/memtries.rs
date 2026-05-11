@@ -295,9 +295,7 @@ impl MaybePinnedMemtrieRoot {
         state_root: StateRoot,
     ) -> Result<Self, StorageError> {
         memtries.write().add_root_ref(&state_root)?;
-        Ok(Self {
-            pin: Some(MemTrieRootPin { state_root, shard_uid, memtries: memtries.clone() }),
-        })
+        Ok(Self { pin: Some(MemTrieRootPin { state_root, shard_uid, memtries: memtries.clone() }) })
     }
 
     /// Panics if the handle is inconsistent with `tries`: an unpinned
