@@ -255,8 +255,7 @@ pub static NUM_FAILED_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(||
 pub static NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_num_failed_optimistic_block_applies",
-        "Number of per-shard optimistic apply tasks that returned an error \
-         (e.g. because the prev-state root was already GC'd from memtrie)",
+        "Number of per-shard optimistic apply tasks that returned an error",
     )
     .unwrap()
 });

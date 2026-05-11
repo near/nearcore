@@ -382,8 +382,6 @@ fn test_optimistic_apply_memtrie_gc_race() {
     let metric_after = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
     assert_eq!(
         metric_before, metric_after,
-        "optimistic apply failed (NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES rose {} -> {}); \
-         the memtrie-root pin in `get_update_shard_job` is missing or broken",
-        metric_before, metric_after,
+        "NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES rose {metric_before} -> {metric_after}",
     );
 }
