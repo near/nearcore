@@ -427,7 +427,7 @@ impl Machine {
         // so we won't skip the stack guard page here.
         self.locals_offset = MachineStackOffset(self.stack_offset.0 + 8); // + 8 because locals_offset is supposed to point to 1st local
         let params_size =
-            (n_params as usize).saturating_sub(Self::LOCAL_REGISTERS.len()).checked_mul(8).unwrap();
+            (n_params as usize).saturating_sub(Self::LOCAL_REGISTERS.len()).strict_mul(8);
         self.decrease_rsp(a, params_size);
         for i in 0..n_params {
             // NB: the 0th parameter is used for passing around the internal VM data (vmctx).
@@ -472,7 +472,7 @@ impl Machine {
             Self::LOCAL_REGISTERS.len().saturating_sub(n_params as usize);
         let locals_to_init = (n - n_params) as usize;
         let locals_size =
-            locals_to_init.saturating_sub(registers_remaining_for_locals).checked_mul(8).unwrap();
+            locals_to_init.saturating_sub(registers_remaining_for_locals).strict_mul(8);
 
         // Allocate the stack, without actually writing to it.
         self.decrease_rsp(a, locals_size);

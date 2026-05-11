@@ -168,10 +168,7 @@ impl VMOffsets {
             prev_item_size: u32,
             next_item_align: usize,
         ) -> u32 {
-            align(
-                base.checked_add(num_items.checked_mul(prev_item_size).unwrap()).unwrap(),
-                next_item_align as u32,
-            )
+            align(base.strict_add(num_items.strict_mul(prev_item_size)), next_item_align as u32)
         }
 
         self.vmctx_signature_ids_begin = 0;
@@ -241,8 +238,8 @@ impl VMOffsets {
             u32::from(self.pointer_size),
             align_of::<u32>(),
         );
-        self.vmctx_stack_limit_initial_begin = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
-        self.size_of_vmctx = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
+        self.vmctx_stack_limit_initial_begin = self.vmctx_stack_limit_begin.strict_add(4);
+        self.size_of_vmctx = self.vmctx_stack_limit_begin.strict_add(4);
     }
 }
 
