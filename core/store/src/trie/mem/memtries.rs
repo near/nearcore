@@ -271,7 +271,7 @@ impl MemTries {
 
 /// RAII handle holding an extra refcount on a memtrie root, blocking
 /// `delete_until_height` from freeing it while an in-flight apply needs it.
-pub struct MemTrieRootPin {
+pub(crate) struct MemTrieRootPin {
     state_root: StateRoot,
     shard_uid: ShardUId,
     memtries: Arc<RwLock<MemTries>>,

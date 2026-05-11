@@ -76,8 +76,9 @@ pub(crate) struct TestLoopBuilder {
     /// Optional per-`(account, task_name)` override of the spawner's
     /// artificial virtual delay. Returning `None` falls back to the
     /// test-loop default. Returning `Some(d)` sets the delay for that task.
-    /// Affects every spawner that test-loop creates per node, not just
-    /// apply_chunks.
+    /// Only consulted by the client's `AsyncComputationMultiSpawner` (which
+    /// runs `apply_chunks` and other async client computation); other
+    /// per-node spawners still use the fixed test-loop default.
     task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
 }
 
