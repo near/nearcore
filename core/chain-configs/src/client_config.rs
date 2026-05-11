@@ -903,6 +903,11 @@ pub struct ClientConfig {
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
     /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
     pub chunks_cache_height_horizon: BlockHeightDelta,
+    /// If true, SPICE nodes track uncertified transactions in a pending
+    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
+    /// constraints during chunk production and RPC validation. Disabled by
+    /// default; only meaningful when SPICE is active.
+    pub spice_pending_transaction_queue_enabled: bool,
 }
 
 #[cfg(feature = "schemars")]
