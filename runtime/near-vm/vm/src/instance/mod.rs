@@ -220,7 +220,7 @@ impl Instance {
         let addr = unsafe { self.imported_memories_ptr().add(index) };
         let align = std::mem::align_of::<VMMemoryImport>();
         debug_assert!(
-            addr as usize % align == 0,
+            (addr as usize).is_multiple_of(align),
             "VMMemoryImport addr is not aligned to {align}: {addr:p}"
         );
         unsafe { &*addr }

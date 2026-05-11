@@ -1616,7 +1616,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
         let height = height as u64;
         let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
         let chunk_mask: Vec<bool> = if height < epoch_length {
-            (0..num_shards).map(|i| (height + i) % 2 == 0).collect()
+            (0..num_shards).map(|i| (height + i).is_multiple_of(2)).collect()
         } else {
             vec![true; num_shards as usize]
         };
@@ -1719,7 +1719,8 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 chunk_validators
                     .iter()
                     .map(|account| {
-                        account.as_str() != "test2" || (height + shard_index as u64) % 2 == 0
+                        account.as_str() != "test2"
+                            || (height + shard_index as u64).is_multiple_of(2)
                     })
                     .collect(),
             )

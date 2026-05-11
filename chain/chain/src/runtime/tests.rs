@@ -1975,7 +1975,7 @@ fn test_prepare_transactions_pending_skip() {
         &|_| true,
         &mut |_, _| {
             call_count += 1;
-            if call_count % 2 == 0 {
+            if call_count.is_multiple_of(2) {
                 PendingTxCheckResult::Skip
             } else {
                 PendingTxCheckResult::Admit(PendingConstraints::default())

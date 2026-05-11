@@ -115,7 +115,7 @@ impl StateSyncDownloader {
                     Err(err) => {
                         consecutive_failures += 1;
                         // warn every ~5 min with default timeouts
-                        if consecutive_failures % 30 == 0 {
+                        if consecutive_failures.is_multiple_of(30) {
                             tracing::warn!(
                                 target: "sync",
                                 %shard_id,
