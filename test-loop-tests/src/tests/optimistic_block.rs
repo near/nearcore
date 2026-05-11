@@ -360,7 +360,6 @@ fn test_optimistic_apply_memtrie_gc_race() {
     // so `last_final_block` advances past the optimistic block's prev-height
     // while the apply task is still queued.
     let slow_node: AccountId = "account0".parse().unwrap();
-    let slow_node_for_closure = slow_node.clone();
     let metric_before = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
 
     // `skip_warmup`: default warmup asserts all chunks produced in the first
@@ -368,7 +367,7 @@ fn test_optimistic_apply_memtrie_gc_race() {
     let mut env: TestLoopEnv = get_builder(num_shards)
         .track_all_shards()
         .task_delay_fn(move |account, task_name| {
-            (account == &slow_node_for_closure && task_name == "apply_chunks_optimistic")
+            (account == &slow_node && task_name == "apply_chunks_optimistic")
                 .then(|| Duration::seconds(5))
         })
         .skip_warmup()
