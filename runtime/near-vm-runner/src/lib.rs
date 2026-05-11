@@ -1,7 +1,6 @@
 // cspell:ignore waitlist
 
 #![doc = include_str!("../README.md")]
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 mod cache;
 mod errors;
