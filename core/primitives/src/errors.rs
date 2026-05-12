@@ -1338,6 +1338,9 @@ pub enum PrepareError {
     TooManyParamsPerFunction = 16,
     /// A function has more than `max_params_per_function` parameters.
     TooManyParamsPerContract = 17,
+    /// A function's max operand-stack size (in bytes) exceeds
+    /// `max_operand_stack_per_function`.
+    OperandStackTooLarge = 18,
 }
 
 /// A kind of a trap happened during execution of a binary
