@@ -539,6 +539,60 @@ fn test_promise_yield_create_then_resume2_fails() {
 }
 
 #[test]
+fn test_promise_yield_create2_duplicate_in_same_call() {
+    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::free();
+    let mut logic = logic_builder.build();
+
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    let yield_id = [5u8; 32];
+    let yield_id_mem = logic.internal_mem_write(&yield_id);
+
+    // First call should succeed
+    logic
+        .promise_yield_create2(
+            method_name.len,
+            method_name.ptr,
+            args.len,
+            args.ptr,
+            0,
+            1,
+            yield_id_mem.len,
+            yield_id_mem.ptr,
+            200,
+            0,
+        )
+        .expect("first yield_create2 should succeed");
+
+    // Second call with the same yield_id should fail
+    let yield_id_mem2 = logic.internal_mem_write(&yield_id);
+    let result = logic.promise_yield_create2(
+        method_name.len,
+        method_name.ptr,
+        args.len,
+        args.ptr,
+        0,
+        1,
+        yield_id_mem2.len,
+        yield_id_mem2.ptr,
+        200,
+        0,
+    );
+
+    assert!(
+        matches!(
+            result,
+            Err(crate::logic::VMLogicError::HostError(HostError::YieldIdAlreadyExists))
+        ),
+        "expected YieldIdAlreadyExists for duplicate yield_id in same call, got {result:?}"
+    );
+}
+
+#[test]
 fn test_promise_yield_resume2_view_prohibited() {
     if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
         return;

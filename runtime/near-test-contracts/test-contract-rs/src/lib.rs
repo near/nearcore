@@ -1393,6 +1393,54 @@ pub unsafe fn call_yield_create2_and_resume() {
     promise_return(promise_index);
 }
 
+/// Call promise_yield_create2 twice with the same yield_id derived from input.
+/// The second call should abort execution with YieldIdAlreadyExists.
+#[cfg(feature = "nightly")]
+#[unsafe(no_mangle)]
+pub unsafe fn call_yield_create2_duplicate() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    let mut yield_id = [0u8; 32];
+    let copy_len = payload.len().min(32);
+    yield_id[..copy_len].copy_from_slice(&payload[..copy_len]);
+
+    let method_name = "check_promise_result_return_value";
+    let gas_fixed = 0;
+    let gas_weight = 1;
+    let data_id_register = 0;
+    let yield_timeout_blocks = 200u64;
+
+    // First call should succeed
+    promise_yield_create2(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        yield_id.len() as u64,
+        yield_id.as_ptr() as u64,
+        yield_timeout_blocks,
+        data_id_register,
+    );
+
+    // Second call with the same yield_id should abort with YieldIdAlreadyExists
+    promise_yield_create2(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        yield_id.len() as u64,
+        yield_id.as_ptr() as u64,
+        yield_timeout_blocks,
+        data_id_register,
+    );
+}
+
 /// Call promise_yield_resume2 with the user-provided yield_id.
 /// Input is a 32-byte yield_id followed by the payload.
 #[cfg(feature = "nightly")]

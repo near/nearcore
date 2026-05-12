@@ -384,6 +384,32 @@ fn resume2_without_yield() {
 
 #[test]
 #[cfg(feature = "nightly")]
+fn create2_duplicate_in_same_call_fails() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    let yield_payload = vec![6u8; 16];
+
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_create2_duplicate",
+            yield_payload,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    let err_msg = format!("{:?}", res.status);
+    assert!(
+        err_msg.contains("yield with the given yield ID already exists"),
+        "expected YieldIdAlreadyExists error, got {res:?}"
+    );
+}
+
+#[test]
+#[cfg(feature = "nightly")]
 fn create2_then_resume_with_yield_id_fails() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
