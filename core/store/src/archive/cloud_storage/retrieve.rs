@@ -21,6 +21,10 @@ pub enum CloudRetrievalError {
     ListError { dir: String, error: anyhow::Error },
     #[error("Invalid file {file_id:?} from the cloud archive: {reason}")]
     InvalidFile { file_id: CloudStorageFileID, reason: String },
+    // TODO(cloud_archival): split reader-side errors into a dedicated
+    // `CloudReaderError` enum once more variants exist.
+    #[error("{reason}")]
+    Other { reason: String },
 }
 
 impl CloudStorage {

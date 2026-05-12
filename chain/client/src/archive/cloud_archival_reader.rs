@@ -112,7 +112,8 @@ pub fn bootstrap_range(
     Ok(())
 }
 
-/// First present block at or below `height`. Panics on reaching genesis.
+/// First present block at or below `height`. Errors if no such block exists
+/// in cloud (e.g. `height` is below the first archived block).
 pub fn find_present_block_at_or_below(
     cloud_storage: &CloudStorage,
     height: BlockHeight,
@@ -126,7 +127,11 @@ pub fn find_present_block_at_or_below(
         if let Some(block) = batch.get_block_at_height(h) {
             return Ok((h, block.clone()));
         }
-        assert!(h > 0, "no present block at-or-below {height}");
+        if h == 0 {
+            return Err(CloudRetrievalError::Other {
+                reason: format!("no present block at-or-below {height}"),
+            });
+        }
         h -= 1;
     }
 }

@@ -216,19 +216,19 @@ pub(crate) fn check_data_at_height_for_shards(
     let cloud_storage = get_cloud_storage(env, archival_id);
     if !expected_shards.is_empty() {
         assert!(
-            cloud_storage.get_block_data(height).is_ok(),
+            matches!(cloud_storage.get_block_data(height), Ok(Some(_))),
             "block data should exist at height {height}"
         );
     }
     for shard_id in all_shard_ids {
         if expected_shards.contains(shard_id) {
             assert!(
-                cloud_storage.get_shard_data(height, *shard_id).is_ok(),
+                matches!(cloud_storage.get_shard_data(height, *shard_id), Ok(Some(_))),
                 "shard data for shard {shard_id} should exist at height {height}"
             );
         } else {
             assert!(
-                cloud_storage.get_shard_data(height, *shard_id).is_err(),
+                matches!(cloud_storage.get_shard_data(height, *shard_id), Ok(None)),
                 "shard data for shard {shard_id} should NOT exist at height {height}"
             );
         }

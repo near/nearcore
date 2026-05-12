@@ -454,6 +454,8 @@ fn test_cloud_archival_lagging_shard_catchup() {
         (lag_at_height + h.epoch_length, &all_shards),
     ]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that the writer stops when a shard's external head is set back
@@ -478,6 +480,8 @@ fn test_cloud_archival_lagging_shard_beyond_gc() {
         cloud_head_before,
         "cloud head should not advance when writer stops due to lagging shard beyond GC"
     );
+
+    h.shutdown();
 }
 
 /// Verifies that a second writer joining mid-test catches up and covers
@@ -527,6 +531,8 @@ fn test_cloud_archival_writer_joins_later() {
         (join_height + 1, &all_shard_ids),
     ]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that two writers tracking all shards both produce valid data.
@@ -546,6 +552,8 @@ fn test_cloud_archival_multi_writer_same_shards() {
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
     h.check_data(&[(2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that two writers with disjoint shard assignments together cover
@@ -570,6 +578,8 @@ fn test_cloud_archival_multi_writer_disjoint_shards() {
     // Both writers start together: all shards are archived.
     h.check_data(&[(h.epoch_length / 2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that a writer with `snapshot_every_n_epochs = 2` only snapshots even epochs
@@ -652,6 +662,8 @@ fn test_cloud_archival_single_skipped_slot() {
     assert!(batch.get_block_at_height(dropped_height).is_none());
     assert!(h.cloud_head() > dropped_height);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Every block in a batch window is lost; the batch is uploaded with `None`
@@ -678,6 +690,8 @@ fn test_cloud_archival_fully_skipped_batch() {
     }
     assert!(h.cloud_head() > 15, "cloud_head must advance past the gap");
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Bootstrap a reader over a range whose start and end heights are both
@@ -781,4 +795,6 @@ fn test_cloud_archival_missing_chunks_one_shard() {
         }
     }
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
