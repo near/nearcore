@@ -436,6 +436,8 @@ pub(crate) fn prepare_contract(
         config.limit_config.max_stack_height,
         config.limit_config.max_blocks_per_function.unwrap_or(u64::MAX),
         config.limit_config.max_blocks_per_contract.unwrap_or(u64::MAX),
+        config.limit_config.max_params_per_function.unwrap_or(u64::MAX),
+        config.limit_config.max_params_per_contract.unwrap_or(u64::MAX),
     )
     .run()
     .map_err(|err| {
@@ -443,6 +445,8 @@ pub(crate) fn prepare_contract(
         match err {
             Error::TooManyBlocksPerFunction => PrepareError::TooManyBlocksPerFunction,
             Error::TooManyBlocksPerContract => PrepareError::TooManyBlocksPerContract,
+            Error::TooManyParamsPerFunction => PrepareError::TooManyParamsPerFunction,
+            Error::TooManyParamsPerContract => PrepareError::TooManyParamsPerContract,
             err => {
                 tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
                 PrepareError::Serialization

@@ -34,3 +34,5 @@ action_deploy_contract_per_byte: {
     execution: { gas: 64_572_944, compute: 250_000_000},
   }
 }
+max_params_per_contract: { new: 50_000 }
+max_params_per_function: { new: 64 }

@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use borsh;
 pub use num_rational;
 

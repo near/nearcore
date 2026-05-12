@@ -1334,6 +1334,10 @@ pub enum PrepareError {
     TooManyBlocksPerContract = 14,
     /// Contract declares too many entries in the wasm type section.
     TooManyTypes = 15,
+    /// All contract functions combined have more than `max_params_per_contract` parameters.
+    TooManyParamsPerFunction = 16,
+    /// A function has more than `max_params_per_function` parameters.
+    TooManyParamsPerContract = 17,
 }
 
 /// A kind of a trap happened during execution of a binary

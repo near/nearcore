@@ -139,16 +139,8 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
-# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that.
-# See https://github.com/dtolnay/inventory/issues/52.
-protocol_schema_env := "CARGO_TARGET_DIR=" + justfile_directory() + "/target/schema-check RUSTC_BOOTSTRAP=1 RUSTFLAGS='--cfg enable_const_type_id' CARGO_INCREMENTAL=0"
+protocol_schema_env := "CARGO_TARGET_DIR=" + justfile_directory() + "/target/schema-check"
 check-protocol-schema:
-    # Below, we *should* have been used `cargo +nightly ...` instead of
-    # `RUSTC_BOOTSTRAP=1`. However, the env var appears to be more stable.
-    # `nightly` builds are updated daily and may be broken sometimes, e.g.
-    # https://github.com/rust-lang/rust/issues/130769.
-    #
-    # If there is an issue with the env var, fall back to `cargo +nightly ...`.
     env {{protocol_schema_env}} cargo test -p protocol-schema-check --profile dev-artifacts
     env {{protocol_schema_env}} cargo run -p protocol-schema-check --profile dev-artifacts
 
