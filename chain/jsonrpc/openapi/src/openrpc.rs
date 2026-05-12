@@ -599,6 +599,42 @@ const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[CartesianCollap
     ],
 }];
 
+/// Schemas whose `required` list is stripped so generated clients stay
+/// compatible across networks (testnet/mainnet may expose different fields).
+/// Mirrors the patch applied to the OpenAPI generator.
+const SCHEMAS_TO_REMOVE_REQUIRED_FROM: &[&str] = &[
+    "RpcClientConfigResponse",
+    "GCConfig",
+    "CloudArchivalWriterConfig",
+    "StateSyncConfig",
+    "DumpConfig",
+    "ExternalStorageConfig",
+    "SyncConcurrency",
+    "EpochSyncConfig",
+    "ChunkDistributionNetworkConfig",
+    "ChunkDistributionUris",
+    "RpcProtocolConfigResponse",
+    "RuntimeConfigView",
+    "RuntimeFeesConfigView",
+    "DataReceiptCreationConfigView",
+    "ActionCreationConfigView",
+    "StorageUsageConfigView",
+    "VMConfigView",
+    "LimitConfig",
+    "ExtCostsConfigView",
+    "AccountCreationConfigView",
+    "CongestionControlConfigView",
+    "WitnessConfigView",
+];
+
+fn remove_required_from_config_schemas(schemas: &mut serde_json::Map<String, serde_json::Value>) {
+    for name in SCHEMAS_TO_REMOVE_REQUIRED_FROM {
+        if let Some(serde_json::Value::Object(obj)) = schemas.get_mut(*name) {
+            obj.remove("required");
+        }
+    }
+}
+
 /// Collapse cartesian product explosions in the schema.
 fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json::Value>) {
     for config in CARTESIAN_COLLAPSE_CONFIGS {
@@ -1383,6 +1419,8 @@ pub fn generate_openrpc() -> serde_json::Value {
     // the cartesian product (e.g., 3 × 8 = 24 variants). We detect these patterns
     // and collapse them back to `allOf[BlockReference, StateChangesRequestView]`.
     collapse_cartesian_products(&mut all_schemas);
+
+    remove_required_from_config_schemas(&mut all_schemas);
 
     // Build final OpenRPC document
     let mut openrpc = json!({
