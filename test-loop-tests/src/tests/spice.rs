@@ -932,3 +932,32 @@ fn schedule_send_money_txs(
     }
     (sent_txs, balance_changes)
 }
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_total_supply_decreases_with_gas_burn() {
+    init_test_logger();
+
+    let sender = create_account_id("sender");
+    let receiver = create_account_id("receiver");
+
+    let gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .validators(2, 0)
+        .gas_prices(gas_price, gas_price)
+        .add_user_accounts([&sender, &receiver], Balance::from_near(10))
+        .build();
+
+    let initial_total_supply = env.validator().head_block().header().total_supply();
+
+    let tx = env.validator().tx_send_money(&sender, &receiver, Balance::from_near(1));
+    env.validator_runner().run_tx(tx, Duration::seconds(10));
+
+    let block = env.validator().last_executed_block();
+    assert!(
+        block.header().total_supply() < initial_total_supply,
+        "total_supply should decrease after gas is burned: {} >= {}",
+        block.header().total_supply(),
+        initial_total_supply,
+    );
+}
