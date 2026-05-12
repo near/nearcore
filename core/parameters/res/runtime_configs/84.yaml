@@ -8,5 +8,31 @@ max_blocks_per_function: { new: 5_000 }
 max_blocks_per_contract: { new: 50_000 }
 max_types_per_contract: { new: 1024 }
 max_deploy_actions_per_receipt: { old: 100, new: 10 }
+action_deploy_contract: { 
+  old: {
+    send_sir: 184_765_750_000,
+    send_not_sir: 184_765_750_000,
+    execution: 184_765_750_000,
+  },
+  new: {
+    send_sir: 184_765_750_000,
+    send_not_sir: 184_765_750_000,
+    # ~100x compute cost, sets the limit to at most 50 deployments per chunk
+    execution: { gas: 184_765_750_000, compute: 20_000_000_000_000},
+  }
+}
+action_deploy_contract_per_byte: {
+  old: {
+    send_sir: 6_812_999,
+    send_not_sir: 47_683_715,
+    execution: 64_572_944,
+  },
+  new: {
+    send_sir: 6_812_999,
+    send_not_sir: 47_683_715,
+    # ~4x compute cost, sets the limit such that a 4MiB contract fills a chunk
+    execution: { gas: 64_572_944, compute: 250_000_000},
+  }
+}
 max_params_per_contract: { new: 50_000 }
 max_params_per_function: { new: 64 }
