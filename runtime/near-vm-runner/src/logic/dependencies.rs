@@ -333,6 +333,23 @@ pub trait External {
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError>;
 
+    /// Resume a yield previously created by `promise_yield_create2`, using the user-provided
+    /// `yield_id` instead of the runtime-generated `data_id`.
+    ///
+    /// The runtime looks up the corresponding `data_id` from the trie mapping and submits the
+    /// resume data. Returns `Ok(true)` if the yield was found and resume was submitted,
+    /// `Ok(false)` if no yield exists for the given `yield_id`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_yield_id` - user-provided 32-byte yield identifier from `yield_create2`
+    /// * `data` - contents of the DataReceipt
+    fn submit_promise_resume_data2(
+        &mut self,
+        user_yield_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError>;
+
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
     /// # Arguments

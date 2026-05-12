@@ -3955,6 +3955,55 @@ pub fn promise_yield_resume(
     ctx.ext.submit_promise_resume_data(data_id, payload).map(u32::from)
 }
 
+/// Like [`promise_yield_resume`], but accepts the user-provided `yield_id` (from
+/// [`promise_yield_create2`]) instead of the runtime-generated `data_id`.
+pub fn promise_yield_resume2(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    yield_id_len: u64,
+    yield_id_ptr: u64,
+    payload_len: u64,
+    payload_ptr: u64,
+) -> Result<u32, VMLogicError> {
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_yield_resume2".to_string(),
+        }
+        .into());
+    }
+    ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
+    ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    let yield_id = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        yield_id_ptr,
+        yield_id_len,
+    )?;
+    let payload = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        payload_ptr,
+        payload_len,
+    )?;
+    let payload_len = payload.len() as u64;
+    if payload_len > ctx.config.limit_config.max_yield_payload_size {
+        return Err(HostError::YieldPayloadLength {
+            length: payload_len,
+            limit: ctx.config.limit_config.max_yield_payload_size,
+        }
+        .into());
+    }
+
+    let yield_id: [_; CryptoHash::LENGTH] =
+        yield_id.as_ref().try_into().map_err(|_| HostError::DataIdMalformed)?;
+    let yield_id = CryptoHash(yield_id);
+    let payload = payload.into();
+    ctx.ext.submit_promise_resume_data2(yield_id, payload).map(u32::from)
+}
+
 /// If the current function is invoked by a callback we can access the execution results of the
 /// promises that caused the callback. This function returns the number of complete and
 /// incomplete callbacks.

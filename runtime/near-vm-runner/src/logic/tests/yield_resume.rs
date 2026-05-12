@@ -356,3 +356,118 @@ fn test_promise_yield_create2_view_prohibited() {
         "expected ProhibitedInView error, got {result:?}"
     );
 }
+
+#[test]
+fn test_promise_yield_resume2_after_create2() {
+    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::free();
+    let mut logic = logic_builder.build();
+
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    let yield_id = [9u8; 32];
+    let yield_id_mem = logic.internal_mem_write(&yield_id);
+
+    logic
+        .promise_yield_create2(
+            method_name.len,
+            method_name.ptr,
+            args.len,
+            args.ptr,
+            0,
+            1,
+            yield_id_mem.len,
+            yield_id_mem.ptr,
+            200,
+            0,
+        )
+        .expect("yield_create2 should succeed");
+
+    // Resume using the yield_id (not data_id)
+    let yield_id_for_resume = logic.internal_mem_write(&yield_id);
+    let payload = logic.internal_mem_write(b"resumed_via_yield_id");
+
+    let result = logic
+        .promise_yield_resume2(
+            yield_id_for_resume.len,
+            yield_id_for_resume.ptr,
+            payload.len,
+            payload.ptr,
+        )
+        .expect("yield_resume2 should succeed");
+
+    assert_eq!(result, 1u32, "resume2 should succeed with valid yield_id");
+}
+
+#[test]
+fn test_promise_yield_resume2_unknown_yield_id() {
+    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::free();
+    let mut logic = logic_builder.build();
+
+    // Try to resume with a yield_id that was never created
+    let unknown_yield_id = [3u8; 32];
+    let yield_id_mem = logic.internal_mem_write(&unknown_yield_id);
+    let payload = logic.internal_mem_write(b"payload");
+
+    let result = logic
+        .promise_yield_resume2(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr)
+        .expect("yield_resume2 should succeed (returning false)");
+
+    assert_eq!(result, 0u32, "resume2 with unknown yield_id should return 0");
+}
+
+#[test]
+fn test_promise_yield_resume2_malformed_yield_id() {
+    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::free();
+    let mut logic = logic_builder.build();
+
+    // Pass a yield_id that's not 32 bytes
+    let bad_yield_id = [0u8; 16];
+    let yield_id_mem = logic.internal_mem_write(&bad_yield_id);
+    let payload = logic.internal_mem_write(b"payload");
+
+    let result =
+        logic.promise_yield_resume2(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr);
+
+    assert!(
+        matches!(result, Err(crate::logic::VMLogicError::HostError(HostError::DataIdMalformed))),
+        "expected DataIdMalformed error, got {result:?}"
+    );
+}
+
+#[test]
+fn test_promise_yield_resume2_view_prohibited() {
+    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::view();
+    logic_builder.config.make_free();
+    let mut logic = logic_builder.build();
+
+    let yield_id = [1u8; 32];
+    let yield_id_mem = logic.internal_mem_write(&yield_id);
+    let payload = logic.internal_mem_write(b"payload");
+
+    let result =
+        logic.promise_yield_resume2(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr);
+
+    assert!(
+        matches!(
+            result,
+            Err(crate::logic::VMLogicError::HostError(HostError::ProhibitedInView { .. }))
+        ),
+        "expected ProhibitedInView error, got {result:?}"
+    );
+}

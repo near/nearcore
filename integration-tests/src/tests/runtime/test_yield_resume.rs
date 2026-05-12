@@ -259,3 +259,125 @@ fn create2_and_resume_in_one_call() {
         "{res:?} unexpected result; expected 16",
     );
 }
+
+#[test]
+#[cfg(feature = "nightly")]
+fn create2_then_resume2() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    // The test contract derives yield_id from the first 32 bytes of input
+    // (padded with zeros). Use a 16-byte payload so the yield_id is the
+    // 16-byte payload followed by 16 zero bytes.
+    let yield_payload = vec![6u8; 16];
+    let mut yield_id = [0u8; 32];
+    yield_id[..16].copy_from_slice(&yield_payload);
+    let key = 123u64.to_le_bytes().to_vec();
+
+    // Create the yield using yield_create2
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_create2_return_data_id",
+            yield_payload.clone(),
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert!(
+        matches!(res.status, FinalExecutionStatus::SuccessValue(_)),
+        "{res:?} unexpected result"
+    );
+
+    // Resume using yield_resume2 with the yield_id (not data_id)
+    let args: Vec<u8> = yield_id.iter().copied().chain(yield_payload.iter().copied()).collect();
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_resume2",
+            args,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![1u8]),
+        "{res:?} unexpected result; expected 1",
+    );
+
+    // Confirm the yield callback executed
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "read_value",
+            key,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue("Resumed ".as_bytes().to_vec()),
+        "{res:?} unexpected result",
+    );
+}
+
+#[test]
+#[cfg(feature = "nightly")]
+fn create2_and_resume2_in_one_call() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    let yield_payload = vec![23u8; 16];
+
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_create2_and_resume2",
+            yield_payload,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![16u8]),
+        "{res:?} unexpected result; expected 16",
+    );
+}
+
+#[test]
+#[cfg(feature = "nightly")]
+fn resume2_without_yield() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    // yield_id followed by payload
+    let args: Vec<u8> = vec![23u8; 32].into_iter().chain(vec![42u8; 12].into_iter()).collect();
+
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_resume2",
+            args,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    // expect the execution to succeed, but return 'false'
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
+        "{res:?} unexpected result; expected 0",
+    );
+}

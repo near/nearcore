@@ -217,6 +217,13 @@ extern "C" {
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
+    #[cfg(feature = "nightly")]
+    fn promise_yield_resume2(
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> u32;
     // #######################
     // # Promise API results #
     // #######################
@@ -1378,6 +1385,73 @@ pub unsafe fn call_yield_create2_and_resume() {
     let success = promise_yield_resume(
         data_id.len() as u64,
         data_id.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+    );
+    assert_eq!(success, 1u32);
+
+    promise_return(promise_index);
+}
+
+/// Call promise_yield_resume2 with the user-provided yield_id.
+/// Input is a 32-byte yield_id followed by the payload.
+#[cfg(feature = "nightly")]
+#[unsafe(no_mangle)]
+pub unsafe fn call_yield_resume2() {
+    input(0);
+    let data_len = register_len(0) as usize;
+    let data = vec![0u8; data_len];
+    read_register(0, data.as_ptr() as u64);
+
+    let yield_id = &data[0..32];
+    let payload = &data[32..];
+
+    let success = promise_yield_resume2(
+        yield_id.len() as u64,
+        yield_id.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+    );
+
+    let result = vec![success as u8];
+    value_return(result.len() as u64, result.as_ptr() as u64);
+}
+
+/// Call promise_yield_create2 and promise_yield_resume2 within the same function,
+/// using the yield_id (not data_id) for the resume.
+#[cfg(feature = "nightly")]
+#[unsafe(no_mangle)]
+pub unsafe fn call_yield_create2_and_resume2() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    let mut yield_id = [0u8; 32];
+    let copy_len = payload.len().min(32);
+    yield_id[..copy_len].copy_from_slice(&payload[..copy_len]);
+
+    let method_name = "check_promise_result_return_value";
+    let gas_fixed = 0;
+    let gas_weight = 1;
+    let data_id_register = 0;
+    let yield_timeout_blocks = 200u64;
+    let promise_index = promise_yield_create2(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        yield_id.len() as u64,
+        yield_id.as_ptr() as u64,
+        yield_timeout_blocks,
+        data_id_register,
+    );
+
+    // Resume using the yield_id (not the data_id)
+    let success = promise_yield_resume2(
+        yield_id.len() as u64,
+        yield_id.as_ptr() as u64,
         payload.len() as u64,
         payload.as_ptr() as u64,
     );

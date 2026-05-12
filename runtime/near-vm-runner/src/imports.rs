@@ -319,6 +319,12 @@ imports! {
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,
+    #[yield_create2_host_fns] promise_yield_resume2<[
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64
+    ] -> [u32]>,
     // #######################
     // # Promise API results #
     // #######################

@@ -13,8 +13,9 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
-    KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt,
-    has_promise_yield_status, has_yield_id_mapping, set_promise_yield_status, set_yield_id_mapping,
+    KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, get_data_id_for_yield_id,
+    has_promise_yield_receipt, has_promise_yield_status, has_yield_id_mapping,
+    set_promise_yield_status, set_yield_id_mapping,
 };
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
@@ -445,6 +446,20 @@ impl<'a> External for RuntimeExt<'a> {
             // receipt manager.
             Ok(self.receipt_manager.checked_resolve_promise_yield(data_id, data))
         }
+    }
+
+    fn submit_promise_resume_data2(
+        &mut self,
+        user_yield_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError> {
+        let Some(data_id) =
+            get_data_id_for_yield_id(self.trie_update, &self.account_id, user_yield_id)
+                .map_err(wrap_storage_error)?
+        else {
+            return Ok(false);
+        };
+        self.submit_promise_resume_data(data_id, data)
     }
 
     fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) {

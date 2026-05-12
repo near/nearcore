@@ -104,6 +104,7 @@ pub enum MockAction {
     YieldCreate {
         data_id: CryptoHash,
         receiver_id: AccountId,
+        yield_id: Option<CryptoHash>,
     },
     YieldResume {
         data_id: CryptoHash,
@@ -240,7 +241,7 @@ impl External for MockedExternal {
     ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
         let index = self.action_log.len();
         let data_id = self.generate_data_id();
-        self.action_log.push(MockAction::YieldCreate { data_id, receiver_id });
+        self.action_log.push(MockAction::YieldCreate { data_id, receiver_id, yield_id: None });
         Ok((index as u64, data_id))
     }
 
@@ -252,16 +253,19 @@ impl External for MockedExternal {
     ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
         // Check for duplicate yield_id
         for action in &self.action_log {
-            if let MockAction::YieldCreate { data_id: _, receiver_id: rid } = action {
-                // In a real implementation, we'd check the yield_id mapping.
-                // For the mock, we store yield_id in data_id field to detect duplicates.
-                let _ = rid;
+            if let MockAction::YieldCreate { yield_id: Some(existing), .. } = action {
+                if *existing == user_yield_id {
+                    return Err(crate::logic::HostError::YieldIdAlreadyExists.into());
+                }
             }
         }
         let index = self.action_log.len();
         let data_id = self.generate_data_id();
-        let _ = user_yield_id; // mock doesn't track yield_id -> data_id mapping
-        self.action_log.push(MockAction::YieldCreate { data_id, receiver_id });
+        self.action_log.push(MockAction::YieldCreate {
+            data_id,
+            receiver_id,
+            yield_id: Some(user_yield_id),
+        });
         Ok((index as u64, data_id))
     }
 
@@ -283,6 +287,26 @@ impl External for MockedExternal {
             }
         }
         Ok(false)
+    }
+
+    fn submit_promise_resume_data2(
+        &mut self,
+        user_yield_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, crate::logic::VMLogicError> {
+        // Look up data_id for the given yield_id
+        let data_id = self.action_log.iter().find_map(|action| match action {
+            MockAction::YieldCreate { data_id, yield_id: Some(yid), .. }
+                if *yid == user_yield_id =>
+            {
+                Some(*data_id)
+            }
+            _ => None,
+        });
+        match data_id {
+            Some(data_id) => self.submit_promise_resume_data(data_id, data),
+            None => Ok(false),
+        }
     }
 
     fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) {
