@@ -1,3 +1,4 @@
+use crate::DBCol;
 use crate::archive::cloud_storage::batch::compute_batch_id;
 pub use crate::archive::cloud_storage::batch::{BatchId, BatchRange, compute_next_batch};
 pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData};
@@ -23,6 +24,58 @@ pub(super) mod file_id;
 pub(super) mod shards;
 
 pub use file_id::ListableCloudDir;
+
+/// Cold columns whose data is carried by per-block-height batch blobs in cloud
+/// archive, either as a direct field of `BlockData` / `ShardData` or extracted
+/// from one of those at read time.
+const CLOUD_BATCH_COLUMNS: &[DBCol] = &[
+    DBCol::Block,
+    DBCol::BlockHeader,
+    DBCol::BlockInfo,
+    DBCol::NextBlockHashes,
+    DBCol::TransactionResultForBlock,
+    DBCol::Chunks,
+    DBCol::Transactions,
+    DBCol::Receipts,
+    DBCol::OutcomeIds,
+    DBCol::IncomingReceipts,
+    DBCol::OutgoingReceipts,
+    DBCol::ChunkExtra,
+    DBCol::ChunkApplyStats,
+    DBCol::StateChanges,
+];
+
+/// Cold columns intentionally not carried by batch blobs.
+const CLOUD_NON_BATCH_COLUMNS: &[DBCol] = &[
+    // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
+    DBCol::BlockPerHeight,
+    // TODO(cloud_archival): reconstruct from Block in the reader.
+    DBCol::ChunkHashesByHeight,
+    // TODO(cloud_archival): add to per-shard data and populate from outgoing receipts.
+    DBCol::ReceiptToTx,
+    // Per-epoch state snapshots cover state, not per-block deltas.
+    DBCol::State,
+    // Per-epoch state snapshots cover the shard-layout mapping that keys state.
+    DBCol::StateShardUIdMapping,
+    // Uploaded as a separate StateHeader file per (epoch_height, shard_id).
+    DBCol::StateHeaders,
+    // Not GC-ed; cloud archive only handles GC-ed data.
+    DBCol::StateChangesForSplitStates,
+    // Spice cold columns - cloud-archive integration is a separate task.
+    #[cfg(feature = "protocol_feature_spice")]
+    DBCol::ReceiptProofs,
+];
+
+/// Returns true if the column is carried by per-block-height batch blobs.
+pub fn is_cloud_batch_column(col: DBCol) -> bool {
+    CLOUD_BATCH_COLUMNS.contains(&col)
+}
+
+/// Returns true if the column is a cold column intentionally not carried by
+/// batch blobs.
+pub fn is_cloud_non_batch_column(col: DBCol) -> bool {
+    CLOUD_NON_BATCH_COLUMNS.contains(&col)
+}
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
@@ -128,11 +181,29 @@ fn block_on_future<F: Future>(fut: F) -> F::Output {
 
 #[cfg(test)]
 mod tests {
-    use super::CloudStorage;
     use super::batch::BatchId;
     use super::file_id::CloudStorageFileID;
+    use super::{CloudStorage, DBCol, is_cloud_batch_column, is_cloud_non_batch_column};
     use crate::archive::cloud_storage::bucket_config::BucketConfig;
     use near_external_storage::ExternalConnection;
+    use strum::IntoEnumIterator;
+
+    /// Every cold column must be classified as either batch-carried or
+    /// intentionally non-batch. A new cold column fails this test until
+    /// classified with a rationale.
+    #[test]
+    fn every_cold_column_is_classified_for_cloud_archive() {
+        for col in DBCol::iter() {
+            if !col.is_cold() {
+                continue;
+            }
+            assert!(
+                is_cloud_batch_column(col) ^ is_cloud_non_batch_column(col),
+                "cold column {col:?} must be classified as batch or non-batch \
+                 (with a rationale)"
+            );
+        }
+    }
 
     pub fn test_cloud_storage(tmp_dir: &tempfile::TempDir) -> CloudStorage {
         CloudStorage::new(
