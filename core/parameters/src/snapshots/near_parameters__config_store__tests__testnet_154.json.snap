@@ -1,6 +1,6 @@
 ---
-source: core/primitives/src/views.rs
-expression: "&view"
+source: core/parameters/src/config_store.rs
+expression: config_view
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -205,12 +205,12 @@ expression: "&view"
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": true,
     "deterministic_account_ids": true,
-    "gas_key_host_fns": false,
+    "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
-    "yield_with_id_host_fns": false,
+    "yield_with_id_host_fns": true,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "eth_implicit_global_contract": true,

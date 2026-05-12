@@ -1317,7 +1317,7 @@ pub unsafe fn call_yield_create_and_resume() {
 pub unsafe fn call_yield_create_with_id_return_data_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    read_register(0, payload.as_ptr() as *mut u8);
 
     // Use a fixed yield_id (32 bytes of zeros, overwritten with payload prefix)
     let mut yield_id = [0u8; 32];
@@ -1343,7 +1343,7 @@ pub unsafe fn call_yield_create_with_id_return_data_id() {
     );
 
     let data_id = vec![0u8; register_len(0) as usize];
-    read_register(data_id_register, data_id.as_ptr() as u64);
+    read_register(data_id_register, data_id.as_ptr() as *mut u8);
 
     value_return(data_id.len() as u64, data_id.as_ptr() as u64);
 }
@@ -1354,7 +1354,7 @@ pub unsafe fn call_yield_create_with_id_return_data_id() {
 pub unsafe fn call_yield_create_with_id_and_resume() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    read_register(0, payload.as_ptr() as *mut u8);
 
     let mut yield_id = [0u8; 32];
     let copy_len = payload.len().min(32);
@@ -1379,7 +1379,7 @@ pub unsafe fn call_yield_create_with_id_and_resume() {
     );
 
     let data_id = vec![0u8; register_len(0) as usize];
-    read_register(data_id_register, data_id.as_ptr() as u64);
+    read_register(data_id_register, data_id.as_ptr() as *mut u8);
 
     // Resolve the promise yield with the expected payload
     let success = promise_yield_resume(
@@ -1400,7 +1400,7 @@ pub unsafe fn call_yield_create_with_id_and_resume() {
 pub unsafe fn call_yield_create_with_id_duplicate() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    read_register(0, payload.as_ptr() as *mut u8);
 
     let mut yield_id = [0u8; 32];
     let copy_len = payload.len().min(32);
@@ -1449,7 +1449,7 @@ pub unsafe fn call_yield_resume_with_id() {
     input(0);
     let data_len = register_len(0) as usize;
     let data = vec![0u8; data_len];
-    read_register(0, data.as_ptr() as u64);
+    read_register(0, data.as_ptr() as *mut u8);
 
     let yield_id = &data[0..32];
     let payload = &data[32..];
@@ -1472,7 +1472,7 @@ pub unsafe fn call_yield_resume_with_id() {
 pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    read_register(0, payload.as_ptr() as *mut u8);
 
     let mut yield_id = [0u8; 32];
     let copy_len = payload.len().min(32);

@@ -40,11 +40,11 @@ action_delete_account
 action_deploy_contract                  
 - send_sir:          184_765_750_000
 - send_not_sir:      184_765_750_000
-- execution:         184_765_750_000
+- execution:         184_765_750_000, compute:   20_000_000_000_000
 action_deploy_contract_per_byte         
 - send_sir:                6_812_999
 - send_not_sir:           47_683_715
-- execution:              64_572_944
+- execution:              64_572_944, compute:          250_000_000
 action_function_call                    
 - send_sir:          200_000_000_000
 - send_not_sir:      200_000_000_000
@@ -135,6 +135,8 @@ wasm_ripemd160_block                             680_107_584
 wasm_ecrecover_base                          278_821_988_457
 wasm_ed25519_verify_base                     210_000_000_000
 wasm_ed25519_verify_byte                           9_000_000
+wasm_p256_verify_base                      1_300_000_000_000
+wasm_p256_verify_byte                             13_000_000
 wasm_log_base                                  3_543_313_050
 wasm_log_byte                                     13_198_791
 wasm_storage_write_base                       64_196_736_000, compute:      200_000_000_000
@@ -206,6 +208,7 @@ max_number_logs                                          100
 max_total_log_length                                  16_384
 max_total_prepaid_gas                   1_000_000_000_000_000
 max_actions_per_receipt                                  100
+max_deploy_actions_per_receipt                            10
 max_number_bytes_method_names                          2_000
 max_length_method_name                                   256
 max_arguments_length                               4_194_304
@@ -228,6 +231,9 @@ max_function_body_size                               196_608
 max_instrumented_code_size                        16_777_216
 max_blocks_per_function                                5_000
 max_blocks_per_contract                               50_000
+max_types_per_contract                                 1_024
+max_params_per_function                                   64
+max_params_per_contract                               50_000
 flat_storage_reads                      true
 fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
@@ -271,4 +277,5 @@ global_contract_host_fns                true
 deterministic_account_ids               true
 gas_key_host_fns                        false
 one_yocto_on_promise                    true
+p256_verify_host_fn                     true
 yield_with_id_host_fns                  false

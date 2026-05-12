@@ -62,7 +62,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
     (149, include_config!("149.yaml")),
-    (153, include_config!("153.yaml")),
+    (154, include_config!("154.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
