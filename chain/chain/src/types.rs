@@ -392,7 +392,11 @@ impl ApplyChunkBlockContext {
 }
 
 pub struct ApplyChunkShardContext<'a> {
-    pub shard_id: ShardId,
+    /// `ShardUId` (layout-version + shard_id) the chunk is being applied to.
+    /// Carried explicitly so that runtime and chain agree on the same
+    /// `(version, shard_id)` pair across resharding boundaries instead of
+    /// re-deriving it from `prev_block_hash`.
+    pub shard_uid: ShardUId,
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,

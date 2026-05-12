@@ -139,7 +139,8 @@ pub fn apply_new_chunk(
         receipts,
         storage_context,
     } = data;
-    let shard_id = shard_context.shard_uid.shard_id();
+    let shard_uid = shard_context.shard_uid;
+    let shard_id = shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
@@ -165,7 +166,7 @@ pub fn apply_new_chunk(
         storage_config,
         apply_reason,
         ApplyChunkShardContext {
-            shard_id,
+            shard_uid,
             last_validator_proposals: ValidatorStakeIter::new(&prev_validator_proposals),
             gas_limit,
             is_new_chunk: true,
@@ -195,7 +196,8 @@ pub fn apply_old_chunk(
     memtrie_pin: MaybePinnedMemtrieRoot,
 ) -> Result<OldChunkResult, Error> {
     let OldChunkData { prev_chunk_extra, block, storage_context } = data;
-    let shard_id = shard_context.shard_uid.shard_id();
+    let shard_uid = shard_context.shard_uid;
+    let shard_id = shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
@@ -217,7 +219,7 @@ pub fn apply_old_chunk(
         storage_config,
         apply_reason,
         ApplyChunkShardContext {
-            shard_id,
+            shard_uid,
             last_validator_proposals: prev_chunk_extra.validator_proposals(),
             gas_limit: prev_chunk_extra.gas_limit(),
             is_new_chunk: false,

@@ -108,7 +108,7 @@ fn apply_chunk_from_input(
 
     // Can't have an `ApplyChunkShardContext` field inside `ChunkApplicationInput` because `last_validator_proposals` is borrowed.
     let chunk_context = ApplyChunkShardContext {
-        shard_id: chunk_header.shard_id(),
+        shard_uid,
         last_validator_proposals: chunk_header.prev_validator_proposals(),
         gas_limit: chunk_header.gas_limit(),
         is_new_chunk: chunk_header.is_new_chunk(block.header().height()),

@@ -548,7 +548,7 @@ impl<'a> ChainUpdate<'a> {
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
-                shard_id,
+                shard_uid,
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 is_new_chunk: true,
@@ -670,7 +670,7 @@ impl<'a> ChainUpdate<'a> {
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
-                shard_id,
+                shard_uid,
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,

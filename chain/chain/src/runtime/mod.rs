@@ -194,7 +194,7 @@ impl NightshadeRuntime {
             bandwidth_requests,
         } = block;
         let ApplyChunkShardContext {
-            shard_id,
+            shard_uid,
             last_validator_proposals,
             gas_limit,
             is_new_chunk,
@@ -202,6 +202,7 @@ impl NightshadeRuntime {
             // Held until end of fn so the memtrie root stays alive.
             memtrie_pin: _memtrie_pin,
         } = chunk;
+        let shard_id = shard_uid.shard_id();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -1154,7 +1155,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_id))]
+    #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_uid.shard_id()))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -1164,14 +1165,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         receipts: &[Receipt],
         transactions: SignedValidPeriodTransactions,
     ) -> Result<ApplyChunkResult, Error> {
-        let shard_id = chunk.shard_id;
+        let shard_id = chunk.shard_uid.shard_id();
         let _timer = metrics::APPLYING_CHUNKS_TIME
             .with_label_values(&[&apply_reason.to_string(), &shard_id.to_string()])
             .start_timer();
 
         if matches!(storage_config.source, StorageDataSource::Db) {
-            let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, &block.prev_block_hash)?;
-            chunk.memtrie_pin.assert_pinned(&self.tries, shard_uid, &storage_config.state_root);
+            chunk.memtrie_pin.assert_pinned(
+                &self.tries,
+                chunk.shard_uid,
+                &storage_config.state_root,
+            );
         }
 
         let mut trie = match storage_config.source {
