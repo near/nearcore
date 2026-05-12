@@ -525,6 +525,13 @@ impl<'a> InstrumentContext<'a> {
         let gas_offsets = get_idx!(analysis.gas_offsets)?;
         let stack_sz = *get_idx!(analysis.function_operand_stack_sizes)?;
         if stack_sz > self.max_operand_stack_bytes_per_function {
+            tracing::debug!(
+                target: "vm",
+                stack_sz,
+                limit = self.max_operand_stack_bytes_per_function,
+                code_idx,
+                "function exceeds max_operand_stack_bytes_per_function"
+            );
             return Err(Error::OperandStackTooLarge);
         }
         let frame_sz = *get_idx!(analysis.function_frame_sizes)?;

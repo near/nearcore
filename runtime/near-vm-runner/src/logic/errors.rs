@@ -198,7 +198,7 @@ pub enum PrepareError {
     /// A function has more than `max_params_per_function` parameters.
     TooManyParamsPerFunction = 17,
     /// A function's max operand-stack size (in bytes) exceeds
-    /// `max_operand_stack_per_function`.
+    /// `max_operand_stack_bytes_per_function`.
     OperandStackTooLarge = 18,
 }
 

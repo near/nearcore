@@ -11942,7 +11942,7 @@
             "type": "string"
           },
           {
-            "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_per_function`.",
+            "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_bytes_per_function`.",
             "enum": [
               "OperandStackTooLarge"
             ],
