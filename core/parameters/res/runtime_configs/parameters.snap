@@ -234,6 +234,7 @@ max_blocks_per_contract                               50_000
 max_types_per_contract                                 1_024
 max_params_per_function                                   64
 max_params_per_contract                               50_000
+max_operand_stack_per_function                         8_192
 flat_storage_reads                      true
 fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
