@@ -35,8 +35,9 @@ pub struct MemTries {
     roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
     /// Maps a block height to a list of state roots present at that height.
     /// This is used for GC. The invariant is that for any state root, the
-    /// number of times the state root appears in this map is equal to the
-    /// sum of the refcounts of each `MemTrieNodeId`s in `roots[state_hash]`.
+    /// number of times the state root appears in this map, plus the number
+    /// of live `MemTrieRootPin`s for that state root, is equal to the sum
+    /// of the refcounts of each `MemTrieNodeId`s in `roots[state_hash]`,
     /// plus one for the snapshot root.
     heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
     /// The state root of the snapshot trie, if any.
