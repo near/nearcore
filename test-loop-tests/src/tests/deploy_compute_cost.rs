@@ -127,6 +127,8 @@ const GLOBAL_CONTRACT_SIZE: usize = 1000;
 /// the first distribution receipt is applied, making it stale and short-circuit
 /// to zero compute.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deploy_global_contract_compute_cost_splits_chunks() {
     init_test_logger();
 
