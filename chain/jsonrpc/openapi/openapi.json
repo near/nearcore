@@ -11246,6 +11246,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_operand_stack_bytes_per_function": {
+            "description": "If present, stores the max operand stack size (in bytes) at any point\nduring the execution of a single function. Per-function: not summed\nacross recursion. Computed by `finite_wasm::max_stack`.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_params_per_contract": {
             "format": "uint64",
             "minimum": 0,
@@ -11931,6 +11938,13 @@
             "description": "A function has more than `max_params_per_function` parameters.",
             "enum": [
               "TooManyParamsPerContract"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_per_function`.",
+            "enum": [
+              "OperandStackTooLarge"
             ],
             "type": "string"
           }
