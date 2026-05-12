@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use crate::adapter::EpochManagerAdapter;
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
@@ -1794,16 +1792,6 @@ impl EpochManager {
     ) -> Result<Option<(EpochInfoAggregator, bool)>, EpochError> {
         if block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(None);
-        }
-
-        if cfg!(debug) {
-            let agg_hash = self.epoch_info_aggregator.last_block_hash;
-            let agg_height = self.get_block_info(&agg_hash)?.height();
-            let block_height = self.get_block_info(block_hash)?.height();
-            assert!(
-                agg_height < block_height,
-                "#{agg_hash} {agg_height} >= #{block_hash} {block_height}",
-            );
         }
 
         let epoch_id = *self.get_block_info(block_hash)?.epoch_id();

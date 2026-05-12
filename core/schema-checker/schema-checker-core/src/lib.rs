@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 use std::any::TypeId;
 
 pub type TypeName = &'static str;
@@ -68,7 +66,7 @@ macro_rules! primitive_impl {
         $(
             impl ProtocolSchema for $t {}
 
-            #[cfg(all(enable_const_type_id, feature = "protocol_schema"))]
+            #[cfg(feature = "protocol_schema")]
             inventory::submit! {
                 ProtocolSchemaInfo::Struct {
                     name: stringify!($t),
