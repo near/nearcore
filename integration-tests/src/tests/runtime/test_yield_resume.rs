@@ -381,3 +381,101 @@ fn resume2_without_yield() {
         "{res:?} unexpected result; expected 0",
     );
 }
+
+#[test]
+#[cfg(feature = "nightly")]
+fn create2_then_resume_with_yield_id_fails() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    // The test contract derives yield_id from the first 32 bytes of input.
+    let yield_payload = vec![6u8; 16];
+    let mut yield_id = [0u8; 32];
+    yield_id[..16].copy_from_slice(&yield_payload);
+
+    // Create yield with yield_create2
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_create2_return_data_id",
+            yield_payload.clone(),
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert!(
+        matches!(res.status, FinalExecutionStatus::SuccessValue(_)),
+        "{res:?} unexpected result"
+    );
+
+    // Try to resume using yield_id as data_id (call_yield_resume expects
+    // payload followed by data_id at the end, so we pass yield_id where
+    // data_id should be).
+    let args: Vec<u8> = yield_payload.into_iter().chain(yield_id.into_iter()).collect();
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_resume",
+            args,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    // Resume should succeed at the host level but return 0 (false) since the
+    // yield_id is not the runtime-generated data_id.
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
+        "{res:?} unexpected result; expected 0",
+    );
+}
+
+#[test]
+#[cfg(feature = "nightly")]
+fn create_then_resume2_fails() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    let yield_payload = vec![6u8; 16];
+
+    // Create yield with the original yield_create (no yield_id mapping is stored)
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_create_return_data_id",
+            yield_payload.clone(),
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    let data_id = match res.status {
+        FinalExecutionStatus::SuccessValue(data_id) => data_id,
+        _ => panic!("{res:?} unexpected result"),
+    };
+
+    // Try to resume with yield_resume2 using the data_id as a yield_id.
+    // Since no yield_id mapping exists for this data_id, this should return 0 (false).
+    let args: Vec<u8> = data_id.into_iter().chain(yield_payload.into_iter()).collect();
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call_yield_resume2",
+            args,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
+        "{res:?} unexpected result; expected 0",
+    );
+}

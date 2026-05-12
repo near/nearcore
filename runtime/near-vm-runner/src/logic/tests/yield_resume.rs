@@ -447,6 +447,98 @@ fn test_promise_yield_resume2_malformed_yield_id() {
 }
 
 #[test]
+fn test_promise_yield_create2_then_resume_with_yield_id_fails() {
+    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::free();
+    let mut logic = logic_builder.build();
+
+    // Create a yield with create2
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    let yield_id = [42u8; 32];
+    let yield_id_mem = logic.internal_mem_write(&yield_id);
+
+    logic
+        .promise_yield_create2(
+            method_name.len,
+            method_name.ptr,
+            args.len,
+            args.ptr,
+            0,
+            1,
+            yield_id_mem.len,
+            yield_id_mem.ptr,
+            200,
+            0,
+        )
+        .expect("yield_create2 should succeed");
+
+    // Try to resume with the yield_id passed as data_id — should fail (return 0)
+    // because the yield_id is not the same as the runtime-generated data_id.
+    let yield_id_as_data_id = logic.internal_mem_write(&yield_id);
+    let payload = logic.internal_mem_write(b"payload");
+
+    let result = logic
+        .promise_yield_resume(
+            yield_id_as_data_id.len,
+            yield_id_as_data_id.ptr,
+            payload.len,
+            payload.ptr,
+        )
+        .expect("yield_resume should succeed (returning false)");
+
+    assert_eq!(
+        result, 0u32,
+        "resume with yield_id passed as data_id should return 0, got {result}"
+    );
+}
+
+#[test]
+fn test_promise_yield_create_then_resume2_fails() {
+    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::free();
+    let mut logic = logic_builder.build();
+
+    // Create a yield with the original yield_create (no yield_id mapping)
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    logic
+        .promise_yield_create(method_name.len, method_name.ptr, args.len, args.ptr, 0, 1, 0)
+        .expect("yield_create should succeed");
+
+    // Read the data_id from register 0
+    let data_id_len = logic.registers().get_len(0).unwrap();
+    let ptr = 1024u64;
+    logic.read_register(0, ptr).unwrap();
+    let data_id_bytes = logic.internal_mem_read(ptr, data_id_len);
+
+    // Try to resume2 using the data_id as a yield_id — should fail since no
+    // yield_id mapping was created.
+    let data_id_as_yield_id = logic.internal_mem_write(&data_id_bytes);
+    let payload = logic.internal_mem_write(b"payload");
+
+    let result = logic
+        .promise_yield_resume2(
+            data_id_as_yield_id.len,
+            data_id_as_yield_id.ptr,
+            payload.len,
+            payload.ptr,
+        )
+        .expect("yield_resume2 should succeed (returning false)");
+
+    assert_eq!(
+        result, 0u32,
+        "resume2 with data_id passed as yield_id should return 0, got {result}"
+    );
+}
+
+#[test]
 fn test_promise_yield_resume2_view_prohibited() {
     if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
         return;
