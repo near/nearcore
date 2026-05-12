@@ -93,6 +93,10 @@ pub enum Error {
     TooManyBlocksPerFunction,
     #[error("too many basic blocks in a contract")]
     TooManyBlocksPerContract,
+    #[error("too many function parameters in a contact")]
+    TooManyParamsPerContract,
+    #[error("too many parameters in a function")]
+    TooManyParamsPerFunction,
 }
 
 pub(crate) struct InstrumentContext<'a> {
@@ -104,6 +108,8 @@ pub(crate) struct InstrumentContext<'a> {
     max_stack_height: u32,
     max_blocks_per_function: u64,
     max_blocks_per_contract: u64,
+    max_params_per_function: u64,
+    max_params_per_contract: u64,
 
     type_section: we::TypeSection,
     import_section: we::ImportSection,
@@ -230,6 +236,8 @@ impl<'a> InstrumentContext<'a> {
         max_stack_height: u32,
         max_blocks_per_function: u64,
         max_blocks_per_contract: u64,
+        max_params_per_function: u64,
+        max_params_per_contract: u64,
     ) -> Self {
         Self {
             analysis,
@@ -240,6 +248,8 @@ impl<'a> InstrumentContext<'a> {
             max_stack_height,
             max_blocks_per_function,
             max_blocks_per_contract,
+            max_params_per_function,
+            max_params_per_contract,
 
             type_section: we::TypeSection::new(),
             import_section: we::ImportSection::new(),
@@ -474,7 +484,18 @@ impl<'a> InstrumentContext<'a> {
             usize::try_from(func_type_idx).or(Err(Error::InvalidTypeIndex))?;
         let func_type = self.types.get(func_type_idx_usize).ok_or(Error::InvalidTypeIndex)?;
 
-        let local_idx: u32 = func_type.params().len().try_into().or(Err(Error::TooManyLocals))?;
+        let num_params: u32 =
+            func_type.params().len().try_into().or(Err(Error::TooManyParamsPerFunction))?;
+        if u64::from(num_params) > self.max_params_per_function {
+            return Err(Error::TooManyParamsPerFunction);
+        }
+
+        self.max_params_per_contract = self
+            .max_params_per_contract
+            .checked_sub(u64::from(num_params))
+            .ok_or(Error::TooManyParamsPerContract)?;
+
+        let local_idx = num_params;
         let (mut locals, local_idx) =
             reader.get_locals_reader().map_err(Error::ParseLocals)?.into_iter().try_fold(
                 (Vec::default(), local_idx),
