@@ -29,11 +29,13 @@ pub use file_id::ListableCloudDir;
 /// archive, either as a direct field of `BlockData` / `ShardData` or extracted
 /// from one of those at read time.
 const CLOUD_BATCH_COLUMNS: &[DBCol] = &[
+    // Carried by BlockData (one entry per block).
     DBCol::Block,
     DBCol::BlockHeader,
     DBCol::BlockInfo,
     DBCol::NextBlockHashes,
     DBCol::TransactionResultForBlock,
+    // Carried by ShardData (one entry per (block, shard)).
     DBCol::Chunks,
     DBCol::Transactions,
     DBCol::Receipts,
