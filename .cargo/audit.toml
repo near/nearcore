@@ -37,6 +37,7 @@ ignore = [
     # feature is not enabled (check with `cargo tree -e features --workspace | grep 'rand feature'`)
     # and nearcore has no custom `log::Log` impl (logging goes through tracing).
     # Fixed in rand >= 0.9.3 / >= 0.10.1. rand 0.9.x in our tree is patched; remaining
-    # unpatched versions are rand 0.7.3 (via wiremock, dev-dep) and rand 0.8.5 (via ark-std).
+    # unpatched versions are rand 0.7.3 (via wiremock, dev-dep) and rand 0.8.5 (used
+    # directly across the workspace and also pulled in via ark-std).
     "RUSTSEC-2026-0097",
 ]
