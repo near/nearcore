@@ -1170,7 +1170,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .with_label_values(&[&apply_reason.to_string(), &shard_id.to_string()])
             .start_timer();
 
-        if matches!(storage_config.source, StorageDataSource::Db) {
+        if storage_config.source.requires_memtrie_pin() {
             chunk.memtrie_pin.assert_pinned(
                 &self.tries,
                 chunk.shard_uid,

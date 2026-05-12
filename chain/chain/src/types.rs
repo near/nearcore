@@ -312,6 +312,17 @@ pub enum StorageDataSource {
     Recorded(PartialStorage),
 }
 
+impl StorageDataSource {
+    /// True when the apply may touch the shard's loaded memtrie and therefore
+    /// requires a pin on the prev-state root for the duration of the apply.
+    pub fn requires_memtrie_pin(&self) -> bool {
+        match self {
+            StorageDataSource::Db => true,
+            StorageDataSource::DbTrieOnly | StorageDataSource::Recorded(_) => false,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RuntimeStorageConfig {
     pub state_root: StateRoot,
