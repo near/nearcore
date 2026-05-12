@@ -622,16 +622,13 @@ impl ShardTries {
 
     /// Pins `state_root` in the shard's memtrie so `delete_until_height`
     /// can't free it while the handle lives. Returns an unpinned handle if
-    /// no memtrie is loaded or `state_root` is empty; errors if memtrie is
-    /// loaded but the root is missing.
+    /// no memtrie is loaded; errors if memtrie is loaded but the root is
+    /// missing.
     pub fn maybe_pin_memtrie_root(
         &self,
         shard_uid: ShardUId,
         state_root: StateRoot,
     ) -> Result<MaybePinnedMemtrieRoot, StorageError> {
-        if state_root == CryptoHash::default() {
-            return Ok(MaybePinnedMemtrieRoot::no_memtries());
-        }
         let Some(memtries) = self.get_memtries(shard_uid) else {
             return Ok(MaybePinnedMemtrieRoot::no_memtries());
         };
