@@ -102,7 +102,9 @@ expression: "&view"
     "pessimistic_gas_price_inflation_ratio": [
       1,
       1
-    ]
+    ],
+    "deploy_global_contract_execution_base": 20000000000000,
+    "deploy_global_contract_execution_per_byte": 250000000
   },
   "wasm_config": {
     "ext_costs": {

@@ -240,6 +240,7 @@ fn apply_distribution_current_shard(
 
     let config = apply_state.config.wasm_config.clone();
     let trie_key = TrieKey::GlobalContractCode { identifier };
+    let code_len = global_contract_data.code().len() as u64;
     state_update.set(trie_key, global_contract_data.code().to_vec());
     state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
     let code_hash = match global_contract_data.id() {
@@ -252,11 +253,16 @@ fn apply_distribution_current_shard(
         apply_state.cache.as_deref(),
     );
     near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");
-    // TODO: charge dedicated compute cost here for global contract distribution
-    // receipt processing (precompilation in particular). The plumbing back to
-    // the chunk's compute total is in place at the call site; only the value
-    // needs to be set once benchmarked.
-    Ok(0)
+    let fees = &apply_state.config.fees;
+    let per_byte_total = fees
+        .deploy_global_contract_execution_per_byte
+        .checked_mul(code_len)
+        .ok_or(IntegerOverflowError)?;
+    let compute = fees
+        .deploy_global_contract_execution_base
+        .checked_add(per_byte_total)
+        .ok_or(IntegerOverflowError)?;
+    Ok(compute)
 }
 
 // Checks if the incoming nonce is fresh and updates the stored nonce. Returns

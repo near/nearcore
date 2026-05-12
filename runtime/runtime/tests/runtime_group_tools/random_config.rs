@@ -27,6 +27,8 @@ pub fn random_config() -> RuntimeConfig {
             ),
             gas_refund_penalty: Rational32::new(rng.gen_range(0..=i32::MAX), i32::MAX),
             min_gas_refund_penalty: Gas::from_gas(rng.next_u64()),
+            deploy_global_contract_execution_base: rng.next_u64() % 1_000_000,
+            deploy_global_contract_execution_per_byte: rng.next_u64() % 1_000,
         }),
         ..RuntimeConfig::test()
     }
