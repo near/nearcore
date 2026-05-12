@@ -303,6 +303,9 @@ impl MaybePinnedMemtrieRoot {
     /// handle requires no memtrie loaded for `shard_uid`; a pinned handle
     /// must match `(shard_uid, state_root)`.
     pub fn assert_pinned(&self, tries: &ShardTries, shard_uid: ShardUId, state_root: &StateRoot) {
+        // Empty trie has no memtrie entry (see `MemTries::insert_root`),
+        // so the matching pin in `ShardTries::maybe_pin_memtrie_root`
+        // short-circuits to `no_memtries()` and there's nothing to check.
         if state_root == &CryptoHash::default() {
             return;
         }
