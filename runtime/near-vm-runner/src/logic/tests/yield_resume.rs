@@ -124,8 +124,8 @@ fn test_promise_yield_resume_malformed_data_id() {
 }
 
 #[test]
-fn test_promise_yield_create2() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -139,7 +139,7 @@ fn test_promise_yield_create2() {
     let register_id = 0u64;
 
     let promise_idx = logic
-        .promise_yield_create2(
+        .promise_yield_create_with_id(
             method_name.len,
             method_name.ptr,
             args.len,
@@ -151,7 +151,7 @@ fn test_promise_yield_create2() {
             200,
             register_id,
         )
-        .expect("yield_create2 should succeed");
+        .expect("yield_create_with_id should succeed");
 
     assert_eq!(promise_idx, 0);
 
@@ -169,8 +169,8 @@ fn test_promise_yield_create2() {
 }
 
 #[test]
-fn test_promise_yield_create2_and_resume() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id_and_resume() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -184,7 +184,7 @@ fn test_promise_yield_create2_and_resume() {
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
     logic
-        .promise_yield_create2(
+        .promise_yield_create_with_id(
             method_name.len,
             method_name.ptr,
             args.len,
@@ -196,7 +196,7 @@ fn test_promise_yield_create2_and_resume() {
             200,
             0,
         )
-        .expect("yield_create2 should succeed");
+        .expect("yield_create_with_id should succeed");
 
     // Read data_id from register 0
     let data_id_len = logic.registers().get_len(0).unwrap();
@@ -216,8 +216,8 @@ fn test_promise_yield_create2_and_resume() {
 }
 
 #[test]
-fn test_promise_yield_create2_invalid_yield_id_length() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id_invalid_yield_id_length() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -230,7 +230,7 @@ fn test_promise_yield_create2_invalid_yield_id_length() {
     let bad_yield_id = [0u8; 16];
     let yield_id_mem = logic.internal_mem_write(&bad_yield_id);
 
-    let result = logic.promise_yield_create2(
+    let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
@@ -250,8 +250,8 @@ fn test_promise_yield_create2_invalid_yield_id_length() {
 }
 
 #[test]
-fn test_promise_yield_create2_invalid_timeout() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id_invalid_timeout() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -263,7 +263,7 @@ fn test_promise_yield_create2_invalid_timeout() {
     let yield_id = [1u8; 32];
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
-    let result = logic.promise_yield_create2(
+    let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
@@ -288,8 +288,8 @@ fn test_promise_yield_create2_invalid_timeout() {
 }
 
 #[test]
-fn test_promise_yield_create2_empty_method_name() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id_empty_method_name() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -301,7 +301,7 @@ fn test_promise_yield_create2_empty_method_name() {
     let yield_id = [1u8; 32];
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
-    let result = logic.promise_yield_create2(
+    let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
@@ -321,8 +321,8 @@ fn test_promise_yield_create2_empty_method_name() {
 }
 
 #[test]
-fn test_promise_yield_create2_view_prohibited() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id_view_prohibited() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -335,7 +335,7 @@ fn test_promise_yield_create2_view_prohibited() {
     let yield_id = [1u8; 32];
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
-    let result = logic.promise_yield_create2(
+    let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
@@ -358,8 +358,8 @@ fn test_promise_yield_create2_view_prohibited() {
 }
 
 #[test]
-fn test_promise_yield_resume2_after_create2() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_resume_with_id_after_create_with_id() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -372,7 +372,7 @@ fn test_promise_yield_resume2_after_create2() {
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
     logic
-        .promise_yield_create2(
+        .promise_yield_create_with_id(
             method_name.len,
             method_name.ptr,
             args.len,
@@ -384,27 +384,27 @@ fn test_promise_yield_resume2_after_create2() {
             200,
             0,
         )
-        .expect("yield_create2 should succeed");
+        .expect("yield_create_with_id should succeed");
 
     // Resume using the yield_id (not data_id)
     let yield_id_for_resume = logic.internal_mem_write(&yield_id);
     let payload = logic.internal_mem_write(b"resumed_via_yield_id");
 
     let result = logic
-        .promise_yield_resume2(
+        .promise_yield_resume_with_id(
             yield_id_for_resume.len,
             yield_id_for_resume.ptr,
             payload.len,
             payload.ptr,
         )
-        .expect("yield_resume2 should succeed");
+        .expect("yield_resume_with_id should succeed");
 
-    assert_eq!(result, 1u32, "resume2 should succeed with valid yield_id");
+    assert_eq!(result, 1u32, "resume_with_id should succeed with valid yield_id");
 }
 
 #[test]
-fn test_promise_yield_resume2_unknown_yield_id() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_resume_with_id_unknown_yield_id() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -417,15 +417,15 @@ fn test_promise_yield_resume2_unknown_yield_id() {
     let payload = logic.internal_mem_write(b"payload");
 
     let result = logic
-        .promise_yield_resume2(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr)
-        .expect("yield_resume2 should succeed (returning false)");
+        .promise_yield_resume_with_id(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr)
+        .expect("yield_resume_with_id should succeed (returning false)");
 
-    assert_eq!(result, 0u32, "resume2 with unknown yield_id should return 0");
+    assert_eq!(result, 0u32, "resume_with_id with unknown yield_id should return 0");
 }
 
 #[test]
-fn test_promise_yield_resume2_malformed_yield_id() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_resume_with_id_malformed_yield_id() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -437,8 +437,12 @@ fn test_promise_yield_resume2_malformed_yield_id() {
     let yield_id_mem = logic.internal_mem_write(&bad_yield_id);
     let payload = logic.internal_mem_write(b"payload");
 
-    let result =
-        logic.promise_yield_resume2(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr);
+    let result = logic.promise_yield_resume_with_id(
+        yield_id_mem.len,
+        yield_id_mem.ptr,
+        payload.len,
+        payload.ptr,
+    );
 
     assert!(
         matches!(result, Err(crate::logic::VMLogicError::HostError(HostError::DataIdMalformed))),
@@ -447,22 +451,22 @@ fn test_promise_yield_resume2_malformed_yield_id() {
 }
 
 #[test]
-fn test_promise_yield_create2_then_resume_with_yield_id_fails() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id_then_resume_with_yield_id_fails() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
     let mut logic_builder = VMLogicBuilder::free();
     let mut logic = logic_builder.build();
 
-    // Create a yield with create2
+    // Create a yield with create_with_id
     let method_name = logic.internal_mem_write(b"callback");
     let args = logic.internal_mem_write(b"args");
     let yield_id = [42u8; 32];
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
     logic
-        .promise_yield_create2(
+        .promise_yield_create_with_id(
             method_name.len,
             method_name.ptr,
             args.len,
@@ -474,7 +478,7 @@ fn test_promise_yield_create2_then_resume_with_yield_id_fails() {
             200,
             0,
         )
-        .expect("yield_create2 should succeed");
+        .expect("yield_create_with_id should succeed");
 
     // Try to resume with the yield_id passed as data_id — should fail (return 0)
     // because the yield_id is not the same as the runtime-generated data_id.
@@ -497,8 +501,8 @@ fn test_promise_yield_create2_then_resume_with_yield_id_fails() {
 }
 
 #[test]
-fn test_promise_yield_create_then_resume2_fails() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_then_resume_with_id_fails() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -518,29 +522,29 @@ fn test_promise_yield_create_then_resume2_fails() {
     logic.read_register(0, ptr).unwrap();
     let data_id_bytes = logic.internal_mem_read(ptr, data_id_len);
 
-    // Try to resume2 using the data_id as a yield_id — should fail since no
+    // Try to resume_with_id using the data_id as a yield_id — should fail since no
     // yield_id mapping was created.
     let data_id_as_yield_id = logic.internal_mem_write(&data_id_bytes);
     let payload = logic.internal_mem_write(b"payload");
 
     let result = logic
-        .promise_yield_resume2(
+        .promise_yield_resume_with_id(
             data_id_as_yield_id.len,
             data_id_as_yield_id.ptr,
             payload.len,
             payload.ptr,
         )
-        .expect("yield_resume2 should succeed (returning false)");
+        .expect("yield_resume_with_id should succeed (returning false)");
 
     assert_eq!(
         result, 0u32,
-        "resume2 with data_id passed as yield_id should return 0, got {result}"
+        "resume_with_id with data_id passed as yield_id should return 0, got {result}"
     );
 }
 
 #[test]
-fn test_promise_yield_create2_duplicate_in_same_call() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_create_with_id_duplicate_in_same_call() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -554,7 +558,7 @@ fn test_promise_yield_create2_duplicate_in_same_call() {
 
     // First call should succeed
     logic
-        .promise_yield_create2(
+        .promise_yield_create_with_id(
             method_name.len,
             method_name.ptr,
             args.len,
@@ -566,11 +570,11 @@ fn test_promise_yield_create2_duplicate_in_same_call() {
             200,
             0,
         )
-        .expect("first yield_create2 should succeed");
+        .expect("first yield_create_with_id should succeed");
 
     // Second call with the same yield_id should fail
     let yield_id_mem2 = logic.internal_mem_write(&yield_id);
-    let result = logic.promise_yield_create2(
+    let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
@@ -593,8 +597,8 @@ fn test_promise_yield_create2_duplicate_in_same_call() {
 }
 
 #[test]
-fn test_promise_yield_resume2_view_prohibited() {
-    if !ProtocolFeature::YieldCreate2.enabled(PROTOCOL_VERSION) {
+fn test_promise_yield_resume_with_id_view_prohibited() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
 
@@ -606,8 +610,12 @@ fn test_promise_yield_resume2_view_prohibited() {
     let yield_id_mem = logic.internal_mem_write(&yield_id);
     let payload = logic.internal_mem_write(b"payload");
 
-    let result =
-        logic.promise_yield_resume2(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr);
+    let result = logic.promise_yield_resume_with_id(
+        yield_id_mem.len,
+        yield_id_mem.ptr,
+        payload.len,
+        payload.ptr,
+    );
 
     assert!(
         matches!(

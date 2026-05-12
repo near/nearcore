@@ -301,7 +301,7 @@ imports! {
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
-    #[yield_create2_host_fns] promise_yield_create2<[
+    #[yield_with_id_host_fns] promise_yield_create_with_id<[
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -319,7 +319,7 @@ imports! {
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,
-    #[yield_create2_host_fns] promise_yield_resume2<[
+    #[yield_with_id_host_fns] promise_yield_resume_with_id<[
         yield_id_len: u64,
         yield_id_ptr: u64,
         payload_len: u64,

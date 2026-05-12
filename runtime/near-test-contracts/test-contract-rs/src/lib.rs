@@ -199,7 +199,7 @@ extern "C" {
         register_id: u64,
     ) -> u64;
     #[cfg(feature = "nightly")]
-    fn promise_yield_create2(
+    fn promise_yield_create_with_id(
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -218,7 +218,7 @@ extern "C" {
         payload_ptr: u64,
     ) -> u32;
     #[cfg(feature = "nightly")]
-    fn promise_yield_resume2(
+    fn promise_yield_resume_with_id(
         yield_id_len: u64,
         yield_id_ptr: u64,
         payload_len: u64,
@@ -1310,11 +1310,11 @@ pub unsafe fn call_yield_create_and_resume() {
     promise_return(promise_index);
 }
 
-/// Call promise_yield_create2 with a deterministic yield_id derived from input.
-/// Returns the data_id produced by promise_yield_create2.
+/// Call promise_yield_create_with_id with a deterministic yield_id derived from input.
+/// Returns the data_id produced by promise_yield_create_with_id.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_create2_return_data_id() {
+pub unsafe fn call_yield_create_with_id_return_data_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as u64);
@@ -1329,7 +1329,7 @@ pub unsafe fn call_yield_create2_return_data_id() {
     let gas_weight = 1;
     let data_id_register = 0;
     let yield_timeout_blocks = 200u64;
-    promise_yield_create2(
+    promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
         payload.len() as u64,
@@ -1348,10 +1348,10 @@ pub unsafe fn call_yield_create2_return_data_id() {
     value_return(data_id.len() as u64, data_id.as_ptr() as u64);
 }
 
-/// Call promise_yield_create2 and promise_yield_resume within the same function.
+/// Call promise_yield_create_with_id and promise_yield_resume within the same function.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_create2_and_resume() {
+pub unsafe fn call_yield_create_with_id_and_resume() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as u64);
@@ -1365,7 +1365,7 @@ pub unsafe fn call_yield_create2_and_resume() {
     let gas_weight = 1;
     let data_id_register = 0;
     let yield_timeout_blocks = 200u64;
-    let promise_index = promise_yield_create2(
+    let promise_index = promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
         payload.len() as u64,
@@ -1393,11 +1393,11 @@ pub unsafe fn call_yield_create2_and_resume() {
     promise_return(promise_index);
 }
 
-/// Call promise_yield_create2 twice with the same yield_id derived from input.
+/// Call promise_yield_create_with_id twice with the same yield_id derived from input.
 /// The second call should abort execution with YieldIdAlreadyExists.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_create2_duplicate() {
+pub unsafe fn call_yield_create_with_id_duplicate() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as u64);
@@ -1413,7 +1413,7 @@ pub unsafe fn call_yield_create2_duplicate() {
     let yield_timeout_blocks = 200u64;
 
     // First call should succeed
-    promise_yield_create2(
+    promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
         payload.len() as u64,
@@ -1427,7 +1427,7 @@ pub unsafe fn call_yield_create2_duplicate() {
     );
 
     // Second call with the same yield_id should abort with YieldIdAlreadyExists
-    promise_yield_create2(
+    promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
         payload.len() as u64,
@@ -1441,11 +1441,11 @@ pub unsafe fn call_yield_create2_duplicate() {
     );
 }
 
-/// Call promise_yield_resume2 with the user-provided yield_id.
+/// Call promise_yield_resume_with_id with the user-provided yield_id.
 /// Input is a 32-byte yield_id followed by the payload.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_resume2() {
+pub unsafe fn call_yield_resume_with_id() {
     input(0);
     let data_len = register_len(0) as usize;
     let data = vec![0u8; data_len];
@@ -1454,7 +1454,7 @@ pub unsafe fn call_yield_resume2() {
     let yield_id = &data[0..32];
     let payload = &data[32..];
 
-    let success = promise_yield_resume2(
+    let success = promise_yield_resume_with_id(
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         payload.len() as u64,
@@ -1465,11 +1465,11 @@ pub unsafe fn call_yield_resume2() {
     value_return(result.len() as u64, result.as_ptr() as u64);
 }
 
-/// Call promise_yield_create2 and promise_yield_resume2 within the same function,
+/// Call promise_yield_create_with_id and promise_yield_resume_with_id within the same function,
 /// using the yield_id (not data_id) for the resume.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_create2_and_resume2() {
+pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as u64);
@@ -1483,7 +1483,7 @@ pub unsafe fn call_yield_create2_and_resume2() {
     let gas_weight = 1;
     let data_id_register = 0;
     let yield_timeout_blocks = 200u64;
-    let promise_index = promise_yield_create2(
+    let promise_index = promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
         payload.len() as u64,
@@ -1497,7 +1497,7 @@ pub unsafe fn call_yield_create2_and_resume2() {
     );
 
     // Resume using the yield_id (not the data_id)
-    let success = promise_yield_resume2(
+    let success = promise_yield_resume_with_id(
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         payload.len() as u64,

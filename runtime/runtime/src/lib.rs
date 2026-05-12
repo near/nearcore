@@ -1276,8 +1276,8 @@ impl Runtime {
                         remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
                     }
 
-                    // Clean up yield_id <-> data_id mappings if this was created by yield_create2
-                    if ProtocolFeature::YieldCreate2.enabled(apply_state.current_protocol_version) {
+                    // Clean up yield_id <-> data_id mappings if this was created by yield_create_with_id
+                    if ProtocolFeature::YieldWithId.enabled(apply_state.current_protocol_version) {
                         if let Some(yield_id) = get_yield_id_for_data_id(
                             state_update,
                             account_id,

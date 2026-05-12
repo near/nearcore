@@ -267,8 +267,8 @@ pub enum Parameter {
     // Flag to enable the P-256 verification host function
     P256VerifyHostFn,
 
-    // Flag to enable yield_create2 host function
-    YieldCreate2HostFns,
+    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
+    YieldWithIdHostFns,
 }
 
 #[derive(

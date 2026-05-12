@@ -245,7 +245,7 @@ impl External for MockedExternal {
         Ok((index as u64, data_id))
     }
 
-    fn create_promise_yield_receipt2(
+    fn create_promise_yield_receipt_with_id(
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
@@ -289,7 +289,7 @@ impl External for MockedExternal {
         Ok(false)
     }
 
-    fn submit_promise_resume_data2(
+    fn submit_promise_resume_data_with_id(
         &mut self,
         user_yield_id: CryptoHash,
         data: Vec<u8>,

@@ -386,9 +386,9 @@ pub enum ProtocolFeature {
     /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
     /// sync after resharding.
     StickyReshardingValidatorAssignment,
-    /// New host function `promise_yield_create2` that allows contracts to provide
-    /// a custom yield ID and timeout for yield/resume.
-    YieldCreate2,
+    /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_id`
+    /// that allow contracts to provide a custom yield ID and timeout for yield/resume.
+    YieldWithId,
 }
 
 impl ProtocolFeature {
@@ -510,7 +510,7 @@ impl ProtocolFeature {
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::StickyReshardingValidatorAssignment => 153,
-            ProtocolFeature::YieldCreate2 => 154,
+            ProtocolFeature::YieldWithId => 154,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

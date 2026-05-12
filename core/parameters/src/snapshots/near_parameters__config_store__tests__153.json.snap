@@ -205,7 +205,7 @@ expression: config_view
     "deterministic_account_ids": true,
     "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
-    "yield_create2_host_fns": true,
+    "yield_with_id_host_fns": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,

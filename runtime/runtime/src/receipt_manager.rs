@@ -45,7 +45,7 @@ pub struct ActionReceiptMetadata {
     /// Indicates whether the receipt should have type Action or PromiseYield
     pub is_promise_yield: bool,
     /// Custom yield timeout in blocks. `None` means use the global config value.
-    /// Set by `promise_yield_create2`.
+    /// Set by `promise_yield_create_with_id`.
     pub yield_timeout_blocks: Option<u64>,
 }
 
@@ -157,7 +157,7 @@ impl ReceiptManager {
         self.create_promise_yield_receipt_inner(input_data_id, receiver_id, None)
     }
 
-    pub(super) fn create_promise_yield_receipt2(
+    pub(super) fn create_promise_yield_receipt_with_id(
         &mut self,
         input_data_id: CryptoHash,
         receiver_id: AccountId,

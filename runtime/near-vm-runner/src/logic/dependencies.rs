@@ -307,7 +307,7 @@ pub trait External {
     /// * `receiver_id` - account id of the receiver of the receipt created
     /// * `user_yield_id` - user-provided 32-byte yield identifier
     /// * `yield_timeout_blocks` - number of blocks before the yield times out
-    fn create_promise_yield_receipt2(
+    fn create_promise_yield_receipt_with_id(
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
@@ -333,7 +333,7 @@ pub trait External {
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError>;
 
-    /// Resume a yield previously created by `promise_yield_create2`, using the user-provided
+    /// Resume a yield previously created by `promise_yield_create_with_id`, using the user-provided
     /// `yield_id` instead of the runtime-generated `data_id`.
     ///
     /// The runtime looks up the corresponding `data_id` from the trie mapping and submits the
@@ -342,9 +342,9 @@ pub trait External {
     ///
     /// # Arguments
     ///
-    /// * `user_yield_id` - user-provided 32-byte yield identifier from `yield_create2`
+    /// * `user_yield_id` - user-provided 32-byte yield identifier from `yield_create_with_id`
     /// * `data` - contents of the DataReceipt
-    fn submit_promise_resume_data2(
+    fn submit_promise_resume_data_with_id(
         &mut self,
         user_yield_id: CryptoHash,
         data: Vec<u8>,

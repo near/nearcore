@@ -281,7 +281,7 @@ reftypes_bulk_memory: false
 deterministic_account_ids: false
 gas_key_host_fns: false
 one_yocto_on_promise: false
-yield_create2_host_fns: false
+yield_with_id_host_fns: false
 
 
 # Congestion Control configuration

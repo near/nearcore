@@ -3776,7 +3776,7 @@ pub fn promise_yield_create(
 
 /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID
 /// and timeout.
-pub fn promise_yield_create2(
+pub fn promise_yield_create_with_id(
     ctx: &mut Ctx,
     memory: &mut [u8],
     method_name_len: u64,
@@ -3793,7 +3793,7 @@ pub fn promise_yield_create2(
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView {
-            method_name: "promise_yield_create2".to_string(),
+            method_name: "promise_yield_create_with_id".to_string(),
         }
         .into());
     }
@@ -3844,7 +3844,7 @@ pub fn promise_yield_create2(
     ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
     pay_gas_for_new_receipt(&mut ctx.result_state.gas_counter, &ctx.fees_config, true, &[true])?;
-    let (new_receipt_idx, data_id) = ctx.ext.create_promise_yield_receipt2(
+    let (new_receipt_idx, data_id) = ctx.ext.create_promise_yield_receipt_with_id(
         ctx.context.current_account_id.clone(),
         user_yield_id,
         yield_timeout_blocks,
@@ -3956,8 +3956,8 @@ pub fn promise_yield_resume(
 }
 
 /// Like [`promise_yield_resume`], but accepts the user-provided `yield_id` (from
-/// [`promise_yield_create2`]) instead of the runtime-generated `data_id`.
-pub fn promise_yield_resume2(
+/// [`promise_yield_create_with_id`]) instead of the runtime-generated `data_id`.
+pub fn promise_yield_resume_with_id(
     ctx: &mut Ctx,
     memory: &mut [u8],
     yield_id_len: u64,
@@ -3968,7 +3968,7 @@ pub fn promise_yield_resume2(
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView {
-            method_name: "promise_yield_resume2".to_string(),
+            method_name: "promise_yield_resume_with_id".to_string(),
         }
         .into());
     }
@@ -4001,7 +4001,7 @@ pub fn promise_yield_resume2(
         yield_id.as_ref().try_into().map_err(|_| HostError::DataIdMalformed)?;
     let yield_id = CryptoHash(yield_id);
     let payload = payload.into();
-    ctx.ext.submit_promise_resume_data2(yield_id, payload).map(u32::from)
+    ctx.ext.submit_promise_resume_data_with_id(yield_id, payload).map(u32::from)
 }
 
 /// If the current function is invoked by a callback we can access the execution results of the

@@ -271,4 +271,4 @@ global_contract_host_fns                true
 deterministic_account_ids               true
 gas_key_host_fns                        false
 one_yocto_on_promise                    true
-yield_create2_host_fns                  false
+yield_with_id_host_fns                  false

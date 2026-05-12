@@ -3438,7 +3438,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID
     /// and timeout. The yield ID must be exactly 32 bytes. The `data_id` is written to
     /// `register_id`.
-    pub fn promise_yield_create2(
+    pub fn promise_yield_create_with_id(
         &mut self,
         method_name_len: u64,
         method_name_ptr: u64,
@@ -3454,7 +3454,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
-                method_name: "promise_yield_create2".to_string(),
+                method_name: "promise_yield_create_with_id".to_string(),
             }
             .into());
         }
@@ -3489,7 +3489,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         // Here we are creating a receipt with a single data dependency which will then be
         // resolved by the resume call.
         self.pay_gas_for_new_receipt(true, &[true])?;
-        let (new_receipt_idx, data_id) = self.ext.create_promise_yield_receipt2(
+        let (new_receipt_idx, data_id) = self.ext.create_promise_yield_receipt_with_id(
             self.context.current_account_id.clone(),
             user_yield_id,
             yield_timeout_blocks,
@@ -3577,11 +3577,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     }
 
     /// Like [`promise_yield_resume`], but accepts the user-provided `yield_id` (from
-    /// [`promise_yield_create2`]) instead of the runtime-generated `data_id`. The runtime looks
+    /// [`promise_yield_create_with_id`]) instead of the runtime-generated `data_id`. The runtime looks
     /// up the corresponding `data_id` internally.
     ///
     /// Returns `1` if the yield was found and resume was submitted, `0` otherwise.
-    pub fn promise_yield_resume2(
+    pub fn promise_yield_resume_with_id(
         &mut self,
         yield_id_len: u64,
         yield_id_ptr: u64,
@@ -3591,7 +3591,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
-                method_name: "promise_yield_resume2".to_string(),
+                method_name: "promise_yield_resume_with_id".to_string(),
             }
             .into());
         }
@@ -3612,7 +3612,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             (&*yield_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
         let yield_id = CryptoHash(yield_id);
         let payload = payload.into_owned();
-        self.ext.submit_promise_resume_data2(yield_id, payload).map(u32::from)
+        self.ext.submit_promise_resume_data_with_id(yield_id, payload).map(u32::from)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the

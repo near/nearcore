@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.5"
+    "version": "1.2.4"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3053,35 +3053,6 @@
               "GasKeyFunctionCallAllowanceNotAllowed"
             ],
             "type": "string"
-          },
-          {
-            "additionalProperties": false,
-            "description": "The combined number of `DeployContract` and `DeployGlobalContract`\nactions in one receipt exceeded the limit.",
-            "properties": {
-              "TotalNumberOfDeployActionsExceeded": {
-                "properties": {
-                  "limit": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "number_of_deploy_actions": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "number_of_deploy_actions",
-                  "limit"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "TotalNumberOfDeployActionsExceeded"
-            ],
-            "type": "object"
           }
         ]
       },
@@ -3815,13 +3786,6 @@
               "secs": 1
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
-          },
-          "snapshot_every_n_epochs": {
-            "default": 10,
-            "description": "Cadence of state snapshots, in epochs. Higher values reduce bucket cost at\nthe expense of potentially longer delta replay during reader bootstrap.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
           }
         },
         "type": "object"
@@ -6263,22 +6227,6 @@
             ],
             "description": "Cost for logging per byte"
           },
-          "p256_verify_base": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ],
-            "description": "Cost of P-256 ECDSA signature verification base"
-          },
-          "p256_verify_byte": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ],
-            "description": "Cost of P-256 ECDSA signature verification per byte"
-          },
           "promise_and_base": {
             "allOf": [
               {
@@ -8183,27 +8131,6 @@
             },
             "required": [
               "Ed25519VerifyInvalidInput"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "description": "Input length mismatch for p256 signature verification (signature is not 64\nbytes or public key is not 33 bytes). Parse failures of otherwise\nwell-sized inputs return 0 from the host function instead of aborting.",
-            "properties": {
-              "P256VerifyInvalidInput": {
-                "properties": {
-                  "msg": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "msg"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "P256VerifyInvalidInput"
             ],
             "type": "object"
           }
@@ -11143,12 +11070,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "max_deploy_actions_per_receipt": {
-            "description": "Max number of `DeployContract` and `DeployGlobalContract` actions\ncombined within a single receipt.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "max_elements_per_contract_table": {
             "description": "If present, stores max number of elements in a single contract's table",
             "format": "uint",
@@ -11246,18 +11167,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "max_params_per_contract": {
-            "format": "uint64",
-            "minimum": 0,
-            "nullable": true,
-            "type": "integer"
-          },
-          "max_params_per_function": {
-            "format": "uint64",
-            "minimum": 0,
-            "nullable": true,
-            "type": "integer"
-          },
           "max_promises_per_function_call_action": {
             "description": "Max number of promises that a function call can create",
             "format": "uint64",
@@ -11307,13 +11216,6 @@
             "description": "Max transaction size",
             "format": "uint64",
             "minimum": 0,
-            "type": "integer"
-          },
-          "max_types_per_contract": {
-            "description": "If present, stores max number of entries in the wasm type section that\na contract may declare.",
-            "format": "uint64",
-            "minimum": 0,
-            "nullable": true,
             "type": "integer"
           },
           "max_yield_payload_size": {
@@ -11910,27 +11812,6 @@
             "description": "A contract contains too many basic blocks.",
             "enum": [
               "TooManyBlocksPerContract"
-            ],
-            "type": "string"
-          },
-          {
-            "description": "Contract declares too many entries in the wasm type section.",
-            "enum": [
-              "TooManyTypes"
-            ],
-            "type": "string"
-          },
-          {
-            "description": "All contract functions combined have more than `max_params_per_contract` parameters.",
-            "enum": [
-              "TooManyParamsPerFunction"
-            ],
-            "type": "string"
-          },
-          {
-            "description": "A function has more than `max_params_per_function` parameters.",
-            "enum": [
-              "TooManyParamsPerContract"
             ],
             "type": "string"
           }
@@ -16422,32 +16303,6 @@
               "info"
             ],
             "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "shard_id": {
-                    "$ref": "#/components/schemas/ShardId"
-                  }
-                },
-                "required": [
-                  "shard_id"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "SHARD_NOT_APPLIED"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
           }
         ]
       },
@@ -17693,14 +17548,6 @@
               "$ref": "#/components/schemas/ValidatorKickoutView"
             },
             "type": "array"
-          },
-          "validator_reward_paid_prev_epoch": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/NearToken"
-            },
-            "default": {},
-            "description": "Per-validator rewards paid out at the start of the previous epoch.\nFor epoch E, this contains the rewards earned in epoch E-2 that were\nadded to validator and treasury balances at the first block of epoch\nE-1 (via `ValidatorAccountsUpdate`).",
-            "type": "object"
           }
         },
         "required": [
@@ -20615,10 +20462,6 @@
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
             "type": "boolean"
           },
-          "p256_verify_host_fn": {
-            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
-            "type": "boolean"
-          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"
@@ -20644,6 +20487,10 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
+          },
+          "yield_with_id_host_fns": {
+            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
+            "type": "boolean"
           }
         },
         "type": "object"

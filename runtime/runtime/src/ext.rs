@@ -364,7 +364,7 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(receipt_index)
     }
 
-    fn create_promise_yield_receipt2(
+    fn create_promise_yield_receipt_with_id(
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
@@ -391,7 +391,7 @@ impl<'a> External for RuntimeExt<'a> {
         // Store bidirectional yield_id <-> data_id mappings
         set_yield_id_mapping(&mut self.trie_update, &receiver_id, user_yield_id, input_data_id);
 
-        let receipt_index = self.receipt_manager.create_promise_yield_receipt2(
+        let receipt_index = self.receipt_manager.create_promise_yield_receipt_with_id(
             input_data_id,
             receiver_id.clone(),
             yield_timeout_blocks,
@@ -448,7 +448,7 @@ impl<'a> External for RuntimeExt<'a> {
         }
     }
 
-    fn submit_promise_resume_data2(
+    fn submit_promise_resume_data_with_id(
         &mut self,
         user_yield_id: CryptoHash,
         data: Vec<u8>,

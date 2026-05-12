@@ -170,19 +170,19 @@ fn resume_without_yield() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create2_then_resume() {
+fn create_with_id_then_resume() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
     let key = 123u64.to_le_bytes().to_vec();
 
-    // Set up the yield execution using yield_create2
+    // Set up the yield execution using yield_create_with_id
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create2_return_data_id",
+            "call_yield_create_with_id_return_data_id",
             yield_payload.clone(),
             MAX_GAS,
             Balance::ZERO,
@@ -236,7 +236,7 @@ fn create2_then_resume() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create2_and_resume_in_one_call() {
+fn create_with_id_and_resume_in_one_call() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![23u8; 16];
@@ -246,7 +246,7 @@ fn create2_and_resume_in_one_call() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create2_and_resume",
+            "call_yield_create_with_id_and_resume",
             yield_payload,
             MAX_GAS,
             Balance::ZERO,
@@ -262,7 +262,7 @@ fn create2_and_resume_in_one_call() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create2_then_resume2() {
+fn create_with_id_then_resume_with_id() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     // The test contract derives yield_id from the first 32 bytes of input
@@ -273,13 +273,13 @@ fn create2_then_resume2() {
     yield_id[..16].copy_from_slice(&yield_payload);
     let key = 123u64.to_le_bytes().to_vec();
 
-    // Create the yield using yield_create2
+    // Create the yield using yield_create_with_id
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create2_return_data_id",
+            "call_yield_create_with_id_return_data_id",
             yield_payload.clone(),
             MAX_GAS,
             Balance::ZERO,
@@ -290,14 +290,14 @@ fn create2_then_resume2() {
         "{res:?} unexpected result"
     );
 
-    // Resume using yield_resume2 with the yield_id (not data_id)
+    // Resume using yield_resume_with_id with the yield_id (not data_id)
     let args: Vec<u8> = yield_id.iter().copied().chain(yield_payload.iter().copied()).collect();
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume2",
+            "call_yield_resume_with_id",
             args,
             MAX_GAS,
             Balance::ZERO,
@@ -330,7 +330,7 @@ fn create2_then_resume2() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create2_and_resume2_in_one_call() {
+fn create_with_id_and_resume_with_id_in_one_call() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![23u8; 16];
@@ -340,7 +340,7 @@ fn create2_and_resume2_in_one_call() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create2_and_resume2",
+            "call_yield_create_with_id_and_resume_with_id",
             yield_payload,
             MAX_GAS,
             Balance::ZERO,
@@ -356,7 +356,7 @@ fn create2_and_resume2_in_one_call() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn resume2_without_yield() {
+fn resume_with_id_without_yield() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     // yield_id followed by payload
@@ -367,7 +367,7 @@ fn resume2_without_yield() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume2",
+            "call_yield_resume_with_id",
             args,
             MAX_GAS,
             Balance::ZERO,
@@ -384,7 +384,7 @@ fn resume2_without_yield() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create2_duplicate_in_same_call_fails() {
+fn create_with_id_duplicate_in_same_call_fails() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -394,7 +394,7 @@ fn create2_duplicate_in_same_call_fails() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create2_duplicate",
+            "call_yield_create_with_id_duplicate",
             yield_payload,
             MAX_GAS,
             Balance::ZERO,
@@ -410,7 +410,7 @@ fn create2_duplicate_in_same_call_fails() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create2_then_resume_with_yield_id_fails() {
+fn create_with_id_then_resume_with_yield_id_fails() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     // The test contract derives yield_id from the first 32 bytes of input.
@@ -418,13 +418,13 @@ fn create2_then_resume_with_yield_id_fails() {
     let mut yield_id = [0u8; 32];
     yield_id[..16].copy_from_slice(&yield_payload);
 
-    // Create yield with yield_create2
+    // Create yield with yield_create_with_id
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create2_return_data_id",
+            "call_yield_create_with_id_return_data_id",
             yield_payload.clone(),
             MAX_GAS,
             Balance::ZERO,
@@ -462,7 +462,7 @@ fn create2_then_resume_with_yield_id_fails() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create_then_resume2_fails() {
+fn create_then_resume_with_id_fails() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -484,7 +484,7 @@ fn create_then_resume2_fails() {
         _ => panic!("{res:?} unexpected result"),
     };
 
-    // Try to resume with yield_resume2 using the data_id as a yield_id.
+    // Try to resume with yield_resume_with_id using the data_id as a yield_id.
     // Since no yield_id mapping exists for this data_id, this should return 0 (false).
     let args: Vec<u8> = data_id.into_iter().chain(yield_payload.into_iter()).collect();
     let res = node
@@ -492,7 +492,7 @@ fn create_then_resume2_fails() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume2",
+            "call_yield_resume_with_id",
             args,
             MAX_GAS,
             Balance::ZERO,

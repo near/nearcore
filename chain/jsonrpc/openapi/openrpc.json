@@ -1976,36 +1976,6 @@
             "const": "GasKeyFunctionCallAllowanceNotAllowed",
             "description": "Gas keys with FunctionCall permission cannot have an allowance set.",
             "type": "string"
-          },
-          {
-            "additionalProperties": false,
-            "description": "The combined number of `DeployContract` and `DeployGlobalContract`\nactions in one receipt exceeded the limit.",
-            "properties": {
-              "TotalNumberOfDeployActionsExceeded": {
-                "properties": {
-                  "limit": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "number_of_deploy_actions": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "number_of_deploy_actions",
-                  "limit"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "TotalNumberOfDeployActionsExceeded"
-            ],
-            "title": "TotalNumberOfDeployActionsExceeded",
-            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
@@ -2752,13 +2722,6 @@
               "secs": 1
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
-          },
-          "snapshot_every_n_epochs": {
-            "default": 10,
-            "description": "Cadence of state snapshots, in epochs. Higher values reduce bucket cost at\nthe expense of potentially longer delta replay during reader bootstrap.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
           }
         },
         "title": "CloudArchivalWriterConfig",
@@ -3854,22 +3817,6 @@
             ],
             "description": "Cost for logging per byte"
           },
-          "p256_verify_base": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ],
-            "description": "Cost of P-256 ECDSA signature verification base"
-          },
-          "p256_verify_byte": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ],
-            "description": "Cost of P-256 ECDSA signature verification per byte"
-          },
           "promise_and_base": {
             "allOf": [
               {
@@ -4290,8 +4237,6 @@
           "ed25519_verify_base",
           "ed25519_verify_byte",
           "ecrecover_base",
-          "p256_verify_base",
-          "p256_verify_byte",
           "log_base",
           "log_byte",
           "storage_write_base",
@@ -5862,28 +5807,6 @@
             ],
             "title": "Ed25519VerifyInvalidInput",
             "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "description": "Input length mismatch for p256 signature verification (signature is not 64\nbytes or public key is not 33 bytes). Parse failures of otherwise\nwell-sized inputs return 0 from the host function instead of aborting.",
-            "properties": {
-              "P256VerifyInvalidInput": {
-                "properties": {
-                  "msg": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "msg"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "P256VerifyInvalidInput"
-            ],
-            "title": "P256VerifyInvalidInput",
-            "type": "object"
           }
         ],
         "title": "HostError"
@@ -6568,12 +6491,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "max_deploy_actions_per_receipt": {
-            "description": "Max number of `DeployContract` and `DeployGlobalContract` actions\ncombined within a single receipt.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "max_elements_per_contract_table": {
             "description": "If present, stores max number of elements in a single contract's table",
             "format": "uint",
@@ -6681,22 +6598,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "max_params_per_contract": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "max_params_per_function": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
           "max_promises_per_function_call_action": {
             "description": "Max number of promises that a function call can create",
             "format": "uint64",
@@ -6750,15 +6651,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "max_types_per_contract": {
-            "description": "If present, stores max number of entries in the wasm type section that\na contract may declare.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
           "max_yield_payload_size": {
             "description": "Maximum number of bytes for payload passed over a yield resume.",
             "format": "uint64",
@@ -6796,7 +6688,6 @@
           "max_total_log_length",
           "max_total_prepaid_gas",
           "max_actions_per_receipt",
-          "max_deploy_actions_per_receipt",
           "max_number_bytes_method_names",
           "max_length_method_name",
           "max_arguments_length",
@@ -7364,21 +7255,6 @@
           {
             "const": "TooManyBlocksPerContract",
             "description": "A contract contains too many basic blocks.",
-            "type": "string"
-          },
-          {
-            "const": "TooManyTypes",
-            "description": "Contract declares too many entries in the wasm type section.",
-            "type": "string"
-          },
-          {
-            "const": "TooManyParamsPerFunction",
-            "description": "All contract functions combined have more than `max_params_per_contract` parameters.",
-            "type": "string"
-          },
-          {
-            "const": "TooManyParamsPerContract",
-            "description": "A function has more than `max_params_per_function` parameters.",
             "type": "string"
           }
         ],
@@ -9898,14 +9774,6 @@
               "$ref": "#/components/schemas/ValidatorKickoutView"
             },
             "type": "array"
-          },
-          "validator_reward_paid_prev_epoch": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/NearToken"
-            },
-            "default": {},
-            "description": "Per-validator rewards paid out at the start of the previous epoch.\nFor epoch E, this contains the rewards earned in epoch E-2 that were\nadded to validator and treasury balances at the first block of epoch\nE-1 (via `ValidatorAccountsUpdate`).",
-            "type": "object"
           }
         },
         "required": [
@@ -12295,10 +12163,6 @@
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
             "type": "boolean"
           },
-          "p256_verify_host_fn": {
-            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
-            "type": "boolean"
-          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"
@@ -12324,6 +12188,10 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
+          },
+          "yield_with_id_host_fns": {
+            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
+            "type": "boolean"
           }
         },
         "required": [
@@ -12339,7 +12207,7 @@
           "deterministic_account_ids",
           "gas_key_host_fns",
           "one_yocto_on_promise",
-          "p256_verify_host_fn",
+          "yield_with_id_host_fns",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",

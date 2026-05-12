@@ -265,7 +265,7 @@ pub enum TrieKey {
         data_id: CryptoHash,
     } = col::PROMISE_YIELD_STATUS,
     /// Mapping from user-provided yield ID to runtime-generated data ID.
-    /// Used by `promise_yield_create2` for duplicate detection.
+    /// Used by `promise_yield_create_with_id` for duplicate detection.
     YieldIdToDataId {
         receiver_id: AccountId,
         yield_id: CryptoHash,
