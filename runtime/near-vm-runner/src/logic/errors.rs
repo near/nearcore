@@ -193,6 +193,10 @@ pub enum PrepareError {
     TooManyBlocksPerContract = 14,
     /// Contract declares too many entries in the wasm type section.
     TooManyTypes = 15,
+    /// All contract functions combined have more than `max_params_per_contract` parameters.
+    TooManyParamsPerContract = 16,
+    /// A function has more than `max_params_per_function` parameters.
+    TooManyParamsPerFunction = 17,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -428,6 +432,8 @@ impl fmt::Display for PrepareError {
             TooManyBlocksPerFunction => "Too many basic blocks in a function.",
             TooManyBlocksPerContract => "Too many basic blocks in a contract.",
             TooManyTypes => "Too many type-section entries declared in the contract.",
+            TooManyParamsPerContract => "Too many function parameters in the contract",
+            TooManyParamsPerFunction => "Too many parameters in a single function",
         })
     }
 }

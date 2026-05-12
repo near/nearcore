@@ -11246,6 +11246,18 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_params_per_contract": {
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "max_params_per_function": {
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_promises_per_function_call_action": {
             "description": "Max number of promises that a function call can create",
             "format": "uint64",
@@ -11905,6 +11917,20 @@
             "description": "Contract declares too many entries in the wasm type section.",
             "enum": [
               "TooManyTypes"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "All contract functions combined have more than `max_params_per_contract` parameters.",
+            "enum": [
+              "TooManyParamsPerFunction"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A function has more than `max_params_per_function` parameters.",
+            "enum": [
+              "TooManyParamsPerContract"
             ],
             "type": "string"
           }
