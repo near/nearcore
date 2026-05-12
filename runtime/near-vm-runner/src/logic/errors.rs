@@ -191,6 +191,8 @@ pub enum PrepareError {
     TooManyBlocksPerFunction = 13,
     /// A contract contains too many basic blocks.
     TooManyBlocksPerContract = 14,
+    /// Contract declares too many entries in the wasm type section.
+    TooManyTypes = 15,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -425,6 +427,7 @@ impl fmt::Display for PrepareError {
             InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
             TooManyBlocksPerFunction => "Too many basic blocks in a function.",
             TooManyBlocksPerContract => "Too many basic blocks in a contract.",
+            TooManyTypes => "Too many type-section entries declared in the contract.",
         })
     }
 }

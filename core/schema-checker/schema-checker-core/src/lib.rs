@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 use std::any::TypeId;
 
 pub type TypeName = &'static str;

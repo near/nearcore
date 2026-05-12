@@ -102,7 +102,7 @@ pub fn bootstrap_range(
                 save_new_epoch(store, cloud_storage, &epoch_id)?;
             }
             save_block_data(store, block_data);
-            if (h - start_height) % log_interval == 0 || h == end_height {
+            if (h - start_height).is_multiple_of(log_interval) || h == end_height {
                 tracing::info!(height = h, end_height, "bootstrap progress");
             }
         }

@@ -560,28 +560,27 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .unwrap()
         .checked_add(add_access_key_fee)
         .unwrap();
-    let refund_cost = fee_helper.gas_refund_cost(gas_refund);
+    let refund_cost = fee_helper.gas_refund_cost(gas_refund.gas);
 
-    let cost =
-        refund_cost
-            .checked_add(match receiver_id.get_account_type() {
-                AccountType::NearImplicitAccount => fee_helper
+    let cost = refund_cost
+        .checked_add(match receiver_id.get_account_type() {
+            AccountType::NearImplicitAccount => fee_helper
+                .create_account_transfer_full_key_cost_fail_on_create_account()
+                .checked_add(fee_helper.gas_to_balance(
+                    create_account_fee.checked_add(add_access_key_fee).unwrap().gas,
+                ))
+                .unwrap(),
+            AccountType::EthImplicitAccount | AccountType::NearDeterministicAccount => {
+                // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
+                fee_helper
                     .create_account_transfer_full_key_cost_fail_on_create_account()
-                    .checked_add(fee_helper.gas_to_balance(
-                        create_account_fee.checked_add(add_access_key_fee).unwrap(),
-                    ))
-                    .unwrap(),
-                AccountType::EthImplicitAccount | AccountType::NearDeterministicAccount => {
-                    // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
-                    fee_helper
-                        .create_account_transfer_full_key_cost_fail_on_create_account()
-                        // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
-                        .checked_add(fee_helper.gas_to_balance(create_account_fee))
-                        .unwrap()
-                }
-                AccountType::NamedAccount => std::panic!("must be implicit"),
-            })
-            .unwrap();
+                    // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
+                    .checked_add(fee_helper.gas_to_balance(create_account_fee.gas))
+                    .unwrap()
+            }
+            AccountType::NamedAccount => std::panic!("must be implicit"),
+        })
+        .unwrap();
 
     assert_eq!(
         transaction_result.status,
@@ -873,7 +872,8 @@ pub fn test_create_account_again(node: impl Node) {
         .fee(ActionCosts::transfer)
         .exec_fee()
         .checked_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -939,7 +939,8 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         .fee(ActionCosts::transfer)
         .exec_fee()
         .checked_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();

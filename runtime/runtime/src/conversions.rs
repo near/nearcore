@@ -40,6 +40,7 @@ mod prepare_error {
                 From::InstrumentedCodeTooLarge => Self::InstrumentedCodeTooLarge,
                 From::TooManyBlocksPerFunction => Self::TooManyBlocksPerFunction,
                 From::TooManyBlocksPerContract => Self::TooManyBlocksPerContract,
+                From::TooManyTypes => Self::TooManyTypes,
             }
         }
     }
@@ -91,6 +92,32 @@ mod profile_data_v3 {
                 wasm_ext_profile: other.wasm_ext_profile,
                 wasm_gas: other.wasm_gas,
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::super::Convert;
+        use near_parameters::ExtCostsConfig;
+        use near_primitives::gas::Gas;
+
+        /// There are two implementations of `total_compute_usage` that are just
+        /// copy-pasted.  One in near-primitives and one in vm-runner, two
+        /// crates which shouldn't depend on each other.
+        ///
+        /// This test ensure they don't diverge.
+        #[test]
+        fn test_total_compute_usage_consistency() {
+            let ext_costs_config = ExtCostsConfig::test_with_undercharging_factor(3);
+            let vm_profile = near_vm_runner::ProfileDataV3::test_with_config(&ext_costs_config);
+            let send_action_compute_usage = Gas::from_teragas(1).as_gas();
+            let prim_profile =
+                near_primitives::profile_data_v3::ProfileDataV3::convert(vm_profile.clone());
+
+            assert_eq!(
+                vm_profile.total_compute_usage(&ext_costs_config, send_action_compute_usage),
+                prim_profile.total_compute_usage(&ext_costs_config, send_action_compute_usage),
+            );
         }
     }
 }

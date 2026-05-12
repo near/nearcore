@@ -6734,6 +6734,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_types_per_contract": {
+            "description": "If present, stores max number of entries in the wasm type section that\na contract may declare.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "max_yield_payload_size": {
             "description": "Maximum number of bytes for payload passed over a yield resume.",
             "format": "uint64",
@@ -7339,6 +7348,11 @@
           {
             "const": "TooManyBlocksPerContract",
             "description": "A contract contains too many basic blocks.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyTypes",
+            "description": "Contract declares too many entries in the wasm type section.",
             "type": "string"
           }
         ],

@@ -1,10 +1,10 @@
 use crate::Error;
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
-    StateRootNodeValidationResult, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, HasContract,
+    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
+    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::contract_compilation_pool;
@@ -56,9 +56,9 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, ValidatorAccountsUpdate,
-    get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    ValidatorAccountsUpdate, get_signer_and_access_key, validate_transaction,
+    verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -720,6 +720,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
+        pending_constraints: &PendingConstraints,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
         let tx = validated_tx.to_tx();
@@ -752,6 +753,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &tx,
                 &cost,
                 block_height,
+                pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
                 TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
@@ -765,6 +767,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &cost,
                 block_height,
                 current_protocol_version,
+                pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
                 TxVerdict::Failed(error) => Err(error),
@@ -829,6 +832,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             chain_validate,
             validate_tx_ttl,
             HashSet::new(),
+            &mut PendingTxCheckResult::always_admit(),
             time_limit,
             None,
         ) // skip_tx_hashes is empty, so there will be no skipped transactions
@@ -860,6 +864,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
+        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1014,6 +1019,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                     nonce_index,
                 )?;
 
+                // Check pending transaction queue constraints.
+                let has_contract =
+                    if account.contract().is_some() { HasContract::Yes } else { HasContract::No };
+                let pending_constraints =
+                    match check_pending(validated_tx.to_signed_tx(), has_contract) {
+                        PendingTxCheckResult::Admit(constraints) => constraints,
+                        PendingTxCheckResult::Skip => {
+                            skipped_transactions.push(validated_tx);
+                            continue;
+                        }
+                    };
+
                 let cost = match tx_cost(
                     runtime_config,
                     &validated_tx.to_tx(),
@@ -1039,6 +1056,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
+                        &pending_constraints,
                     )
                 } else {
                     verify_and_charge_tx_ephemeral(
@@ -1049,6 +1067,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &cost,
                         Some(next_block_height),
                         protocol_version,
+                        &pending_constraints,
                     )
                 };
                 match verdict {

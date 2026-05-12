@@ -275,7 +275,7 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::ActionCosts;
+    use crate::{cost::ActionCosts, parameter_table::FeeComponent};
     use near_primitives_core::types::Gas;
     use std::collections::HashSet;
 
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(modified_config.wasm_config.limit_config.max_length_storage_key, 42);
         assert_eq!(
             modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir,
-            Gas::from_gas(100000000)
+            FeeComponent::Gas(Gas::from_gas(100000000)),
         );
 
         assert_eq!(
