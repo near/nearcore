@@ -312,7 +312,8 @@ impl MaybePinnedMemtrieRoot {
         let Some(pin) = &self.pin else {
             assert!(
                 tries.get_memtries(shard_uid).is_none(),
-                "apply_chunk for {shard_uid:?}: memtrie is loaded but no pin held; \
+                "apply_chunk for {shard_uid:?} state_root={state_root:?}: \
+                 memtrie is loaded but no pin held; \
                  call ShardTries::maybe_pin_memtrie_root() instead of no_memtries()",
             );
             return;
