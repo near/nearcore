@@ -60,7 +60,6 @@ use near_primitives::hash::CryptoHash;
 use schemars::JsonSchema;
 use schemars::transform::transform_subschemas;
 use serde_json::{Value, json};
-
 use crate::SCHEMAS_TO_REMOVE_REQUIRED_FROM;
 
 // Request types that are just empty structs
