@@ -2107,10 +2107,7 @@ fn test_strict_nonce_u64_max_not_included() {
     // Set the access key nonce to u64::MAX in the actual trie state so that
     // no strict-nonce tx can satisfy ak_nonce + 1 without overflow.
     let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
-    let ak_key = TrieKey::AccessKey {
-        account_id: "test1".parse().unwrap(),
-        public_key: signer.public_key(),
-    };
+    let ak_key = TrieKey::access_key("test1".parse().unwrap(), &signer.public_key());
     let ak_value =
         borsh::to_vec(&AccessKey { nonce: u64::MAX, permission: AccessKeyPermission::FullAccess })
             .unwrap();

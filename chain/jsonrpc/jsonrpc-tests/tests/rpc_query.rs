@@ -247,7 +247,7 @@ async fn test_query_by_path_access_keys() {
     };
     assert_eq!(access_keys.keys.len(), 1);
     assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(access_keys.keys[0].public_key, signer.public_key());
+    assert_eq!(access_keys.keys[0].public_key, (&signer.public_key()).into());
 }
 
 // here
@@ -274,7 +274,7 @@ async fn test_query_access_keys() {
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     assert_eq!(access_keys.keys.len(), 1);
     assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(access_keys.keys[0].public_key, signer.public_key());
+    assert_eq!(access_keys.keys[0].public_key, (&signer.public_key()).into());
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
@@ -1114,7 +1114,7 @@ async fn test_experimental_view_access_key_list() {
     assert_ne!(response.block_hash, CryptoHash::default());
     assert_eq!(response.access_key_list.keys.len(), 1);
     assert_eq!(response.access_key_list.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(response.access_key_list.keys[0].public_key, signer.public_key());
+    assert_eq!(response.access_key_list.keys[0].public_key, (&signer.public_key()).into());
 }
 
 /// Test EXPERIMENTAL_view_access_key_list error on unknown block

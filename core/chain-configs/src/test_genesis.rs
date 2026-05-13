@@ -487,14 +487,14 @@ impl TestGenesisBuilder {
                 ),
             });
             for access_key in &user_account.access_keys {
-                records.push(StateRecord::AccessKey {
-                    account_id: user_account.account_id.clone(),
-                    public_key: access_key.clone(),
-                    access_key: AccessKey {
+                records.push(StateRecord::access_key(
+                    user_account.account_id.clone(),
+                    access_key,
+                    AccessKey {
                         nonce: 0,
                         permission: near_primitives::account::AccessKeyPermission::FullAccess,
                     },
-                });
+                ));
             }
         }
         for (account_id, balance) in validator_stake {

@@ -10,7 +10,7 @@ use errors::FromStateViewerErrors;
 use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
-use near_crypto::PublicKey;
+use near_crypto::{KeyHandle, PublicKey};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -1338,9 +1338,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     kind: QueryResponseKind::AccessKeyList(
                         access_key_list
                             .into_iter()
-                            .map(|(public_key, access_key)| AccessKeyInfoView {
-                                public_key,
-                                access_key: access_key.into(),
+                            .map(|(public_key, access_key)| {
+                                AccessKeyInfoView::new(public_key, access_key.into())
                             })
                             .collect(),
                     ),
@@ -1782,7 +1781,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
+    ) -> Result<Vec<(KeyHandle, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)

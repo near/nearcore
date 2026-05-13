@@ -76,8 +76,8 @@ use near_store::{
     get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
     get_promise_yield_status, get_pure, get_received_data, has_received_data,
     remove_postponed_receipt, remove_promise_yield_receipt, remove_promise_yield_status, set,
-    set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data,
+    set_access_key, set_access_key_by_handle, set_account, set_gas_key_nonce,
+    set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -1644,7 +1644,7 @@ impl Runtime {
                     assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(state_update, account_id, public_key, &access_key);
+                    set_access_key_by_handle(state_update, account_id, public_key, &access_key);
                 }
                 _ => unimplemented!(
                     "patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord"

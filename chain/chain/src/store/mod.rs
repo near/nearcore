@@ -702,10 +702,7 @@ impl ChainStore {
             StateChangesRequest::SingleAccessKeyChanges { keys } => {
                 let mut changes = StateChanges::new();
                 for key in keys {
-                    let data_key = TrieKey::AccessKey {
-                        account_id: key.account_id.clone(),
-                        public_key: key.public_key.clone(),
-                    };
+                    let data_key = TrieKey::access_key(key.account_id.clone(), &key.public_key);
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_iter(&store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key));

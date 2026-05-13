@@ -111,7 +111,8 @@ pub fn total_send_fees(
                 )
             }
             TransferToGasKey(action) => {
-                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len()).total()
+                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.trie_id_len())
+                    .total()
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => permission_send_fees(
@@ -173,7 +174,8 @@ pub fn total_send_fees(
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
             WithdrawFromGasKey(action) => {
-                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len()).total()
+                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.trie_id_len())
+                    .total()
             }
         };
         result = result.checked_add_result(delta)?;
@@ -314,10 +316,12 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
         TransferToGasKey(action) => {
-            gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.len()).total()
+            gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
+                .total()
         }
         WithdrawFromGasKey(action) => {
-            gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.len()).total()
+            gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
+                .total()
         }
     }
 }
@@ -353,8 +357,12 @@ fn permission_exec_fees(
         | AccessKeyPermission::GasKeyFunctionCall(info, _) => info,
         _ => return key_fee,
     };
-    let nonce_fee =
-        gas_key_add_key_exec_fee(fees, account_id.len(), public_key.len(), gas_key_info.num_nonces);
+    let nonce_fee = gas_key_add_key_exec_fee(
+        fees,
+        account_id.len(),
+        public_key.trie_id_len(),
+        gas_key_info.num_nonces,
+    );
     key_fee.checked_add(nonce_fee.total()).unwrap()
 }
 
