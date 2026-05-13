@@ -24,7 +24,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumSeats};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -155,7 +155,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     let spice_chunk_validator_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
-    let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
+    let spice_client_config = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         SpiceClientConfig {
             chunk_executor_sender: chunk_executor_adapter.as_sender(),
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
@@ -196,7 +196,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         spice_client_config,
     );
 
-    if cfg!(feature = "protocol_feature_spice") {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         let spice_core_reader = SpiceCoreReader::new(
             runtime.store().chain_store(),
             epoch_manager.clone(),
