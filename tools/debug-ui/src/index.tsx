@@ -6,7 +6,7 @@ import '@patternfly/react-core/dist/styles/base.css';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
-import { HttpError } from './api';
+import { isClientError } from './api';
 import { LogVisualizer } from './log_visualizer/LogVisualizer';
 import { LandingPage } from './LandingPage';
 
@@ -16,7 +16,7 @@ const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
             retry: (failureCount, error) => {
-                if (error instanceof HttpError && error.status >= 400 && error.status < 500) {
+                if (isClientError(error)) {
                     return false;
                 }
                 return failureCount < 3;

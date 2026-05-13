@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tooltip } from 'react-tooltip';
-import { EpochInfoResponse, EpochInfoView, HttpError, ValidatorKickoutReason, fetchBasicStatus, fetchEpochInfo, fetchEntity, ApiEntityDataEntry, ApiEntityData } from './api';
+import { EpochInfoResponse, EpochInfoView, ValidatorKickoutReason, fetchBasicStatus, fetchEpochInfo, fetchEntity, isClientError, ApiEntityDataEntry, ApiEntityData } from './api';
 import './EpochValidatorsView.scss';
 import { EntityQuery, EntityQueryWithParams } from './entity_debug/types';
 
@@ -314,10 +314,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     if (epochIsLoading) {
         return <div>Loading...</div>;
     }
-    const isEpochNotFound =
-        epochError instanceof HttpError &&
-        epochError.status >= 400 &&
-        epochError.status < 500;
+    const isEpochNotFound = isClientError(epochError);
     const otherError =
         epochError != null && !isEpochNotFound ? (epochError as Error) : null;
     const showNotFound = isEpochNotFound || (epochData != null && !epochs);

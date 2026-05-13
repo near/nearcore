@@ -425,6 +425,10 @@ export class HttpError extends Error {
     }
 }
 
+export function isClientError(error: unknown): boolean {
+    return error instanceof HttpError && error.status >= 400 && error.status < 500;
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetch(url, init);
     if (!response.ok) {
