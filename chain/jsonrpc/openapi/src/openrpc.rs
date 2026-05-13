@@ -59,7 +59,9 @@ use near_jsonrpc_primitives::types::view_state::{RpcViewStateRequest, RpcViewSta
 use near_primitives::hash::CryptoHash;
 use schemars::JsonSchema;
 use schemars::transform::transform_subschemas;
-use serde_json::json;
+use serde_json::{Value, json};
+
+use crate::SCHEMAS_TO_REMOVE_REQUIRED_FROM;
 
 // Request types that are just empty structs
 #[derive(JsonSchema)]
@@ -599,37 +601,9 @@ const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[CartesianCollap
     ],
 }];
 
-/// Schemas whose `required` list is stripped so generated clients stay
-/// compatible across networks (testnet/mainnet may expose different fields).
-/// Mirrors the patch applied to the OpenAPI generator.
-const SCHEMAS_TO_REMOVE_REQUIRED_FROM: &[&str] = &[
-    "RpcClientConfigResponse",
-    "GCConfig",
-    "CloudArchivalWriterConfig",
-    "StateSyncConfig",
-    "DumpConfig",
-    "ExternalStorageConfig",
-    "SyncConcurrency",
-    "EpochSyncConfig",
-    "ChunkDistributionNetworkConfig",
-    "ChunkDistributionUris",
-    "RpcProtocolConfigResponse",
-    "RuntimeConfigView",
-    "RuntimeFeesConfigView",
-    "DataReceiptCreationConfigView",
-    "ActionCreationConfigView",
-    "StorageUsageConfigView",
-    "VMConfigView",
-    "LimitConfig",
-    "ExtCostsConfigView",
-    "AccountCreationConfigView",
-    "CongestionControlConfigView",
-    "WitnessConfigView",
-];
-
-fn remove_required_from_config_schemas(schemas: &mut serde_json::Map<String, serde_json::Value>) {
+fn remove_required_from_config_schemas(schemas: &mut serde_json::Map<String, Value>) {
     for name in SCHEMAS_TO_REMOVE_REQUIRED_FROM {
-        if let Some(serde_json::Value::Object(obj)) = schemas.get_mut(*name) {
+        if let Some(Value::Object(obj)) = schemas.get_mut(*name) {
             obj.remove("required");
         }
     }
