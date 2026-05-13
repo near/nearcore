@@ -1794,16 +1794,6 @@ impl EpochManager {
             return Ok(None);
         }
 
-        if cfg!(debug) {
-            let agg_hash = self.epoch_info_aggregator.last_block_hash;
-            let agg_height = self.get_block_info(&agg_hash)?.height();
-            let block_height = self.get_block_info(block_hash)?.height();
-            assert!(
-                agg_height < block_height,
-                "#{agg_hash} {agg_height} >= #{block_hash} {block_height}",
-            );
-        }
-
         let epoch_id = *self.get_block_info(block_hash)?.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
