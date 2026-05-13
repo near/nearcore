@@ -4,7 +4,9 @@ use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess};
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
-use near_client::archive::cloud_archival_reader::bootstrap_range;
+use near_client::archive::cloud_archival_reader::{
+    bootstrap_range, find_present_block_at_or_below,
+};
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
     StateSyncConnection, download_and_apply_state_parts_sequentially, list_state_parts,
@@ -22,7 +24,7 @@ use near_primitives::types::{
 use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
-use near_store::db::CLOUD_MIN_HEAD_KEY;
+use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -137,9 +139,13 @@ pub(crate) fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> A
     cloud_storage.clone().unwrap()
 }
 
+/// Writer's stored min head: highest height up to which all components are
+/// known archived (by us or another writer).
 pub(crate) fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap().height
+    hot_store
+        .get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
+        .expect("CLOUD_MIN_HEAD should exist")
 }
 
 /// Configures a client as a cloud archival writer with specific tracked shards.
@@ -210,14 +216,14 @@ pub(crate) fn check_data_at_height_for_shards(
     let cloud_storage = get_cloud_storage(env, archival_id);
     if !expected_shards.is_empty() {
         assert!(
-            cloud_storage.get_block_data(height).is_ok(),
+            matches!(cloud_storage.get_block_data(height), Ok(Some(_))),
             "block data should exist at height {height}"
         );
     }
     for shard_id in all_shard_ids {
         if expected_shards.contains(shard_id) {
             assert!(
-                cloud_storage.get_shard_data(height, *shard_id).is_ok(),
+                matches!(cloud_storage.get_shard_data(height, *shard_id), Ok(Some(_))),
                 "shard data for shard {shard_id} should exist at height {height}"
             );
         } else {
@@ -299,13 +305,15 @@ pub fn snapshots_sanity_check(
 
     // Epoch data is uploaded by the cloud archival writer at the last block of each
     // epoch, so it covers all epochs fully passed by the cloud head.
-    let cloud_head_tip: Tip =
-        store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).expect("cloud head should exist");
-    let cloud_head_epoch_info = EpochInfo::try_from_slice(
-        &store.get(DBCol::EpochInfo, cloud_head_tip.epoch_id.as_ref()).unwrap(),
+    let last_archived_epoch_last_block: CryptoHash =
+        store.get_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY).unwrap();
+    let last_archived_epoch_id =
+        client.epoch_manager.get_epoch_id(&last_archived_epoch_last_block).unwrap();
+    let last_archived_epoch_info = EpochInfo::try_from_slice(
+        &store.get(DBCol::EpochInfo, last_archived_epoch_id.as_ref()).unwrap(),
     )
     .unwrap();
-    let expected_epoch_data = HashSet::from_iter(1..cloud_head_epoch_info.epoch_height());
+    let expected_epoch_data = HashSet::from_iter(1..=last_archived_epoch_info.epoch_height());
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
@@ -329,13 +337,19 @@ pub fn bootstrap_reader(
             .expect("bootstrap_range should succeed");
     }
 
-    let target_block_data = cloud_storage.get_block_data(target_block_height).unwrap();
+    // If `target_block_height` is a skipped slot the height carries no data,
+    // so reconstructing state at the nearest present block at-or-below it is
+    // equivalent (no state changes between them).
+    let (target_block_height, target_block_data) =
+        find_present_block_at_or_below(&cloud_storage, target_block_height).unwrap();
     let epoch_id = target_block_data.block().header().epoch_id();
     let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
     let epoch_height = epoch_data.epoch_info().epoch_height();
     let protocol_version = epoch_data.epoch_info().protocol_version();
 
-    let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap();
+    // Sync block is in the new epoch, after the prefix of blocks needed to
+    // reach two chunks per shard, and saved only once final - so present.
+    let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap().unwrap();
     let sync_hash = sync_block.block().hash();
     let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
 
@@ -352,7 +366,7 @@ pub fn bootstrap_reader(
     for shard_id in epoch_data.shard_layout().shard_ids() {
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
         let target_block_shard_data =
-            cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
+            cloud_storage.get_shard_data(target_block_height, shard_id).unwrap().unwrap();
         let target_state_root = *target_block_shard_data.chunk_extra().state_root();
         let state_header =
             cloud_storage.get_state_header(epoch_height, *epoch_id, shard_id).unwrap();
@@ -429,7 +443,8 @@ async fn load_state_snapshot(
 }
 
 /// Applies per-block state deltas from cloud storage to advance the trie from
-/// `start_block_height` to `target_block_height`.
+/// `start_block_height` to `target_block_height`. The caller must pass present
+/// (non-skipped) heights for both endpoints.
 fn apply_state_changes(
     cloud_storage: &CloudStorage,
     store: &Store,
@@ -441,14 +456,16 @@ fn apply_state_changes(
 ) {
     let shard_id = shard_uid.shard_id();
     let start_block_shard_data =
-        cloud_storage.get_shard_data(start_block_height, shard_id).unwrap();
+        cloud_storage.get_shard_data(start_block_height, shard_id).unwrap().unwrap();
     assert_eq!(
         state_root,
         start_block_shard_data.chunk().prev_state_root(),
         "initial state_root must match prev_state_root of the start block"
     );
     for block_height in start_block_height..=target_block_height {
-        let shard_data = cloud_storage.get_shard_data(block_height, shard_id).unwrap();
+        let Some(shard_data) = cloud_storage.get_shard_data(block_height, shard_id).unwrap() else {
+            continue;
+        };
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         let trie_changes = trie
             .update(
@@ -467,7 +484,7 @@ fn apply_state_changes(
         assert!(has_state_root(&tries, shard_uid, state_root));
     }
     let target_block_shard_data =
-        cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
+        cloud_storage.get_shard_data(target_block_height, shard_id).unwrap().unwrap();
     let expected_final_state_root = target_block_shard_data.chunk_extra().state_root();
     assert_eq!(state_root, *expected_final_state_root);
 }
