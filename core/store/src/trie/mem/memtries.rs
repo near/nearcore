@@ -285,7 +285,7 @@ pub struct MaybePinnedMemtrieRoot {
 
 impl MaybePinnedMemtrieRoot {
     /// For callers whose apply path doesn't go through memtrie. Panics in
-    /// [`Self::assert_pinned`] if memtrie is actually loaded for the shard.
+    /// [`Self::assert_pinned`] if memtrie is actually used for the shard processing.
     pub fn no_memtries() -> Self {
         Self { pin: None }
     }
