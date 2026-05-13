@@ -8,14 +8,24 @@ use crate::utils::cloud_archival::{
     get_writer_handle, run_node_until, simulate_lagging_shard, snapshots_sanity_check,
     stop_and_restart_node, verify_block_range,
 };
+use borsh::to_vec;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_client::archive::cloud_archival_reader::find_snapshot_at_or_before;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::block::Block;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
+use near_primitives::sharding::ShardChunk;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
-use near_store::ShardUId;
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
+use near_store::flat::FlatStorageManager;
+use near_store::{
+    DBCol, KeyForStateChanges, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
+};
 use std::collections::{HashMap, HashSet};
 
 /// Test harness for cloud archival tests. Owns the `TestLoopEnv` and exposes
@@ -190,6 +200,11 @@ impl CloudArchiveHarness {
     fn kill_reader(&mut self) {
         let reader_id = self.reader_id.take().expect("no reader to kill");
         self.env.kill_node(reader_id.as_ref());
+    }
+
+    fn reader_store(&self) -> Store {
+        let reader_id = self.reader_id.as_ref().expect("no reader bootstrapped");
+        self.env.node_for_account(reader_id).client().chain.chain_store().store()
     }
 
     /// Checks heads alignment and GC tail bounds. Use after a full run when
@@ -795,5 +810,342 @@ fn test_cloud_archival_missing_chunks_one_shard() {
     }
     h.assert_heads_and_gc_ok();
 
+    h.shutdown();
+}
+
+/// Verifies that each archived `ShardData` carries the outcomes and
+/// receipt-to-tx info for its `(block_hash, shard_id)` matching the chain
+/// store entry-by-entry. Walks every still-on-chain height up to `cloud_head`.
+#[test]
+// TODO(cloud_archival): un-ignore once `ShardData` carries outcomes and receipt-to-tx info.
+#[ignore]
+fn test_cloud_archival_outcomes_and_receipts() {
+    let mut h = CloudArchiveHarness::builder().build();
+    let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
+    // Submit cross-shard transfers late enough that the outcomes land above
+    // gc_tail in the iteration range below.
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP);
+    for _ in 0..3 {
+        let tx = h.env.validator().tx_send_money(
+            &user_account,
+            &h.archival_id,
+            Balance::from_yoctonear(100),
+        );
+        h.env.validator().submit_tx(tx);
+    }
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let chain_store = h.env.archival_node().client().chain.chain_store().store().chain_store();
+
+    let mut total_outcomes = 0usize;
+    let mut total_receipts = 0usize;
+    for height in (h.gc_tail() + 1)..=h.cloud_head() {
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        for shard_id in &CloudArchiveHarness::all_shard_ids() {
+            let shard_data = cloud_storage.get_shard_data(height, *shard_id).unwrap();
+
+            let expected_outcome_ids =
+                chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, *shard_id);
+            let stored_outcomes = shard_data.transaction_result_for_block();
+            assert_eq!(
+                stored_outcomes.len(),
+                expected_outcome_ids.len(),
+                "transaction_result_for_block length mismatch at h={height} shard={shard_id}"
+            );
+            for (i, (stored_id, stored_outcome)) in stored_outcomes.iter().enumerate() {
+                assert_eq!(
+                    stored_id, &expected_outcome_ids[i],
+                    "outcome id mismatch at h={height} shard={shard_id} index={i}"
+                );
+                // `ExecutionOutcomeWithProof` has no `PartialEq`; compare via borsh.
+                assert_eq!(
+                    to_vec(
+                        &chain_store
+                            .get_outcome_by_id_and_block_hash(stored_id, &block_hash)
+                            .unwrap(),
+                    )
+                    .unwrap(),
+                    to_vec(stored_outcome).unwrap(),
+                    "outcome proof mismatch at h={height} shard={shard_id} index={i}"
+                );
+            }
+            total_outcomes += stored_outcomes.len();
+
+            let outgoing = shard_data.outgoing_receipts();
+            let stored_receipts = shard_data.receipt_to_tx();
+            assert_eq!(
+                outgoing.len(),
+                stored_receipts.len(),
+                "receipt_to_tx length mismatch at h={height} shard={shard_id}"
+            );
+            for (i, (receipt, (stored_id, stored_info))) in
+                outgoing.iter().zip(stored_receipts).enumerate()
+            {
+                assert_eq!(
+                    receipt.receipt_id(),
+                    stored_id,
+                    "receipt_id mismatch at h={height} shard={shard_id} index={i}"
+                );
+                assert_eq!(
+                    &chain_store.get_receipt_to_tx(stored_id).unwrap(),
+                    stored_info,
+                    "receipt_to_tx info mismatch at h={height} shard={shard_id} index={i}"
+                );
+            }
+            total_receipts += stored_receipts.len();
+        }
+    }
+    assert!(total_outcomes > 0, "no outcomes were compared");
+    assert!(total_receipts > 0, "no receipts were compared");
+    h.shutdown();
+}
+
+/// Verifies that after reader bootstrap, the local store has entries in
+/// the per-block cold columns the reader reconstructs from cloud data:
+/// `BlockPerHeight`, `ChunkHashesByHeight`, and `NextBlockHashes`.
+#[test]
+// TODO(cloud_archival): un-ignore once the reader reconstructs per-block cold columns.
+#[ignore]
+fn test_cloud_archival_reader_reconstructs_per_block_columns() {
+    let mut h = CloudArchiveHarness::builder().build();
+    h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
+    let start = h.epoch_length / 2;
+    let target = h.epoch_length + h.epoch_length / 2;
+    h.bootstrap_reader(start, target);
+
+    let store = h.reader_store();
+
+    for height in start..=target {
+        let block_hash: CryptoHash = store
+            .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
+            .expect("BlockHeight missing");
+        assert!(
+            store.exists(DBCol::BlockPerHeight, &index_to_bytes(height)),
+            "BlockPerHeight missing at h={height}"
+        );
+        assert!(
+            store.exists(DBCol::ChunkHashesByHeight, &index_to_bytes(height)),
+            "ChunkHashesByHeight missing at h={height}"
+        );
+        if height < target {
+            assert!(
+                store.exists(DBCol::NextBlockHashes, block_hash.as_ref()),
+                "NextBlockHashes missing at h={height}"
+            );
+        }
+    }
+
+    h.kill_reader();
+    h.shutdown();
+}
+
+/// Verifies that after reader bootstrap, the local store has entries in
+/// the always-populated per-shard cold columns: `Chunks`, `ChunkExtra`,
+/// `ChunkApplyStats`, `IncomingReceipts`, `OutgoingReceipts`, and
+/// `OutcomeIds`.
+#[test]
+// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
+#[ignore]
+fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
+    let mut h = CloudArchiveHarness::builder().build();
+    h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
+    let start = h.epoch_length / 2;
+    let target = h.epoch_length + h.epoch_length / 2;
+    h.bootstrap_reader(start, target);
+
+    let store = h.reader_store();
+
+    for height in start..=target {
+        let block_hash: CryptoHash = store
+            .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
+            .expect("BlockHeight missing");
+        let block: Block = store.get_ser(DBCol::Block, block_hash.as_ref()).unwrap();
+        for shard_uid in &CloudArchiveHarness::all_shard_uids() {
+            let shard_id = shard_uid.shard_id();
+            let block_shard_key = get_block_shard_id(&block_hash, shard_id);
+            let block_shard_uid_key = get_block_shard_uid(&block_hash, shard_uid);
+            assert!(
+                store.exists(DBCol::ChunkExtra, &block_shard_uid_key),
+                "ChunkExtra missing at h={height} shard={shard_id}"
+            );
+            assert!(
+                store.exists(DBCol::ChunkApplyStats, &block_shard_key),
+                "ChunkApplyStats missing at h={height} shard={shard_id}"
+            );
+            assert!(
+                store.exists(DBCol::IncomingReceipts, &block_shard_key),
+                "IncomingReceipts missing at h={height} shard={shard_id}"
+            );
+            assert!(
+                store.exists(DBCol::OutgoingReceipts, &block_shard_key),
+                "OutgoingReceipts missing at h={height} shard={shard_id}"
+            );
+            assert!(
+                store.exists(DBCol::OutcomeIds, &block_shard_key),
+                "OutcomeIds missing at h={height} shard={shard_id}"
+            );
+            let chunk_header = block
+                .chunks()
+                .iter_raw()
+                .find(|c| c.shard_id() == shard_id)
+                .cloned()
+                .unwrap_or_else(|| panic!("chunk header missing at h={height} shard={shard_id}"));
+            assert!(
+                store.exists(DBCol::Chunks, chunk_header.chunk_hash().as_ref()),
+                "Chunks missing at h={height} shard={shard_id}"
+            );
+        }
+    }
+
+    h.kill_reader();
+    h.shutdown();
+}
+
+/// Verifies that after reader bootstrap, the local store has entries in
+/// the per-shard data columns the reader reconstructs from chunk-apply
+/// activity: `Transactions`, `Receipts`, `TransactionResultForBlock`,
+/// `ReceiptToTx`, and `StateChanges`. The test submits a cross-shard
+/// transfer before the bootstrap range to populate them.
+#[test]
+// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
+#[ignore]
+fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
+    let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
+    let mut h = CloudArchiveHarness::builder().build();
+    h.run_until(3);
+    let tx = h.env.validator().tx_send_money(
+        &user_account,
+        &h.archival_id,
+        Balance::from_yoctonear(100),
+    );
+    h.env.validator().submit_tx(tx);
+    h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
+    let start = h.epoch_length / 2;
+    let target = h.epoch_length + h.epoch_length / 2;
+    h.bootstrap_reader(start, target);
+
+    let store = h.reader_store();
+
+    let mut have_transactions = false;
+    let mut have_receipts = false;
+    let mut have_transaction_result_for_block = false;
+    let mut have_receipt_to_tx = false;
+    let mut have_state_changes = false;
+
+    for height in start..=target {
+        let block_hash: CryptoHash = store
+            .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
+            .expect("BlockHeight missing");
+        let block: Block = store.get_ser(DBCol::Block, block_hash.as_ref()).unwrap();
+        for shard_uid in &CloudArchiveHarness::all_shard_uids() {
+            let shard_id = shard_uid.shard_id();
+            let block_shard_key = get_block_shard_id(&block_hash, shard_id);
+            let chunk_header =
+                block.chunks().iter_raw().find(|c| c.shard_id() == shard_id).cloned().unwrap();
+            let chunk: ShardChunk =
+                store.get_ser(DBCol::Chunks, chunk_header.chunk_hash().as_ref()).unwrap();
+            for tx in chunk.to_transactions() {
+                if store.exists(DBCol::Transactions, tx.get_hash().as_ref()) {
+                    have_transactions = true;
+                }
+            }
+            for receipt in chunk.prev_outgoing_receipts() {
+                if store.exists(DBCol::Receipts, receipt.receipt_id().as_ref()) {
+                    have_receipts = true;
+                }
+            }
+            let outcome_ids: Vec<CryptoHash> =
+                store.get_ser(DBCol::OutcomeIds, &block_shard_key).unwrap_or_default();
+            for outcome_id in &outcome_ids {
+                if store.exists(
+                    DBCol::TransactionResultForBlock,
+                    &get_outcome_id_block_hash(outcome_id, &block_hash),
+                ) {
+                    have_transaction_result_for_block = true;
+                }
+            }
+            let outgoing: Vec<Receipt> =
+                store.get_ser(DBCol::OutgoingReceipts, &block_shard_key).unwrap_or_default();
+            for receipt in &outgoing {
+                if store.exists(DBCol::ReceiptToTx, receipt.receipt_id().as_ref()) {
+                    have_receipt_to_tx = true;
+                }
+            }
+        }
+        let state_changes_prefix: Vec<u8> = KeyForStateChanges::for_block(&block_hash).into();
+        if store.iter_prefix(DBCol::StateChanges, &state_changes_prefix).next().is_some() {
+            have_state_changes = true;
+        }
+    }
+
+    assert!(have_transactions, "no transactions reconstructed");
+    assert!(have_receipts, "no receipts reconstructed");
+    assert!(have_transaction_result_for_block, "no transaction_result_for_block reconstructed");
+    assert!(have_receipt_to_tx, "no receipt_to_tx reconstructed");
+    assert!(have_state_changes, "no state_changes reconstructed");
+
+    h.kill_reader();
+    h.shutdown();
+}
+
+/// Verifies that with one shard's chunk dropped at a specific height in the
+/// bootstrapped range, the trie state for that shard is queryable at the
+/// missing-chunk height and its immediate neighbors via the block's chunk
+/// header `prev_state_root`.
+#[test]
+// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns
+// and applies per-block state deltas with insertion-only trie updates.
+#[ignore]
+fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
+    let dropped_shard = CloudArchiveHarness::all_shard_ids()[0];
+    let dropped_shard_uid = CloudArchiveHarness::all_shard_uids()[0];
+    let dropped_height: BlockHeight = 6;
+    // Drop the dropped_shard chunk at offset `dropped_height` of every epoch
+    // so the missing height lands inside the bootstrap range below.
+    let mut pattern = vec![true; 10];
+    pattern[dropped_height as usize] = false;
+
+    let mut h =
+        CloudArchiveHarness::builder().validators(4).drop_chunks(dropped_shard, pattern).build();
+    h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
+    let start = h.epoch_length / 2;
+    let target = h.epoch_length + h.epoch_length / 2;
+    h.bootstrap_reader(start, target);
+
+    let store = h.reader_store();
+    let tries = ShardTries::new(
+        store.trie_store(),
+        TrieConfig::default(),
+        FlatStorageManager::new(store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    );
+
+    // For each height read the block, take dropped_shard's chunk header
+    // `prev_state_root` as the state at that height for that shard, and check
+    // it resolves in the trie. At `dropped_height` the chunk header must be
+    // a reused one.
+    for h_check in [dropped_height - 1, dropped_height, dropped_height + 1] {
+        let hash: CryptoHash = store
+            .get_ser(DBCol::BlockHeight, &index_to_bytes(h_check))
+            .expect("BlockHeight missing");
+        let block: Block = store.get_ser(DBCol::Block, hash.as_ref()).unwrap();
+        let chunk_header =
+            block.chunks().iter_raw().find(|c| c.shard_id() == dropped_shard).cloned().unwrap();
+        if h_check == dropped_height {
+            assert!(
+                !chunk_header.is_new_chunk(h_check),
+                "chunk for shard {dropped_shard} should be missing at h={h_check}"
+            );
+        }
+        let state_root = chunk_header.prev_state_root();
+        let trie = tries.get_trie_for_shard(dropped_shard_uid, state_root);
+        assert!(
+            trie.retrieve_root_node().is_ok(),
+            "state unreachable for shard {dropped_shard} at h={h_check}"
+        );
+    }
+
+    h.kill_reader();
     h.shutdown();
 }

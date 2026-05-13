@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 // TODO(cloud_archival): Re-enable once `get_state_header()` is fixed (see below).
@@ -10,7 +10,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use crate::adapter::StoreAdapter;
 use crate::archive::cloud_storage::batch::BatchRange;
 use crate::{DBCol, KeyForStateChanges, Store};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use near_schema_checker_lib::ProtocolSchema;
@@ -178,6 +178,21 @@ impl ShardData {
         match self {
             ShardData::V1(data) => &data.chunk_extra,
         }
+    }
+
+    pub fn outgoing_receipts(&self) -> &[Receipt] {
+        // TODO(cloud_archival): populate from `ShardDataV1::outgoing_receipts` once the field is added.
+        todo!()
+    }
+
+    pub fn transaction_result_for_block(&self) -> &[(CryptoHash, ExecutionOutcomeWithProof)] {
+        // TODO(cloud_archival): populate from `ShardDataV1::transaction_result_for_block` once the field is added.
+        todo!()
+    }
+
+    pub fn receipt_to_tx(&self) -> &[(CryptoHash, ReceiptToTxInfo)] {
+        // TODO(cloud_archival): populate from `ShardDataV1::receipt_to_tx` once the field is added.
+        todo!()
     }
 }
 
