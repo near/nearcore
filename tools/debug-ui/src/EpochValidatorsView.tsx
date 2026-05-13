@@ -268,7 +268,10 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         },
         keepPreviousData: true,
     });
-    const epochs = isValidEpochData(epochData) ? epochData.status_response.EpochInfo : null;
+    const epochs =
+        epochError == null && isValidEpochData(epochData)
+            ? epochData.status_response.EpochInfo
+            : null;
     const { data: statusData } = useQuery(['status', addr], () => fetchBasicStatus(addr));
     const chainHeadEpochId = statusData?.sync_info.epoch_id;
     const canNavigateLeft =
@@ -317,7 +320,6 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     const isEpochNotFound = isClientError(epochError);
     const otherError = epochError != null && !isEpochNotFound ? epochError : null;
     const showNotFound = isEpochNotFound || (epochData != null && !epochs);
-    const showTable = epochs !== null && epochError == null;
 
     const handleNavigateEpoch = async (direction: 'left' | 'right') => {
         if (!epochData?.status_response.EpochInfo) return;
@@ -567,6 +569,9 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             {showNotFound && (
                 <div className="error">
                     Epoch {currentEpochId ? <code>{currentEpochId}</code> : ''} not found.
+                    {isEpochNotFound && epochError?.message && (
+                        <> ({epochError.message})</>
+                    )}
                 </div>
             )}
             {otherError && (
@@ -574,7 +579,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                     Failed to fetch epoch info: {otherError.message}
                 </div>
             )}
-            {showTable &&
+            {epochs &&
                 renderValidatorsTable(
                     epochData,
                     validators,
@@ -589,7 +594,8 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
 };
 
 function isValidEpochData(data: EpochInfoResponse | undefined): data is EpochInfoResponse {
-    return data !== undefined && data.status_response.EpochInfo.length >= 2;
+    const epochs = data?.status_response?.EpochInfo;
+    return Array.isArray(epochs) && epochs.length >= 2;
 }
 
 function drawProducedAndExpectedBar(
