@@ -1,8 +1,9 @@
 import { partition } from 'lodash';
 import { useQuery } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Tooltip } from 'react-tooltip';
-import { EpochInfoView, ValidatorKickoutReason, fetchEpochInfo, fetchEntity, ApiEntityDataEntry, ApiEntityData } from './api';
+import { EpochInfoResponse, EpochInfoView, HttpError, ValidatorKickoutReason, fetchBasicStatus, fetchEpochInfo, fetchEntity, ApiEntityDataEntry, ApiEntityData } from './api';
 import './EpochValidatorsView.scss';
 import { EntityQuery, EntityQueryWithParams } from './entity_debug/types';
 
@@ -217,8 +218,19 @@ type EpochValidatorViewProps = {
 };
 
 export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
-    const [enteredEpochId, setEnteredEpochId] = useState<string>('');
-    const [currentEpochId, setCurrentEpochId] = useState<string | null>(null);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const currentEpochId = searchParams.get('epoch_id');
+    const [enteredEpochId, setEnteredEpochId] = useState<string>(currentEpochId ?? '');
+    useEffect(() => {
+        setEnteredEpochId(currentEpochId ?? '');
+    }, [currentEpochId]);
+    const navigateToEpoch = (epochId: string | null) => {
+        if (epochId) {
+            setSearchParams({ epoch_id: epochId });
+        } else {
+            setSearchParams({});
+        }
+    };
     const [validators, setValidators] = useState<Validators | null>(null);
     const [validatorProtocolVersion, setValidatorProtocolVersion] = useState<Map<string, string> | null>(null);
     const [maxStake, setMaxStake] = useState<number>(0);
@@ -236,6 +248,9 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         isFetching,
     } = useQuery(['epochInfo', addr, currentEpochId], () => fetchEpochInfo(addr, currentEpochId), {
         onSuccess: (data) => {
+            if (!isValidEpochData(data)) {
+                return;
+            }
             const {
                 validators,
                 maxStake,
@@ -253,6 +268,14 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         },
         keepPreviousData: true,
     });
+    const epochs = isValidEpochData(epochData) ? epochData.status_response.EpochInfo : null;
+    const { data: statusData } = useQuery(['status', addr], () => fetchBasicStatus(addr));
+    const chainHeadEpochId = statusData?.sync_info.epoch_id;
+    const canNavigateLeft =
+        epochs !== null &&
+        chainHeadEpochId !== undefined &&
+        epochs[1].epoch_id !== chainHeadEpochId;
+    const canNavigateRight = epochs !== null && epochs.length > 2;
 
     const {
         data: versionTrackerData,
@@ -291,9 +314,14 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     if (epochIsLoading) {
         return <div>Loading...</div>;
     }
-    if (epochError) {
-        return <div className="error">{(epochError as Error).stack}</div>;
-    }
+    const isEpochNotFound =
+        epochError instanceof HttpError &&
+        epochError.status >= 400 &&
+        epochError.status < 500;
+    const otherError =
+        epochError != null && !isEpochNotFound ? (epochError as Error) : null;
+    const showNotFound = isEpochNotFound || (epochData != null && !epochs);
+    const showTable = epochs !== null && epochError == null;
 
     const handleNavigateEpoch = async (direction: 'left' | 'right') => {
         if (!epochData?.status_response.EpochInfo) return;
@@ -307,18 +335,11 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             return;
         }
 
-        const targetEpochId = epochs[targetIndex].epoch_id;
-        setCurrentEpochId(targetEpochId);
-        setEnteredEpochId(targetEpochId);
+        navigateToEpoch(epochs[targetIndex].epoch_id);
     };
 
     const handleButtonClick = async () => {
-        try {
-            setCurrentEpochId(enteredEpochId || null);
-        } catch (error) {
-            console.error('Error fetching epoch data:', error);
-            alert('Failed to fetch epoch data');
-        }
+        navigateToEpoch(enteredEpochId || null);
     };
 
     const handleEpochIdInput = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -504,31 +525,28 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             <div className="epoch-navigation">
                 <button
                     onClick={() => handleNavigateEpoch('left')}
-                    disabled={!epochData}
+                    disabled={!canNavigateLeft}
                     className="arrow-button">
                     ←
                 </button>
 
                 <div className="epoch-info">
-                    {epochData && (
+                    {epochs && (
                         <>
                             <div className="epoch-height">
-                                Epoch {epochData.status_response.EpochInfo[1].epoch_height}
+                                Epoch {epochs[1].epoch_height}
                                 <span className="epoch-start-height">
-                                    (starts at{' '}
-                                    {epochData.status_response.EpochInfo[1].height || 'N/A'})
+                                    (starts at {epochs[1].height || 'N/A'})
                                 </span>
                             </div>
                             <details>
                                 <summary>Recent Epochs</summary>
                                 <div className="epoch-debug">
-                                    {epochData.status_response.EpochInfo.map(
-                                        (epoch: EpochInfoView) => (
-                                            <div key={epoch.epoch_id}>
-                                                Epoch {epoch.epoch_height}: {epoch.epoch_id}
-                                            </div>
-                                        )
-                                    )}
+                                    {epochs.map((epoch: EpochInfoView) => (
+                                        <div key={epoch.epoch_id}>
+                                            Epoch {epoch.epoch_height}: {epoch.epoch_id}
+                                        </div>
+                                    ))}
                                 </div>
                             </details>
                         </>
@@ -537,12 +555,12 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
 
                 <button
                     onClick={() => handleNavigateEpoch('right')}
-                    disabled={!epochData}
+                    disabled={!canNavigateRight}
                     className="arrow-button">
                     →
                 </button>
             </div>
-            {renderVotingTracker(votingTrackerData, totalVotingStake)}
+            {epochs && renderVotingTracker(votingTrackerData, totalVotingStake)}
             <input
                 type="text"
                 placeholder="Enter Epoch ID"
@@ -550,18 +568,33 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                 onChange={handleEpochIdInput}
             />
             <button onClick={handleButtonClick}>Show Validators</button>
-            {renderValidatorsTable(
-                epochData,
-                validators,
-                maxStake,
-                totalStake,
-                maxExpectedBlocks,
-                maxExpectedChunks,
-                maxExpectedEndorsements
+            {showNotFound && (
+                <div className="error">
+                    Epoch {currentEpochId ? <code>{currentEpochId}</code> : ''} not found.
+                </div>
             )}
+            {otherError && (
+                <div className="error">
+                    Failed to fetch epoch info: {otherError.message}
+                </div>
+            )}
+            {showTable &&
+                renderValidatorsTable(
+                    epochData,
+                    validators,
+                    maxStake,
+                    totalStake,
+                    maxExpectedBlocks,
+                    maxExpectedChunks,
+                    maxExpectedEndorsements
+                )}
         </div>
     );
 };
+
+function isValidEpochData(data: EpochInfoResponse | undefined): data is EpochInfoResponse {
+    return data !== undefined && data.status_response.EpochInfo.length >= 2;
+}
 
 function drawProducedAndExpectedBar(
     producedAndExpected: ProducedAndExpected | null,
