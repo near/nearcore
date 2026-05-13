@@ -3411,15 +3411,11 @@ impl Chain {
         }
         tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "creating shard update job");
 
-        let mut on_post_state_ready = None;
-        // Pin the prev-state root so memtrie GC can't free it while the apply
-        // task sits in the queue.
-        let prev_state_root = if is_new_chunk {
-            chunk_header.prev_state_root()
-        } else {
-            *self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?.state_root()
-        };
-        let shard_update_reason = if is_new_chunk {
+        // For missing chunks we look up `prev_chunk_extra` once and reuse it
+        // for both the pin's prev-state root and `OldChunkData`. The pin
+        // prevents memtrie GC from freeing the prev-state root while the
+        // apply task sits in the queue.
+        let (prev_state_root, shard_update_reason, on_post_state_ready) = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
             let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
@@ -3467,7 +3463,7 @@ impl Chain {
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
             let chunk_transactions = chunk.into_transactions();
-            on_post_state_ready = self.get_on_post_state_ready_callback(
+            let on_post_state_ready = self.get_on_post_state_ready_callback(
                 &block,
                 prev_block,
                 epoch_id,
@@ -3480,24 +3476,32 @@ impl Chain {
             let transactions: SignedValidPeriodTransactions =
                 SignedValidPeriodTransactions::new(chunk_transactions, tx_valid_list);
 
-            ShardUpdateReason::NewChunk(NewChunkData {
-                gas_limit: chunk_header.gas_limit(),
-                prev_state_root: chunk_header.prev_state_root(),
-                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
-                chunk_hash: Some(chunk_header.chunk_hash().clone()),
-                transactions,
-                receipts,
-                block,
-                storage_context,
-            })
+            (
+                chunk_header.prev_state_root(),
+                ShardUpdateReason::NewChunk(NewChunkData {
+                    gas_limit: chunk_header.gas_limit(),
+                    prev_state_root: chunk_header.prev_state_root(),
+                    prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                    chunk_hash: Some(chunk_header.chunk_hash().clone()),
+                    transactions,
+                    receipts,
+                    block,
+                    storage_context,
+                }),
+                on_post_state_ready,
+            )
         } else {
-            ShardUpdateReason::OldChunk(OldChunkData {
-                block,
-                prev_chunk_extra: ChunkExtra::clone(
-                    self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?.as_ref(),
-                ),
-                storage_context,
-            })
+            let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
+            let prev_state_root = *prev_chunk_extra.state_root();
+            (
+                prev_state_root,
+                ShardUpdateReason::OldChunk(OldChunkData {
+                    block,
+                    prev_chunk_extra: ChunkExtra::clone(prev_chunk_extra.as_ref()),
+                    storage_context,
+                }),
+                None,
+            )
         };
 
         let runtime = self.runtime_adapter.clone();
