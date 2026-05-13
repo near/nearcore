@@ -96,6 +96,7 @@ use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
 mod access_keys;
+mod action_validation;
 mod actions;
 #[cfg(test)]
 mod actions_test_utils;
