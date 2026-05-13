@@ -131,8 +131,70 @@ mod tests {
     use super::CloudStorage;
     use super::batch::BatchId;
     use super::file_id::CloudStorageFileID;
+    use crate::DBCol;
     use crate::archive::cloud_storage::bucket_config::BucketConfig;
     use near_external_storage::ExternalConnection;
+    use strum::IntoEnumIterator;
+
+    /// Cold columns whose data is carried by per-block-height batch blobs in cloud
+    /// archive, either as a direct field of `BlockData` / `ShardData` or extracted
+    /// from one of those at read time.
+    const CLOUD_BATCH_COLUMNS: &[DBCol] = &[
+        // Carried by BlockData (one entry per block).
+        DBCol::Block,
+        DBCol::BlockHeader,
+        DBCol::BlockInfo,
+        DBCol::NextBlockHashes,
+        DBCol::TransactionResultForBlock,
+        // Carried by ShardData (one entry per (block, shard)).
+        DBCol::Chunks,
+        DBCol::Transactions,
+        DBCol::Receipts,
+        DBCol::OutcomeIds,
+        DBCol::IncomingReceipts,
+        DBCol::OutgoingReceipts,
+        DBCol::ChunkExtra,
+        DBCol::ChunkApplyStats,
+        DBCol::StateChanges,
+    ];
+
+    /// Cold columns intentionally not carried by batch blobs.
+    const CLOUD_NON_BATCH_COLUMNS: &[DBCol] = &[
+        // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
+        DBCol::BlockPerHeight,
+        // TODO(cloud_archival): reconstruct from Block in the reader.
+        DBCol::ChunkHashesByHeight,
+        // TODO(cloud_archival): add to per-shard data and populate from outgoing receipts.
+        DBCol::ReceiptToTx,
+        // Per-epoch state snapshots cover state, not per-block deltas.
+        DBCol::State,
+        // Per-epoch state snapshots cover the shard-layout mapping that keys state.
+        DBCol::StateShardUIdMapping,
+        // Uploaded as a separate StateHeader file per (epoch_height, shard_id).
+        DBCol::StateHeaders,
+        // Not GC-ed; cloud archive only handles GC-ed data.
+        DBCol::StateChangesForSplitStates,
+        // Spice cold columns - cloud-archive integration is a separate task.
+        #[cfg(feature = "protocol_feature_spice")]
+        DBCol::ReceiptProofs,
+    ];
+
+    /// Every cold column must be classified as either batch-carried or
+    /// intentionally non-batch. A new cold column fails this test until
+    /// classified with a rationale.
+    #[test]
+    fn every_cold_column_is_classified_for_cloud_archive() {
+        for col in DBCol::iter() {
+            if !col.is_cold() {
+                continue;
+            }
+            assert!(
+                CLOUD_BATCH_COLUMNS.contains(&col) ^ CLOUD_NON_BATCH_COLUMNS.contains(&col),
+                "cold column {col:?} must be classified as batch or non-batch \
+                 (with a rationale)"
+            );
+        }
+    }
 
     pub fn test_cloud_storage(tmp_dir: &tempfile::TempDir) -> CloudStorage {
         CloudStorage::new(
