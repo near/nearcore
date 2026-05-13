@@ -2,7 +2,6 @@ use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
-use near_primitives_core::types::Compute;
 use near_primitives_core::types::Gas;
 use num_rational::Rational32;
 
@@ -50,15 +49,6 @@ pub struct RuntimeFeesConfigView {
     /// Pessimistic gas price inflation ratio.
     #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub pessimistic_gas_price_inflation_ratio: Rational32,
-
-    /// Compute cost charged when applying a `GlobalContractDistribution`
-    /// receipt on the receiver shard (covers precompilation overhead).
-    #[serde(default)]
-    pub deploy_global_contract_execution_base: Compute,
-    /// Per-byte compute cost charged when applying a
-    /// `GlobalContractDistribution` receipt, scaled by deployed code size.
-    #[serde(default)]
-    pub deploy_global_contract_execution_per_byte: Compute,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -201,12 +191,6 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
-                deploy_global_contract_execution_base: config
-                    .fees
-                    .deploy_global_contract_execution_base,
-                deploy_global_contract_execution_per_byte: config
-                    .fees
-                    .deploy_global_contract_execution_per_byte,
             },
             wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {

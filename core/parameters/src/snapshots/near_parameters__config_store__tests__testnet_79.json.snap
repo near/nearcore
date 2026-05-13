@@ -103,9 +103,7 @@ snapshot_kind: text
     "pessimistic_gas_price_inflation_ratio": [
       1,
       1
-    ],
-    "deploy_global_contract_execution_base": 0,
-    "deploy_global_contract_execution_per_byte": 0
+    ]
   },
   "wasm_config": {
     "ext_costs": {
