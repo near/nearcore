@@ -172,6 +172,40 @@ impl GCConfig {
     }
 }
 
+/// Configuration for the background ReceiptToTx backfill actor.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(default)]
+pub struct BackfillReceiptToTxConfig {
+    /// Whether the background backfill is enabled.
+    pub enabled: bool,
+    /// Number of heights to process per batch.
+    pub batch_size: u64,
+    /// Delay between batches.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    pub batch_delay: Duration,
+    /// Number of parallel threads for reading block data.
+    pub num_threads: usize,
+    /// Optional starting height for backward backfill. If set, the actor starts from this height
+    /// instead of chain head on first run. Useful to skip heights already covered by normal
+    /// processing.
+    #[serde(default)]
+    pub start_height: Option<BlockHeight>,
+}
+
+impl Default for BackfillReceiptToTxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            batch_size: 1000,
+            batch_delay: Duration::seconds(1),
+            num_threads: 128,
+            start_height: None,
+        }
+    }
+}
+
 fn default_num_concurrent_requests() -> u8 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
 }
@@ -783,6 +817,8 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
+    /// Background ReceiptToTx backfill configuration.
+    pub backfill_receipt_to_tx: BackfillReceiptToTxConfig,
     pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,

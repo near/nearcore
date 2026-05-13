@@ -9,7 +9,7 @@ use near_chain_configs::test_utils::{
     random_chain_id,
 };
 use near_chain_configs::{
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, BackfillReceiptToTxConfig, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
     CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
     FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
@@ -317,6 +317,9 @@ pub struct Config {
     /// Garbage collection configuration.
     #[serde(flatten)]
     pub gc: GCConfig,
+    /// Background ReceiptToTx backfill configuration.
+    #[serde(default)]
+    pub backfill_receipt_to_tx: BackfillReceiptToTxConfig,
     pub view_client_threads: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_validation_threads: Option<usize>,
@@ -476,6 +479,7 @@ impl Default for Config {
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
+            backfill_receipt_to_tx: BackfillReceiptToTxConfig::default(),
             view_client_threads: default_view_client_threads(),
             chunk_validation_threads: None,
             state_request_throttle_period: default_state_request_throttle_period(),
@@ -753,6 +757,7 @@ impl NearConfig {
                     .unwrap_or(true),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
+                backfill_receipt_to_tx: config.backfill_receipt_to_tx,
                 view_client_threads: config.view_client_threads,
                 chunk_validation_threads: config
                     .chunk_validation_threads
