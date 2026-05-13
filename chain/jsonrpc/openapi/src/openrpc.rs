@@ -8,6 +8,7 @@
 //! Usage:
 //!   cargo run -p near-jsonrpc-openapi-spec --bin near-openrpc > openrpc.json
 
+use crate::SCHEMAS_TO_REMOVE_REQUIRED_FROM;
 use near_chain_configs::GenesisConfig;
 use near_jsonrpc_primitives::types::blocks::{RpcBlockRequest, RpcBlockResponse};
 use near_jsonrpc_primitives::types::call_function::{
@@ -59,7 +60,7 @@ use near_jsonrpc_primitives::types::view_state::{RpcViewStateRequest, RpcViewSta
 use near_primitives::hash::CryptoHash;
 use schemars::JsonSchema;
 use schemars::transform::transform_subschemas;
-use serde_json::json;
+use serde_json::{Value, json};
 
 // Request types that are just empty structs
 #[derive(JsonSchema)]
@@ -598,6 +599,14 @@ const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[CartesianCollap
         },
     ],
 }];
+
+fn remove_required_from_config_schemas(schemas: &mut serde_json::Map<String, Value>) {
+    for name in SCHEMAS_TO_REMOVE_REQUIRED_FROM {
+        if let Some(Value::Object(obj)) = schemas.get_mut(*name) {
+            obj.remove("required");
+        }
+    }
+}
 
 /// Collapse cartesian product explosions in the schema.
 fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json::Value>) {
@@ -1383,6 +1392,8 @@ pub fn generate_openrpc() -> serde_json::Value {
     // the cartesian product (e.g., 3 × 8 = 24 variants). We detect these patterns
     // and collapse them back to `allOf[BlockReference, StateChangesRequestView]`.
     collapse_cartesian_products(&mut all_schemas);
+
+    remove_required_from_config_schemas(&mut all_schemas);
 
     // Build final OpenRPC document
     let mut openrpc = json!({
