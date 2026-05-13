@@ -168,21 +168,22 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         let block_hashes = self
             .height_idx
             .extract_if(..height, |_, _| true)
-            .map(|(_, block_hashes)| block_hashes)
-            .flatten();
+            .flat_map(|(_, block_hashes)| block_hashes);
         for block_hash in block_hashes {
             self.blocks_waiting_for_chunks.remove(&block_hash);
-            if let Some(chunk_hashes) = self.blocks_missing_chunks.remove(&block_hash) {
-                for chunk_hash in chunk_hashes {
-                    if let hash_map::Entry::Occupied(mut entry) =
-                        self.missing_chunks.entry(chunk_hash)
-                    {
-                        let blocks_for_chunk = entry.get_mut();
-                        blocks_for_chunk.remove(&block_hash);
-                        if blocks_for_chunk.is_empty() {
-                            entry.remove_entry();
-                        }
-                    }
+            let Some(chunk_hashes) = self.blocks_missing_chunks.remove(&block_hash) else {
+                continue;
+            };
+
+            for chunk_hash in chunk_hashes {
+                let hash_map::Entry::Occupied(mut entry) = self.missing_chunks.entry(chunk_hash)
+                else {
+                    continue;
+                };
+                let blocks_for_chunk = entry.get_mut();
+                blocks_for_chunk.remove(&block_hash);
+                if blocks_for_chunk.is_empty() {
+                    entry.remove_entry();
                 }
             }
         }
