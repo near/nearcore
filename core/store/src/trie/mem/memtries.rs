@@ -318,8 +318,26 @@ impl MaybePinnedMemtrieRoot {
             );
             return;
         };
-        assert_eq!(pin.shard_uid, shard_uid, "memtrie pin shard_uid mismatch");
-        assert_eq!(&pin.state_root, state_root, "memtrie pin state_root mismatch");
+        if pin.shard_uid != shard_uid {
+            tracing::error!(
+                target: "memtrie",
+                pin_shard_uid = ?pin.shard_uid,
+                chunk_shard_uid = ?shard_uid,
+                ?state_root,
+                "memtrie pin shard_uid mismatch",
+            );
+            debug_assert_eq!(pin.shard_uid, shard_uid, "memtrie pin shard_uid mismatch");
+        }
+        if &pin.state_root != state_root {
+            tracing::error!(
+                target: "memtrie",
+                pin_state_root = ?pin.state_root,
+                chunk_state_root = ?state_root,
+                ?shard_uid,
+                "memtrie pin state_root mismatch",
+            );
+            debug_assert_eq!(&pin.state_root, state_root, "memtrie pin state_root mismatch");
+        }
     }
 }
 
