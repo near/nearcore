@@ -246,7 +246,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         error: epochError,
         isLoading: epochIsLoading,
         isFetching,
-    } = useQuery(['epochInfo', addr, currentEpochId], () => fetchEpochInfo(addr, currentEpochId), {
+    } = useQuery<EpochInfoResponse, Error>(['epochInfo', addr, currentEpochId], () => fetchEpochInfo(addr, currentEpochId), {
         onSuccess: (data) => {
             if (!isValidEpochData(data)) {
                 return;
@@ -315,8 +315,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         return <div>Loading...</div>;
     }
     const isEpochNotFound = isClientError(epochError);
-    const otherError =
-        epochError != null && !isEpochNotFound ? (epochError as Error) : null;
+    const otherError = epochError != null && !isEpochNotFound ? epochError : null;
     const showNotFound = isEpochNotFound || (epochData != null && !epochs);
     const showTable = epochs !== null && epochError == null;
 

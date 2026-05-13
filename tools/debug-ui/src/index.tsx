@@ -15,12 +15,7 @@ const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement)
 const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
-            retry: (failureCount, error) => {
-                if (isClientError(error)) {
-                    return false;
-                }
-                return failureCount < 3;
-            },
+            retry: (failureCount, error) => !isClientError(error) && failureCount < 3,
         },
     },
 });
