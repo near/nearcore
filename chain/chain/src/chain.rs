@@ -319,6 +319,10 @@ pub struct Chain {
     on_post_state_ready_sender: Option<PostStateReadySender>,
     #[cfg(feature = "test_features")]
     pub test_paused_blocks: crate::block_processing_utils::TestPausedBlocks,
+    /// Per-Chain counter of failed optimistic-block applies, for tests that
+    /// need a node-scoped signal instead of the process-global metric.
+    #[cfg(feature = "test_features")]
+    pub failed_optimistic_block_applies: std::sync::atomic::AtomicU64,
 }
 
 impl Drop for Chain {
@@ -457,6 +461,8 @@ impl Chain {
             on_post_state_ready_sender: None,
             #[cfg(feature = "test_features")]
             test_paused_blocks: Default::default(),
+            #[cfg(feature = "test_features")]
+            failed_optimistic_block_applies: Default::default(),
         })
     }
 
@@ -639,6 +645,8 @@ impl Chain {
             on_post_state_ready_sender,
             #[cfg(feature = "test_features")]
             test_paused_blocks: Default::default(),
+            #[cfg(feature = "test_features")]
+            failed_optimistic_block_applies: Default::default(),
         })
     }
 
@@ -2067,6 +2075,9 @@ impl Chain {
                 }
                 Err(e) => {
                     metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.inc();
+                    #[cfg(feature = "test_features")]
+                    self.failed_optimistic_block_applies
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     tracing::warn!(
                         target: "chain", ?e,
                         ?prev_block_hash, %block_height, %shard_id,

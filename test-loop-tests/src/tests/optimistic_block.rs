@@ -4,7 +4,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain::metrics as chain_metrics;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkRequests;
@@ -18,6 +17,8 @@ use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "test_features")]
 use std::sync::Arc;
+#[cfg(feature = "test_features")]
+use std::sync::atomic::Ordering;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
@@ -353,6 +354,7 @@ fn test_optimistic_block_with_invalidated_outcome() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[test]
+#[cfg(feature = "test_features")]
 fn test_optimistic_apply_memtrie_gc_race() {
     let num_shards = 3;
 
@@ -360,15 +362,17 @@ fn test_optimistic_apply_memtrie_gc_race() {
     // so `last_final_block` advances past the optimistic block's prev-height
     // while the apply task is still queued.
     let slow_node: AccountId = "account0".parse().unwrap();
-    let metric_before = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
 
     // `skip_warmup`: default warmup asserts all chunks produced in the first
     // few blocks, too tight while one node's optimistic-apply is slowed.
     let mut env: TestLoopEnv = get_builder(num_shards)
         .track_all_shards()
-        .task_delay_fn(move |account, task_name| {
-            (account == &slow_node && task_name == "apply_chunks_optimistic")
-                .then(|| Duration::seconds(5))
+        .task_delay_fn({
+            let slow_node = slow_node.clone();
+            move |account, task_name| {
+                (account == &slow_node && task_name == "apply_chunks_optimistic")
+                    .then(|| Duration::seconds(5))
+            }
         })
         .skip_warmup()
         .build();
@@ -378,9 +382,14 @@ fn test_optimistic_apply_memtrie_gc_race() {
     // memtrie roots are GC'd. A head-based condition would exit too soon.
     env.test_loop.run_for(Duration::seconds(60));
 
-    let metric_after = chain_metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.get();
-    assert_eq!(
-        metric_before, metric_after,
-        "NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES rose {metric_before} -> {metric_after}",
-    );
+    let slow_node_handle = env.get_node_data_by_account_id(&slow_node).client_sender.actor_handle();
+    let failed_applies = env
+        .test_loop
+        .data
+        .get(&slow_node_handle)
+        .client
+        .chain
+        .failed_optimistic_block_applies
+        .load(Ordering::Relaxed);
+    assert_eq!(failed_applies, 0, "slow node had {failed_applies} failed optimistic-block applies",);
 }
