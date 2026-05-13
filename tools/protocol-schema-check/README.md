@@ -20,9 +20,7 @@ For context on why this tool is necessary, refer to [this pull request](https://
 ## Usage
 
 Run the tool locally using:
-`RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly run -p protocol-schema-check`
-
-On MacOS, prepend this with `CARGO_INCREMENTAL=0` to avoid a [known issue](https://github.com/dtolnay/inventory/issues/52) with incremental compilation.
+`cargo run -p protocol-schema-check`
 
 ## What To Do If It Fails
 

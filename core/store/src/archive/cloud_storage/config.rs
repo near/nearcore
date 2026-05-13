@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 /// Configuration for a cloud-based archival node.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalConfig {
     /// The storage location of the archival data.
     pub location: ExternalStorageLocation,
