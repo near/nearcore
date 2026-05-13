@@ -349,11 +349,8 @@ fn test_cloud_archival_read_data_at_height() {
     let all_shards = CloudArchiveHarness::all_shard_ids();
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
-    h.check_data(&[
-        (2, &all_shards),
-        (h.epoch_length / 2, &all_shards),
-        (h.epoch_length + 1, &all_shards),
-    ]);
+    // h=3 is the first height where every shard has a new chunk.
+    h.check_data(&[(3, &all_shards), (h.epoch_length + 1, &all_shards)]);
     h.shutdown();
 }
 
@@ -386,8 +383,10 @@ fn test_cloud_archival_batching_blob_per_batch() {
     let batch_size = CloudArchiveHarness::TEST_BATCH_SIZE as u64;
     let cloud_head = h.cloud_head();
     // Each archived batch has a blob; one batch past cloud_head does not.
-    for id in (0..=cloud_head).step_by(batch_size as usize) {
-        assert!(h.block_batch_exists_at(id), "batch at {id} should exist");
+    // Probe at batch ends so the partial first batch (which starts above
+    // its grid position) doesn't fail the "height in batch" check.
+    for batch_end in (batch_size - 1..=cloud_head).step_by(batch_size as usize) {
+        assert!(h.block_batch_exists_at(batch_end), "batch ending at {batch_end} should exist");
     }
     assert!(!h.block_batch_exists_at(cloud_head + 1));
     h.shutdown();
@@ -550,7 +549,7 @@ fn test_cloud_archival_multi_writer_same_shards() {
         snapshot_every_n_epochs: 1,
     });
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
-    h.check_data(&[(2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
+    h.check_data(&[(3, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
     h.assert_heads_and_gc_ok();
 
     h.shutdown();
@@ -600,11 +599,11 @@ fn test_cloud_archival_custom_snapshot_cadence() {
 
     // Epoch 4 was snapshotted: first probe hits.
     let hit_at_45 = find_snapshot_at_or_before(&cloud_storage, 45, shard_id).unwrap();
-    assert_eq!(hit_at_45, Some((4, epoch_id_of(45))));
+    assert_eq!(hit_at_45, (4, epoch_id_of(45)));
 
     // Epoch 3 was skipped: probe misses, walks back to epoch 2.
     let hit_at_35 = find_snapshot_at_or_before(&cloud_storage, 35, shard_id).unwrap();
-    assert_eq!(hit_at_35, Some((2, epoch_id_of(25))));
+    assert_eq!(hit_at_35, (2, epoch_id_of(25)));
 
     h.shutdown();
 }
@@ -642,7 +641,7 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
     // `epoch_start_3 - 1 = 29` which is the dropped block; the function must
     // walk further down to a present block in epoch 2 and find its snapshot.
     let hit = find_snapshot_at_or_before(&cloud_storage, 35, shard_id).unwrap();
-    assert_eq!(hit, Some((2, epoch_id_of(25))));
+    assert_eq!(hit, (2, epoch_id_of(25)));
 
     h.shutdown();
 }

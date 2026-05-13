@@ -85,7 +85,12 @@ impl CloudStorage {
         block_height: BlockHeight,
     ) -> Result<BlockBatch, CloudRetrievalError> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
-        block_on_future(self.retrieve_block_batch(batch_id))
+        let batch = block_on_future(self.retrieve_block_batch(batch_id))?;
+        if block_height < batch.start_height() || block_height > batch.end_height() {
+            // Batch is partial and doesn't cover the requested height (e.g. pre-writer-init).
+            return Err(CloudRetrievalError::NoBlockData { height: block_height });
+        }
+        Ok(batch)
     }
 
     /// Fetches the full shard batch containing `block_height`. See
@@ -96,7 +101,12 @@ impl CloudStorage {
         shard_id: ShardId,
     ) -> Result<ShardBatch, CloudRetrievalError> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
-        block_on_future(self.retrieve_shard_batch(shard_id, batch_id))
+        let batch = block_on_future(self.retrieve_shard_batch(shard_id, batch_id))?;
+        if block_height < batch.start_height() || block_height > batch.end_height() {
+            // Batch is partial and doesn't cover the requested height (e.g. pre-resharding child).
+            return Err(CloudRetrievalError::NoShardData { height: block_height, shard_id });
+        }
+        Ok(batch)
     }
 
     /// Test-only: fetch a single block's data. Production callers must go

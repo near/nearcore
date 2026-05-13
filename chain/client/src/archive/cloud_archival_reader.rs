@@ -5,6 +5,15 @@ use near_store::archive::cloud_storage::{BlockData, CloudRetrievalError, CloudSt
 use near_store::{DBCol, Store};
 use std::collections::HashSet;
 
+/// Errors from reader-side custom logic on top of cloud retrieval.
+#[derive(thiserror::Error, Debug)]
+pub enum CloudArchivalReaderError {
+    #[error(transparent)]
+    Retrieval(#[from] CloudRetrievalError),
+    #[error("walked back to genesis without finding a state snapshot")]
+    NoSnapshotFound,
+}
+
 /// Writes block-level data from cloud storage into the local store.
 ///
 /// The merkle tree is updated incrementally: the previous block's tree is read,
@@ -127,11 +136,7 @@ pub fn find_present_block_at_or_below(
         if let Some(block) = batch.get_block_at_height(h) {
             return Ok((h, block.clone()));
         }
-        if h == 0 {
-            return Err(CloudRetrievalError::Other {
-                reason: format!("no present block at-or-below {height}"),
-            });
-        }
+        assert!(h > 0, "walked past height 0 without finding the genesis block");
         h -= 1;
     }
 }
@@ -170,13 +175,13 @@ fn backfill_epoch_start(
 }
 
 /// Walks epochs backward from `height` and returns the first `(epoch_height, epoch_id)`
-/// whose state-header is present in cloud for `shard_id`, or `None` after the genesis
-/// epoch.
+/// whose state-header is present in cloud for `shard_id`. Errors when the walk-back
+/// reaches below the earliest archived data without finding a snapshot.
 pub fn find_snapshot_at_or_before(
     cloud_storage: &CloudStorage,
     height: BlockHeight,
     shard_id: ShardId,
-) -> anyhow::Result<Option<(EpochHeight, EpochId)>> {
+) -> Result<(EpochHeight, EpochId), CloudArchivalReaderError> {
     let (_, initial_block) = find_present_block_at_or_below(cloud_storage, height)?;
     let mut epoch_id = *initial_block.block().header().epoch_id();
 
@@ -188,16 +193,18 @@ pub fn find_snapshot_at_or_before(
         tracing::info!(epoch_height, ?epoch_id, "probing for state snapshot");
 
         if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id)? {
-            return Ok(Some((epoch_height, epoch_id)));
-        }
-        if epoch_height == 0 {
-            return Ok(None);
+            return Ok((epoch_height, epoch_id));
         }
 
-        // Miss: step to previous epoch. The chain may have skipped slots
-        // between the last block of the previous epoch and the first block
-        // of this one, so `epoch_start - 1` itself may be missing - walk
-        // down to the nearest present block.
+        let batch = cloud_storage.get_block_batch_for_height(epoch_start_height)?;
+        // Epoch start is by chain definition always produced; if it's None in cloud
+        // we don't have earlier chain data, so the walk-back can't continue.
+        let Some(epoch_start_block) = batch.get_block_at_height(epoch_start_height) else {
+            return Err(CloudArchivalReaderError::NoSnapshotFound);
+        };
+        if epoch_start_block.block_info().is_genesis() {
+            return Err(CloudArchivalReaderError::NoSnapshotFound);
+        }
         let (_, prev_block) =
             find_present_block_at_or_below(cloud_storage, epoch_start_height - 1)?;
         epoch_id = *prev_block.block().header().epoch_id();

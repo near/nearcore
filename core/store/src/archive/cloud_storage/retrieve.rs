@@ -21,10 +21,12 @@ pub enum CloudRetrievalError {
     ListError { dir: String, error: anyhow::Error },
     #[error("Invalid file {file_id:?} from the cloud archive: {reason}")]
     InvalidFile { file_id: CloudStorageFileID, reason: String },
-    // TODO(cloud_archival): split reader-side errors into a dedicated
-    // `CloudReaderError` enum once more variants exist.
-    #[error("{reason}")]
-    Other { reason: String },
+    /// E.g. before writer init.
+    #[error("No block data in cloud for height {height}")]
+    NoBlockData { height: BlockHeight },
+    /// E.g. pre-resharding for a child shard.
+    #[error("No shard {shard_id} data in cloud for height {height}")]
+    NoShardData { height: BlockHeight, shard_id: ShardId },
 }
 
 impl CloudStorage {

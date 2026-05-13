@@ -228,7 +228,7 @@ pub(crate) fn check_data_at_height_for_shards(
             );
         } else {
             assert!(
-                matches!(cloud_storage.get_shard_data(height, *shard_id), Ok(None)),
+                cloud_storage.get_shard_data(height, *shard_id).is_err(),
                 "shard data for shard {shard_id} should NOT exist at height {height}"
             );
         }
