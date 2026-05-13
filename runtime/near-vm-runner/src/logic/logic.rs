@@ -3436,8 +3436,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     }
 
     /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID
-    /// and timeout. The yield ID must be exactly 32 bytes. The `data_id` is written to
-    /// `register_id`.
+    /// and timeout. The yield ID must be exactly 32 bytes. The yield is resumed via
+    /// [`promise_yield_resume_with_id`] using the same yield ID.
     pub fn promise_yield_create_with_id(
         &mut self,
         method_name_len: u64,
@@ -3449,7 +3449,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         yield_id_len: u64,
         yield_id_ptr: u64,
         yield_timeout_blocks: u64,
-        register_id: u64,
     ) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
@@ -3489,7 +3488,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         // Here we are creating a receipt with a single data dependency which will then be
         // resolved by the resume call.
         self.pay_gas_for_new_receipt(true, &[true])?;
-        let (new_receipt_idx, data_id) = self.ext.create_promise_yield_receipt_with_id(
+        let (new_receipt_idx, _data_id) = self.ext.create_promise_yield_receipt_with_id(
             self.context.current_account_id.clone(),
             user_yield_id,
             yield_timeout_blocks,
@@ -3507,12 +3506,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             GasWeight(gas_weight),
         )?;
 
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            *data_id.as_bytes(),
-        )?;
         Ok(new_promise_idx)
     }
 

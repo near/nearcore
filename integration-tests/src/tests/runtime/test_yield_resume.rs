@@ -170,98 +170,6 @@ fn resume_without_yield() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create_with_id_then_resume() {
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
-
-    let yield_payload = vec![6u8; 16];
-    let key = 123u64.to_le_bytes().to_vec();
-
-    // Set up the yield execution using yield_create_with_id
-    let res = node
-        .user()
-        .function_call(
-            "alice.near".parse().unwrap(),
-            "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id_return_data_id",
-            yield_payload.clone(),
-            MAX_GAS,
-            Balance::ZERO,
-        )
-        .unwrap();
-
-    let data_id = match res.status {
-        FinalExecutionStatus::SuccessValue(data_id) => data_id,
-        _ => {
-            panic!("{res:?} unexpected result; expected some data id");
-        }
-    };
-
-    // Call yield resume with the payload followed by the data id
-    let args: Vec<u8> = yield_payload.into_iter().chain(data_id.into_iter()).collect();
-    let res = node
-        .user()
-        .function_call(
-            "alice.near".parse().unwrap(),
-            "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume",
-            args,
-            MAX_GAS,
-            Balance::ZERO,
-        )
-        .unwrap();
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(vec![1u8]),
-        "{res:?} unexpected result; expected 1",
-    );
-
-    // Confirm that the yield callback was executed
-    let res = node
-        .user()
-        .function_call(
-            "alice.near".parse().unwrap(),
-            "test_contract.alice.near".parse().unwrap(),
-            "read_value",
-            key,
-            MAX_GAS,
-            Balance::ZERO,
-        )
-        .unwrap();
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue("Resumed ".as_bytes().to_vec()),
-        "{res:?} unexpected result",
-    );
-}
-
-#[test]
-#[cfg(feature = "nightly")]
-fn create_with_id_and_resume_in_one_call() {
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
-
-    let yield_payload = vec![23u8; 16];
-
-    let res = node
-        .user()
-        .function_call(
-            "alice.near".parse().unwrap(),
-            "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id_and_resume",
-            yield_payload,
-            MAX_GAS,
-            Balance::ZERO,
-        )
-        .unwrap();
-
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(vec![16u8]),
-        "{res:?} unexpected result; expected 16",
-    );
-}
-
-#[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_then_resume_with_id() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
@@ -279,18 +187,15 @@ fn create_with_id_then_resume_with_id() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id_return_data_id",
+            "call_yield_create_with_id",
             yield_payload.clone(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
-    assert!(
-        matches!(res.status, FinalExecutionStatus::SuccessValue(_)),
-        "{res:?} unexpected result"
-    );
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 
-    // Resume using yield_resume_with_id with the yield_id (not data_id)
+    // Resume using yield_resume_with_id with the yield_id
     let args: Vec<u8> = yield_id.iter().copied().chain(yield_payload.iter().copied()).collect();
     let res = node
         .user()
@@ -424,16 +329,13 @@ fn create_with_id_then_resume_with_yield_id_fails() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id_return_data_id",
+            "call_yield_create_with_id",
             yield_payload.clone(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
-    assert!(
-        matches!(res.status, FinalExecutionStatus::SuccessValue(_)),
-        "{res:?} unexpected result"
-    );
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 
     // Try to resume using yield_id as data_id (call_yield_resume expects
     // payload followed by data_id at the end, so we pass yield_id where

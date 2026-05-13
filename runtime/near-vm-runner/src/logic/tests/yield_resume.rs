@@ -136,7 +136,6 @@ fn test_promise_yield_create_with_id() {
     let args = logic.internal_mem_write(b"arg_data");
     let yield_id = [42u8; 32];
     let yield_id_mem = logic.internal_mem_write(&yield_id);
-    let register_id = 0u64;
 
     let promise_idx = logic
         .promise_yield_create_with_id(
@@ -149,15 +148,10 @@ fn test_promise_yield_create_with_id() {
             yield_id_mem.len,
             yield_id_mem.ptr,
             200,
-            register_id,
         )
         .expect("yield_create_with_id should succeed");
 
     assert_eq!(promise_idx, 0);
-
-    // Verify data_id was written to the register (32 bytes)
-    let data_id_len = logic.registers().get_len(register_id).unwrap();
-    assert_eq!(data_id_len, CryptoHash::LENGTH as u64);
 
     drop(logic);
 
@@ -166,53 +160,6 @@ fn test_promise_yield_create_with_id() {
         logic_builder.ext.action_log.iter().any(|a| matches!(a, MockAction::YieldCreate { .. })),
         "expected YieldCreate in action log"
     );
-}
-
-#[test]
-fn test_promise_yield_create_with_id_and_resume() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let mut logic_builder = VMLogicBuilder::free();
-    let mut logic = logic_builder.build();
-
-    // Create a yield with custom ID
-    let method_name = logic.internal_mem_write(b"callback");
-    let args = logic.internal_mem_write(b"args");
-    let yield_id = [7u8; 32];
-    let yield_id_mem = logic.internal_mem_write(&yield_id);
-
-    logic
-        .promise_yield_create_with_id(
-            method_name.len,
-            method_name.ptr,
-            args.len,
-            args.ptr,
-            0,
-            1,
-            yield_id_mem.len,
-            yield_id_mem.ptr,
-            200,
-            0,
-        )
-        .expect("yield_create_with_id should succeed");
-
-    // Read data_id from register 0
-    let data_id_len = logic.registers().get_len(0).unwrap();
-    let ptr = 1024u64;
-    logic.read_register(0, ptr).unwrap();
-    let data_id_bytes = logic.internal_mem_read(ptr, data_id_len);
-
-    // Resume using the data_id
-    let data_id_mem = logic.internal_mem_write(&data_id_bytes);
-    let payload = logic.internal_mem_write(b"resumed_payload");
-
-    let result = logic
-        .promise_yield_resume(data_id_mem.len, data_id_mem.ptr, payload.len, payload.ptr)
-        .expect("yield_resume should succeed");
-
-    assert_eq!(result, 1u32, "resume should succeed");
 }
 
 #[test]
@@ -240,7 +187,6 @@ fn test_promise_yield_create_with_id_invalid_yield_id_length() {
         yield_id_mem.len,
         yield_id_mem.ptr,
         200,
-        0,
     );
 
     assert!(
@@ -273,7 +219,6 @@ fn test_promise_yield_create_with_id_invalid_timeout() {
         yield_id_mem.len,
         yield_id_mem.ptr,
         100, // invalid — only 200 accepted
-        0,
     );
 
     assert!(
@@ -311,7 +256,6 @@ fn test_promise_yield_create_with_id_empty_method_name() {
         yield_id_mem.len,
         yield_id_mem.ptr,
         200,
-        0,
     );
 
     assert!(
@@ -345,7 +289,6 @@ fn test_promise_yield_create_with_id_view_prohibited() {
         yield_id_mem.len,
         yield_id_mem.ptr,
         200,
-        0,
     );
 
     assert!(
@@ -382,7 +325,6 @@ fn test_promise_yield_resume_with_id_after_create_with_id() {
             yield_id_mem.len,
             yield_id_mem.ptr,
             200,
-            0,
         )
         .expect("yield_create_with_id should succeed");
 
@@ -476,7 +418,6 @@ fn test_promise_yield_create_with_id_then_resume_with_yield_id_fails() {
             yield_id_mem.len,
             yield_id_mem.ptr,
             200,
-            0,
         )
         .expect("yield_create_with_id should succeed");
 
@@ -568,7 +509,6 @@ fn test_promise_yield_create_with_id_duplicate_in_same_call() {
             yield_id_mem.len,
             yield_id_mem.ptr,
             200,
-            0,
         )
         .expect("first yield_create_with_id should succeed");
 
@@ -584,7 +524,6 @@ fn test_promise_yield_create_with_id_duplicate_in_same_call() {
         yield_id_mem2.len,
         yield_id_mem2.ptr,
         200,
-        0,
     );
 
     assert!(

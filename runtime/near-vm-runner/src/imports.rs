@@ -310,8 +310,7 @@ imports! {
         gas_weight: u64,
         yield_id_len: u64,
         yield_id_ptr: u64,
-        yield_timeout_blocks: u64,
-        register_id: u64
+        yield_timeout_blocks: u64
     ] -> [u64]>,
     promise_yield_resume<[
         data_id_len: u64,

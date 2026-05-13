@@ -209,7 +209,6 @@ extern "C" {
         yield_id_len: u64,
         yield_id_ptr: u64,
         yield_timeout_blocks: u64,
-        register_id: u64,
     ) -> u64;
     fn promise_yield_resume(
         data_id_len: u64,
@@ -1311,15 +1310,15 @@ pub unsafe fn call_yield_create_and_resume() {
 }
 
 /// Call promise_yield_create_with_id with a deterministic yield_id derived from input.
-/// Returns the data_id produced by promise_yield_create_with_id.
+/// Writes the callback status under `yield_callback_status_key` so the test can check
+/// whether the callback executed.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_create_with_id_return_data_id() {
+pub unsafe fn call_yield_create_with_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as *mut u8);
 
-    // Use a fixed yield_id (32 bytes of zeros, overwritten with payload prefix)
     let mut yield_id = [0u8; 32];
     let copy_len = payload.len().min(32);
     yield_id[..copy_len].copy_from_slice(&payload[..copy_len]);
@@ -1327,7 +1326,6 @@ pub unsafe fn call_yield_create_with_id_return_data_id() {
     let method_name = "check_promise_result_write_status";
     let gas_fixed = 0;
     let gas_weight = 1;
-    let data_id_register = 0;
     let yield_timeout_blocks = 200u64;
     promise_yield_create_with_id(
         method_name.len() as u64,
@@ -1339,58 +1337,7 @@ pub unsafe fn call_yield_create_with_id_return_data_id() {
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         yield_timeout_blocks,
-        data_id_register,
     );
-
-    let data_id = vec![0u8; register_len(0) as usize];
-    read_register(data_id_register, data_id.as_ptr() as *mut u8);
-
-    value_return(data_id.len() as u64, data_id.as_ptr() as u64);
-}
-
-/// Call promise_yield_create_with_id and promise_yield_resume within the same function.
-#[cfg(feature = "nightly")]
-#[unsafe(no_mangle)]
-pub unsafe fn call_yield_create_with_id_and_resume() {
-    input(0);
-    let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as *mut u8);
-
-    let mut yield_id = [0u8; 32];
-    let copy_len = payload.len().min(32);
-    yield_id[..copy_len].copy_from_slice(&payload[..copy_len]);
-
-    let method_name = "check_promise_result_return_value";
-    let gas_fixed = 0;
-    let gas_weight = 1;
-    let data_id_register = 0;
-    let yield_timeout_blocks = 200u64;
-    let promise_index = promise_yield_create_with_id(
-        method_name.len() as u64,
-        method_name.as_ptr() as u64,
-        payload.len() as u64,
-        payload.as_ptr() as u64,
-        gas_fixed,
-        gas_weight,
-        yield_id.len() as u64,
-        yield_id.as_ptr() as u64,
-        yield_timeout_blocks,
-        data_id_register,
-    );
-
-    let data_id = vec![0u8; register_len(0) as usize];
-    read_register(data_id_register, data_id.as_ptr() as *mut u8);
-
-    // Resolve the promise yield with the expected payload
-    let success = promise_yield_resume(
-        data_id.len() as u64,
-        data_id.as_ptr() as u64,
-        payload.len() as u64,
-        payload.as_ptr() as u64,
-    );
-    assert_eq!(success, 1u32);
-
-    promise_return(promise_index);
 }
 
 /// Call promise_yield_create_with_id twice with the same yield_id derived from input.
@@ -1409,7 +1356,6 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
     let method_name = "check_promise_result_return_value";
     let gas_fixed = 0;
     let gas_weight = 1;
-    let data_id_register = 0;
     let yield_timeout_blocks = 200u64;
 
     // First call should succeed
@@ -1423,7 +1369,6 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         yield_timeout_blocks,
-        data_id_register,
     );
 
     // Second call with the same yield_id should abort with YieldIdAlreadyExists
@@ -1437,7 +1382,6 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         yield_timeout_blocks,
-        data_id_register,
     );
 }
 
@@ -1465,8 +1409,7 @@ pub unsafe fn call_yield_resume_with_id() {
     value_return(result.len() as u64, result.as_ptr() as u64);
 }
 
-/// Call promise_yield_create_with_id and promise_yield_resume_with_id within the same function,
-/// using the yield_id (not data_id) for the resume.
+/// Call promise_yield_create_with_id and promise_yield_resume_with_id within the same function.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
@@ -1481,7 +1424,6 @@ pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
     let method_name = "check_promise_result_return_value";
     let gas_fixed = 0;
     let gas_weight = 1;
-    let data_id_register = 0;
     let yield_timeout_blocks = 200u64;
     let promise_index = promise_yield_create_with_id(
         method_name.len() as u64,
@@ -1493,10 +1435,9 @@ pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         yield_timeout_blocks,
-        data_id_register,
     );
 
-    // Resume using the yield_id (not the data_id)
+    // Resume using the yield_id
     let success = promise_yield_resume_with_id(
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,

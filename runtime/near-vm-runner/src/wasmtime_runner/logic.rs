@@ -3788,7 +3788,6 @@ pub fn promise_yield_create_with_id(
     yield_id_len: u64,
     yield_id_ptr: u64,
     yield_timeout_blocks: u64,
-    register_id: u64,
 ) -> Result<u64> {
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3844,7 +3843,7 @@ pub fn promise_yield_create_with_id(
     ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
     pay_gas_for_new_receipt(&mut ctx.result_state.gas_counter, &ctx.fees_config, true, &[true])?;
-    let (new_receipt_idx, data_id) = ctx.ext.create_promise_yield_receipt_with_id(
+    let (new_receipt_idx, _data_id) = ctx.ext.create_promise_yield_receipt_with_id(
         ctx.context.current_account_id.clone(),
         user_yield_id,
         yield_timeout_blocks,
@@ -3873,12 +3872,6 @@ pub fn promise_yield_create_with_id(
         GasWeight(gas_weight),
     )?;
 
-    ctx.registers.set(
-        &mut ctx.result_state.gas_counter,
-        &ctx.config.limit_config,
-        register_id,
-        *data_id.as_bytes(),
-    )?;
     Ok(new_promise_idx)
 }
 
