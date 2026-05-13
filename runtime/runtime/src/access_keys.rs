@@ -389,6 +389,7 @@ mod tests {
             random_seed: CryptoHash::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,

@@ -485,6 +485,24 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         })
     }
 
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        // Existence-only check: avoids `get`'s full file read + `Vec`
+        // allocation for the cached artifact. Used on hot paths
+        // (e.g. `VM::contract_cached`) where the caller only needs to know
+        // whether the entry exists, not its bytes.
+        let filename = key.to_string();
+        match rustix::fs::accessat(
+            &self.state.dir,
+            &filename,
+            rustix::fs::Access::EXISTS,
+            rustix::fs::AtFlags::empty(),
+        ) {
+            Ok(()) => Ok(true),
+            Err(rustix::io::Errno::NOENT) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Clears the in-memory cache and files in the cache directory.
     ///
     /// The cache must be created using `test` method, otherwise this method will panic.
@@ -731,6 +749,30 @@ pub fn precompile_contract(
         None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
     };
     runtime.precompile(code, cache)
+}
+
+/// Like [`precompile_contract`], but returns immediately if another thread is
+/// already compiling the same contract. Intended for opportunistic background
+/// warming on a low-priority pool: if a higher-priority worker (or any other
+/// caller) is already running `compile_and_cache` for this contract's cache
+/// key, this call reports `ContractAlreadyInCache` and lets the in-flight
+/// compiler populate the cache, instead of blocking a warming worker thread
+/// on the per-key compilation lock.
+pub fn try_precompile_contract(
+    code: &ContractCode,
+    config: Arc<Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
+) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
+    let _span = tracing::debug_span!(target: "vm", "try_precompile_contract").entered();
+    let vm_kind = config.vm_kind;
+    let runtime = vm_kind
+        .runtime(Arc::clone(&config))
+        .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    let cache = match cache {
+        Some(it) => it,
+        None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
+    };
+    runtime.try_precompile(code, cache)
 }
 
 #[cfg(test)]

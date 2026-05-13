@@ -81,9 +81,38 @@ static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
 /// dropped.
 type CompilationLocks = parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>;
 
+/// One cache entry: the serialized wasmtime module bytes, or the cached
+/// [`CompilationError`] from a prior failed compile of the same code.
+type CachedArtifact = Result<Vec<u8>, CompilationError>;
+
 pub(crate) fn compilation_locks() -> &'static CompilationLocks {
     static LOCKS: OnceLock<CompilationLocks> = OnceLock::new();
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
+
+/// Helper for the double-checked-locking cache read used by
+/// `compile_and_cache` and `try_compile_and_cache`. Returns
+/// `Ok(Some(_))` if the cache already has an entry for `key`.
+fn read_cache(
+    cache: &dyn ContractRuntimeCache,
+    key: &CryptoHash,
+) -> Result<Option<CachedArtifact>, CacheError> {
+    Ok(cache.get(key).map_err(CacheError::ReadError)?.map(|info| match info.compiled {
+        CompiledContract::Code(module) => Ok(module),
+        CompiledContract::CompileModuleError(err) => Err(err),
+    }))
+}
+
+/// On drop, removes the corresponding entry from `compilation_locks`. Owned
+/// only by the thread that actually held the per-key compilation lock — a
+/// best-effort caller that fails `try_lock` must not construct this, to
+/// avoid tearing down the entry while another thread is compiling.
+struct LockMapCleanup(CryptoHash);
+
+impl Drop for LockMapCleanup {
+    fn drop(&mut self) {
+        compilation_locks().lock().remove(&self.0);
+    }
 }
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
@@ -497,10 +526,7 @@ impl WasmtimeVM {
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
-    pub(crate) fn compile_uncached(
-        &self,
-        code: &ContractCode,
-    ) -> Result<Vec<u8>, CompilationError> {
+    pub(crate) fn compile_uncached(&self, code: &ContractCode) -> CachedArtifact {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
@@ -535,39 +561,98 @@ impl WasmtimeVM {
         name = "Wasmtime::compile_and_cache",
         skip_all
     )]
-    /// Compile a contract and store the result in the cache. Uses a
-    /// per-contract-cache-key lock to prevent duplicate compilations when
-    /// multiple threads race on the same contract (e.g. precompile_contracts
-    /// vs validate_chunk_state_witness).
+    /// Compile a contract and store the result in the cache. Blocks on the
+    /// per-key compilation lock while another thread is compiling the same
+    /// contract — use when the caller needs the artifact (synchronous apply
+    /// path, foreground pipelining).
     fn compile_and_cache(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<Vec<u8>, CompilationError>, CacheError> {
+    ) -> Result<CachedArtifact, CacheError> {
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
 
-        // Acquire a per-key lock so only one thread compiles a given contract.
-        // Cleanup is declared before guard so that on drop, the per-key mutex
-        // is released first (_guard drops), then the map entry is removed
-        // (_cleanup drops). Locals drop in reverse declaration order.
+        // Double-checked locking — outer step. An unlocked cache check before
+        // touching `compilation_locks` lets already-cached cases skip both
+        // mutex acquires entirely.
+        if let Some(compiled) = read_cache(cache, &key)? {
+            return Ok(compiled);
+        }
+        self.compile_under_held_lock(key, code, cache)
+    }
+
+    #[tracing::instrument(
+        level = "debug",
+        target = "vm",
+        name = "Wasmtime::try_compile_and_cache",
+        skip_all
+    )]
+    /// Like [`Self::compile_and_cache`], but returns `Ok(None)` when no
+    /// fresh compile happened (cache hit or another thread holds the
+    /// per-key lock).
+    fn try_compile_and_cache(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<Option<CachedArtifact>, CacheError> {
+        let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
+        if cache.has(&key).map_err(CacheError::ReadError)? {
+            return Ok(None);
+        }
+        self.try_compile_under_held_lock(key, code, cache)
+    }
+
+    /// Acquire the per-key compilation lock (blocking), then run the inner
+    /// DCL check + actual compile + cache write. Lock acquisition lives here
+    /// so callers can't accidentally invoke the post-lock work without
+    /// holding the lock.
+    fn compile_under_held_lock(
+        &self,
+        key: CryptoHash,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<CachedArtifact, CacheError> {
         let lock = compilation_locks().lock().entry(key).or_default().clone();
-        struct Cleanup(CryptoHash);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                compilation_locks().lock().remove(&self.0);
-            }
-        }
-        let _cleanup = Cleanup(key);
+        let _cleanup = LockMapCleanup(key);
         let _guard = lock.lock();
+        self.compile_and_persist(key, code, cache)
+    }
 
-        // Check the disk cache: another thread may have compiled while we waited.
-        if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
-            match info.compiled {
-                CompiledContract::Code(module) => return Ok(Ok(module)),
-                CompiledContract::CompileModuleError(err) => return Ok(Err(err)),
-            }
+    /// Like [`Self::compile_under_held_lock`], but uses `try_lock` and
+    /// returns `Ok(None)` when another thread already holds the per-key lock.
+    fn try_compile_under_held_lock(
+        &self,
+        key: CryptoHash,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<Option<CachedArtifact>, CacheError> {
+        let lock = compilation_locks().lock().entry(key).or_default().clone();
+        let Some(guard) = lock.try_lock() else {
+            tracing::trace!(
+                target: "vm",
+                %key,
+                "deferring warming compile to in-flight compiler"
+            );
+            return Ok(None);
+        };
+        let _cleanup = LockMapCleanup(key);
+        let _guard = guard;
+        self.compile_and_persist(key, code, cache).map(Some)
+    }
+
+    /// Inner DCL re-check + actual compile + cache write. Must be called
+    /// with the per-key compilation lock for `key` held; the two
+    /// `*_under_held_lock` wrappers above enforce that.
+    fn compile_and_persist(
+        &self,
+        key: CryptoHash,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<CachedArtifact, CacheError> {
+        // The cache may have been populated while we waited on the per-key lock.
+        if let Some(compiled) = read_cache(cache, &key)? {
+            return Ok(compiled);
         }
-
         let serialized_or_error = self.compile_uncached(code);
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
@@ -747,6 +832,26 @@ impl crate::runner::VM for WasmtimeVM {
         Ok(self
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
+    }
+
+    fn try_precompile(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
+        if self.contract_cached(cache, *code.hash())? {
+            return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
+        }
+        match self.try_compile_and_cache(code, cache)? {
+            // Either the cache was populated between our outer `contract_cached`
+            // check and the inner one, or another thread holds the per-key lock
+            // and is compiling — both cases resolve to `ContractAlreadyInCache`.
+            None => Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
+            Some(result) => Ok(result.map(|_| ContractPrecompilatonResult::ContractCompiled)),
+        }
     }
 
     fn prepare(
