@@ -8,6 +8,7 @@ from .base import TestSetup, NodeHardware, time_to_str
 from mirror import CommandContext, update_config_cmd, run_remote_cmd, start_nodes_cmd
 
 import copy
+import shlex
 from utils import PartitionSelector, ScheduleMode
 from datetime import datetime, timedelta
 
@@ -27,6 +28,13 @@ class TestReleaseCandidate(TestSetup):
         - neard_upgrade_binary_url: The URL of the neard binary to upgrade to.
         - genesis_protocol_version: The starting protocol version to use for the network.
     """
+
+    # (account_id, public_key, private_key). Only account_id is mandatory;
+    # public/private must be supplied together or both left None (script
+    # falls back to its defaults when only the account is given).
+    stress_signers = [
+        ("astro-stakers.poolv1.near", None, None),
+    ]
 
     def __init__(self, args):
         super().__init__(args)
@@ -158,9 +166,18 @@ class TestReleaseCandidate(TestSetup):
         """
         Schedule slow_compile_adversarial.py to start delay_minutes after the
         network start. The traffic node is itself an RPC node, so we
-        point the script at localhost:3030. The script signs as the
-        forknet-injected full-access key for `astro-stakers.poolv1.near`.
+        point the script at localhost:3030. Every entry in
+        `self.stress_signers` is forwarded as a `--signer` flag whose value
+        is a 1- or 3-element CSV (`account_id` or
+        `account_id,public_key,private_key`).
         """
+        signer_flags = []
+        for account_id, public_key, private_key in self.stress_signers:
+            if public_key and private_key:
+                csv = f"{account_id},{public_key},{private_key}"
+            else:
+                csv = account_id
+            signer_flags.append(f"--signer {shlex.quote(csv)}")
 
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = "traffic"
@@ -169,7 +186,7 @@ class TestReleaseCandidate(TestSetup):
             "&& /home/ubuntu/.near/target/neard-runner/venv/bin/python pytest/tests/mocknet/slow_compile_adversarial.py "
             "--rpc-url http://localhost:3030 "
             "--concurrency 5 "
-            "--tps 1"
+            "--tps 1 " + " ".join(signer_flags)
         )
         run_cmd_args.on = ScheduleMode(mode="calendar", value=time_to_str(run_at))
         run_cmd_args.schedule_id = schedule_id
