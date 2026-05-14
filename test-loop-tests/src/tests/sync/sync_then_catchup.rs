@@ -40,8 +40,6 @@ use near_primitives::types::{Balance, ShardId};
 //   - Node survives shard schedule rotation (catchup path fires)
 //   - No panics during partial encoded chunk creation after catchup
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sync_then_shard_catchup() {
     if !SYNC_V2_ENABLED {
         return;
@@ -117,7 +115,6 @@ fn test_sync_then_shard_catchup() {
 //   - Node advanced 3+ full epochs after sync (shard rotation happened)
 //   - No panics during catchup for newly tracked shards
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_sync_then_shard_catchup() {
     if !SYNC_V2_ENABLED {
         return;

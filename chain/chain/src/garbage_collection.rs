@@ -1425,20 +1425,38 @@ fn gc_state(
             .cares_about_shard_this_or_next_epoch(&latest_block_hash, shard_uid.shard_id())
     });
 
-    // reverse iterate over the epochs starting from epoch of latest_block_hash upto gc_epoch
-    // The current_block_hash is the hash of the last block in the current iteration epoch.
+    // Reverse iterate over the epochs from latest_block_hash's epoch back to (but not
+    // including) gc_epoch, removing from shards_to_cleanup any shard the node tracked
+    // in any intermediate epoch. Under non-SPICE, "we have TrieChanges for some block
+    // in this epoch" is a faithful proxy because chunk apply happens synchronously
+    // with block processing — if we tracked the shard, TrieChanges exists. Under
+    // SPICE chunk apply is async, so we can be midway through an epoch's execution
+    // (no TrieChanges yet) while still holding TrieChanges for older blocks of that
+    // same epoch that reference shard state. Wiping that state would later underflow
+    // refcounts when GC applies the historical deletions, so we ask the shard tracker
+    // directly via the schedule rather than the TrieChanges existence proxy.
+    let latest_protocol_version =
+        epoch_manager.get_epoch_protocol_version(&block_info.epoch_id().clone())?;
+    let spice_enabled = ProtocolFeature::Spice.enabled(latest_protocol_version);
     let store = chain_store_update.store();
     let mut current_block_hash = *epoch_manager.get_block_info(&latest_block_hash)?.hash();
     while &current_block_hash != last_block_hash_in_gc_epoch {
-        shards_to_cleanup.retain(|shard_uid| {
-            // If shard_uid exists in the TrieChanges column, it means we were tracking the shard_uid in this epoch.
-            // We would like to remove shard_uid from shards_to_cleanup
-            let trie_changes_key = get_block_shard_uid(&current_block_hash, shard_uid);
-            !store.exists(DBCol::TrieChanges, &trie_changes_key)
-        });
+        let epoch_block_info = epoch_manager.get_block_info(&current_block_hash)?;
+        if spice_enabled {
+            let epoch_id = *epoch_block_info.epoch_id();
+            shards_to_cleanup.retain(|shard_uid| {
+                !shard_tracker
+                    .rpc_tracks_shard_at_epoch(shard_uid.shard_id(), &epoch_id)
+                    .unwrap_or(true)
+            });
+        } else {
+            shards_to_cleanup.retain(|shard_uid| {
+                let trie_changes_key = get_block_shard_uid(&current_block_hash, shard_uid);
+                !store.exists(DBCol::TrieChanges, &trie_changes_key)
+            });
+        }
 
         // Go to the previous epoch last_block_hash
-        let epoch_block_info = epoch_manager.get_block_info(&current_block_hash)?;
         let epoch_first_block_hash = epoch_block_info.epoch_first_block();
         let epoch_first_block = store.chain_store().get_block_header(epoch_first_block_hash)?;
         current_block_hash = *epoch_first_block.prev_hash();

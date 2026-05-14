@@ -18,7 +18,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice_core::SpiceCoreReader;
+use crate::spice_core::{SpiceCoreReader, record_uncertified_chunks_with_prev};
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -74,7 +74,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
-use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
@@ -1606,10 +1606,83 @@ impl Chain {
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
+        // SPICE: seed `uncertified_chunks` for the anchor (sync_prev_prev) and
+        // sync_prev once per state-sync completion. Per-shard
+        // `set_spice_state_finalize` calls only run for tracked shards, but
+        // the seed is needed regardless — a non-validator with `NoShards`
+        // never enters that path, yet still has to process blocks above
+        // sync_hash without panicking on missing uncertified_chunks. We do
+        // this here because reset_heads_post_state_sync runs once whether or
+        // not any shard was state-synced.
+        let prev_prev_hash = *prev_block.header().prev_hash();
+        self.spice_seed_uncertified_chunks_post_state_sync(prev_prev_hash, prev_hash)?;
+
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
         self.check_orphans(prev_hash, block_processing_artifacts, apply_chunks_done_sender);
+        Ok(())
+    }
+
+    /// Seed `uncertified_chunks` for the state-sync anchor (sync_prev_prev) and
+    /// sync_prev, and advance `spice_final_execution_head` to the anchor.
+    /// No-op on non-SPICE chains. Idempotent: skips when the anchor's entry is
+    /// already on disk (re-tracking-shard joiner) — the existing entry was
+    /// computed against the real chain history and we shouldn't clobber it.
+    fn spice_seed_uncertified_chunks_post_state_sync(
+        &mut self,
+        anchor_hash: CryptoHash,
+        sync_prev_hash: CryptoHash,
+    ) -> Result<(), Error> {
+        let anchor_header = self.get_block_header(&anchor_hash)?;
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(anchor_header.epoch_id())?;
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
+            return Ok(());
+        }
+        let store = self.chain_store.store_ref();
+        if store.exists(DBCol::uncertified_chunks(), anchor_hash.as_ref()) {
+            return Ok(());
+        }
+
+        let anchor_tip = Tip::from_header(&anchor_header);
+        let epoch_manager = self.epoch_manager.clone();
+        let mut chain_store_update = self.mut_chain_store().store_update();
+
+        let mut store_update = chain_store_update.chain_store().store_ref().store_update();
+        let empty_uncertified: Vec<near_primitives::types::SpiceUncertifiedChunkInfo> = Vec::new();
+        store_update.insert_ser(
+            DBCol::uncertified_chunks(),
+            anchor_hash.as_ref(),
+            &empty_uncertified,
+        );
+        chain_store_update.merge(store_update);
+
+        // Compute sync_prev's uncertified_chunks against the just-seeded empty
+        // anchor list. Pass the empty prev list explicitly because the seed
+        // for the anchor is only buffered in this transaction, not yet
+        // visible on disk to `record_uncertified_chunks_for_block`'s read.
+        let sync_prev_block = chain_store_update.get_block(&sync_prev_hash)?;
+        record_uncertified_chunks_with_prev(
+            &mut chain_store_update,
+            epoch_manager.as_ref(),
+            sync_prev_block.as_ref(),
+            Vec::new(),
+        )?;
+
+        // Default `spice_final_execution_head` is genesis, which makes
+        // `is_descendant_of_final_execution_head` walk back all the way past
+        // headers that BlockSync's window never covered. Anchoring on the
+        // state-sync anchor keeps the walk bounded to header-synced territory.
+        let needs_update = match chain_store_update.spice_final_execution_head() {
+            Ok(current) => current.height < anchor_tip.height,
+            Err(Error::DBNotFoundErr(_)) => true,
+            Err(err) => return Err(err),
+        };
+        if needs_update {
+            chain_store_update.save_spice_final_execution_head(&Arc::new(anchor_tip))?;
+        }
+        chain_store_update.commit()?;
         Ok(())
     }
 
@@ -2571,7 +2644,19 @@ impl Chain {
         if !self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash), None));
         }
-        if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
+        // Pre-SPICE this returned Error::Orphan to defer the block until prev's
+        // catchup finished — the block couldn't be applied without prev's state.
+        // Under SPICE chunk apply is decoupled from chain processing; the
+        // executor runs catchup async and chain doesn't need prev caught up to
+        // accept the next block. Worse, chain's `check_orphans` only runs on
+        // its own block processing, so an orphan added here would never be
+        // resolved when the executor later finishes prev's catchup.
+        let prev_protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&self.epoch_manager.get_epoch_id(prev_hash)?)?;
+        if !ProtocolFeature::Spice.enabled(prev_protocol_version)
+            && !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)
+        {
             // The previous block is not caught up for the next epoch relative to the previous
             // block, which is the current epoch for this block, so this block cannot be applied
             // at all yet, needs to be orphaned
@@ -2666,31 +2751,49 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk_height_included();
+        // Under V3 (SPICE) the synced state is anchored at v3.block_hash
+        // (sync_prev_prev), so flat storage's head moves there. Under V1/V2
+        // it stays at sync_prev.
+        let flat_head_hash = match &shard_state_header {
+            ShardStateSyncResponseHeader::V3(v3) => v3.block_hash,
+            _ => *self.get_block_header(&sync_hash)?.prev_hash(),
+        };
+        let is_spice = matches!(&shard_state_header, ShardStateSyncResponseHeader::V3(_));
         let mut chain_update = self.chain_update();
-        let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
-        chain_update.commit()?;
-
-        // We restored the state on height `shard_state_header.chunk.header.height_included`.
-        // Now we should build a chain up to height of `sync_hash` block.
-        loop {
-            height += 1;
-            let mut chain_update = self.chain_update();
-            // Result of successful execution of set_state_finalize_on_height is bool,
-            // should we commit and continue or stop.
-            if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
-                chain_update.commit()?;
-            } else {
-                break;
+        let shard_uid = if is_spice {
+            // SPICE: persist CER + chunk_extra at the anchor; no chunk replay,
+            // no per-height fill loop.
+            chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?
+        } else {
+            let mut height = shard_state_header.chunk_height_included();
+            let shard_uid =
+                chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
+            chain_update.commit()?;
+            // Build the chain forward from chunk.height_included up to the sync hash height.
+            loop {
+                height += 1;
+                let mut chain_update = self.chain_update();
+                if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
+                    chain_update.commit()?;
+                } else {
+                    break;
+                }
             }
-        }
+            return self.finalize_flat_storage(shard_uid, &flat_head_hash);
+        };
+        chain_update.commit()?;
+        self.finalize_flat_storage(shard_uid, &flat_head_hash)
+    }
 
+    fn finalize_flat_storage(
+        &self,
+        shard_uid: ShardUId,
+        flat_head_hash: &CryptoHash,
+    ) -> Result<(), Error> {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
-            let header = self.get_block_header(&sync_hash)?;
-            flat_storage.update_flat_head(header.prev_hash()).unwrap();
+            flat_storage.update_flat_head(flat_head_hash).unwrap();
         }
-
         Ok(())
     }
 
@@ -3649,6 +3752,17 @@ impl Chain {
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
             // genesis block, do not snapshot
+            return Ok(SnapshotAction::None);
+        }
+
+        // Under SPICE chunk application is asynchronous in `chunk_executor_actor`,
+        // so when chain processing reaches sync_hash the post-apply trie state
+        // for sync_prev isn't yet committed. Snapshotting now would freeze an
+        // incomplete trie. The executor fires the snapshot from
+        // `process_apply_chunk_results` once apply has actually committed.
+        let head_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        if ProtocolFeature::Spice.enabled(head_protocol_version) {
             return Ok(SnapshotAction::None);
         }
 

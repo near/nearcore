@@ -73,6 +73,11 @@ pub(crate) struct TestLoopBuilder {
     /// the corresponding pool entry's transport returns `Err(msg)` instead of
     /// dispatching the request. Used to simulate unreachable / stale nodes.
     rpc_pool_fault_handles: HashMap<AccountId, RpcFaultHandle>,
+    /// Wire each node's chunk executor with a `SpiceReceiptStub` that satisfies
+    /// missing receipts from peer nodes' stores. Stand-in for the T2 receipt
+    /// pull until PR 2/3 lands.
+    #[cfg(feature = "test_features")]
+    spice_receipt_stub: bool,
 }
 
 impl TestLoopBuilder {
@@ -92,7 +97,27 @@ impl TestLoopBuilder {
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
             rpc_pool_fault_handles: HashMap::new(),
+            #[cfg(feature = "test_features")]
+            spice_receipt_stub: false,
         }
+    }
+
+    /// Wire each node's chunk executor with a `SpiceReceiptStub` that copies
+    /// missing receipt proofs from peer nodes' stores. Required for SPICE state
+    /// sync tests until the production T2 receipt pull lands in PR 2/3.
+    ///
+    /// No-op when `test_features` is disabled: tests can call this
+    /// unconditionally and have it become a no-op in non-test builds (the stub
+    /// itself only exists under `test_features`).
+    pub(crate) fn with_spice_receipt_stub(self) -> Self {
+        #[cfg(feature = "test_features")]
+        {
+            let mut this = self;
+            this.spice_receipt_stub = true;
+            return this;
+        }
+        #[allow(unreachable_code)]
+        self
     }
 
     pub(crate) fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
@@ -431,6 +456,8 @@ impl TestLoopBuilder {
 
         let rpc_pool = self.rpc_pool.take();
         let rpc_pool_fault_handles = std::mem::take(&mut self.rpc_pool_fault_handles);
+        #[cfg(feature = "test_features")]
+        let spice_receipt_stub = self.spice_receipt_stub;
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
@@ -445,7 +472,54 @@ impl TestLoopBuilder {
 
         Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref(), &rpc_pool_fault_handles);
 
+        #[cfg(feature = "test_features")]
+        if spice_receipt_stub {
+            Self::wire_spice_receipt_stubs(&mut test_loop, &datas);
+        }
+
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
+    }
+
+    /// For each node, builds a `SpiceReceiptStub` holding handles to all other
+    /// nodes' stores plus a sender to its own executor, and injects it into the
+    /// `ChunkExecutorActor`.
+    #[cfg(feature = "test_features")]
+    fn wire_spice_receipt_stubs(
+        test_loop: &mut near_async::test_loop::TestLoopV2,
+        datas: &[NodeExecutionData],
+    ) {
+        use crate::utils::spice_receipt_stub::SpiceReceiptStub;
+        use near_async::messaging::IntoSender as _;
+        use near_chain::ChainStoreAccess as _;
+        use near_store::Store;
+
+        let stores: Vec<Store> = datas
+            .iter()
+            .map(|node| {
+                test_loop
+                    .data
+                    .get(&node.client_sender.actor_handle())
+                    .client
+                    .chain
+                    .chain_store()
+                    .store()
+            })
+            .collect();
+        for (i, node) in datas.iter().enumerate() {
+            let peer_stores: Vec<Store> = stores
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, s)| s.clone())
+                .collect();
+            let stub = Arc::new(SpiceReceiptStub::new(
+                stores[i].clone(),
+                peer_stores,
+                node.chunk_executor_sender.clone().into_sender(),
+            ));
+            let executor = test_loop.data.get_mut(&node.chunk_executor_sender.actor_handle());
+            executor.set_spice_receipt_stub(stub);
+        }
     }
 
     /// Wire each node's sharded RPC pool with clients pointing to other nodes.

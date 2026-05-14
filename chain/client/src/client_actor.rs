@@ -5,6 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
+pub use crate::chunk_executor_actor::SpiceStateSyncFinalized;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -152,6 +153,10 @@ pub struct StartClientResult {
 
 pub struct SpiceClientConfig {
     pub chunk_executor_sender: Sender<ProcessedBlock>,
+    /// Notifies the chunk executor that state sync finalized for a shard so it
+    /// can retry blocks deferred via `BlocksToCatchup`. Should be a noop sender
+    /// without `protocol_feature_spice`.
+    pub chunk_executor_state_sync_finalized_sender: Sender<SpiceStateSyncFinalized>,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
     pub spice_data_distributor_sender: Sender<ProcessedBlock>,
     pub spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -261,6 +266,7 @@ pub fn start_client(
         config_updater,
         sync_jobs_actor_addr.into_multi_sender(),
         spice_client_config.chunk_executor_sender,
+        spice_client_config.chunk_executor_state_sync_finalized_sender,
         spice_client_config.spice_chunk_validator_sender,
         spice_client_config.spice_data_distributor_sender,
         spice_client_config.spice_core_writer_sender,
@@ -341,6 +347,11 @@ pub struct ClientActor {
     /// With spice chunk executor executes chunks asynchronously.
     /// Should be noop sender otherwise.
     chunk_executor_sender: Sender<ProcessedBlock>,
+
+    /// Notifies the chunk executor that state sync finalized for a shard.
+    /// Triggers the executor to retry blocks deferred via `BlocksToCatchup`.
+    /// Should be a noop sender without `protocol_feature_spice`.
+    chunk_executor_state_sync_finalized_sender: Sender<SpiceStateSyncFinalized>,
 
     /// With spice spice chunk validator validates witnesses for which it
     /// needs to be aware of new blocks.
@@ -431,6 +442,7 @@ impl ClientActor {
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
         chunk_executor_sender: Sender<ProcessedBlock>,
+        chunk_executor_state_sync_finalized_sender: Sender<SpiceStateSyncFinalized>,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
         spice_data_distributor_sender: Sender<ProcessedBlock>,
         spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -478,6 +490,7 @@ impl ClientActor {
             config_updater,
             sync_jobs_sender,
             chunk_executor_sender,
+            chunk_executor_state_sync_finalized_sender,
             spice_chunk_validator_sender,
             spice_data_distributor_sender,
             spice_core_writer_sender,
@@ -2123,6 +2136,13 @@ impl Handler<SpanWrapped<ChainFinalizationRequest>, Result<(), near_chain::Error
         msg: SpanWrapped<ChainFinalizationRequest>,
     ) -> Result<(), near_chain::Error> {
         let msg = msg.span_unwrap();
-        self.client.chain.set_state_finalize(msg.shard_id, msg.sync_hash)
+        let shard_id = msg.shard_id;
+        let sync_hash = msg.sync_hash;
+        self.client.chain.set_state_finalize(shard_id, sync_hash)?;
+        // Notify the chunk executor so it can retry blocks that were deferred
+        // in `BlocksToCatchup` waiting for this shard's state.
+        self.chunk_executor_state_sync_finalized_sender
+            .send(SpiceStateSyncFinalized { sync_hash, shard_id });
+        Ok(())
     }
 }

@@ -17,6 +17,8 @@ pub(crate) mod rotating_validators_runner;
 pub(crate) mod setups;
 pub(crate) mod sharded_rpc;
 pub(crate) mod sharding;
+#[cfg(feature = "test_features")]
+pub(crate) mod spice_receipt_stub;
 pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;

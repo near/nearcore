@@ -15,6 +15,7 @@ use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
+use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
@@ -101,6 +102,7 @@ pub struct NodeExecutionData {
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
     pub spice_core_writer_sender: TestLoopSender<SpiceCoreWriterActor>,
+    pub chunk_executor_sender: TestLoopSender<ChunkExecutorActor>,
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,

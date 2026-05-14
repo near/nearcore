@@ -12,9 +12,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
+    ShardStateSyncResponseHeaderV3,
 };
 use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -101,7 +102,18 @@ impl StateRequestActor {
             return Ok(None);
         }
         let header = self.chain_store.get_block_header(block_hash)?;
-        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
+        let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        else {
+            return Ok(None);
+        };
+        if !near_chain::state_sync::is_spice_sync_hash_satisfied(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &sync_hash,
+        )? {
+            return Ok(None);
+        }
+        Ok(Some(sync_hash))
     }
 
     /// Checks if the sync_hash belongs to an epoch that we know.
@@ -193,9 +205,16 @@ fn new_header_response(
     protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
     let state_response = ShardStateSyncResponse::new_from_header(Some(header), protocol_version);
-    let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
-    let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StatePartOrHeader(Box::new(info))
+    wrap_response(shard_id, sync_hash, state_response)
+}
+
+fn new_spice_header_response(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    header: ShardStateSyncResponseHeaderV3,
+) -> StatePartOrHeader {
+    let state_response = ShardStateSyncResponse::new_spice_from_header(Some(header));
+    wrap_response(shard_id, sync_hash, state_response)
 }
 
 fn new_header_response_empty(
@@ -203,10 +222,12 @@ fn new_header_response_empty(
     sync_hash: CryptoHash,
     protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_header(None, protocol_version);
-    let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
-    let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StatePartOrHeader(Box::new(info))
+    let state_response = if ProtocolFeature::Spice.enabled(protocol_version) {
+        ShardStateSyncResponse::new_spice_from_header(None)
+    } else {
+        ShardStateSyncResponse::new_from_header(None, protocol_version)
+    };
+    wrap_response(shard_id, sync_hash, state_response)
 }
 
 fn new_part_response(
@@ -217,10 +238,12 @@ fn new_part_response(
     protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
     let part = part.map(|part| (part_id, part));
-    let state_response = ShardStateSyncResponse::new_from_part(part, protocol_version);
-    let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
-    let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StatePartOrHeader(Box::new(info))
+    let state_response = if ProtocolFeature::Spice.enabled(protocol_version) {
+        ShardStateSyncResponse::new_spice_from_part(part)
+    } else {
+        ShardStateSyncResponse::new_from_part(part, protocol_version)
+    };
+    wrap_response(shard_id, sync_hash, state_response)
 }
 
 fn new_part_response_empty(
@@ -228,7 +251,19 @@ fn new_part_response_empty(
     sync_hash: CryptoHash,
     protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_part(None, protocol_version);
+    let state_response = if ProtocolFeature::Spice.enabled(protocol_version) {
+        ShardStateSyncResponse::new_spice_from_part(None)
+    } else {
+        ShardStateSyncResponse::new_from_part(None, protocol_version)
+    };
+    wrap_response(shard_id, sync_hash, state_response)
+}
+
+fn wrap_response(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    state_response: ShardStateSyncResponse,
+) -> StatePartOrHeader {
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
@@ -275,16 +310,23 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
                 .inc();
             return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
         };
-        let ShardStateSyncResponseHeader::V2(header) = header else {
-            tracing::warn!(target: "sync", "invalid state sync header format");
-            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
-                .with_label_values(&["header", "failed"])
-                .inc();
-            return None;
+        let response = match header {
+            ShardStateSyncResponseHeader::V2(header) => {
+                new_header_response(shard_id, sync_hash, header, protocol_version)
+            }
+            ShardStateSyncResponseHeader::V3(header) => {
+                new_spice_header_response(shard_id, sync_hash, header)
+            }
+            ShardStateSyncResponseHeader::V1(_) => {
+                tracing::warn!(target: "sync", "invalid state sync header format");
+                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                    .with_label_values(&["header", "failed"])
+                    .inc();
+                return None;
+            }
         };
 
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["header", "success"]).inc();
-        let response = new_header_response(shard_id, sync_hash, header, protocol_version);
         Some(response)
     }
 }

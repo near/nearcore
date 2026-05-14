@@ -24,11 +24,15 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
-use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
+use near_primitives::state_sync::{
+    ReceiptProofResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3,
+};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::utils::get_execution_results_key;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
@@ -485,6 +489,9 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<ShardUId, Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", %shard_id, ?sync_hash).entered();
+        if let ShardStateSyncResponseHeader::V3(v3) = shard_state_header {
+            return self.set_spice_state_finalize(shard_id, sync_hash, v3);
+        }
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -493,6 +500,7 @@ impl<'a> ChainUpdate<'a> {
             ShardStateSyncResponseHeader::V2(shard_state_header) => {
                 (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
             }
+            ShardStateSyncResponseHeader::V3(_) => unreachable!("handled above"),
         };
 
         // Note that block headers are already synced and can be taken
@@ -617,6 +625,53 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
+        Ok(shard_uid)
+    }
+
+    /// SPICE finalization: writes the certified `ChunkExecutionResult` to
+    /// `DBCol::execution_results` and the `chunk_extra` to
+    /// `DBCol::ChunkExtras`. No chunk replay; the trust anchor is the CER's
+    /// post-execution state, and parts download has populated the trie at
+    /// `chunk_extra.state_root()`.
+    fn set_spice_state_finalize(
+        &mut self,
+        shard_id: ShardId,
+        _sync_hash: CryptoHash,
+        v3: ShardStateSyncResponseHeaderV3,
+    ) -> Result<ShardUId, Error> {
+        let block_header = self.chain_store_update.get_block_header(&v3.block_hash)?;
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
+
+        // CERs are byte-deterministic for a given `(block_hash, shard_id)` —
+        // every node that derives the CER from a quorum of endorsements gets
+        // the same bytes. The insert-only column's debug `assert_no_overwrite`
+        // therefore passes if the key was already written (e.g. by
+        // `SpiceCoreWriterActor` after processing a block whose
+        // `spice_core_statements` carried this CER).
+        //
+        // Persist the bundled CERs for every shard at the anchor block (the V3
+        // header carries them so a freshly-joining node has all CERs at
+        // sync_prev_prev on disk after the first state-sync response, even
+        // before block-body propagation populates them).
+        let mut store_update = self.chain_store_update.chain_store().store_ref().store_update();
+        for (other_shard_id, cer, _endorsements) in &v3.anchor_execution_results {
+            let key = get_execution_results_key(&v3.block_hash, *other_shard_id);
+            store_update.insert_ser(DBCol::execution_results(), &key, cer);
+        }
+        self.chain_store_update.merge(store_update);
+
+        self.chain_store_update.save_chunk_extra(
+            &v3.block_hash,
+            &shard_uid,
+            Arc::new(v3.execution_result.chunk_extra),
+        );
+
+        // The uncertified_chunks seed and spice_final_execution_head advance
+        // happen once per state-sync completion in `reset_heads_post_state_sync`,
+        // not per shard — a non-validator that tracks 0 shards never reaches
+        // this path but still needs the seed for the chain to make progress.
+
         Ok(shard_uid)
     }
 

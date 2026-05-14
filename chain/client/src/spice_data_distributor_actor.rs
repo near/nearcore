@@ -1,4 +1,5 @@
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::apply_chunks_mode_from_prev_hash;
 use crate::chunk_executor_actor::get_contract_accesses;
 use crate::chunk_executor_actor::get_receipt_proof;
 use crate::chunk_executor_actor::get_witness;
@@ -21,7 +22,6 @@ use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
-use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -849,16 +849,18 @@ impl SpiceDataDistributorActor {
 
         let block = self.chain_store.get_block(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
+        let apply_mode_for_block = apply_chunks_mode_from_prev_hash(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            block.header().prev_hash(),
+        )?;
 
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
                 let prev_hash = block.header().prev_hash();
-                self.shard_tracker.should_apply_chunk(
-                    ApplyChunksMode::IsCaughtUp,
-                    prev_hash,
-                    *shard_id,
-                )
+                self.shard_tracker.should_apply_chunk(apply_mode_for_block, prev_hash, *shard_id)
             })
             .collect();
 
@@ -881,12 +883,20 @@ impl SpiceDataDistributorActor {
             }
         }
 
+        // For the next block (where this block becomes the prev), derive the
+        // mode using this block's hash as the prev_hash.
+        let apply_mode_for_next_block = apply_chunks_mode_from_prev_hash(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            block.hash(),
+        )?;
         let shards_we_apply_in_next_block: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
                 let prev_hash = block.hash();
                 self.shard_tracker.should_apply_chunk(
-                    ApplyChunksMode::IsCaughtUp,
+                    apply_mode_for_next_block,
                     prev_hash,
                     *shard_id,
                 )
@@ -927,7 +937,7 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn schedule_data_fetching(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
+    fn schedule_data_fetching(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.request_waiting_on_data();
 
         ctx.run_later(
@@ -940,14 +950,26 @@ impl SpiceDataDistributorActor {
         );
     }
 
-    fn request_waiting_on_data(&self) {
+    fn request_waiting_on_data(&mut self) {
         // TODO(spice): Allow requesting data without signer using route back.
         let Some(signer) = self.validator_signer.get() else {
             tracing::debug!(target: "spice_data_distribution", "no validator signer to request waiting on data");
             return;
         };
         let me = signer.validator_id();
-        // TODO(spice): Stop waiting on witnesses past final certification head.
+        // TODO(spice): Stop waiting on witnesses past final certification head. This loop is a
+        // fallback that drops entries only once GC has pruned the block; ideally entries are
+        // dropped proactively when they pass final certification head.
+        let stale_ids: Vec<_> = self
+            .waiting_on_data
+            .keys()
+            .filter(|id| self.chain_store.get_block(id.block_hash()).is_err())
+            .cloned()
+            .collect();
+        for id in &stale_ids {
+            tracing::debug!(target: "spice_data_distribution", ?id, "dropping stale waiting_on_data entry: block no longer in chain store");
+            self.waiting_on_data.remove(id);
+        }
 
         for (id, _data_parts) in &self.waiting_on_data {
             let block = self

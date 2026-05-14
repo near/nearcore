@@ -2,9 +2,12 @@ use crate::types::BlockHeader;
 use crate::{Chain, ChainStoreAccess};
 use borsh::BorshDeserialize;
 use near_chain_primitives::error::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{EpochHeight, EpochId};
+use near_primitives::utils::get_execution_results_key;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::db::CLOUD_PREV_EPOCH_END_KEY;
@@ -239,7 +242,7 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
 ///
 /// This is used when making state snapshots, because in that case we don't need to wait for the "sync_hash"
 /// block to be finalized to take a snapshot of the state as of its prev prev block
-pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> Result<bool, Error> {
+pub fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> Result<bool, Error> {
     // Usually, if we're returning true from this function, this call to get_current_epoch_sync_hash()
     // will return None because we're calling it during block preprocessing and the sync hash hasn't been
     // found yet. But we still need to check this because it's possible that the sync hash was found
@@ -264,6 +267,49 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
     Ok(!prev_done)
 }
 
+/// Returns whether the SPICE-specific portion of the sync-hash invariant holds
+/// for `sync_hash`: every shard's `ChunkExecutionResult` for `sync_prev` is on
+/// disk in `DBCol::execution_results`. For non-SPICE epochs always returns
+/// true.
+///
+/// We gate on read rather than on write (in `on_new_header`) to avoid plumbing
+/// `EpochManagerAdapter` through every `ChainStoreUpdate::commit` call site.
+/// Functionally equivalent: a sync hash that doesn't satisfy the SPICE
+/// invariant will not be observable via `Chain::get_sync_hash` /
+/// `Chain::find_sync_hash` until it does.
+pub fn is_spice_sync_hash_satisfied(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    sync_hash: &CryptoHash,
+) -> Result<bool, Error> {
+    let sync_block_header = chain_store.get_block_header(sync_hash)?;
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(sync_block_header.epoch_id())?;
+    if !ProtocolFeature::Spice.enabled(protocol_version) {
+        return Ok(true);
+    }
+    let sync_prev_header = chain_store.get_block_header(sync_block_header.prev_hash())?;
+    if sync_prev_header.is_genesis() {
+        // Genesis CERs are constructed from genesis_chunk_extra; nothing to wait for.
+        return Ok(true);
+    }
+    let sync_prev_prev_header = chain_store.get_block_header(sync_prev_header.prev_hash())?;
+    if sync_prev_prev_header.is_genesis() {
+        return Ok(true);
+    }
+    // V3 anchors at sync_prev_prev (one block earlier than V1/V2's view) so
+    // that the CER's `chunk_extra.state_root` corresponds to the same trie
+    // node the snapshot at `sync_prev_prev` already contains.
+    let shard_layout = epoch_manager.get_shard_layout(sync_prev_prev_header.epoch_id())?;
+    for shard_id in shard_layout.shard_ids() {
+        let key = get_execution_results_key(sync_prev_prev_header.hash(), shard_id);
+        if !chain_store.store_ref().exists(DBCol::execution_results(), &key) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 impl Chain {
     /// Find the hash that should be used as the reference point when requesting state sync
     /// headers and parts from other nodes for the epoch the block with hash `block_hash` belongs to.
@@ -276,7 +322,16 @@ impl Chain {
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
+        let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        else {
+            return Ok(None);
+        };
+        // NOTE: under SPICE the V3 state-sync response carries all shards' CERs
+        // at sync_prev_prev (see `ShardStateSyncResponseHeaderV3.anchor_execution_results`),
+        // so requesters don't need CERs on disk before starting state sync.
+        // Responders that need to construct a V3 response check
+        // `is_spice_sync_hash_satisfied` explicitly (see `state_request_actor`).
+        Ok(Some(sync_hash))
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the

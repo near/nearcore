@@ -15,7 +15,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
-    ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    EpochId, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -572,9 +572,18 @@ fn get_uncertified_chunks(
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
         else {
+            tracing::error!(
+                target: "spice",
+                %block_hash,
+                height = block.header().height(),
+                prev_hash = %block.header().prev_hash(),
+                "missing uncertified_chunks for spice block"
+            );
             debug_assert!(
                 false,
-                "spice blocks in store should always have uncertified_chunks present"
+                "spice blocks in store should always have uncertified_chunks present (block {} height {})",
+                block_hash,
+                block.header().height(),
             );
             return Err(Error::Other(format!("missing uncertified chunks for {}", block_hash)));
         };
@@ -589,6 +598,21 @@ pub fn record_uncertified_chunks_for_block(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<(), Error> {
+    let prev_hash = block.header().prev_hash();
+    let prev_uncertified = get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    record_uncertified_chunks_with_prev(chain_store_update, epoch_manager, block, prev_uncertified)
+}
+
+/// Same as `record_uncertified_chunks_for_block` but accepts the previous block's
+/// `uncertified_chunks` explicitly instead of loading them from disk. Used during
+/// state-sync finalize, where the prev's entry has been seeded earlier in the same
+/// in-memory transaction (and so isn't yet readable from disk).
+pub fn record_uncertified_chunks_with_prev(
+    chain_store_update: &mut ChainStoreUpdate,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    prev_uncertified: Vec<SpiceUncertifiedChunkInfo>,
+) -> Result<(), Error> {
     let block_endorsements: HashMap<(&SpiceChunkId, &AccountId), &SpiceEndorsementCoreStatement> =
         block
             .spice_core_statements()
@@ -598,9 +622,7 @@ pub fn record_uncertified_chunks_for_block(
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
 
-    let prev_hash = block.header().prev_hash();
-    let mut uncertified_chunks =
-        get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    let mut uncertified_chunks = prev_uncertified;
     uncertified_chunks
         .retain(|chunk_info| !block_execution_results.contains_key(&chunk_info.chunk_id));
     for chunk_info in &mut uncertified_chunks {
@@ -708,4 +730,94 @@ pub fn get_last_certified_block_header(
         );
         Ok(header)
     }
+}
+
+/// Reasons why a certified-execution-result bundle (a CER plus the endorsements
+/// claimed to satisfy quorum on it) fails verification on the requester side.
+#[derive(Debug, thiserror::Error)]
+pub enum VerifyEndorsementQuorumError {
+    #[error("epoch manager error: {0}")]
+    EpochError(#[from] near_primitives::errors::EpochError),
+    #[error("endorsement chunk_id {got:?} does not match expected {expected:?}")]
+    ChunkIdMismatch { got: SpiceChunkId, expected: SpiceChunkId },
+    #[error("endorsement account_id {0} is not in the chunk validator assignment for this shard")]
+    NotInChunkValidatorAssignment(AccountId),
+    #[error("invalid endorsement signature from {0}")]
+    InvalidSignature(AccountId),
+    #[error("endorsement execution_result_hash from {0} does not match certified result")]
+    ResultHashMismatch(AccountId),
+    #[error("duplicate endorsement from {0}")]
+    DuplicateEndorsement(AccountId),
+    #[error("endorsements do not satisfy quorum stake")]
+    InsufficientStake,
+}
+
+/// Verifies that the supplied endorsements are valid signatures over
+/// `execution_result` from members of the chunk's validator assignment, and
+/// that their combined stake satisfies the quorum threshold.
+///
+/// On success the caller may treat `execution_result` (and in particular its
+/// `chunk_extra` and `outgoing_receipts_root`) as trusted relative to the epoch
+/// validator set.
+///
+/// This is the requester-side analogue of the per-endorsement and quorum logic
+/// inside `Chain::validate_core_statements_in_block`. The block-level path
+/// keeps its current shape; the two share `compute_endorsement_state` and the
+/// signature-check pattern but differ in surrounding bookkeeping.
+pub fn verify_endorsement_quorum_for_certified_execution_result(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_id: &SpiceChunkId,
+    execution_result: &ChunkExecutionResult,
+    endorsements: &[SpiceEndorsementCoreStatement],
+    block_height: BlockHeight,
+    epoch_id: &EpochId,
+) -> Result<(), VerifyEndorsementQuorumError> {
+    use VerifyEndorsementQuorumError::*;
+
+    let chunk_validator_assignments =
+        epoch_manager.get_chunk_validator_assignments(epoch_id, chunk_id.shard_id, block_height)?;
+    let assigned_accounts: HashSet<&AccountId> = chunk_validator_assignments
+        .assignments()
+        .iter()
+        .map(|(account_id, _)| account_id)
+        .collect();
+
+    let expected_result_hash = execution_result.compute_hash();
+    let mut signatures: HashMap<&AccountId, Signature> = HashMap::new();
+
+    for endorsement in endorsements {
+        if endorsement.chunk_id() != chunk_id {
+            return Err(ChunkIdMismatch {
+                got: endorsement.chunk_id().clone(),
+                expected: chunk_id.clone(),
+            });
+        }
+
+        let account_id = endorsement.account_id();
+        if !assigned_accounts.contains(account_id) {
+            return Err(NotInChunkValidatorAssignment(account_id.clone()));
+        }
+
+        let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
+
+        let Some((signed_data, signature)) =
+            endorsement.verified_signed_data(validator.public_key())
+        else {
+            return Err(InvalidSignature(account_id.clone()));
+        };
+
+        if signed_data.execution_result_hash != expected_result_hash {
+            return Err(ResultHashMismatch(account_id.clone()));
+        }
+
+        if signatures.insert(account_id, signature.clone()).is_some() {
+            return Err(DuplicateEndorsement(account_id.clone()));
+        }
+    }
+
+    let endorsement_state = chunk_validator_assignments.compute_endorsement_state(signatures);
+    if !endorsement_state.is_endorsed {
+        return Err(InsufficientStake);
+    }
+    Ok(())
 }

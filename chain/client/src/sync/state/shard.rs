@@ -14,7 +14,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
@@ -76,7 +75,7 @@ pub(super) async fn run_state_sync_for_shard(
     tracing::info!(target: "sync", %shard_id, "running state sync");
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
-    let state_root = header.chunk_prev_state_root();
+    let state_root = header.state_root();
     let num_parts = header.num_state_parts();
     let block_header =
         store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes()).ok_or_else(
@@ -235,16 +234,14 @@ pub(super) async fn run_state_sync_for_shard(
     // (Otherwise we will try to create flat storage second time and fail)
     let flat_storage_manager = runtime.get_flat_storage_manager();
     if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
-        let chunk = header.cloned_chunk();
-        let block_hash = chunk.prev_block();
-
+        let flat_head_hash = header.flat_head_hash();
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
-        // If block_hash is equal to default - this means that we're all the way back at genesis.
+        // If flat_head_hash is equal to default - this means that we're all the way back at genesis.
         // So we don't have to add the storage state for shard in such case.
         // TODO(8438) - add additional test scenarios for this case.
-        if *block_hash != CryptoHash::default() {
-            create_flat_storage_for_shard(&store, &*runtime, shard_uid, &chunk)?;
+        if flat_head_hash != CryptoHash::default() {
+            create_flat_storage_for_shard(&store, &*runtime, shard_uid, flat_head_hash)?;
         }
     }
     return_if_cancelled!(cancel);
@@ -281,13 +278,12 @@ fn create_flat_storage_for_shard(
     store: &Store,
     runtime: &dyn RuntimeAdapter,
     shard_uid: ShardUId,
-    chunk: &ShardChunk,
+    flat_head_hash: CryptoHash,
 ) -> Result<(), near_chain::Error> {
     let flat_storage_manager = runtime.get_flat_storage_manager();
     // Flat storage must not exist at this point because leftover keys corrupt its state.
     assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
-    let flat_head_hash = *chunk.prev_block();
     let flat_head_header =
         store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", flat_head_hash)),

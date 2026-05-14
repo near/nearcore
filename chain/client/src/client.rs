@@ -743,8 +743,14 @@ impl Client {
         // If we are to start new epoch with this block, check if the previous
         // block is caught up. If it is not the case, we wouldn't be able to
         // apply the following block, so we also skip block production.
+        // Under SPICE chunk apply is async and decoupled from chain processing,
+        // so this gate doesn't apply.
         let prev_hash = prev_header.hash();
-        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+        let prev_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(prev_header.epoch_id())?;
+        if !ProtocolFeature::Spice.enabled(prev_protocol_version)
+            && self.epoch_manager.is_next_block_epoch_start(prev_hash)?
+        {
             let prev_prev_hash = prev_header.prev_hash();
             if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
                 tracing::debug!(target: "client", height, "skipping block production, prev block is not caught up");
