@@ -75,19 +75,66 @@ static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
     LazyLock::new(parking_lot::RwLock::default);
 
 /// Per-contract-cache-key compilation lock. Prevents duplicate compilations
-/// when multiple threads (e.g. precompile_contracts and
-/// validate_chunk_state_witness) race to compile the same contract
-/// simultaneously. The lock entry is automatically removed when the guard is
-/// dropped.
-type CompilationLocks = parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>;
-
 /// One cache entry: the serialized wasmtime module bytes, or the cached
 /// [`CompilationError`] from a prior failed compile of the same code.
 type CachedArtifact = Result<Vec<u8>, CompilationError>;
 
-pub(crate) fn compilation_locks() -> &'static CompilationLocks {
-    static LOCKS: OnceLock<CompilationLocks> = OnceLock::new();
-    LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+/// Per-key compilation lock map. Prevents redundant concurrent compilations
+/// of the same contract by multiple threads (e.g. precompile_contracts and
+/// validate_chunk_state_witness).
+///
+/// Callers obtain a [`CompilationGuard`] via [`entry`](Self::entry), then
+/// call [`lock`](CompilationGuard::lock) or
+/// [`try_lock`](CompilationGuard::try_lock) on it. The map entry is
+/// automatically cleaned up when the guard is dropped, but only if no other
+/// thread still holds a guard for the same key.
+pub(crate) struct CompilationLockMap {
+    inner: parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>,
+}
+
+impl CompilationLockMap {
+    fn new() -> Self {
+        Self { inner: parking_lot::Mutex::new(HashMap::new()) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn contains_key(&self, key: &CryptoHash) -> bool {
+        self.inner.lock().contains_key(key)
+    }
+
+    fn entry(&self, key: CryptoHash) -> CompilationGuard<'_> {
+        let mutex = self.inner.lock().entry(key).or_default().clone();
+        CompilationGuard { key, map: self, mutex }
+    }
+}
+
+/// RAII guard returned by [`CompilationLockMap::entry`]. On drop, removes
+/// the map entry.
+struct CompilationGuard<'a> {
+    key: CryptoHash,
+    map: &'a CompilationLockMap,
+    mutex: Arc<parking_lot::Mutex<()>>,
+}
+
+impl CompilationGuard<'_> {
+    fn lock(&self) -> parking_lot::MutexGuard<'_, ()> {
+        self.mutex.lock()
+    }
+
+    fn try_lock(&self) -> Option<parking_lot::MutexGuard<'_, ()>> {
+        self.mutex.try_lock()
+    }
+}
+
+impl Drop for CompilationGuard<'_> {
+    fn drop(&mut self) {
+        self.map.inner.lock().remove(&self.key);
+    }
+}
+
+pub(crate) fn compilation_locks() -> &'static CompilationLockMap {
+    static LOCKS: OnceLock<CompilationLockMap> = OnceLock::new();
+    LOCKS.get_or_init(CompilationLockMap::new)
 }
 
 /// Helper for the double-checked-locking cache read used by
@@ -101,18 +148,6 @@ fn read_cache(
         CompiledContract::Code(module) => Ok(module),
         CompiledContract::CompileModuleError(err) => Err(err),
     }))
-}
-
-/// On drop, removes the corresponding entry from `compilation_locks`. Owned
-/// only by the thread that actually held the per-key compilation lock — a
-/// best-effort caller that fails `try_lock` must not construct this, to
-/// avoid tearing down the entry while another thread is compiling.
-struct LockMapCleanup(CryptoHash);
-
-impl Drop for LockMapCleanup {
-    fn drop(&mut self) {
-        compilation_locks().lock().remove(&self.0);
-    }
 }
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
@@ -603,18 +638,15 @@ impl WasmtimeVM {
     }
 
     /// Acquire the per-key compilation lock (blocking), then run the inner
-    /// DCL check + actual compile + cache write. Lock acquisition lives here
-    /// so callers can't accidentally invoke the post-lock work without
-    /// holding the lock.
+    /// DCL check + actual compile + cache write.
     fn compile_under_held_lock(
         &self,
         key: CryptoHash,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
     ) -> Result<CachedArtifact, CacheError> {
-        let lock = compilation_locks().lock().entry(key).or_default().clone();
-        let _cleanup = LockMapCleanup(key);
-        let _guard = lock.lock();
+        let entry = compilation_locks().entry(key);
+        let _guard = entry.lock();
         self.compile_and_persist(key, code, cache)
     }
 
@@ -626,8 +658,8 @@ impl WasmtimeVM {
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Option<CachedArtifact>, CacheError> {
-        let lock = compilation_locks().lock().entry(key).or_default().clone();
-        let Some(guard) = lock.try_lock() else {
+        let entry = compilation_locks().entry(key);
+        let Some(_guard) = entry.try_lock() else {
             tracing::trace!(
                 target: "vm",
                 %key,
@@ -635,8 +667,6 @@ impl WasmtimeVM {
             );
             return Ok(None);
         };
-        let _cleanup = LockMapCleanup(key);
-        let _guard = guard;
         self.compile_and_persist(key, code, cache).map(Some)
     }
 
