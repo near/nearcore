@@ -2508,6 +2508,9 @@ fn test_epoch_protocol_version_change() {
         }
         for j in 0..2 {
             env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+            // TODO(spice): fold spice_execute_block into process_block_test so
+            // callers don't have to remember this pairing on spice chains.
+            env.spice_execute_block(j, *block.hash());
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap();
@@ -2686,8 +2689,12 @@ fn produce_block(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
     let block_producer = env.clients[0].epoch_manager.get_block_producer(epoch_id, height).unwrap();
     let index = if block_producer == "test0" { 0 } else { 1 };
     let block = env.clients[index].produce_block(height).unwrap().unwrap();
-    for client in &mut env.clients {
-        client.process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+    let block_hash = *block.hash();
+    for i in 0..env.clients.len() {
+        env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+        // TODO(spice): fold spice_execute_block into process_block_test so
+        // callers don't have to remember this pairing on spice chains.
+        env.spice_execute_block(i, block_hash);
     }
 }
 

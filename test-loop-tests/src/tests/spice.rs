@@ -202,6 +202,65 @@ fn test_spice_chain_with_delayed_execution() {
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 }
 
+/// Test that consensus cannot be more than one epoch ahead of certification.
+/// In case execution is lagging, the current epoch will be prolonged until
+/// certification catches up.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_epoch_gated_by_certification() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+
+    let epoch_length = 5;
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .delay_warmup()
+        .build();
+    let execution_delay = 2 * epoch_length;
+    env.delay_endorsements_propagation(execution_delay);
+    env = env.warmup();
+
+    // With the delay active, verify the consensus chain can still produce many
+    // blocks and the epoch advances but only one epoch ahead of the last
+    // certified block's epoch.
+    let starting_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    env.node_runner(0).run_until(
+        |node| {
+            let head = node.head();
+            let client = node.client();
+            let chain_store = &client.chain.chain_store;
+            let last_cert = get_last_certified_block_header(chain_store, &head.last_block_hash)
+                .expect("last certified block should be queryable");
+            let epoch_manager = client.epoch_manager.as_ref();
+            let head_epoch_height =
+                epoch_manager.get_epoch_info(&head.epoch_id).unwrap().epoch_height();
+            let cert_epoch_height =
+                epoch_manager.get_epoch_info(last_cert.epoch_id()).unwrap().epoch_height();
+            assert!(
+                head_epoch_height <= cert_epoch_height + 1,
+                "head epoch {head_epoch_height} more than 1 ahead of cert epoch {cert_epoch_height}",
+            );
+            head.height >= 5 * epoch_length && head.epoch_id != starting_epoch_id
+        },
+        Duration::seconds(30),
+    );
+
+    // Lift the delay and wrap up the current epoch. The chain should go back to transitioning epochs normally.
+    env.delay_endorsements_propagation(0);
+    env.node_runner(0).run_until_new_epoch();
+    let current_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
+    let new_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    assert_ne!(
+        current_epoch_id, new_epoch_id,
+        "epoch should have advanced after delay is lifted with normal amount of blocks"
+    );
+}
+
 /// Sets up a spice env with delayed endorsements so execution lags behind
 /// consensus, and runs until there is a gap of at least 3 blocks.
 fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
