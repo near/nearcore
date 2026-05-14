@@ -125,10 +125,10 @@ const GLOBAL_CONTRACT_SIZE: usize = 1000;
 /// hashes / identifiers) so both distribution receipts do full work; with a
 /// shared identifier the second deploy would bump the on-chain nonce before
 /// the first distribution receipt is applied, making it stale and short-circuit
-/// to zero compute.
+/// to zero compute. We also use two distinct signer accounts because SPICE's
+/// pending-tx queue enforces deploy exclusivity per signer (NEP-611), which
+/// would otherwise serialize the two deploys into separate source chunks.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deploy_global_contract_compute_cost_splits_chunks() {
     init_test_logger();
 
@@ -138,9 +138,10 @@ fn test_deploy_global_contract_compute_cost_splits_chunks() {
         + (GLOBAL_CONTRACT_SIZE as u64) * fees.deploy_global_contract_execution_per_byte;
     let gas_limit = Gas::from_gas(compute_per_receipt);
 
-    let user = create_account_id("user");
+    let user1 = create_account_id("user1");
+    let user2 = create_account_id("user2");
     let mut env = TestLoopBuilder::new()
-        .add_user_account(&user, Balance::from_near(100_000))
+        .add_user_accounts([&user1, &user2], Balance::from_near(100_000))
         .gas_limit(gas_limit)
         .build();
 
@@ -149,10 +150,16 @@ fn test_deploy_global_contract_compute_cost_splits_chunks() {
     let code_hash_1 = hash(&code1);
     let code_hash_2 = hash(&code2);
 
-    let tx1 =
-        env.validator().tx_deploy_global_contract(&user, code1, GlobalContractDeployMode::CodeHash);
-    let tx2 =
-        env.validator().tx_deploy_global_contract(&user, code2, GlobalContractDeployMode::CodeHash);
+    let tx1 = env.validator().tx_deploy_global_contract(
+        &user1,
+        code1,
+        GlobalContractDeployMode::CodeHash,
+    );
+    let tx2 = env.validator().tx_deploy_global_contract(
+        &user2,
+        code2,
+        GlobalContractDeployMode::CodeHash,
+    );
 
     env.validator().submit_tx(tx1);
     env.validator().submit_tx(tx2);
@@ -164,21 +171,31 @@ fn test_deploy_global_contract_compute_cost_splits_chunks() {
         .run_until(|node| count_outgoing_distribution_receipts(node) == 2, Duration::seconds(20));
 
     // Run one more block: the two distribution receipts arrive together, but
-    // the chunk's compute budget only fits one — the first is applied, the
-    // second is deferred to the delayed-receipts queue.
+    // the chunk's compute budget only fits one — one is applied, the other is
+    // deferred to the delayed-receipts queue. With two distinct signers, the
+    // intra-chunk ordering of receipts is not nonce-deterministic, so we only
+    // assert that exactly one of the two contracts has become available.
     env.validator_runner().run_for_number_of_blocks(1);
+    let block_processing_first = env.validator().head_block();
+    env.validator_runner()
+        .run_until_block_executed(block_processing_first.header(), Duration::seconds(10));
+    let available_1 = is_global_contract_available(&env, code_hash_1);
+    let available_2 = is_global_contract_available(&env, code_hash_2);
     assert!(
-        is_global_contract_available(&env, code_hash_1),
-        "first contract should be available after one chunk processes its distribution receipt",
-    );
-    assert!(
-        !is_global_contract_available(&env, code_hash_2),
-        "second contract should still be deferred and not yet visible in state",
+        available_1 ^ available_2,
+        "exactly one contract should be available after one chunk processes a distribution receipt (1={available_1}, 2={available_2})",
     );
 
     // Run one more block: the deferred distribution receipt is popped from the
-    // queue and applied; the second contract becomes available.
+    // queue and applied; the other contract becomes available too.
     env.validator_runner().run_for_number_of_blocks(1);
+    let block_processing_second = env.validator().head_block();
+    env.validator_runner()
+        .run_until_block_executed(block_processing_second.header(), Duration::seconds(10));
+    assert!(
+        is_global_contract_available(&env, code_hash_1),
+        "first contract should be available after the deferred receipt is processed",
+    );
     assert!(
         is_global_contract_available(&env, code_hash_2),
         "second contract should be available after the deferred receipt is processed",
