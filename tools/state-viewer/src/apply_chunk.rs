@@ -4,8 +4,7 @@ use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType,
-    MaybePinnedMemtrieRoot, RuntimeAdapter,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -180,7 +179,10 @@ pub fn apply_chunk(
                 gas_limit: chunk_header.gas_limit(),
                 is_new_chunk: true,
                 on_post_state_ready: None,
-                memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
+                memtrie_pin: runtime
+                    .get_tries()
+                    .maybe_pin_memtrie_root(shard_uid, prev_state_root)
+                    .expect("failed to pin memtrie root"),
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,
