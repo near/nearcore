@@ -354,17 +354,11 @@ impl BlocksDelayTracker {
                 }
             }
 
-            let chunks_to_remove: Vec<_> = self
-                .floating_chunks
-                .iter()
-                .filter_map(|(chunk_hash, chunk_height)| {
-                    if chunk_height < &cutoff_height { Some(chunk_hash.clone()) } else { None }
-                })
-                .collect();
-            for chunk_hash in chunks_to_remove {
-                self.chunks.remove(&chunk_hash);
-                self.floating_chunks.remove(&chunk_hash);
-            }
+            self.floating_chunks
+                .extract_if(|_, chunk_height| *chunk_height < cutoff_height)
+                .for_each(|(chunk_hash, _)| {
+                    self.chunks.remove(&chunk_hash);
+                });
         }
     }
 
