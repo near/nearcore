@@ -299,44 +299,33 @@ impl MaybePinnedMemtrieRoot {
         Ok(Self { pin: Some(MemTrieRootPin { state_root, shard_uid, memtries: memtries.clone() }) })
     }
 
-    /// Panics if the handle is inconsistent with `tries`: an unpinned
-    /// handle requires no memtrie loaded for `shard_uid`; a pinned handle
-    /// must match `(shard_uid, state_root)`.
+    /// Checks that the pin matches the expected shard and state root.
     pub fn assert_pinned(&self, tries: &ShardTries, shard_uid: ShardUId, state_root: &StateRoot) {
-        // Empty trie has no memtrie entry (see `MemTries::insert_root`),
-        // so the matching pin in `ShardTries::maybe_pin_memtrie_root`
-        // short-circuits to `no_memtries()` and there's nothing to check.
         if state_root == &CryptoHash::default() {
             return;
         }
         let Some(pin) = &self.pin else {
-            assert!(
-                tries.get_memtries(shard_uid).is_none(),
-                "apply_chunk for {shard_uid:?} state_root={state_root:?}: \
-                 memtrie is loaded but no pin held; \
-                 call ShardTries::maybe_pin_memtrie_root() instead of no_memtries()",
-            );
+            if tries.get_memtries(shard_uid).is_some() {
+                tracing::error!(
+                    target: "memtrie",
+                    ?shard_uid,
+                    ?state_root,
+                    "memtrie used for shard processing but no pin held, use maybe_pin_memtrie_root()",
+                );
+                debug_assert!(false, "memtrie used for {shard_uid:?} but no pin held");
+            }
             return;
         };
-        if pin.shard_uid != shard_uid {
+        if pin.shard_uid != shard_uid || &pin.state_root != state_root {
             tracing::error!(
                 target: "memtrie",
                 pin_shard_uid = ?pin.shard_uid,
-                chunk_shard_uid = ?shard_uid,
-                ?state_root,
-                "memtrie pin shard_uid mismatch",
-            );
-            debug_assert_eq!(pin.shard_uid, shard_uid, "memtrie pin shard_uid mismatch");
-        }
-        if &pin.state_root != state_root {
-            tracing::error!(
-                target: "memtrie",
                 pin_state_root = ?pin.state_root,
-                chunk_state_root = ?state_root,
                 ?shard_uid,
-                "memtrie pin state_root mismatch",
+                ?state_root,
+                "memtrie pin mismatch",
             );
-            debug_assert_eq!(&pin.state_root, state_root, "memtrie pin state_root mismatch");
+            debug_assert!(false, "memtrie pin mismatch for {shard_uid:?} {state_root:?}");
         }
     }
 }
