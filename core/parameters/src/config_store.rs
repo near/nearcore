@@ -402,7 +402,8 @@ mod tests {
 
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
-            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            let config_view =
+                RuntimeConfigView::from(testnet_store.get_config(*version).as_ref().clone());
             any_failure |= std::panic::catch_unwind(|| {
                 insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
             })
