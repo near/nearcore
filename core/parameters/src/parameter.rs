@@ -250,6 +250,12 @@ pub enum Parameter {
     ActionDeployGlobalContract,
     ActionDeployGlobalContractPerByte,
     GlobalContractStorageAmountPerByte,
+    /// Compute cost charged when applying a `GlobalContractDistribution`
+    /// receipt on the receiver shard (covers precompilation overhead).
+    DeployGlobalContractExecutionBase,
+    /// Per-byte compute cost charged when applying a
+    /// `GlobalContractDistribution` receipt, scaled by deployed code size.
+    DeployGlobalContractExecutionPerByte,
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
