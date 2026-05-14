@@ -139,8 +139,10 @@ ML-DSA verify is variable-time (rejection sampling on signature generation
 sets up patterns that show as small variance on verify). For the initial
 integration:
 
-- Concrete verify-time distribution: **to be checked with benchmarks**
-  (benches live in a separate commit on top of this one).
+- Concrete verify-time distribution from benches at
+  `core/crypto/benches/{signatures.rs, verify_distribution.rs,
+  ml_dsa_worst_case.rs}`: mean ≈ 83 µs, p99.99 ≈ 600 µs, max-of-100k ≈
+  1.10 ms, all on the development host.
 - Adversarial-input analysis: it has been concluded that no
   maliciously-crafted signature can materially blow up verification time
   beyond the natural worst case.
@@ -253,7 +255,7 @@ items the team should resolve before stabilizing in 2.13.
    - Per-byte component on `AddKey` and `DeleteKey` fees.
    - Tx-level `tx_signature_verify_ml_dsa_65` gas constant. Provisional 10
      Ggas based on a ~10× safety margin over the empirical worst case
-     (1.23 ms at 1 Tgas/s); should be tightened after Phase 5.4 calibration.
+     (1.10 ms at 1 Tgas/s); should be tightened after Phase 5.4 calibration.
    - New `parameters.yaml` diff file gated on `PostQuantumSignatures`.
    - Snapshot regeneration.
 

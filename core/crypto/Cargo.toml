@@ -39,10 +39,23 @@ schemars = {workspace = true, optional = true }
 
 [dev-dependencies]
 bolero.workspace = true
+criterion.workspace = true
 hex-literal.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 curve25519-dalek = { workspace = true, features = ["rand_core"] }
+
+[[bench]]
+name = "signatures"
+harness = false
+
+[[bench]]
+name = "verify_distribution"
+harness = false
+
+[[bench]]
+name = "ml_dsa_worst_case"
+harness = false
 
 [features]
 default = ["rand"]
