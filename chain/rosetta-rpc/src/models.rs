@@ -1273,6 +1273,13 @@ impl From<near_crypto::KeyType> for CurveType {
         match key_type {
             near_crypto::KeyType::ED25519 => Self::Edwards25519,
             near_crypto::KeyType::SECP256K1 => Self::Secp256k1,
+            // TODO: ML-DSA-65 has no representation in the upstream Mesh
+            // spec (closed `CurveType` enum). Approach deferred for team
+            // discussion — see the unresolved-issues section of
+            // `docs/architecture/how/post_quantum_signatures.md`.
+            near_crypto::KeyType::MLDSA65 => {
+                unreachable!("ML-DSA-65 (post-quantum) keys are not supported by the Rosetta RPC")
+            }
         }
     }
 }
@@ -1342,6 +1349,9 @@ impl TryFrom<near_crypto::KeyType> for SignatureType {
             near_crypto::KeyType::ED25519 => Ok(Self::Ed25519),
             near_crypto::KeyType::SECP256K1 => Err(crate::errors::ErrorKind::InvalidInput(
                 "SECP256K1 keys are not supported in Rosetta".to_string(),
+            )),
+            near_crypto::KeyType::MLDSA65 => Err(crate::errors::ErrorKind::InvalidInput(
+                "ML-DSA-65 keys are not supported in Rosetta".to_string(),
             )),
         }
     }

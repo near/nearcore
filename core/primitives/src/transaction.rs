@@ -301,6 +301,18 @@ impl ValidatedTransaction {
         {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
+        // Reject ML-DSA-65 transactions on pre-PostQuantumSignatures protocol
+        // versions. The signature/pubkey types parse via Borsh unconditionally
+        // (so pre-existing state remains readable), but the gate at this layer
+        // ensures no PQ key is ever accepted into state on an old protocol.
+        if !ProtocolFeature::PostQuantumSignatures.enabled(protocol_version) {
+            use near_crypto::KeyType;
+            let pubkey_type = signed_tx.transaction.public_key().key_type();
+            let sig_type = signed_tx.signature.key_type();
+            if matches!(pubkey_type, KeyType::MLDSA65) || matches!(sig_type, KeyType::MLDSA65) {
+                return Err(InvalidTxError::InvalidTransactionVersion);
+            }
+        }
         let tx_size = signed_tx.get_size();
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
         if tx_size > max_tx_size {

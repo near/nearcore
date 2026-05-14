@@ -1,5 +1,13 @@
 use near_account_id::AccountId;
 
+/// "Expected `expected` bytes, got `received`.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("expected the input of {expected} bytes, but {received} was given")]
+pub struct InvalidLength {
+    pub expected: usize,
+    pub received: usize,
+}
+
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ParseKeyTypeError {
     #[error("unknown key type '{unknown_key_type}'")]
@@ -10,10 +18,8 @@ pub enum ParseKeyTypeError {
 pub enum ParseKeyError {
     #[error("unknown key type '{unknown_key_type}'")]
     UnknownKeyType { unknown_key_type: String },
-    #[error(
-        "invalid key length: expected the input of {expected_length} bytes, but {received_length} was given"
-    )]
-    InvalidLength { expected_length: usize, received_length: usize },
+    #[error("invalid key length: {0}")]
+    InvalidLength(#[from] InvalidLength),
     #[error("invalid key data: {error_message}")]
     InvalidData { error_message: String },
 }
@@ -32,10 +38,8 @@ impl From<ParseKeyTypeError> for ParseKeyError {
 pub enum ParseSignatureError {
     #[error("unknown key type '{unknown_key_type}'")]
     UnknownKeyType { unknown_key_type: String },
-    #[error(
-        "invalid signature length: expected the input of {expected_length} bytes, but {received_length} was given"
-    )]
-    InvalidLength { expected_length: usize, received_length: usize },
+    #[error("invalid signature length: {0}")]
+    InvalidLength(#[from] InvalidLength),
     #[error("invalid signature data: {error_message}")]
     InvalidData { error_message: String },
 }

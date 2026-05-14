@@ -301,6 +301,9 @@ pub fn gas_key_nonce_key_len(account_id: &AccountId, key_handle: &KeyHandle) -> 
 /// Append the on-trie identifier of `key_handle` into the given buffer.
 /// The on-trie bytes are exactly `KeyHandle`'s borsh encoding, so we
 /// delegate to `BorshSerialize` rather than duplicating the layout here.
+/// For ed25519 / secp256k1 the identifier is the full `PublicKey`; for
+/// ML-DSA-65 it is `[tag=3] || sha3_384(domain || raw_pubkey)` — the
+/// full ML-DSA-65 pubkey never enters the trie.
 fn append_key_handle_trie_id(
     buf: &mut impl trie_key_buffer::TrieKeyBuffer,
     key_handle: &KeyHandle,
@@ -624,7 +627,9 @@ pub mod trie_key_parsers {
     use super::*;
 
     /// Parse the on-trie identifier of an access-key entry out of the raw
-    /// key bytes.
+    /// key bytes. Returns the same `KeyHandle` shape that `append_into`
+    /// wrote: `KeyHandle::Full(...)` for ed25519/secp256k1 entries, and
+    /// `KeyHandle::MlDsa65Hash(...)` for ML-DSA-65 entries.
     pub fn parse_key_handle_from_access_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
@@ -636,9 +641,9 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::AccessKey",
             ));
         }
-        // `KeyHandle`'s borsh tag layout matches the on-trie encoding
-        // produced by `append_key_handle_trie_id`, so we can delegate to
-        // its borsh deserializer.
+        // `KeyHandle`'s borsh tag layout (0 / 1 / 3) matches the on-trie
+        // encoding produced by `append_key_handle_trie_id`, so we can
+        // delegate to its borsh deserializer.
         let mut buf = &raw_key[prefix_len..];
         KeyHandle::deserialize(&mut buf)
     }
@@ -931,6 +936,45 @@ mod tests {
                 account_id
             );
         }
+    }
+
+    /// Encoding an `AccessKey` trie key with a full `MLDSA65` pubkey must
+    /// write the SHA3-384 hash form, not the 1953-byte raw bytes. Parsing
+    /// the resulting raw key returns `KeyHandle::MlDsa65Hash` carrying the
+    /// matching hash.
+    #[cfg(feature = "rand")]
+    #[test]
+    fn test_key_for_access_key_ml_dsa_65_hashes() {
+        use near_crypto::{ML_DSA_65_HASH_LENGTH, SecretKey};
+        let sk = SecretKey::from_seed(KeyType::MLDSA65, "trie-roundtrip");
+        let full_pk = sk.public_key();
+        let expected_hash = match &full_pk {
+            PublicKey::MLDSA65(k) => k.to_pubkey_hash(),
+            _ => unreachable!(),
+        };
+
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let key = TrieKey::access_key(account_id.clone(), &full_pk);
+        let raw_key = key.to_vec();
+
+        // Length matches the *hash* form, not the full-pubkey form.
+        assert_eq!(raw_key.len(), key.len());
+        assert_eq!(
+            raw_key.len(),
+            col::ACCESS_KEY.len() * 2 + account_id.len() + 1 + ML_DSA_65_HASH_LENGTH,
+        );
+
+        // Tag byte after the prefix is 3 (hashed ML-DSA-65).
+        let prefix_len = col::ACCESS_KEY.len() * 2 + account_id.len();
+        assert_eq!(raw_key[prefix_len], 3u8);
+
+        // Bytes after the tag match the expected hash.
+        assert_eq!(&raw_key[prefix_len + 1..], expected_hash.as_ref());
+
+        // Parsing yields `KeyHandle::MlDsa65Hash`, NOT a full pubkey.
+        let parsed =
+            trie_key_parsers::parse_key_handle_from_access_key_key(&raw_key, &account_id).unwrap();
+        assert_eq!(parsed, KeyHandle::MlDsa65Hash(expected_hash));
     }
 
     #[test]
