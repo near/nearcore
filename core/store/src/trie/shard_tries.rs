@@ -966,6 +966,7 @@ impl KeyForStateChanges {
 mod test {
     use super::*;
     use crate::adapter::StoreAdapter;
+    use crate::test_utils::{TestTriesBuilder, test_populate_trie};
     use crate::{
         TrieConfig, config::TrieCacheConfig, test_utils::create_test_store,
         trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
@@ -1121,5 +1122,27 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+    }
+
+    #[test]
+    fn test_pin_survives_freeze() {
+        let tries =
+            TestTriesBuilder::new().with_flat_storage(true).with_in_memory_tries(true).build();
+        let parent = ShardUId::single_shard();
+        let children =
+            vec![ShardUId { version: 2, shard_id: 0 }, ShardUId { version: 2, shard_id: 1 }];
+
+        let state_root = test_populate_trie(
+            &tries,
+            &Trie::EMPTY_ROOT,
+            parent,
+            vec![(b"key".to_vec(), Some(b"value".to_vec()))],
+        );
+
+        let pin = tries.maybe_pin_memtrie_root(parent, state_root).unwrap();
+        tries.freeze_parent_memtrie(parent, children).unwrap();
+        // Simulate an in-flight apply task whose pin outlived resharding.
+        // Must not panic: the root is gone from the replaced MemTries.
+        drop(pin);
     }
 }
