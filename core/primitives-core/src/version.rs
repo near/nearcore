@@ -380,20 +380,17 @@ pub enum ProtocolFeature {
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
-<<<<<<< HEAD
-    /// Fix BLS12-381 sum/multiexp/decompress host functions to accept points that
-    /// are on the curve but not in the G1/G2 subgroup, as required by NEP-488.
-    /// Previously such points (e.g. (0, ±2)) returned an error instead of the
-    /// expected result.
-    BLS12381NotInGroupFix,
-=======
     /// Make chunk-producer-to-shard assignment sticky across epoch boundaries:
     /// preserve assignment by `ShardId` (rather than `ShardIndex`) and, when a
     /// shard splits, distribute the parent's chunk producers across its child
     /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
     /// sync after resharding.
     StickyReshardingValidatorAssignment,
->>>>>>> upstream/master
+    /// Fix BLS12-381 sum/multiexp/decompress host functions to accept points that
+    /// are on the curve but not in the G1/G2 subgroup, as required by NEP-488.
+    /// Previously such points (e.g. (0, ±2)) returned an error instead of the
+    /// expected result.
+    BLS12381NotInGroupFix,
 }
 
 impl ProtocolFeature {
