@@ -188,19 +188,27 @@ impl BreakpointRegistry {
 
     /// If an armed breakpoint matches the request, enqueue a hit and return true (the caller
     /// should suspend the task). If no match, return false (the caller continues immediately).
+    ///
+    /// The predicate runs *without* the registry lock held. Otherwise a predicate that
+    /// captures a `BreakpointHandle` and calls e.g. `hit_count()` would deadlock the loop on
+    /// the same mutex.
     fn try_match(
         &self,
         request: YieldRequest,
         waker: Waker,
         resumed_flag: Arc<AtomicBool>,
     ) -> bool {
+        let predicate = match self.armed.lock().get(request.name) {
+            Some(entry) => entry.predicate.clone(),
+            None => return false,
+        };
+        if !predicate(&request.context) {
+            return false;
+        }
         let mut armed = self.armed.lock();
         let Some(entry) = armed.get_mut(request.name) else {
             return false;
         };
-        if !(entry.predicate)(&request.context) {
-            return false;
-        }
         entry.hits.push_back(HitInternal { context: request.context, waker, flag: resumed_flag });
         true
     }

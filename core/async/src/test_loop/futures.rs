@@ -27,14 +27,23 @@ pub type TestLoopFutureSpawner = PendingEventsSender;
 
 impl FutureSpawner for TestLoopFutureSpawner {
     fn spawn_boxed(&self, description: &str, f: BoxFuture<'static, ()>) {
-        let task = Arc::new(FutureTask {
-            future: Mutex::new(Some(f)),
-            sender: self.clone(),
-            description: description.to_string(),
-        });
-        let callback = move |_: &mut TestLoopData| drive_futures(&task);
-        self.send(format!("FutureSpawn({})", description), Box::new(callback));
+        spawn_future_owned(self, description.to_string(), f);
     }
+}
+
+/// Internal version of `spawn_boxed` that takes the description by owned `String`. The trait
+/// requires `&'static str`, which means callers with a dynamically-built description would
+/// otherwise need to `Box::leak` it. Use this from `near-async` internals instead.
+pub(crate) fn spawn_future_owned(
+    sender: &PendingEventsSender,
+    description: String,
+    f: BoxFuture<'static, ()>,
+) {
+    let event_description = format!("FutureSpawn({})", description);
+    let task =
+        Arc::new(FutureTask { future: Mutex::new(Some(f)), sender: sender.clone(), description });
+    let callback = move |_: &mut TestLoopData| drive_futures(&task);
+    sender.send(event_description, Box::new(callback));
 }
 
 struct FutureTask {
@@ -104,11 +113,7 @@ impl AsyncComputationSpawner for TestLoopAsyncComputationSpawner {
                 description.clone(),
                 Box::new(move |_| {
                     let task = YieldableTask::new(f);
-                    FutureSpawner::spawn_boxed(
-                        &sender,
-                        Box::leak(description.into_boxed_str()),
-                        Box::pin(task),
-                    );
+                    spawn_future_owned(&sender, description, Box::pin(task));
                 }),
                 delay,
             );
