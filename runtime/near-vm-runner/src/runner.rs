@@ -179,14 +179,13 @@ pub trait VM {
 
     /// Like [`Self::precompile`], but returns `ContractAlreadyInCache`
     /// instead of blocking when another thread is already compiling the
-    /// same contract.
+    /// same contract. Implementations without per-key compilation locks may
+    /// trivially delegate to [`Self::precompile`].
     fn try_precompile(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
-        self.precompile(code, cache)
-    }
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
 }
 
 pub trait VMKindExt {

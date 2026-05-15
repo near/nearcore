@@ -688,6 +688,19 @@ impl crate::runner::VM for NearVM {
             _ => Ok(Ok(ContractPrecompilatonResult::ContractCompiled)),
         }
     }
+
+    /// NearVM doesn't use per-key compilation locks, so there's nothing to
+    /// "try" against — just delegate to `precompile`.
+    fn try_precompile(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
+        self.precompile(code, cache)
+    }
 }
 
 struct ReadyContract {

@@ -56,16 +56,17 @@ pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyL
     }
 });
 
-pub static CACHE_WARMING_COMPILES_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_contract_cache_warming_compiles_total",
-        "Warming compilations that produced a fresh cache entry. Duplicate \
+pub static COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_contract_cache_warming_compiles_total",
+            "Warming compilations that produced a fresh cache entry. Duplicate \
          submissions short-circuited as `ContractAlreadyInCache` are not counted.",
-    )
-    .unwrap()
-});
+        )
+        .unwrap()
+    });
 
-pub static CACHE_WARMING_FAILURES: LazyLock<IntCounter> = LazyLock::new(|| {
+pub static COMPILATION_CACHE_WARMING_FAILURES: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_contract_cache_warming_failures_total",
         "Warming compilations that did not produce a usable cache entry. \
@@ -75,7 +76,7 @@ pub static CACHE_WARMING_FAILURES: LazyLock<IntCounter> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static CACHE_WARMING_DROPPED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+pub static COMPILATION_CACHE_WARMING_DROPPED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_contract_cache_warming_dropped_total",
         "Warming submissions dropped because the pool's queue was at \

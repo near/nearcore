@@ -1,7 +1,8 @@
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::RuntimeContractExt;
 use crate::metrics::{
-    CACHE_WARMING_COMPILES_TOTAL, CACHE_WARMING_DROPPED_TOTAL, CACHE_WARMING_FAILURES,
+    COMPILATION_CACHE_WARMING_DROPPED_TOTAL, COMPILATION_CACHE_WARMING_FAILURES,
+    COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS,
 };
 use near_async::thread_pool::{ThreadPool, contract_warming_pool};
 use near_parameters::vm::Config;
@@ -135,7 +136,7 @@ fn spawn_warming(
         return;
     };
     if !try_reserve_pending_slot() {
-        CACHE_WARMING_DROPPED_TOTAL.inc();
+        COMPILATION_CACHE_WARMING_DROPPED_TOTAL.inc();
         return;
     }
     pool.spawn_boxed(Box::new(move || {
@@ -144,7 +145,7 @@ fn spawn_warming(
             return;
         };
         let result = try_precompile_contract(code.as_ref(), config, Some(&*cache_handle));
-        record_warming_result(result);
+        update_compilation_cache_warming_metrics(result);
     }));
 }
 
@@ -158,12 +159,12 @@ fn try_get_warming_pool() -> Option<&'static Arc<ThreadPool>> {
 
 /// Increment the compiles counter only on a fresh compile;
 /// `ContractAlreadyInCache` is intentionally not counted.
-fn record_warming_result(
+fn update_compilation_cache_warming_metrics(
     result: Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>,
 ) {
     match result {
         Ok(Ok(ContractPrecompilatonResult::ContractCompiled)) => {
-            CACHE_WARMING_COMPILES_TOTAL.inc();
+            COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS.inc();
         }
         Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)) => {}
         Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)) => {
@@ -171,7 +172,7 @@ fn record_warming_result(
             debug_assert!(false, "warming submission with no cache handle");
         }
         Ok(Err(_)) | Err(_) => {
-            CACHE_WARMING_FAILURES.inc();
+            COMPILATION_CACHE_WARMING_FAILURES.inc();
         }
     }
 }

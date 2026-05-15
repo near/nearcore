@@ -607,8 +607,7 @@ impl WasmtimeVM {
             return Ok(compiled);
         }
         let entry = compilation_locks().entry(key);
-        let _guard = entry.lock();
-        self.compile_and_persist(key, code, cache)
+        self.compile_and_persist(key, code, cache, entry.lock())
     }
 
     #[tracing::instrument(
@@ -630,7 +629,7 @@ impl WasmtimeVM {
             return Ok(None);
         }
         let entry = compilation_locks().entry(key);
-        let Some(_guard) = entry.try_lock() else {
+        let Some(guard) = entry.try_lock() else {
             tracing::trace!(
                 target: "vm",
                 %key,
@@ -638,16 +637,16 @@ impl WasmtimeVM {
             );
             return Ok(None);
         };
-        self.compile_and_persist(key, code, cache).map(Some)
+        self.compile_and_persist(key, code, cache, guard).map(Some)
     }
 
     /// Inner Double-Checked-Lock: re-check + actual compile + cache write.
-    /// Must be called with the per-key compilation lock for `key` held.
     fn compile_and_persist(
         &self,
         key: CryptoHash,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
+        _lock_guard: MutexGuard<'_, ()>,
     ) -> Result<CachedArtifact, CacheError> {
         // The cache may have been populated while we waited on the per-key lock.
         if let Some(compiled) = read_cache(cache, &key)? {
