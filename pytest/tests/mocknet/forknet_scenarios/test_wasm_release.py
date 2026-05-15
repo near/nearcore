@@ -143,15 +143,17 @@ class TestWasmCandidate(TestSetup):
 
     def _checkout_nearcore_on_traffic(self):
         """
-        Sparse-checkout `pytest/` from slavas/bench-long-compile of
-        nearcore at /home/ubuntu/nearcore on the traffic node, so the
-        scheduled stress-test script can be invoked from
-        `pytest/tests/mocknet/` and import its `pytest/lib` helpers.
+        Sparse-checkout `pytest/` from nearcore at /home/ubuntu/nearcore
+        on the traffic node, so the scheduled stress-test script can be invoked
+        from `pytest/tests/mocknet/` and import its `pytest/lib` helpers.
         Idempotent: clones if missing, otherwise fetches and hard-resets
         to the upstream tip.
         """
-        repo = "https://github.com/near/nearcore.git"
-        branch = "slavas/bench-long-compile"
+        # TODO: upgrade before merge
+        # repo = "https://github.com/near/nearcore.git"
+        # branch = "master"
+        repo = "https://github.com/VanBarbascu/nearcore.git"
+        branch = "forknet/wasm-test-scenario"
         checkout_dir = "/home/ubuntu/nearcore"
         cmd = (
             f"set -e; "
