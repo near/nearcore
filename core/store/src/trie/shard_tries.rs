@@ -952,10 +952,14 @@ impl KeyForStateChanges {
 mod test {
     use super::*;
     use crate::adapter::StoreAdapter;
+    use crate::test_utils::{TestTriesBuilder, test_populate_trie};
+    use crate::trie::AccessOptions;
     use crate::{
         TrieConfig, config::TrieCacheConfig, test_utils::create_test_store,
         trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
     };
+    use std::sync::mpsc::sync_channel;
+    use std::thread;
     use std::{assert_eq, str::FromStr};
 
     fn create_trie() -> ShardTries {
@@ -1107,5 +1111,49 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+    }
+
+    /// Holds a `Trie` for the parent shard, pauses between two reads while
+    /// the main thread runs `freeze_parent_memtrie`, and verifies that the
+    /// second read still succeeds. Without preserving the frozen data in the
+    /// old parent Arc, the second read would hit an empty MemTries and fail
+    /// with `StorageInconsistentState` (panicking in production via the
+    /// catch-all in `chain/chain/src/runtime/mod.rs`).
+    #[test]
+    fn test_freeze_during_apply_keeps_in_flight_reads_alive() {
+        let tries =
+            TestTriesBuilder::new().with_flat_storage(true).with_in_memory_tries(true).build();
+        let parent = ShardUId::single_shard();
+        let children =
+            vec![ShardUId { version: 2, shard_id: 0 }, ShardUId { version: 2, shard_id: 1 }];
+
+        let state_root = test_populate_trie(
+            &tries,
+            &Trie::EMPTY_ROOT,
+            parent,
+            vec![(b"key".to_vec(), Some(b"value".to_vec()))],
+        );
+
+        let (apply_paused_tx, apply_paused_rx) = sync_channel::<()>(0);
+        let (freeze_done_tx, freeze_done_rx) = sync_channel::<()>(0);
+
+        let tries_for_apply = tries.clone();
+        let apply_thread = thread::spawn(move || {
+            let trie = tries_for_apply.get_trie_for_shard(parent, state_root);
+            let first = trie.get(b"key", AccessOptions::DEFAULT).unwrap();
+            assert_eq!(first, Some(b"value".to_vec()));
+
+            apply_paused_tx.send(()).unwrap();
+            freeze_done_rx.recv().unwrap();
+
+            trie.get(b"key", AccessOptions::DEFAULT)
+        });
+
+        apply_paused_rx.recv().unwrap();
+        tries.freeze_parent_memtrie(parent, children).unwrap();
+        freeze_done_tx.send(()).unwrap();
+
+        let result = apply_thread.join().unwrap();
+        assert_eq!(result.unwrap(), Some(b"value".to_vec()));
     }
 }
