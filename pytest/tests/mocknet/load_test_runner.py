@@ -8,6 +8,8 @@ transaction bytes for each tick; the runner has no knowledge of what is
 being sent.
 """
 
+# cspell:words poolv urandom
+
 import argparse
 import base64
 import itertools

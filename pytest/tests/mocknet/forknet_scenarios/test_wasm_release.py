@@ -2,6 +2,8 @@
 Test case classes for release tests on forknet.
 """
 
+# cspell:words minimise poolv
+
 from typing import Dict
 
 from .base import TestSetup, NodeHardware, time_to_str
@@ -40,6 +42,7 @@ class TestWasmCandidate(TestSetup):
             num_chunk_producer_seats=9, num_chunk_validator_seats=11)
         self.epoch_len = 500
         self.has_state_dumper = False
+        self.has_archival = False
         self.regions = "us-east1,europe-west1,asia-east1,us-west1"
 
         # 4 upgrade batches: 2 batches at `first_upgrade_delay_minutes`,
@@ -107,6 +110,7 @@ class TestWasmCandidate(TestSetup):
         cfg.append('consensus.max_block_production_delay={"secs":30,"nanos":0}')
         cfg.append('consensus.max_block_wait_delay={"secs":30,"nanos":0}')
         cfg_args = copy.deepcopy(self.args)
+        cfg_args.host_type = "all"
         cfg_args.set = ";".join(cfg)
         update_config_cmd(CommandContext(cfg_args))
 
@@ -162,7 +166,11 @@ class TestWasmCandidate(TestSetup):
             f"  && git -C {checkout_dir} sparse-checkout init --cone "
             f"  && git -C {checkout_dir} sparse-checkout set pytest; "
             f"fi; "
-            f"git -C {checkout_dir} fetch origin {branch} "
+            # Reconcile origin with `repo` so an existing checkout from a
+            # previous run (possibly pointing at a different fork) is
+            # redirected to the current source.
+            f"git -C {checkout_dir} remote set-url origin {repo} "
+            f"&& git -C {checkout_dir} fetch origin {branch} "
             f"&& git -C {checkout_dir} checkout -B slow-compile-adversarial origin/{branch} "
             f"&& git -C {checkout_dir} reset --hard origin/{branch}")
         run_cmd_args = copy.deepcopy(self.args)
@@ -330,3 +338,50 @@ class TestWasmCandidate(TestSetup):
         super().after_test_start()
         self._upgrade_nodes_in_four_batches()
         self._schedule_looping_stress_test()
+
+
+"""
+──────┬───────────────────────────────────────────────┬──────────────────────────────────────────────┬───────────────────┐
+Shard │                     Range                     │      Validator-pool example (top-stake)      │ # validator pools │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+10    │ (start) → 650                                 │ 01node.poolv1.near                           │ 4                 │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+11    │ 650 → aurora                                  │ astro-stakers.poolv1.near                    │ 19                │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+1     │ aurora → aurora-0                             │ aurora (Aurora EVM bridge; no pool in range) │ 0                 │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+8     │ aurora-0 → earn.kaiching                      │ bisontrails2.poolv1.near                     │ 75                │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+9     │ earn.kaiching → game.hot.tg                   │ figment.poolv1.near                          │ 33                │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+6     │ game.hot.tg → game.hot.tg-0                   │ game.hot.tg (HOT.tg game; no pool in range)  │ 0                 │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+7     │ game.hot.tg-0 → kkuuue2akv_1630967379.near    │ kiln-1.poolv1.near                           │ 41                │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+4     │ kkuuue2akv_1630967379.near → tge-lockup.sweat │ ledgerbyfigment.poolv1.near                  │ 203               │
+──────┼───────────────────────────────────────────────┼──────────────────────────────────────────────┼───────────────────┤
+5     │ tge-lockup.sweat → (end)                      │ zavodil.poolv1.near                          │ 35                │
+──────┴───────────────────────────────────────────────┴──────────────────────────────────────────────┴───────────────────┘
+"""
+
+
+class TestWasmCandidateAllShards(TestWasmCandidate):
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.stress_signers = [
+            ("01node.poolv1.near", None, None),
+            ("astro-stakers.poolv1.near", None, None),
+            ("aurora", "ed25519:3P9tDPVEnL2VzqYLKxPWcwBfvab1dr9mypHzGqUxNR2k",
+             "ed25519:21Db9BAqtogf1bWhJqJn42RB2s3usAW4p3BUQGRUkSKZtihPYiUGegS9DuhNq3bMP2kEyD9oN1g9sVctt9K8JK7a"
+            ),
+            ("bisontrails2.poolv1.near", None, None),
+            ("figment.poolv1.near", None, None),
+            ("game.hot.tg",
+             "ed25519:BnqafTvwMCAeTkDMT71BL7oWZcRgbqWFg1wseDokBanH",
+             "ed25519:4LKLF9mkipZqA1FwjTNBkRq6wMatvDNCjJbn8iYdqBATzW5uQtH8ZfyCQj7F53M55Zi62FY4A7dujuAQ289SK2V"
+            ),
+            ("kiln-1.poolv1.near", None, None),
+            ("ledgerbyfigment.poolv1.near", None, None),
+            ("zavodil.poolv1.near", None, None),
+        ]

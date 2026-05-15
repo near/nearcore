@@ -59,6 +59,8 @@ Examples:
       --tps 1
 """
 
+# cspell:words funcs poolv resalt resalting
+
 import argparse
 import pathlib
 import random
