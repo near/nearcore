@@ -59,11 +59,40 @@
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the
 //! following order: (A due 100ms), (B due 0ms), (C due 200ms), (D due 0ms), (E due 100ms)
 //! then the actual order of execution is B, D, A, E, C.
+#[cfg(feature = "test_features")]
+pub mod breakpoint;
 pub mod data;
 pub mod futures;
 pub mod pending_events_sender;
 pub mod sender;
 
+/// Yield point for the test-loop breakpoint mechanism. See `test_loop::breakpoint` for the
+/// full model. Compiles to nothing unless the caller's crate has `test_features` enabled, and
+/// even then short-circuits before the tag vector is built when not running inside a yieldable
+/// coroutine — so it's safe to sprinkle in hot production paths.
+///
+/// ```ignore
+/// test_loop_yield!("after_chunk_apply", node = self.id, height = h);
+/// ```
+#[macro_export]
+macro_rules! test_loop_yield {
+    ($name:literal $(, $key:ident = $value:expr)* $(,)?) => {{
+        #[cfg(feature = "test_features")]
+        if $crate::test_loop::breakpoint::is_on_coroutine() {
+            $crate::test_loop::breakpoint::dispatch(
+                $name,
+                vec![$((stringify!($key), format!("{}", $value))),*],
+            );
+        }
+    }};
+}
+
+#[cfg(all(test, feature = "test_features"))]
+use crate::futures::FutureSpawner;
+#[cfg(all(test, feature = "test_features"))]
+use breakpoint::YieldableTask;
+#[cfg(feature = "test_features")]
+use breakpoint::{BreakpointHandle, BreakpointRegistry, RegistryGuard};
 use data::TestLoopData;
 use futures::{TestLoopAsyncComputationSpawner, TestLoopFutureSpawner};
 use near_time::{Clock, Duration, FakeClock};
@@ -110,6 +139,12 @@ pub struct TestLoopV2 {
     /// Buffer for identifiers that should be added to the denylist. Written to by
     /// `ShutdownSignal` callbacks and drained at the start of each `process_event()`.
     pending_denylist: Arc<Mutex<Vec<String>>>,
+    /// Some when yield points are enabled (via `enable_yield_points()`), None otherwise.
+    /// Presence of the registry means async-computation callbacks get wrapped in a
+    /// `YieldableTask` and the registry is installed in thread-local storage around event dispatch. Set once
+    /// before any spawner is constructed; never mutated after. See `test_loop::breakpoint`.
+    #[cfg(feature = "test_features")]
+    breakpoint_registry: Option<Arc<BreakpointRegistry>>,
 }
 
 /// An event waiting to be executed, ordered by the due time and then by ID.
@@ -219,7 +254,46 @@ impl TestLoopV2 {
             every_event_callback: None,
             denylisted_identifiers: HashSet::new(),
             pending_denylist: Arc::new(Mutex::new(Vec::new())),
+            #[cfg(feature = "test_features")]
+            breakpoint_registry: None,
         }
+    }
+
+    /// Enables yield-point breakpoints. Must be called before any spawner is constructed, so
+    /// each spawner sees the registry at construction time. Typically called by
+    /// `TestLoopBuilder::enable_yield_points()`. Panics if called twice.
+    #[cfg(feature = "test_features")]
+    pub fn enable_yield_points(&mut self) {
+        assert!(self.breakpoint_registry.is_none(), "yield points already enabled");
+        self.breakpoint_registry = Some(Arc::new(BreakpointRegistry::new()));
+    }
+
+    /// Returns a builder for arming a breakpoint at the given yield-point name. Panics if
+    /// `enable_yield_points()` wasn't called first — yield points must be enabled before
+    /// breakpoints can be armed.
+    #[cfg(feature = "test_features")]
+    pub fn breakpoint(&self, name: &'static str) -> BreakpointHandle {
+        let registry = self
+            .breakpoint_registry
+            .as_ref()
+            .expect("call enable_yield_points() before arming breakpoints")
+            .clone();
+        BreakpointHandle::new(name, registry)
+    }
+
+    /// Spawns a sync closure as a yieldable coroutine on the test-loop's future spawner.
+    /// The closure can call `test_loop_yield!(...)` at any call depth. Test-only helper used
+    /// by the unit tests in this module; production wrapping happens inside the spawners.
+    #[cfg(all(test, feature = "test_features"))]
+    pub(crate) fn spawn_yieldable(
+        &self,
+        identifier: &str,
+        description: &'static str,
+        work: impl FnOnce() + Send + 'static,
+    ) {
+        let task = YieldableTask::new(Box::new(work));
+        let spawner = self.future_spawner(identifier);
+        FutureSpawner::spawn_boxed(&spawner, description, Box::pin(task));
     }
 
     /// Returns a FutureSpawner that can be used to spawn futures into the loop.
@@ -238,6 +312,8 @@ impl TestLoopV2 {
         TestLoopAsyncComputationSpawner::new(
             self.raw_pending_events_sender.for_identifier(identifier),
             artificial_delay,
+            #[cfg(feature = "test_features")]
+            self.breakpoint_registry.is_some(),
         )
     }
 
@@ -394,6 +470,11 @@ impl TestLoopV2 {
             }
 
             let callback = event.event.callback;
+            // Make the breakpoint registry visible to any yield point that fires from inside
+            // the callback (transitively, through coroutines spawned by handler-wrapping).
+            #[cfg(feature = "test_features")]
+            let _registry_guard =
+                self.breakpoint_registry.as_ref().map(|r| RegistryGuard::install(r));
             callback(&mut self.data);
         }
 
@@ -532,5 +613,167 @@ mod tests {
         // assert that the fake clock does indeed have the expected times.
         test_loop.run_for(Duration::seconds(30));
         assert_eq!(finished.load(Ordering::Relaxed), 2);
+    }
+
+    /// A yieldable task that fires a breakpoint mid-flight is paused until the test resumes it.
+    /// Verifies the registry thread-local storage, coroutine yield, hit queue, and resume-via-waker round trip.
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn test_breakpoint_pauses_and_resumes() {
+        let mut test_loop = TestLoopV2::new();
+        test_loop.enable_yield_points();
+
+        let bp = test_loop.breakpoint("midway").when(|ctx| ctx.get("node") == Some("alice")).arm();
+
+        let before_yield = Arc::new(AtomicUsize::new(0));
+        let after_yield = Arc::new(AtomicUsize::new(0));
+        let before_clone = before_yield.clone();
+        let after_clone = after_yield.clone();
+
+        test_loop.spawn_yieldable("test", "yieldable_task", move || {
+            before_clone.fetch_add(1, Ordering::Relaxed);
+            crate::test_loop_yield!("midway", node = "alice", step = 1);
+            after_clone.fetch_add(1, Ordering::Relaxed);
+        });
+
+        // Drive the loop. The task runs up to the yield point, then parks.
+        test_loop.run_until(|_| bp.hit_count() >= 1, Duration::seconds(1));
+        assert_eq!(before_yield.load(Ordering::Relaxed), 1);
+        assert_eq!(after_yield.load(Ordering::Relaxed), 0, "task should be paused at yield");
+
+        let hit = bp.take_hit().expect("hit should be queued");
+        assert_eq!(hit.context().get("node"), Some("alice"));
+        assert_eq!(hit.context().get("step"), Some("1"));
+
+        hit.resume();
+        // After resume(), the task is rescheduled via the waker; run the loop briefly so the
+        // re-enqueued poll event fires.
+        test_loop.run_for(Duration::milliseconds(1));
+        assert_eq!(after_yield.load(Ordering::Relaxed), 1, "task should have completed");
+    }
+
+    /// A yield point with no armed breakpoint matching it is a no-op — the task runs straight
+    /// through without parking.
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn test_yield_with_no_armed_breakpoint_is_noop() {
+        let mut test_loop = TestLoopV2::new();
+        test_loop.enable_yield_points();
+        let reached_end = Arc::new(AtomicUsize::new(0));
+        let reached = reached_end.clone();
+
+        test_loop.spawn_yieldable("test", "yieldable_task", move || {
+            crate::test_loop_yield!("nobody_armed_me", x = 1);
+            reached.fetch_add(1, Ordering::Relaxed);
+        });
+
+        test_loop.run_for(Duration::milliseconds(1));
+        assert_eq!(reached_end.load(Ordering::Relaxed), 1);
+    }
+
+    /// A predicate that doesn't match keeps the task running — no pause, no queued hit.
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn test_breakpoint_predicate_filters() {
+        let mut test_loop = TestLoopV2::new();
+        test_loop.enable_yield_points();
+        let bp =
+            test_loop.breakpoint("checkpoint").when(|ctx| ctx.get("node") == Some("bob")).arm();
+
+        let reached = Arc::new(AtomicUsize::new(0));
+        let reached_clone = reached.clone();
+
+        test_loop.spawn_yieldable("test", "yieldable_task", move || {
+            crate::test_loop_yield!("checkpoint", node = "alice");
+            reached_clone.fetch_add(1, Ordering::Relaxed);
+        });
+
+        test_loop.run_for(Duration::milliseconds(1));
+        assert_eq!(bp.hit_count(), 0);
+        assert_eq!(reached.load(Ordering::Relaxed), 1);
+    }
+
+    /// With yield points enabled, work submitted via the `AsyncComputationSpawner` runs on a
+    /// coroutine stack, so `test_loop_yield!` calls inside it can be paused by an armed
+    /// breakpoint. This is the only entry point users get via the builder.
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn test_async_comp_wraps_when_enabled() {
+        use crate::futures::AsyncComputationSpawnerExt;
+
+        let mut test_loop = TestLoopV2::new();
+        test_loop.enable_yield_points();
+        let spawner = test_loop.async_computation_spawner("test", |_| Duration::ZERO);
+
+        let bp = test_loop.breakpoint("comp_yield").arm();
+        let after = Arc::new(AtomicUsize::new(0));
+        let after_clone = after.clone();
+
+        spawner.spawn("computation", move || {
+            crate::test_loop_yield!("comp_yield", phase = "mid");
+            after_clone.fetch_add(1, Ordering::Relaxed);
+        });
+
+        test_loop.run_until(|_| bp.hit_count() >= 1, Duration::seconds(1));
+        assert_eq!(after.load(Ordering::Relaxed), 0);
+
+        let hit = bp.take_hit().unwrap();
+        assert_eq!(hit.context().get("phase"), Some("mid"));
+        hit.resume();
+
+        test_loop.run_for(Duration::milliseconds(1));
+        assert_eq!(after.load(Ordering::Relaxed), 1);
+    }
+
+    /// Without yield points enabled, the async-computation path is unchanged — the closure
+    /// runs inline and `test_loop_yield!` is a silent no-op.
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn test_async_comp_unchanged_when_disabled() {
+        use crate::futures::AsyncComputationSpawnerExt;
+
+        let mut test_loop = TestLoopV2::new();
+        // Note: NOT calling enable_yield_points — `breakpoint()` would panic here.
+        let spawner = test_loop.async_computation_spawner("test", |_| Duration::ZERO);
+
+        let after = Arc::new(AtomicUsize::new(0));
+        let after_clone = after.clone();
+
+        spawner.spawn("computation", move || {
+            crate::test_loop_yield!("comp_yield", phase = "mid");
+            after_clone.fetch_add(1, Ordering::Relaxed);
+        });
+
+        test_loop.run_for(Duration::milliseconds(1));
+        assert_eq!(after.load(Ordering::Relaxed), 1, "computation runs straight through");
+    }
+
+    /// Dropping the handle while a task is parked auto-resumes it so it doesn't hang forever.
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn test_drop_handle_auto_resumes() {
+        let mut test_loop = TestLoopV2::new();
+        test_loop.enable_yield_points();
+        let reached = Arc::new(AtomicUsize::new(0));
+        let reached_clone = reached.clone();
+
+        let bp = test_loop.breakpoint("drop_test").arm();
+        test_loop.spawn_yieldable("test", "yieldable_task", move || {
+            crate::test_loop_yield!("drop_test");
+            reached_clone.fetch_add(1, Ordering::Relaxed);
+        });
+
+        test_loop.run_until(|_| bp.hit_count() >= 1, Duration::seconds(1));
+        assert_eq!(reached.load(Ordering::Relaxed), 0);
+
+        // Drop the handle without explicitly taking and resuming the hit.
+        drop(bp);
+
+        test_loop.run_for(Duration::milliseconds(1));
+        assert_eq!(
+            reached.load(Ordering::Relaxed),
+            1,
+            "auto-resume on drop should complete the task"
+        );
     }
 }

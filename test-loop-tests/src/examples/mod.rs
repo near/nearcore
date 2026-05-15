@@ -1,6 +1,8 @@
 mod archival;
 mod basic;
 #[cfg(feature = "test_features")]
+mod breakpoint;
+#[cfg(feature = "test_features")]
 mod delayed_receipts;
 #[cfg(feature = "test_features")]
 mod gas_limit;

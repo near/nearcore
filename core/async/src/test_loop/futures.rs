@@ -11,6 +11,8 @@
 //! the loop manually.
 
 use super::PendingEventsSender;
+#[cfg(feature = "test_features")]
+use super::breakpoint::YieldableTask;
 use super::data::TestLoopData;
 use crate::futures::{AsyncComputationSpawner, FutureSpawner};
 use futures::future::BoxFuture;
@@ -69,23 +71,53 @@ fn drive_futures(task: &Arc<FutureTask>) {
 pub struct TestLoopAsyncComputationSpawner {
     sender: PendingEventsSender,
     artificial_delay: Box<dyn Fn(&str) -> Duration + Send + Sync>,
+    /// Copied from `TestLoopV2` at construction time. When true, `spawn_boxed` wraps the work
+    /// in a yieldable coroutine instead of running it inline, so that any `test_loop_yield!`
+    /// inside the computation can actually pause.
+    #[cfg(feature = "test_features")]
+    yield_points_enabled: bool,
 }
 
 impl TestLoopAsyncComputationSpawner {
     pub fn new(
         sender: PendingEventsSender,
         artificial_delay: impl Fn(&str) -> Duration + Send + Sync + 'static,
+        #[cfg(feature = "test_features")] yield_points_enabled: bool,
     ) -> Self {
-        Self { sender, artificial_delay: Box::new(artificial_delay) }
+        Self {
+            sender,
+            artificial_delay: Box::new(artificial_delay),
+            #[cfg(feature = "test_features")]
+            yield_points_enabled,
+        }
     }
 }
 
 impl AsyncComputationSpawner for TestLoopAsyncComputationSpawner {
     fn spawn_boxed(&self, name: &str, f: Box<dyn FnOnce() + Send>) {
+        let delay = (self.artificial_delay)(name);
+        #[cfg(feature = "test_features")]
+        if self.yield_points_enabled {
+            let description = format!("AsyncComputation({})", name);
+            let sender = self.sender.clone();
+            self.sender.send_with_delay(
+                description.clone(),
+                Box::new(move |_| {
+                    let task = YieldableTask::new(f);
+                    FutureSpawner::spawn_boxed(
+                        &sender,
+                        Box::leak(description.into_boxed_str()),
+                        Box::pin(task),
+                    );
+                }),
+                delay,
+            );
+            return;
+        }
         self.sender.send_with_delay(
             format!("AsyncComputation({})", name),
             Box::new(move |_| f()),
-            (self.artificial_delay)(name),
+            delay,
         );
     }
 }
