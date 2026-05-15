@@ -60,10 +60,6 @@ impl Context {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Thread-local storage: yielder (active coroutine) and registry (armed breakpoints)
-// ---------------------------------------------------------------------------
-
 thread_local! {
     /// Pointer to the yielder of the currently-running coroutine, or null when not on a
     /// yieldable coroutine's stack. Saved/restored by `YieldableTask::poll` around each
@@ -110,10 +106,6 @@ fn with_registry<R>(f: impl FnOnce(&BreakpointRegistry) -> R) -> Option<R> {
     })
 }
 
-// ---------------------------------------------------------------------------
-// The dispatch path called by the `test_loop_yield!` macro.
-// ---------------------------------------------------------------------------
-
 /// Cheap predicate the macro uses to short-circuit allocation when nothing could happen here.
 /// Inlined so the `is_null` branch is hot-path-friendly.
 #[doc(hidden)]
@@ -138,10 +130,6 @@ pub fn dispatch(name: &'static str, tags: Vec<(&'static str, String)>) {
     let yielder = unsafe { &*yielder_ptr };
     yielder.suspend(request);
 }
-
-// ---------------------------------------------------------------------------
-// Registry, armed breakpoints, hits
-// ---------------------------------------------------------------------------
 
 type Predicate = dyn Fn(&Context) -> bool + Send + Sync;
 
@@ -247,10 +235,6 @@ impl Hit {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test-facing handle
-// ---------------------------------------------------------------------------
-
 /// Handle returned by `TestLoopV2::breakpoint(name)`. Builds the matcher, arms it, and lets
 /// the test poll for and drain hits. Dropping the handle disarms (and auto-resumes queued hits).
 pub struct BreakpointHandle {
@@ -298,10 +282,6 @@ impl Drop for BreakpointHandle {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// YieldableTask: wraps a corosensei coroutine as a Future
-// ---------------------------------------------------------------------------
 
 /// A future that drives a sync closure running inside a corosensei coroutine. Each call to
 /// `test_loop_yield!` inside the closure suspends the coroutine; this future then either
