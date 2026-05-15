@@ -1,97 +1,67 @@
 //! Test that the compiled-contract cache is warmed during the epoch
-//! preceding a protocol upgrade that changes the cache-key signature
-//! (here: a `vm_kind` switch).
+//! preceding a protocol upgrade that changes the cache-key signature.
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
-};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::Balance;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
-use std::ops::Deref;
 use std::sync::Arc;
 
-/// Crossing protocol 83 → 84 changes `vm_kind` (NearVm → Wasmtime), so the
-/// compiled-contract cache key changes across the epoch boundary. Deploy and
-/// call a contract during the pre-upgrade epoch, then assert the deployed
-/// contract's compiled artifact is already present in the on-disk cache
-/// under the *new* protocol's `wasm_config` — the only mechanism that could
-/// have populated that entry by this point is warming during the pre-upgrade
-/// epoch.
+/// Deploy and call a contract during a pre-upgrade epoch, then assert the
+/// deployed contract's compiled artifact is already present in the on-disk
+/// cache under the *new* protocol's `wasm_config`. The only mechanism that
+/// could have populated that entry by this point is warming during the
+/// pre-upgrade epoch.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_cache_warming_across_vm_kind_upgrade() {
+fn slow_test_cache_warming_across_vm_config_change() {
     init_test_logger();
 
-    let old_protocol = 83;
-    let new_protocol = 84;
+    let old_protocol = PROTOCOL_VERSION - 1;
+    let new_protocol = PROTOCOL_VERSION;
     let epoch_length = 10;
-    let initial_balance = Balance::from_near(10_000);
+    let user = create_account_id("user");
 
-    // Manual setup: one validator + one user account hosting the contract +
-    // an "rpc" client (the framework recognizes the "rpc" account id and
-    // exposes it via `env.rpc_node()`).
-    let validator: AccountId = "validator0".parse().unwrap();
-    let user: AccountId = "user".parse().unwrap();
-    let rpc: AccountId = "rpc".parse().unwrap();
-    let clients = vec![validator, user.clone(), rpc];
-    let validators_spec = ValidatorsSpec::desired_roles(&["validator0"], &[]);
-    let user_accounts = vec![user.clone()];
-    let shard_layout = ShardLayout::single_shard();
-
-    let builder = TestLoopBuilder::new();
-    let genesis = TestGenesisBuilder::new()
-        .protocol_version(old_protocol)
-        .genesis_time_from_clock(&builder.clock())
-        .genesis_height(10_000)
-        .shard_layout(shard_layout.clone())
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec.clone())
-        .add_user_accounts_simple(&user_accounts, initial_balance)
-        .build();
-    let genesis_epoch_info = TestEpochConfigBuilder::new()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout.clone())
-        .validators_spec(validators_spec)
-        .build();
-
-    let mainnet = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let adjust = |proto| {
-        let mut cfg: EpochConfig = mainnet.get_config(proto).deref().clone();
-        cfg.epoch_length = epoch_length;
-        cfg.num_block_producer_seats = genesis_epoch_info.num_block_producer_seats;
-        cfg.num_chunk_producer_seats = genesis_epoch_info.num_chunk_producer_seats;
-        cfg.num_chunk_validator_seats = genesis_epoch_info.num_chunk_validator_seats;
-        cfg.with_shard_layout(shard_layout.clone())
-    };
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter([
-        (old_protocol, Arc::new(adjust(old_protocol))),
-        (new_protocol, Arc::new(adjust(new_protocol))),
+    // Inject a RuntimeConfigStore where the new protocol has a different
+    // wasm_config so that cache_keys_differ() returns true and triggers warming.
+    let base_store = RuntimeConfigStore::new(None);
+    let old_runtime_config = base_store.get_config(old_protocol).clone();
+    let mut new_wasm = old_runtime_config.wasm_config.as_ref().clone();
+    new_wasm.discard_custom_sections = !new_wasm.discard_custom_sections;
+    let new_runtime_config = Arc::new(RuntimeConfig {
+        wasm_config: Arc::new(new_wasm),
+        ..old_runtime_config.as_ref().clone()
+    });
+    assert_ne!(
+        old_runtime_config.wasm_config.non_crypto_hash(),
+        new_runtime_config.wasm_config.non_crypto_hash(),
+    );
+    let runtime_config_store = RuntimeConfigStore::new_custom(BTreeMap::from([
+        (old_protocol, old_runtime_config),
+        (new_protocol, new_runtime_config),
     ]));
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    let mut env = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+    let mut env = TestLoopBuilder::new()
+        .protocol_version(old_protocol)
+        .epoch_length(epoch_length)
+        .enable_rpc()
+        .add_user_account(&user, Balance::from_near(10_000))
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
-        .clients(clients)
+        .runtime_config_store(runtime_config_store)
         .build();
 
-    // Deploy during the old-protocol epoch — exercises the deploy hook,
-    // which spawns a warming compile when `apply_state.next_wasm_config` is
-    // `Some` (i.e. the pre-upgrade window is open).
+    // Deploy during the old-protocol epoch, exercising the deploy warming hook.
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user);
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
 
-    // A few calls in a row exercise the pipelining hook on the receipt
-    // preparation path.
+    // Calls exercise the pipelining warming path on receipt preparation.
     for _ in 0..3 {
         let call_tx = env.rpc_node().tx_call(
             &user,
@@ -117,15 +87,9 @@ fn slow_test_cache_warming_across_vm_kind_upgrade() {
         Duration::seconds((6 * epoch_length) as i64),
     );
 
-    // Deterministic check: the deployed contract's compiled artifact must
-    // be in the on-disk cache under the new-protocol `wasm_config`. At this
-    // exact point the chain has just crossed into `new_protocol`, the
-    // post-upgrade sanity call below has not yet executed, and no other
-    // contract activity in this test referenced `rs_contract` under the
-    // new VM — so the only mechanism that could have populated the entry
-    // is warming during the pre-upgrade epoch. (No reliance on
-    // process-global Prometheus counters, which can be contaminated by
-    // unrelated tests in the same nextest binary.)
+    // The contract must already be cached under the new protocol's wasm_config.
+    // No contract activity has run under new_protocol yet, so this can only
+    // have been populated by pre-upgrade warming.
     let code_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
     let client = &env.test_loop.data.get(&client_handle).client;
     let next_runtime_config = client.runtime_adapter.get_runtime_config(new_protocol);
@@ -136,14 +100,9 @@ fn slow_test_cache_warming_across_vm_kind_upgrade() {
         code_hash,
     )
     .expect("compiled-contract cache lookup failed");
-    assert!(
-        warmed,
-        "expected deployed contract (code_hash={code_hash}) to be cached \
-         under new-protocol wasm_config; warming did not produce the entry"
-    );
+    assert!(warmed, "contract not cached under new-protocol wasm_config; warming did not work");
 
-    // Post-upgrade sanity: the same call succeeds under the new protocol —
-    // either by hitting the warmed cache or by an on-demand compile.
+    // Post-upgrade sanity: the call succeeds under the new protocol.
     let post_call_tx = env.rpc_node().tx_call(
         &user,
         &user,
