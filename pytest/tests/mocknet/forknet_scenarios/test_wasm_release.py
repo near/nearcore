@@ -2,7 +2,7 @@
 Test case classes for release tests on forknet.
 """
 
-# cspell:words minimise poolv
+# cspell:words bisontrails ledgerbyfigment minimise poolv zavodil
 
 from typing import Dict
 
