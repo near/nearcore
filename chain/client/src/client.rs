@@ -408,18 +408,16 @@ impl Client {
         let doomslug = Doomslug::new(
             clock.clone(),
             chain.chain_store().largest_target_height(),
-            config.min_block_production_delay,
-            config.max_block_production_delay,
-            config.max_block_production_delay / 10,
-            config.max_block_wait_delay,
-            config.chunk_wait_mult,
+            config.min_block_production_delay.clone(),
+            config.max_block_production_delay.clone(),
+            config.max_block_wait_delay.clone(),
+            config.chunk_wait_mult.clone(),
             doomslug_threshold_mode,
         );
         let spice_timer = SpiceTimer::new(
             clock.clone(),
-            config.min_block_production_delay,
-            config.max_block_production_delay,
-            (config.max_block_production_delay - config.min_block_production_delay) / 10,
+            config.min_block_production_delay.clone(),
+            config.max_block_production_delay.clone(),
         );
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),

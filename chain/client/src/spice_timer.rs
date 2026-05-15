@@ -1,6 +1,7 @@
 use crate::metrics::{SPICE_BLOCK_PRODUCTION_DELAY_MS, SPICE_CERTIFICATION_LAG};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::spice_core::get_last_certified_block_header;
+use near_chain_configs::MutableConfigValue;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
@@ -19,11 +20,9 @@ pub struct SpiceTimer {
     /// Minimum time to wait before producing a block when certification is up-to-date. This should
     /// normally be set to >= of the doomslug min block time, to not produce delays that will be
     /// masked by doomslug anyway.
-    min_block_time: Duration,
-    /// Incremental delay added per block of certification lag
-    block_time_step: Duration,
+    min_block_time: MutableConfigValue<Duration>,
     /// Maximum time to wait before producing a block regardless of certification lag
-    max_block_time: Duration,
+    max_block_time: MutableConfigValue<Duration>,
     /// Cached certification head height to avoid frequent recalculation
     /// Tuple contains: (head_hash, certification_height, cached_time)
     cached_certification_height: Option<(CryptoHash, BlockHeight, Instant)>,
@@ -40,20 +39,15 @@ const CACHE_TTL: Duration = Duration::milliseconds(100);
 impl SpiceTimer {
     pub fn new(
         clock: Clock,
-        min_block_time: Duration,
-        max_block_time: Duration,
-        block_time_step: Duration,
+        min_block_time: MutableConfigValue<Duration>,
+        max_block_time: MutableConfigValue<Duration>,
     ) -> Self {
-        assert!(min_block_time <= max_block_time, "min_block_time must be <= max_block_time");
-        assert!(block_time_step >= Duration::ZERO, "block_time_step must be non-negative");
+        assert!(
+            min_block_time.get() <= max_block_time.get(),
+            "min_block_time must be <= max_block_time"
+        );
 
-        Self {
-            clock,
-            min_block_time,
-            block_time_step,
-            max_block_time,
-            cached_certification_height: None,
-        }
+        Self { clock, min_block_time, max_block_time, cached_certification_height: None }
     }
 
     /// Returns the current certification head height.
@@ -85,10 +79,12 @@ impl SpiceTimer {
     /// Calculates the required delay before producing a block based on certification lag.
     fn calculate_production_delay_ns(&self, certification_lag: u64) -> u128 {
         let certification_lag = u32::try_from(certification_lag).unwrap_or(u32::MAX);
-        let total_delay =
-            self.min_block_time + self.block_time_step * certification_lag.saturating_sub(2_u32);
+        let min = self.min_block_time.get();
+        let max = self.max_block_time.get();
+        let block_time_step = (max - min) / 10;
+        let total_delay = min + block_time_step * certification_lag.saturating_sub(2_u32);
 
-        std::cmp::min(total_delay, self.max_block_time).unsigned_abs().as_nanos()
+        std::cmp::min(total_delay, max).unsigned_abs().as_nanos()
     }
 
     /// Determines if a block is ready to be produced at the target height.
@@ -144,9 +140,8 @@ mod tests {
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let timer = SpiceTimer::new(
             clock.clock(),
-            Duration::milliseconds(600),
-            Duration::milliseconds(2000),
-            Duration::milliseconds(100),
+            MutableConfigValue::new(Duration::milliseconds(600), "min_block_time"),
+            MutableConfigValue::new(Duration::milliseconds(2000), "max_block_time"),
         );
 
         let delay = timer.calculate_production_delay_ns(0);
@@ -161,9 +156,8 @@ mod tests {
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let timer = SpiceTimer::new(
             clock.clock(),
-            Duration::milliseconds(600),
-            Duration::milliseconds(2000),
-            Duration::milliseconds(100),
+            MutableConfigValue::new(Duration::milliseconds(600), "min_block_time"),
+            MutableConfigValue::new(Duration::milliseconds(2000), "max_block_time"),
         );
 
         // Lag of 5 blocks: 600 + 100*3 = 900ms
@@ -180,9 +174,8 @@ mod tests {
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let timer = SpiceTimer::new(
             clock.clock(),
-            Duration::milliseconds(600),
-            Duration::milliseconds(2000),
-            Duration::milliseconds(100),
+            MutableConfigValue::new(Duration::milliseconds(600), "min_block_time"),
+            MutableConfigValue::new(Duration::milliseconds(2000), "max_block_time"),
         );
 
         // Lag of 22 blocks: 600 + 100*20 = 2600ms, but capped at 2000ms
@@ -198,11 +191,12 @@ mod tests {
     #[should_panic(expected = "min_block_time must be <= max_block_time")]
     fn test_invalid_config_panics() {
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
+
         SpiceTimer::new(
             clock.clock(),
-            Duration::milliseconds(2000),
-            Duration::milliseconds(600), // max < min, should panic
-            Duration::milliseconds(100),
+            MutableConfigValue::new(Duration::milliseconds(2000), "min_block_time"),
+            // max < min, should panic
+            MutableConfigValue::new(Duration::milliseconds(600), "max_block_time"),
         );
     }
 }

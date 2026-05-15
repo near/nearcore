@@ -42,7 +42,7 @@ impl<T: Serialize> Serialize for MutableConfigValue<T> {
 }
 
 #[cfg(feature = "schemars")]
-impl<T: schemars::JsonSchema> schemars::JsonSchema for MutableConfigValue<T> {
+impl<T> schemars::JsonSchema for MutableConfigValue<T> {
     fn schema_name() -> std::borrow::Cow<'static, str> {
         "MutableConfigValue".to_string().into()
     }

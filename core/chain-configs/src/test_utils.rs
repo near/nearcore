@@ -267,14 +267,23 @@ impl ClientConfig {
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
             expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
-            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
-                10,
-                min_block_prod_time / 5,
-            ) as i64),
-            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
-            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
-            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
-            chunk_wait_mult: Rational32::new(1, 6),
+            block_production_tracking_delay: MutableConfigValue::new(
+                Duration::milliseconds(std::cmp::max(10, min_block_prod_time / 5) as i64),
+                "block_production_tracking_delay",
+            ),
+            min_block_production_delay: MutableConfigValue::new(
+                Duration::milliseconds(min_block_prod_time as i64),
+                "min_block_production_delay",
+            ),
+            max_block_production_delay: MutableConfigValue::new(
+                Duration::milliseconds(max_block_prod_time as i64),
+                "max_block_production_delay",
+            ),
+            max_block_wait_delay: MutableConfigValue::new(
+                Duration::milliseconds(3 * min_block_prod_time as i64),
+                "max_block_wait_delay",
+            ),
+            chunk_wait_mult: MutableConfigValue::new(Rational32::new(1, 6), "chunk_wait_mult"),
             skip_sync_wait,
             sync_check_period: Duration::milliseconds(100),
             sync_step_period: Duration::milliseconds(10),
@@ -300,7 +309,10 @@ impl ClientConfig {
                 Duration::milliseconds(100),
                 Duration::milliseconds(min_block_prod_time as i64 / 5),
             ),
-            doomslug_step_period: Duration::milliseconds(100),
+            doomslug_step_period: MutableConfigValue::new(
+                Duration::milliseconds(100),
+                "doomslug_step_period",
+            ),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_shards_config: TrackedShardsConfig::NoShards,
