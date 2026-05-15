@@ -12,7 +12,8 @@ use near_async::test_loop_yield;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::Balance;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Forces a non-default interleaving between two tasks that share a vector. Default
 /// (FIFO at t=0) would be `[a1, a2, b1, b2]`; with the breakpoint we pause A between its
@@ -35,24 +36,24 @@ fn test_breakpoint_interleaves_two_tasks() {
 
     let log_a = log.clone();
     spawner.spawn("task_a", move || {
-        log_a.lock().unwrap().push("a1");
+        log_a.lock().push("a1");
         test_loop_yield!("midway", task = "a");
-        log_a.lock().unwrap().push("a2");
+        log_a.lock().push("a2");
     });
 
     let log_b = log.clone();
     spawner.spawn("task_b", move || {
-        log_b.lock().unwrap().push("b1");
+        log_b.lock().push("b1");
         // Same yield-point name, different tag — the predicate filters this hit out, so B
         // runs straight through. Proves the matcher discriminates per-tag.
         test_loop_yield!("midway", task = "b");
-        log_b.lock().unwrap().push("b2");
+        log_b.lock().push("b2");
     });
 
     env.test_loop.run_until(|_| bp.hit_count() >= 1, Duration::seconds(5));
 
     // A is parked mid-flight; B has run to completion in the meantime.
-    assert_eq!(*log.lock().unwrap(), vec!["a1", "b1", "b2"]);
+    assert_eq!(*log.lock(), vec!["a1", "b1", "b2"]);
 
     let hit = bp.take_hit().expect("task A should be parked at the breakpoint");
     assert_eq!(hit.context().get("task"), Some("a"));
@@ -60,5 +61,5 @@ fn test_breakpoint_interleaves_two_tasks() {
     hit.resume();
     env.test_loop.run_for(Duration::milliseconds(1));
 
-    assert_eq!(*log.lock().unwrap(), vec!["a1", "b1", "b2", "a2"]);
+    assert_eq!(*log.lock(), vec!["a1", "b1", "b2", "a2"]);
 }
