@@ -132,6 +132,12 @@ pub trait Contract {
 }
 
 pub trait VM {
+    /// The `vm_hash` component of the on-disk cache key for this VM
+    /// instance (see [`crate::cache::get_contract_cache_key`]). Captures
+    /// any VM-implementation-specific inputs to the cache key that aren't
+    /// covered by `Config` alone (e.g. wasmtime engine version).
+    fn vm_hash(&self) -> u64;
+
     /// Determine if the machine code for the contract is already cached.
     ///
     /// If this returns `true`, `VM::precompile` **will** return `Ok(Ok(ContractAlreadyInCache))`.

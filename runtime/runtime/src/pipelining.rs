@@ -118,9 +118,10 @@ impl ReceiptPreparationPipeline {
         shard_id: ShardId,
     ) -> Self {
         debug_assert!(
-            next_wasm_config
-                .as_ref()
-                .is_none_or(|next| cache_keys_differ(config.wasm_config.as_ref(), next.as_ref())),
+            next_wasm_config.as_ref().is_none_or(|next| cache_keys_differ(
+                Arc::clone(&config.wasm_config),
+                Arc::clone(next)
+            )),
             "next_wasm_config must differ from config.wasm_config; \
              caller should pass None when signatures match"
         );

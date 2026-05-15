@@ -26,7 +26,8 @@ pub use crate::logic::with_ext_cost_counter;
 pub use cache::FilesystemContractRuntimeCache;
 pub use cache::{
     CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
-    NoContractRuntimeCache, precompile_contract, try_precompile_contract,
+    NoContractRuntimeCache, config_cache_key_signature, precompile_contract,
+    try_precompile_contract,
 };
 pub use errors::ContractPrecompilatonResult;
 #[cfg(feature = "metrics")]

@@ -75,7 +75,7 @@ struct VMKey {
 
 static VMS: LazyLock<RwLock<HashMap<VMKey, WasmtimeVM>>> = LazyLock::new(RwLock::default);
 
-/// Per-contract-cache-key compilation lock. Prevents duplicate compilations
+// TODO(crt): consider splitting out the compile cache and locking logic to its own file
 /// One cache entry: the serialized wasmtime module bytes, or the cached
 /// [`CompilationError`] from a prior failed compile of the same code.
 type CachedArtifact = Result<Vec<u8>, CompilationError>;
@@ -83,12 +83,6 @@ type CachedArtifact = Result<Vec<u8>, CompilationError>;
 /// Per-key compilation lock map. Prevents redundant concurrent compilations
 /// of the same contract by multiple threads (e.g. precompile_contracts and
 /// validate_chunk_state_witness).
-///
-/// Callers obtain a [`CompilationGuard`] via [`entry`](Self::entry), then
-/// call [`lock`](CompilationGuard::lock) or
-/// [`try_lock`](CompilationGuard::try_lock) on it. The map entry is
-/// automatically cleaned up when the guard is dropped, but only if no other
-/// thread still holds a guard for the same key.
 pub(crate) struct CompilationLockMap {
     inner: DashMap<CryptoHash, Arc<Mutex<()>>>,
 }
@@ -109,8 +103,7 @@ impl CompilationLockMap {
     }
 }
 
-/// RAII guard returned by [`CompilationLockMap::entry`]. On drop, removes
-/// the map entry.
+/// RAII guard returned by [`CompilationLockMap::entry`]. On drop, removes the map entry.
 struct CompilationGuard<'a> {
     key: CryptoHash,
     map: &'a CompilationLockMap,
@@ -138,9 +131,8 @@ pub(crate) fn compilation_locks() -> &'static CompilationLockMap {
     LOCKS.get_or_init(CompilationLockMap::new)
 }
 
-/// Helper for the double-checked-locking cache read used by
-/// `compile_and_cache` and `try_compile_and_cache`. Returns
-/// `Ok(Some(_))` if the cache already has an entry for `key`.
+/// Cache read helper used by `compile_and_cache` and `try_compile_and_cache`.
+/// Returns `Ok(Some(_))` if the cache already has an entry for `key`.
 fn read_cache(
     cache: &dyn ContractRuntimeCache,
     key: &CryptoHash,
@@ -614,7 +606,9 @@ impl WasmtimeVM {
         if let Some(compiled) = read_cache(cache, &key)? {
             return Ok(compiled);
         }
-        self.compile_under_held_lock(key, code, cache)
+        let entry = compilation_locks().entry(key);
+        let _guard = entry.lock();
+        self.compile_and_persist(key, code, cache)
     }
 
     #[tracing::instrument(
@@ -635,30 +629,6 @@ impl WasmtimeVM {
         if cache.has(&key).map_err(CacheError::ReadError)? {
             return Ok(None);
         }
-        self.try_compile_under_held_lock(key, code, cache)
-    }
-
-    /// Acquire the per-key compilation lock (blocking), then run the inner
-    /// DCL check + actual compile + cache write.
-    fn compile_under_held_lock(
-        &self,
-        key: CryptoHash,
-        code: &ContractCode,
-        cache: &dyn ContractRuntimeCache,
-    ) -> Result<CachedArtifact, CacheError> {
-        let entry = compilation_locks().entry(key);
-        let _guard = entry.lock();
-        self.compile_and_persist(key, code, cache)
-    }
-
-    /// Like [`Self::compile_under_held_lock`], but uses `try_lock` and
-    /// returns `Ok(None)` when another thread already holds the per-key lock.
-    fn try_compile_under_held_lock(
-        &self,
-        key: CryptoHash,
-        code: &ContractCode,
-        cache: &dyn ContractRuntimeCache,
-    ) -> Result<Option<CachedArtifact>, CacheError> {
         let entry = compilation_locks().entry(key);
         let Some(_guard) = entry.try_lock() else {
             tracing::trace!(
@@ -671,9 +641,8 @@ impl WasmtimeVM {
         self.compile_and_persist(key, code, cache).map(Some)
     }
 
-    /// Inner DCL re-check + actual compile + cache write. Must be called
-    /// with the per-key compilation lock for `key` held; the two
-    /// `*_under_held_lock` wrappers above enforce that.
+    /// Inner Double-Checked-Lock: re-check + actual compile + cache write.
+    /// Must be called with the per-key compilation lock for `key` held.
     fn compile_and_persist(
         &self,
         key: CryptoHash,
@@ -839,6 +808,13 @@ impl WasmtimeVM {
 }
 
 impl crate::runner::VM for WasmtimeVM {
+    fn vm_hash(&self) -> u64 {
+        // Wrap the inherent helper of the same name; the body is here only
+        // for trait dispatch from `get_contract_cache_key` callers that
+        // hold a `&dyn VM`.
+        WasmtimeVM::vm_hash(self)
+    }
+
     fn contract_cached(
         &self,
         cache: &dyn ContractRuntimeCache,

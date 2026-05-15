@@ -324,8 +324,9 @@ impl NightshadeRuntime {
             .ok()
             .filter(|next_pv| *next_pv != current_protocol_version)
             .and_then(|next_pv| {
-                let next = &self.runtime_config_store.get_config(next_pv).wasm_config;
-                cache_keys_differ(&config.wasm_config, next).then(|| Arc::clone(next))
+                let next = Arc::clone(&self.runtime_config_store.get_config(next_pv).wasm_config);
+                cache_keys_differ(Arc::clone(&config.wasm_config), Arc::clone(&next))
+                    .then_some(next)
             });
         let apply_state = ApplyState {
             apply_reason,

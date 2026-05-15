@@ -9,10 +9,10 @@ use near_store::contract::ContractStorage;
 use near_vm_runner::logic::errors::{CacheError, CompilationError};
 use near_vm_runner::{
     Contract as _, ContractCode, ContractPrecompilatonResult, ContractRuntimeCache,
-    precompile_contract, try_precompile_contract,
+    config_cache_key_signature, precompile_contract, try_precompile_contract,
 };
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use parking_lot::Mutex;
+use std::sync::{Arc, OnceLock};
 
 /// Initialization parameters for the cache-warming subsystem. Plumbed
 /// through to [`init_warming`] exactly once during runtime construction.
@@ -25,67 +25,55 @@ pub struct WarmingConfig {
     pub max_item_count: usize,
 }
 
-/// Configure the cache-warming subsystem. Call once at runtime startup.
-/// The pool's thread count is fixed at the first call (OnceLock); the
-/// queue cap is overwritten on subsequent calls.
+/// Configure the cache-warming subsystem. Call once at runtime startup;
+/// all settings are fixed at the first call (subsequent calls are no-ops).
 pub fn init_warming(config: WarmingConfig) {
     near_async::thread_pool::init_contract_warming_pool(config.thread_count);
-    WARMING_PENDING_SUBMISSIONS_CAP.store(config.max_item_count, Ordering::Relaxed);
+    let _ = WARMING_PENDING_SUBMISSIONS_CAP.set(config.max_item_count);
 }
 
-/// Process-global queue cap. Set by [`init_warming`]; default `0` keeps
-/// warming off until configured.
-static WARMING_PENDING_SUBMISSIONS: AtomicUsize = AtomicUsize::new(0);
-static WARMING_PENDING_SUBMISSIONS_CAP: AtomicUsize = AtomicUsize::new(0);
+/// Process-global queue cap. Set by [`init_warming`]; absence (`None`)
+/// means warming has not been configured yet — every submission rejects.
+static WARMING_PENDING_SUBMISSIONS_CAP: OnceLock<usize> = OnceLock::new();
+static WARMING_PENDING_SUBMISSIONS: Mutex<usize> = Mutex::new(0);
 
 /// Try to claim a slot for a new warming submission. Returns `true` on
 /// success; caller must invoke [`release_pending_slot`] once the worker has
 /// dequeued the closure (so a freshly running worker frees the slot for the
 /// next submission).
 fn try_reserve_pending_slot() -> bool {
-    let cap = WARMING_PENDING_SUBMISSIONS_CAP.load(Ordering::Relaxed);
-    let mut current = WARMING_PENDING_SUBMISSIONS.load(Ordering::Relaxed);
-    loop {
-        if current >= cap {
-            return false;
-        }
-        match WARMING_PENDING_SUBMISSIONS.compare_exchange_weak(
-            current,
-            current + 1,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => return true,
-            Err(observed) => current = observed,
-        }
+    let Some(&cap) = WARMING_PENDING_SUBMISSIONS_CAP.get() else {
+        return false;
+    };
+    let mut count = WARMING_PENDING_SUBMISSIONS.lock();
+    if *count >= cap {
+        return false;
     }
+    *count += 1;
+    true
 }
 
 fn release_pending_slot() {
-    WARMING_PENDING_SUBMISSIONS.fetch_sub(1, Ordering::Relaxed);
+    *WARMING_PENDING_SUBMISSIONS.lock() -= 1;
+}
+
+/// Test-only variant of [`try_reserve_pending_slot`] that operates on a
+/// caller-supplied `count` mutex and `cap`. Lets unit tests exercise the
+/// admission logic without touching process-global state.
+#[cfg(test)]
+fn try_reserve_pending_slot_with_custom_cap(count: &Mutex<usize>, cap: usize) -> bool {
+    let mut count = count.lock();
+    if *count >= cap {
+        return false;
+    }
+    *count += 1;
+    true
 }
 
 /// Returns `true` if compiling a contract against `a` would land under a
-/// different on-disk cache key than compiling against `b`. Mirrors the
-/// non-`code_hash` inputs to [`near_vm_runner::cache::get_contract_cache_key`]:
-/// `vm_kind` plus the config's non-crypto hash.
-///
-/// The `vm_hash` component of the cache key is intentionally not part of
-/// this comparison. Within a single binary execution `vm_hash` is a function
-/// of (i) `vm_kind`, (ii) the parts of `Config` that flow into VM-engine
-/// setup (e.g. `WasmFeatures` reads `reftypes_bulk_memory`; the Wasmtime
-/// engine reads `LimitConfig::{max_memory_pages, max_tables_per_contract,
-/// max_elements_per_contract_table}`), and (iii) compile-time constants
-/// (wasmtime crate version, build target, the `version` bump inside
-/// `WasmtimeVM::vm_hash`). All Config-derived inputs are captured in
-/// `non_crypto_hash` via `Config`'s `Hash` derive, and the compile-time
-/// constants are identical for `a` and `b` in the same process — so
-/// matching `(vm_kind, non_crypto_hash)` implies matching `vm_hash`.
-/// If a future change introduces a `vm_hash` input that isn't reachable
-/// from `Config`, this function must learn about it (or the next-PV cache
-/// key may collide with the current-PV one).
-pub fn cache_keys_differ(a: &Config, b: &Config) -> bool {
-    a.vm_kind != b.vm_kind || a.non_crypto_hash() != b.non_crypto_hash()
+/// different on-disk cache key than compiling against `b`.
+pub fn cache_keys_differ(a: Arc<Config>, b: Arc<Config>) -> bool {
+    config_cache_key_signature(a) != config_cache_key_signature(b)
 }
 
 /// Precompile `code` against `current_config` synchronously and
@@ -101,7 +89,7 @@ pub(crate) fn precompile_contract_with_warming(
     cache: Option<&dyn ContractRuntimeCache>,
 ) {
     if let (Some(next_config), Some(cache)) = (next_config, cache) {
-        if cache_keys_differ(&current_config, &next_config) {
+        if cache_keys_differ(Arc::clone(&current_config), Arc::clone(&next_config)) {
             spawn_cache_warming(code.clone(), next_config, cache.handle());
         }
     }
@@ -109,8 +97,7 @@ pub(crate) fn precompile_contract_with_warming(
 }
 
 /// Eager warming spawn used by [`precompile_contract_with_warming`] on the
-/// deploy hot path: the caller already holds the code bytes, so the inner
-/// `get_code` closure trivially returns them.
+/// deploy hot path
 fn spawn_cache_warming(
     code: ContractCode,
     config: Arc<Config>,
@@ -120,9 +107,7 @@ fn spawn_cache_warming(
     spawn_warming(Box::new(move || Some(code)), config, cache_handle);
 }
 
-/// Lazy warming spawn used by the pipelining path: the worker fetches the
-/// contract bytes from `storage` via [`RuntimeContractExt`] once it picks
-/// up the closure, so the caller pays no extra I/O at submit time.
+/// Lazy warming spawn used by the pipelining path
 pub(crate) fn spawn_lazy_cache_warming(
     storage: ContractStorage,
     identifier: RuntimeContractIdentifier,
@@ -163,15 +148,12 @@ fn spawn_warming(
     }));
 }
 
-/// Returns the warming pool only when warming is fully enabled — i.e. both
-/// the pool was built with a non-zero thread count and the queue-depth cap
-/// is non-zero. Folds the two disable knobs into a single guard so the
-/// spawn paths don't have to consult them independently.
+/// Returns the warming pool only when contract cache pre-warming is enabled
 fn try_get_warming_pool() -> Option<&'static Arc<ThreadPool>> {
-    if WARMING_PENDING_SUBMISSIONS_CAP.load(Ordering::Relaxed) == 0 {
-        return None;
+    match WARMING_PENDING_SUBMISSIONS_CAP.get() {
+        None | Some(0) => None,
+        Some(_) => contract_warming_pool(),
     }
-    contract_warming_pool()
 }
 
 /// Increment the compiles counter only on a fresh compile;
@@ -210,14 +192,14 @@ mod tests {
     fn signatures_equal_for_identical_configs() {
         let a = vm_config_with(VMKind::Wasmtime);
         let b = vm_config_with(VMKind::Wasmtime);
-        assert!(!cache_keys_differ(&a, &b));
+        assert!(!cache_keys_differ(a, b));
     }
 
     #[test]
     fn signatures_differ_for_distinct_vm_kinds() {
         let a = vm_config_with(VMKind::Wasmtime);
         let b = vm_config_with(VMKind::NearVm);
-        assert!(cache_keys_differ(&a, &b));
+        assert!(cache_keys_differ(a, b));
     }
 
     #[test]
@@ -230,40 +212,24 @@ mod tests {
         let b = Arc::new(b_inner);
         // Sanity: vm_kind unchanged, but the hash should differ now.
         assert_eq!(a.vm_kind, b.vm_kind);
-        assert!(cache_keys_differ(&a, &b));
-    }
-
-    /// Tests touch the process-global pending cap; serialize to keep their
-    /// observations independent of other cap tests running concurrently.
-    static CAP_TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-
-    fn with_pending_cap<R>(cap: usize, run: impl FnOnce() -> R) -> R {
-        let _guard = CAP_TEST_LOCK.lock();
-        let prev_cap = WARMING_PENDING_SUBMISSIONS_CAP.load(Ordering::Relaxed);
-        WARMING_PENDING_SUBMISSIONS.store(0, Ordering::Relaxed);
-        WARMING_PENDING_SUBMISSIONS_CAP.store(cap, Ordering::Relaxed);
-        let result = run();
-        WARMING_PENDING_SUBMISSIONS.store(0, Ordering::Relaxed);
-        WARMING_PENDING_SUBMISSIONS_CAP.store(prev_cap, Ordering::Relaxed);
-        result
+        assert!(cache_keys_differ(a, b));
     }
 
     #[test]
     fn pending_cap_admits_up_to_capacity() {
-        with_pending_cap(5, || {
-            for _ in 0..5 {
-                assert!(try_reserve_pending_slot());
-            }
-            assert!(!try_reserve_pending_slot());
-            release_pending_slot();
-            assert!(try_reserve_pending_slot());
-        });
+        let count = Mutex::new(0);
+        let cap = 5;
+        for _ in 0..cap {
+            assert!(try_reserve_pending_slot_with_custom_cap(&count, cap));
+        }
+        assert!(!try_reserve_pending_slot_with_custom_cap(&count, cap));
+        *count.lock() -= 1;
+        assert!(try_reserve_pending_slot_with_custom_cap(&count, cap));
     }
 
     #[test]
     fn pending_cap_zero_rejects_everything() {
-        with_pending_cap(0, || {
-            assert!(!try_reserve_pending_slot());
-        });
+        let count = Mutex::new(0);
+        assert!(!try_reserve_pending_slot_with_custom_cap(&count, 0));
     }
 }

@@ -619,6 +619,10 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 }
 
 impl crate::runner::VM for NearVM {
+    fn vm_hash(&self) -> u64 {
+        near_vm_vm_hash()
+    }
+
     fn contract_cached(
         &self,
         cache: &dyn ContractRuntimeCache,

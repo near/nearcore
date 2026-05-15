@@ -50,6 +50,23 @@ pub(crate) fn get_contract_cache_key(
     CryptoHash::hash_borsh(key)
 }
 
+/// Cache-key signature for `config`, independent of any specific contract.
+/// Hashes the same inputs as [`get_contract_cache_key`] minus `code_hash`,
+/// so two signatures compare equal iff any given contract would land under
+/// the same on-disk cache key under either config.
+///
+/// Use this to compare two configs without enumerating cache-key inputs by
+/// hand — adding a new field to [`ContractCacheKey`] flows through here
+/// automatically.
+#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+pub fn config_cache_key_signature(config: Arc<Config>) -> CryptoHash {
+    let vm_kind = config.vm_kind;
+    let runtime = vm_kind
+        .runtime(Arc::clone(&config))
+        .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    get_contract_cache_key(CryptoHash::default(), &config, runtime.vm_hash())
+}
+
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]

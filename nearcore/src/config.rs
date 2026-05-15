@@ -302,16 +302,12 @@ pub struct Config {
     /// If set to `None`, defaults to the same value as `save_tx_outcomes`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_receipt_to_tx: Option<bool>,
-    /// Number of worker threads in the cache-warming pool. `Some(0)`
-    /// disables warming (no pool is created). If `None`, defaults to
-    /// [`default_contract_cache_warming_pool_thread_count`]. See
-    /// [`contract_cache_warming_max_item_count`] for the other disable knob.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_cache_warming_pool_thread_count: Option<usize>,
-    /// Max submissions in the cache-warming pool queue. `Some(0)` disables
-    /// warming. `None` → [`default_contract_cache_warming_max_item_count`].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_cache_warming_max_item_count: Option<usize>,
+    /// Number of worker threads in the contract-cache-warming pool. `0` disables warming.
+    #[serde(default = "default_contract_cache_warming_pool_thread_count")]
+    pub contract_cache_warming_pool_thread_count: usize,
+    /// Max size (items) of the cache-warming pool queue. `0` disables warming.
+    #[serde(default = "default_contract_cache_warming_max_item_count")]
+    pub contract_cache_warming_max_item_count: usize,
     /// Whether to persist state changes on disk or not.
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -484,8 +480,9 @@ impl Default for Config {
             save_state_changes: None,
             save_tx_outcomes: None,
             save_receipt_to_tx: None,
-            contract_cache_warming_pool_thread_count: None,
-            contract_cache_warming_max_item_count: None,
+            contract_cache_warming_pool_thread_count:
+                default_contract_cache_warming_pool_thread_count(),
+            contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
             save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
@@ -762,11 +759,8 @@ impl NearConfig {
                     .save_receipt_to_tx
                     .unwrap_or_else(|| config.save_tx_outcomes.unwrap_or(is_archive_or_rpc)),
                 contract_cache_warming_pool_thread_count: config
-                    .contract_cache_warming_pool_thread_count
-                    .unwrap_or_else(default_contract_cache_warming_pool_thread_count),
-                contract_cache_warming_max_item_count: config
-                    .contract_cache_warming_max_item_count
-                    .unwrap_or_else(default_contract_cache_warming_max_item_count),
+                    .contract_cache_warming_pool_thread_count,
+                contract_cache_warming_max_item_count: config.contract_cache_warming_max_item_count,
                 save_state_changes: config.save_state_changes.unwrap_or(true),
                 save_untracked_partial_chunks_parts: config
                     .save_untracked_partial_chunks_parts
