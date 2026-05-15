@@ -15,13 +15,18 @@ from datetime import datetime, timedelta
 
 class TestWasmCandidate(TestSetup):
     """
-    Test case:
-    - Runs an upgrade test from the previous release to the current release candidate.
+    Test case: upgrade test from the previous release to the current
+    release candidate. After the upgrade is rolled out, a stress-test
+    load is applied repeatedly on the traffic node while
+    `consensus.max_block_{production,wait}_delay` is progressively
+    tightened, so we can observe behavior as block time shrinks.
+
     Features:
         - No state dumper.
-        - Upgrade happens over 2 epochs.
-        - 1 producer per shard
-        - 2 validators.
+        - SameConfig hardware: 9 chunk-producer seats, 11 chunk-validator seats.
+        - Binary rolled out in 4 partition-based batches across two delay windows.
+        - Protocol-upgrade vote pinned at 9999/10000 so the upgrade activates
+          as soon as every block producer has voted.
 
     Required arguments:
         - neard_binary_url: The URL of the starting neard binary.
@@ -33,12 +38,14 @@ class TestWasmCandidate(TestSetup):
         super().__init__(args)
         self.node_hardware_config = NodeHardware.SameConfig(
             num_chunk_producer_seats=9, num_chunk_validator_seats=11)
-        self.epoch_len = 500  # 14500 blocks / 2 bps / 60 / 60 = 2h
+        self.epoch_len = 500
         self.has_state_dumper = False
         self.regions = "us-east1,europe-west1,asia-east1,us-west1"
 
-        # Upgrade 1/2 nodes at a time, a quarter at a time.
-        self.upgrade_interval_minutes = 5  # 5 minutes between each upgrade batch.
+        # 4 upgrade batches: 2 batches at `first_upgrade_delay_minutes`,
+        # then 2 more at `second_upgrade_delay_minutes`,
+        # `upgrade_interval_minutes` apart within each window.
+        self.upgrade_interval_minutes = 5
         self.first_upgrade_delay_minutes = 10
         self.second_upgrade_delay_minutes = 20
         self.stress_start_delay_minutes = 60
@@ -48,8 +55,8 @@ class TestWasmCandidate(TestSetup):
         self.stress_signers = [
             ("astro-stakers.poolv1.near", None, None),
         ]
-        # URL of the wasm passed via --source-wasm. When None, the flag is
-        # omitted and the script uses its built-in default contract.
+        # Value passed via --contract to the stress-test script. When None
+        # the flag is omitted and the script uses its built-in default.
         self.contract = None
 
     def amend_epoch_config(self):
@@ -137,10 +144,11 @@ class TestWasmCandidate(TestSetup):
     def _checkout_nearcore_on_traffic(self):
         """
         Sparse-checkout `pytest/` from slavas/bench-long-compile of
-        nearcore at /home/ubuntu/nearcore on the traffic node so the
-        scheduled stress test can run slow_compile_adversarial.py and
-        import its pytest/lib helpers. Idempotent: clones if missing,
-        otherwise fetches and hard-resets to the upstream tip.
+        nearcore at /home/ubuntu/nearcore on the traffic node, so the
+        scheduled stress-test script can be invoked from
+        `pytest/tests/mocknet/` and import its `pytest/lib` helpers.
+        Idempotent: clones if missing, otherwise fetches and hard-resets
+        to the upstream tip.
         """
         repo = "https://github.com/near/nearcore.git"
         branch = "slavas/bench-long-compile"
@@ -162,12 +170,12 @@ class TestWasmCandidate(TestSetup):
 
     def _schedule_slow_compile_stress_test(self, schedule_id, run_at: datetime):
         """
-        Schedule slow_compile_adversarial.py to start delay_minutes after the
-        network start. The traffic node is itself an RPC node, so we
-        point the script at localhost:3030. Every entry in
-        `self.stress_signers` is forwarded as a `--signer` flag whose value
-        is a 1- or 3-element CSV (`account_id` or
-        `account_id,public_key,private_key`).
+        Schedule the stress-test script to run on the traffic node at
+        `run_at`. The traffic node is itself an RPC node, so we point the
+        script at localhost:3030. Every entry in `self.stress_signers` is
+        forwarded as a `--signer` flag whose value is a 1- or 3-element
+        CSV (`account_id` or `account_id,public_key,private_key`). When
+        `self.contract` is set it is forwarded as `--contract`.
         """
         extra_flags = []
         for account_id, public_key, private_key in self.stress_signers:
@@ -177,7 +185,7 @@ class TestWasmCandidate(TestSetup):
                 csv = account_id
             extra_flags.append(f"--signer {shlex.quote(csv)}")
         if self.contract:
-            extra_flags.append(f"--source-wasm {shlex.quote(self.contract)}")
+            extra_flags.append(f"--contract {shlex.quote(self.contract)}")
 
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = "traffic"
@@ -241,12 +249,11 @@ class TestWasmCandidate(TestSetup):
         """
         Schedule a sequence of stress-test iterations on the traffic node,
         progressively tightening
-        `consensus.max_block_{production,wait}_delay` so we can observe how
-        the network behaves as block time shrinks under the
-        `slow_compile_adversarial` load.
+        `consensus.max_block_{production,wait}_delay` so we can observe
+        how the network behaves as block time shrinks under load.
 
         Per-iteration sequence (`T` = iteration start):
-            T+0   start slow_compile_adversarial.py on traffic
+            T+0   start the stress-test script on traffic
             T+10  stop the stress test
             T+12  queue the next config change on all nodes
                   (queued only — takes effect on the next restart)
@@ -254,13 +261,13 @@ class TestWasmCandidate(TestSetup):
             T+40  next iteration starts (≈5 min settle after restart)
 
         Iterations are `test_period_minutes = 40` apart; the first starts
-        `self.stress_start_delay_minutes` after network start (90 min).
+        `self.stress_start_delay_minutes` after network start.
 
         Configs swept (max_block_production_delay, max_block_wait_delay):
             initial (30, 30) → (15, 15) → (7, 7) → (3, 6) → (1.8, 6) seconds.
 
-        With N config entries the loop schedules N+1 stress runs but only N
-        config-change/restart pairs: the first run stresses the initial
+        With N config entries the loop schedules N+1 stress runs but only
+        N config-change/restart pairs: the first run stresses the initial
         baseline, the trailing run stresses the final config without
         changing it further.
         """
@@ -321,21 +328,3 @@ class TestWasmCandidate(TestSetup):
         super().after_test_start()
         self._upgrade_nodes_in_four_batches()
         self._schedule_looping_stress_test()
-
-
-class TestWasmCandidateFast(TestWasmCandidate):
-    """
-    Variant optimized for protocol-transition wall-clock time.
-    Useful for smoke tests; not representative of a real
-    release rollout.
-
-    Differences:
-        - Shorter epochs (epoch_len=500). The new protocol activates 2 epoch
-          boundaries after the vote, so epoch length dominates the post-
-          upgrade tail.
-    """
-
-    def __init__(self, args):
-        super().__init__(args)
-        self.epoch_len = 500
-        self.first_upgrade_delay_minutes = 5
