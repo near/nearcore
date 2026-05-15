@@ -32,8 +32,7 @@ class TestWasmCandidate(TestSetup):
     def __init__(self, args):
         super().__init__(args)
         self.node_hardware_config = NodeHardware.SameConfig(
-            num_chunk_producer_seats=9, num_chunk_validator_seats=11
-        )
+            num_chunk_producer_seats=9, num_chunk_validator_seats=11)
         self.epoch_len = 500  # 14500 blocks / 2 bps / 60 / 60 = 2h
         self.has_state_dumper = False
         self.regions = "us-east1,europe-west1,asia-east1,us-west1"
@@ -60,7 +59,8 @@ class TestWasmCandidate(TestSetup):
         """
         super().amend_epoch_config()
         # Upgrade when all producers vote
-        self._amend_epoch_config(".protocol_upgrade_stake_threshold = [9999,10000]")
+        self._amend_epoch_config(
+            ".protocol_upgrade_stake_threshold = [9999,10000]")
 
         # No kickouts dues to missed production/validation
         self._amend_epoch_config(".block_producer_kickout_threshold = 0")
@@ -77,12 +77,9 @@ class TestWasmCandidate(TestSetup):
         if not target_log_level:
             return
         extra = ",".join(
-            f"{target}={level}" for target, level in target_log_level.items()
-        )
-        jq_filter = (
-            f'.opentelemetry = (.opentelemetry + ",{extra}") | '
-            f'.rust_log = (.rust_log + ",{extra}")'
-        )
+            f"{target}={level}" for target, level in target_log_level.items())
+        jq_filter = (f'.opentelemetry = (.opentelemetry + ",{extra}") | '
+                     f'.rust_log = (.rust_log + ",{extra}")')
 
         def patch_cmd(path):
             return f"jq '{jq_filter}' {path} > {path}.tmp && mv {path}.tmp {path}"
@@ -92,7 +89,8 @@ class TestWasmCandidate(TestSetup):
         run_cmd_args.cmd = patch_cmd("/home/ubuntu/.near/log_config.json")
         run_remote_cmd(CommandContext(run_cmd_args))
         run_cmd_args.host_type = "traffic"
-        run_cmd_args.cmd = patch_cmd("/home/ubuntu/.near/target/log_config.json")
+        run_cmd_args.cmd = patch_cmd(
+            "/home/ubuntu/.near/target/log_config.json")
         run_remote_cmd(CommandContext(run_cmd_args))
 
     def amend_configs_before_test_start(self):
@@ -114,14 +112,13 @@ class TestWasmCandidate(TestSetup):
         In total, we upgrade in 4 batches.
         """
         first_upgrade_time = datetime.now() + timedelta(
-            minutes=self.first_upgrade_delay_minutes
-        )
+            minutes=self.first_upgrade_delay_minutes)
         second_upgrade_time = datetime.now() + timedelta(
-            minutes=self.second_upgrade_delay_minutes
-        )
+            minutes=self.second_upgrade_delay_minutes)
 
         upgrade_time = [
-            batch_start_time + timedelta(minutes=i * self.upgrade_interval_minutes)
+            batch_start_time +
+            timedelta(minutes=i * self.upgrade_interval_minutes)
             for batch_start_time in [first_upgrade_time, second_upgrade_time]
             for i in range(0, 2)
         ]
@@ -157,8 +154,7 @@ class TestWasmCandidate(TestSetup):
             f"fi; "
             f"git -C {checkout_dir} fetch origin {branch} "
             f"&& git -C {checkout_dir} checkout -B slow-compile-adversarial origin/{branch} "
-            f"&& git -C {checkout_dir} reset --hard origin/{branch}"
-        )
+            f"&& git -C {checkout_dir} reset --hard origin/{branch}")
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = "traffic"
         run_cmd_args.cmd = cmd
@@ -190,9 +186,9 @@ class TestWasmCandidate(TestSetup):
             "&& /home/ubuntu/.near/target/neard-runner/venv/bin/python pytest/tests/mocknet/slow_compile_adversarial.py "
             "--rpc-url http://localhost:3030 "
             "--concurrency 5 "
-            "--tps 1 " + " ".join(extra_flags)
-        )
-        run_cmd_args.on = ScheduleMode(mode="calendar", value=time_to_str(run_at))
+            "--tps 1 " + " ".join(extra_flags))
+        run_cmd_args.on = ScheduleMode(mode="calendar",
+                                       value=time_to_str(run_at))
         run_cmd_args.schedule_id = schedule_id
         run_remote_cmd(CommandContext(run_cmd_args))
 
@@ -205,13 +201,13 @@ class TestWasmCandidate(TestSetup):
         run_cmd_args.host_type = "traffic"
         cmd = f'systemctl --user stop "mocknet-{filter_str}"; systemctl --user reset-failed "mocknet-{filter_str}"'
         run_cmd_args.cmd = cmd
-        run_cmd_args.on = ScheduleMode(mode="calendar", value=time_to_str(run_at))
+        run_cmd_args.on = ScheduleMode(mode="calendar",
+                                       value=time_to_str(run_at))
         run_cmd_args.schedule_id = f"stop-{filter_str}"
         run_remote_cmd(CommandContext(run_cmd_args))
 
-    def _schedule_config_change(
-        self, max_block_production_delay, max_block_wait_delay, run_at: datetime
-    ):
+    def _schedule_config_change(self, max_block_production_delay,
+                                max_block_wait_delay, run_at: datetime):
         """
         Schedule an `update_config` on all nodes that rewrites
         `consensus.max_block_{production,wait}_delay`. Queued only —
@@ -236,7 +232,8 @@ class TestWasmCandidate(TestSetup):
         start_nodes_args = copy.deepcopy(self.args)
         start_nodes_args.host_type = "nodes"
         start_nodes_args.force_restart = True
-        start_nodes_args.on = ScheduleMode(mode="calendar", value=time_to_str(run_at))
+        start_nodes_args.on = ScheduleMode(mode="calendar",
+                                           value=time_to_str(run_at))
         start_nodes_args.schedule_id = f"neard-restart-{idx}"
         start_nodes_cmd(CommandContext(start_nodes_args))
 
@@ -268,7 +265,8 @@ class TestWasmCandidate(TestSetup):
         changing it further.
         """
         now = datetime.now()
-        max_block_production_delay_to_test = [(15, 0), (7, 0), (3, 0), (1, 800000000)]
+        max_block_production_delay_to_test = [(15, 0), (7, 0), (3, 0),
+                                              (1, 800000000)]
         max_block_wait_delay_to_test = [(15, 0), (7, 0), (6, 0), (6, 0)]
 
         # Per-iteration offsets, in minutes, relative to the iteration start.
@@ -284,37 +282,29 @@ class TestWasmCandidate(TestSetup):
             schedule_id = f"stress-test-{i}"
             self._schedule_slow_compile_stress_test(
                 schedule_id,
-                now
-                + timedelta(
-                    minutes=stress_start_delay_minutes + i * test_period_minutes
-                ),
+                now + timedelta(minutes=stress_start_delay_minutes +
+                                i * test_period_minutes),
             )
             self._schedule_stop_stress_test(
                 schedule_id,
-                now
-                + timedelta(
-                    minutes=stress_stop_delay_minutes + i * test_period_minutes
-                ),
+                now + timedelta(minutes=stress_stop_delay_minutes +
+                                i * test_period_minutes),
             )
 
         # N config-change + restart pairs, slotted between consecutive runs.
         for i, (max_block_production_delay, max_block_wait_delay) in enumerate(
-            zip(max_block_production_delay_to_test, max_block_wait_delay_to_test)
-        ):
+                zip(max_block_production_delay_to_test,
+                    max_block_wait_delay_to_test)):
             self._schedule_config_change(
                 max_block_production_delay,
                 max_block_wait_delay,
-                now
-                + timedelta(
-                    minutes=config_change_delay_minutes + i * test_period_minutes
-                ),
+                now + timedelta(minutes=config_change_delay_minutes +
+                                i * test_period_minutes),
             )
             self._schedule_binary_restart(
                 i,
-                now
-                + timedelta(
-                    minutes=neard_restart_delay_minutes + i * test_period_minutes
-                ),
+                now + timedelta(minutes=neard_restart_delay_minutes +
+                                i * test_period_minutes),
             )
 
     def before_test_setup(self):
