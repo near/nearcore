@@ -675,6 +675,12 @@ impl ShardTries {
         let mut guard = memtries.write();
         let memtries = std::mem::replace(&mut *guard, MemTries::new(parent_shard_uid));
         let frozen_memtries = memtries.freeze();
+        // Put a clone of the frozen MemTries back into the *old* Arc so that any
+        // in-flight apply task that already cloned this Arc (before the new ones
+        // below are inserted) can still resolve its prev_state_root. Without this,
+        // such an apply would hit an empty MemTries and panic on `get_root`.
+        *guard = MemTries::from_frozen_memtries(parent_shard_uid, frozen_memtries.clone());
+        drop(guard);
 
         // Create hybrid memtrie for both parent and children shards.
         for shard_uid in [vec![parent_shard_uid], children_shard_uids.clone()].concat() {
