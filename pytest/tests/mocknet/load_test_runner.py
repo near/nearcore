@@ -18,6 +18,7 @@ import random
 import sys
 import threading
 import time
+from collections import Counter
 from urllib.parse import urlsplit
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -35,6 +36,8 @@ def _split_rpc(url: str):
     if '://' not in url:
         url = 'http://' + url
     p = urlsplit(url)
+    if not p.hostname:
+        raise ValueError(f'--rpc-url entry has no host: {url!r}')
     return p.hostname, str(p.port or 3030)
 
 
@@ -244,6 +247,8 @@ class LoadTestRunner:
         rpcs = [
             _split_rpc(u.strip()) for u in args.rpc_url.split(',') if u.strip()
         ]
+        if not rpcs:
+            raise ValueError('--rpc-url produced no usable endpoints')
         if args.signer:
             signers = [
                 parse_signer(spec, args.public_key, args.private_key)
@@ -257,6 +262,11 @@ class LoadTestRunner:
                     'secret_key': args.private_key,
                 })
             ]
+        dupes = sorted(a for a, n in Counter(s.account_id
+                                             for s in signers).items() if n > 1)
+        if dupes:
+            raise ValueError(
+                f'duplicate signer account_id(s): {", ".join(dupes)}')
         return cls(rpcs=rpcs,
                    signers=signers,
                    tps=args.tps,

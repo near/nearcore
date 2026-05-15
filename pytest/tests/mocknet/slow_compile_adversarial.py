@@ -20,8 +20,9 @@ resolved in order:
      - sample1 (and other entries in SOURCE_CONTRACT_URLS): a real, large
        compiled contract — stresses things that key off of contract hash
        (storage, runtime caching).
-  2. URL (`http://` or `https://`) — downloaded once, cached under
-     ~/.cache/near-mocknet-adversarial/ keyed by URL basename.
+  2. URL (`http://` or `https://`) — downloaded fresh on every
+     invocation (no on-disk cache, so re-uploads at the same URL are
+     picked up on the next run).
   3. Otherwise — treated as a local filesystem path.
 
 Resalting (`--resalt`) appends a fresh `hash-salt` custom section to
@@ -62,7 +63,6 @@ import argparse
 import pathlib
 import random
 import sys
-from urllib.parse import urlsplit
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -144,8 +144,6 @@ def build_synth1_wasm(rng: random.Random) -> bytes:
     return WASM_MAGIC + type_section + func_section + export_section + code_section
 
 
-CACHE_DIR = pathlib.Path.home() / '.cache' / 'near-mocknet-adversarial'
-
 # Friendly aliases for canned source contracts. New samples can be added here.
 SOURCE_CONTRACT_URLS = {
     'sample1': ('https://github.com/near/nearcore/raw/'
@@ -153,29 +151,23 @@ SOURCE_CONTRACT_URLS = {
 }
 
 
-def _download_cached(url: str, cache_filename: str) -> bytes:
-    """Download `url` into CACHE_DIR/<cache_filename> on first use; reuse it
-    afterwards. Returns the bytes."""
-    cache_path = CACHE_DIR / cache_filename
-    if cache_path.exists():
-        return cache_path.read_bytes()
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(f'downloading {url} -> {cache_path}')
+def _download(url: str) -> bytes:
+    logger.info(f'downloading {url}')
     r = requests.get(url, timeout=60)
     r.raise_for_status()
-    cache_path.write_bytes(r.content)
     return r.content
 
 
 def load_contract_wasm(spec: str) -> bytes:
-    """Resolve `--contract` for non-generator sources: alias, URL, or path."""
+    """Resolve `--contract` for non-generator sources: alias, URL, or path.
+
+    URL fetches are not cached on disk — the script always re-downloads,
+    so a re-upload at the same URL is picked up on the next run.
+    """
     if spec in SOURCE_CONTRACT_URLS:
-        return _download_cached(SOURCE_CONTRACT_URLS[spec], f'{spec}.wasm')
+        return _download(SOURCE_CONTRACT_URLS[spec])
     if spec.startswith(('http://', 'https://')):
-        basename = pathlib.Path(urlsplit(spec).path).name
-        if not basename:
-            raise ValueError(f'cannot derive cache filename from URL: {spec!r}')
-        return _download_cached(spec, basename)
+        return _download(spec)
     return pathlib.Path(spec).read_bytes()
 
 
@@ -217,9 +209,8 @@ def parse_args():
                    metavar='SPEC',
                    help='WASM source for every deploy. SPEC is resolved as: '
                    f'(1) a known alias ({aliases}); (2) an http(s):// URL '
-                   '(downloaded and cached under '
-                   '~/.cache/near-mocknet-adversarial/); (3) otherwise a '
-                   'local filesystem path. Default: synth1')
+                   '(re-downloaded on every run); (3) otherwise a local '
+                   'filesystem path. Default: synth1')
     p.add_argument('--resalt',
                    action=argparse.BooleanOptionalAction,
                    default=True,
