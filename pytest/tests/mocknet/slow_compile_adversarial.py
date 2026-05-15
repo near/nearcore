@@ -3,40 +3,48 @@
 Adversarial load: deploy a fresh, byte-unique WASM on every tx so chunk
 producers are forced to recompile each contract (no compilation-cache hit).
 
-Contract modes:
+`--contract SPEC` (default: synth1) selects the WASM source. SPEC is
+resolved in order:
 
-  --contract synth1 (default)
-    Synthesizes a module with N_FUNCS functions of 1000 i64 params each,
-    bodies filled with randomized (i64.const; drop) pairs plus a unique
-    export-name tag. Already byte-unique per deploy. Limits
-    (cross-checked against `core/parameters/res/runtime_configs/parameters.snap`):
-      max_functions_number_per_contract = 10_000
-      max_contract_size                 = 4 MiB
-      max_locals_per_contract           = 1_000_000  (declared locals only)
-    Stresses the compiler with a parameter/locals-heavy module.
-
-  --contract sample1
-    Uses a real, large compiled source contract. By default the source
-    contract is downloaded once (cached under
-    ~/.cache/near-mocknet-adversarial/) — pass --source-wasm PATH to
-    override. Stresses things that key off of contract hash (storage,
-    runtime caching).
+  1. Known keyword (`synth1` is the only generator today; entries in
+     SOURCE_CONTRACT_URLS are friendly aliases for canned URLs).
+     - synth1: synthesizes a module with N_FUNCS functions of 1000 i64
+       params each, bodies filled with randomized (i64.const; drop) pairs
+       plus a unique export-name tag. Already byte-unique per deploy.
+       Limits (cross-checked against
+       `core/parameters/res/runtime_configs/parameters.snap`):
+         max_functions_number_per_contract = 10_000
+         max_contract_size                 = 4 MiB
+         max_locals_per_contract           = 1_000_000  (declared locals)
+       Stresses the compiler with a parameter/locals-heavy module.
+     - sample1 (and other entries in SOURCE_CONTRACT_URLS): a real, large
+       compiled contract — stresses things that key off of contract hash
+       (storage, runtime caching).
+  2. URL (`http://` or `https://`) — downloaded once, cached under
+     ~/.cache/near-mocknet-adversarial/ keyed by URL basename.
+  3. Otherwise — treated as a local filesystem path.
 
 Resalting (`--resalt`) appends a fresh `hash-salt` custom section to
 the WASM on every deploy so each contract hash is unique. It is enabled
-by default, and works with any contract type (it's redundant for
+by default, and works with any contract source (it's redundant for
 synth1 but supported).
 
 Runs indefinitely.
 
 Examples:
-  # single signer
+  # single signer, default synth1
   python3 pytest/tests/mocknet/slow_compile_adversarial.py \
       --rpc-url http://rpc-0.forknet.example:3030 \
       --account-id astro-stakers.poolv1.near \
       --public-key ed25519:93zQfXQsfWEkDG2n5qKfbTQUxLZdMrvGpBtwpezWpWTJ \
       --private-key ed25519:5GnmuWueJptLxKYoirp6rHHDJpu7vLgM1BCXwfvc8CJ8cmoettg9vYVaN2mqJZPbiRcrqFuPb7AXjf2jCJyVpyNQ \
       --tps 2
+
+  # local wasm
+  ... --contract ./path/to/contract.wasm
+
+  # remote wasm
+  ... --contract https://example.com/contract.wasm
 
   # multiple signers; --tps is per-signer (one deploy per signer per tick).
   # b.near and c.near fall back to the shared --public-key/--private-key.
@@ -138,17 +146,17 @@ def build_synth1_wasm(rng: random.Random) -> bytes:
 
 CACHE_DIR = pathlib.Path.home() / '.cache' / 'near-mocknet-adversarial'
 
-# Per-contract source URL. New samples can be added here.
+# Friendly aliases for canned source contracts. New samples can be added here.
 SOURCE_CONTRACT_URLS = {
     'sample1': ('https://github.com/near/nearcore/raw/'
                 'defuse-high-memory-repro/repro/defuse.wasm'),
 }
 
 
-def fetch_source_contract(name: str) -> bytes:
-    """Return source contract bytes for `name`, downloading on first use."""
-    url = SOURCE_CONTRACT_URLS[name]
-    cache_path = CACHE_DIR / f'{name}.wasm'
+def _download_cached(url: str, cache_filename: str) -> bytes:
+    """Download `url` into CACHE_DIR/<cache_filename> on first use; reuse it
+    afterwards. Returns the bytes."""
+    cache_path = CACHE_DIR / cache_filename
     if cache_path.exists():
         return cache_path.read_bytes()
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,24 +167,15 @@ def fetch_source_contract(name: str) -> bytes:
     return r.content
 
 
-def load_wasm_bytes(spec: str) -> bytes:
-    """Resolve `--source-wasm`: accepts a local path or an http(s) URL.
-
-    URLs are cached under `CACHE_DIR` keyed by their path basename.
-    """
+def load_contract_wasm(spec: str) -> bytes:
+    """Resolve `--contract` for non-generator sources: alias, URL, or path."""
+    if spec in SOURCE_CONTRACT_URLS:
+        return _download_cached(SOURCE_CONTRACT_URLS[spec], f'{spec}.wasm')
     if spec.startswith(('http://', 'https://')):
         basename = pathlib.Path(urlsplit(spec).path).name
         if not basename:
             raise ValueError(f'cannot derive cache filename from URL: {spec!r}')
-        cache_path = CACHE_DIR / basename
-        if cache_path.exists():
-            return cache_path.read_bytes()
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        logger.info(f'downloading {spec} -> {cache_path}')
-        r = requests.get(spec, timeout=60)
-        r.raise_for_status()
-        cache_path.write_bytes(r.content)
-        return r.content
+        return _download_cached(spec, basename)
     return pathlib.Path(spec).read_bytes()
 
 
@@ -192,16 +191,12 @@ def append_hash_salt(wasm: bytes, salt: bytes) -> bytes:
 
 
 def resolve_make_wasm(args):
-    """Pick a WASM factory based on --source-wasm / --contract / --resalt."""
-    if args.source_wasm:
-        base_wasm = load_wasm_bytes(args.source_wasm)
-        logger.info(f'source wasm: {args.source_wasm} ({len(base_wasm)}B)')
-        base_make_wasm = lambda rng: base_wasm
-    elif args.contract == 'synth1':
+    """Pick a WASM factory based on --contract / --resalt."""
+    if args.contract == 'synth1':
         base_make_wasm = build_synth1_wasm
     else:
-        base_wasm = fetch_source_contract(args.contract)
-        logger.info(f'source wasm: cached {args.contract} ({len(base_wasm)}B)')
+        base_wasm = load_contract_wasm(args.contract)
+        logger.info(f'source wasm: {args.contract} ({len(base_wasm)}B)')
         base_make_wasm = lambda rng: base_wasm
 
     if args.resalt:
@@ -216,15 +211,15 @@ def parse_args():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     LoadTestRunner.add_cli_args(p)
+    aliases = ', '.join(sorted({'synth1'} | SOURCE_CONTRACT_URLS.keys()))
     p.add_argument('--contract',
-                   choices=('synth1',) + tuple(SOURCE_CONTRACT_URLS),
                    default='synth1',
-                   help='which adversarial contract to deploy')
-    p.add_argument('--source-wasm',
-                   help='deploy this wasm on every tx instead of synthesizing '
-                   'one. Accepts a local path or an http(s):// URL (URLs are '
-                   'cached under ~/.cache/near-mocknet-adversarial/). Takes '
-                   'precedence over --contract')
+                   metavar='SPEC',
+                   help='WASM source for every deploy. SPEC is resolved as: '
+                   f'(1) a known alias ({aliases}); (2) an http(s):// URL '
+                   '(downloaded and cached under '
+                   '~/.cache/near-mocknet-adversarial/); (3) otherwise a '
+                   'local filesystem path. Default: synth1')
     p.add_argument('--resalt',
                    action=argparse.BooleanOptionalAction,
                    default=True,
