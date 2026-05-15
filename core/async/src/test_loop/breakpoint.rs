@@ -43,16 +43,20 @@ pub struct YieldRequest {
     pub context: Context,
 }
 
-/// Tag map carried by a yield request. Keys are static strings (the macro argument names);
-/// values are `Display`-formatted strings produced by the caller.
+/// Context carried by a yield request. `node` is auto-populated from the event being
+/// dispatched (typically the actor or spawner identifier — usually the node's account_id);
+/// `tags` are caller-supplied key-value pairs from the `test_loop_yield!` invocation.
 #[derive(Clone, Default)]
 pub struct Context {
+    node: Option<String>,
     tags: Vec<(&'static str, String)>,
 }
 
 impl Context {
-    pub(crate) fn new(tags: Vec<(&'static str, String)>) -> Self {
-        Self { tags }
+    /// The event identifier (node/account_id) the yield fired under. Auto-injected by the
+    /// dispatcher; callers don't pass it.
+    pub fn node(&self) -> Option<&str> {
+        self.node.as_deref()
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
@@ -67,31 +71,46 @@ thread_local! {
     static ACTIVE_YIELDER: Cell<*const BpYielder> = const { Cell::new(std::ptr::null()) };
 
     /// Pointer to the breakpoint registry for the currently-active `TestLoopV2`. Set by
-    /// `RegistryGuard` around event dispatch; null elsewhere.
+    /// `EventDispatchGuard` around event dispatch; null elsewhere.
     static ACTIVE_REGISTRY: Cell<Option<NonNull<BreakpointRegistry>>> = const { Cell::new(None) };
+
+    /// Identifier (account_id / spawner name) of the event currently being dispatched.
+    /// Captured into `Context::node` when a yield fires. Stored as `&'static str` for
+    /// `Cell` Copy-ability; the lifetime is fake — the guard restores the slot before the
+    /// real backing `String` goes out of scope.
+    static ACTIVE_IDENTIFIER: Cell<Option<&'static str>> = const { Cell::new(None) };
 }
 
 /// RAII guard installed around test-loop event dispatch. While alive, makes the registry
-/// visible to any yield point that fires on this thread.
-pub(crate) struct RegistryGuard {
-    prev: Option<NonNull<BreakpointRegistry>>,
+/// and the current event's identifier visible to any yield point that fires on this thread.
+pub(crate) struct EventDispatchGuard {
+    prev_registry: Option<NonNull<BreakpointRegistry>>,
+    prev_identifier: Option<&'static str>,
 }
 
-impl RegistryGuard {
-    pub(crate) fn install(registry: &BreakpointRegistry) -> Self {
-        let ptr = NonNull::from(registry);
-        let prev = ACTIVE_REGISTRY.with(|cell| {
+impl EventDispatchGuard {
+    pub(crate) fn install(registry: &BreakpointRegistry, identifier: &str) -> Self {
+        let prev_registry = ACTIVE_REGISTRY.with(|cell| {
             let prev = cell.get();
-            cell.set(Some(ptr));
+            cell.set(Some(NonNull::from(registry)));
             prev
         });
-        Self { prev }
+        // Safety: we restore the prev value in Drop before `identifier` goes out of scope.
+        // `process_event` is the only call site and the guard is dropped at its end.
+        let identifier_static: &'static str = unsafe { std::mem::transmute(identifier) };
+        let prev_identifier = ACTIVE_IDENTIFIER.with(|cell| {
+            let prev = cell.get();
+            cell.set(Some(identifier_static));
+            prev
+        });
+        Self { prev_registry, prev_identifier }
     }
 }
 
-impl Drop for RegistryGuard {
+impl Drop for EventDispatchGuard {
     fn drop(&mut self) {
-        ACTIVE_REGISTRY.with(|cell| cell.set(self.prev));
+        ACTIVE_REGISTRY.with(|cell| cell.set(self.prev_registry));
+        ACTIVE_IDENTIFIER.with(|cell| cell.set(self.prev_identifier));
     }
 }
 
@@ -123,7 +142,8 @@ pub fn dispatch(name: &'static str, tags: Vec<(&'static str, String)>) {
     if yielder_ptr.is_null() {
         return;
     }
-    let request = YieldRequest { name, context: Context::new(tags) };
+    let node = ACTIVE_IDENTIFIER.with(|cell| cell.get().map(str::to_string));
+    let request = YieldRequest { name, context: Context { node, tags } };
     // Safety: non-null means we are on the coroutine stack whose yielder this is. The
     // reference is valid until the body returns; `coroutine.resume()` on the wrapper's stack
     // frame outlives this `suspend` call.

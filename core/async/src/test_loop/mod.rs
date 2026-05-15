@@ -92,7 +92,7 @@ use crate::futures::FutureSpawner;
 #[cfg(all(test, feature = "test_features"))]
 use breakpoint::YieldableTask;
 #[cfg(feature = "test_features")]
-use breakpoint::{BreakpointHandle, BreakpointRegistry, RegistryGuard};
+use breakpoint::{BreakpointHandle, BreakpointRegistry, EventDispatchGuard};
 use data::TestLoopData;
 use futures::{TestLoopAsyncComputationSpawner, TestLoopFutureSpawner};
 use near_time::{Clock, Duration, FakeClock};
@@ -470,11 +470,15 @@ impl TestLoopV2 {
             }
 
             let callback = event.event.callback;
-            // Make the breakpoint registry visible to any yield point that fires from inside
-            // the callback (transitively, through coroutines spawned by handler-wrapping).
+            // Make the breakpoint registry and the current event's identifier visible to any
+            // yield point firing from inside the callback (transitively, through coroutines
+            // spawned by handler-wrapping). `Context::node()` reads the identifier installed
+            // here.
             #[cfg(feature = "test_features")]
-            let _registry_guard =
-                self.breakpoint_registry.as_ref().map(|r| RegistryGuard::install(r));
+            let _dispatch_guard = self
+                .breakpoint_registry
+                .as_ref()
+                .map(|r| EventDispatchGuard::install(r, &event.event.identifier));
             callback(&mut self.data);
         }
 

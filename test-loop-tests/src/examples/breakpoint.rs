@@ -30,23 +30,26 @@ fn test_breakpoint_interleaves_two_tasks() {
 
     let log: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let bp = env.test_loop.breakpoint("midway").when(|ctx| ctx.get("task") == Some("a")).arm();
+    // The predicate uses `node()` — auto-populated from the spawner identifier, no need to
+    // pass anything explicit at the yield site.
+    let bp = env.test_loop.breakpoint("midway").when(|ctx| ctx.node() == Some("alice")).arm();
 
-    let spawner = env.test_loop.async_computation_spawner("demo", |_| Duration::ZERO);
+    let spawner_a = env.test_loop.async_computation_spawner("alice", |_| Duration::ZERO);
+    let spawner_b = env.test_loop.async_computation_spawner("bob", |_| Duration::ZERO);
 
     let log_a = log.clone();
-    spawner.spawn("task_a", move || {
+    spawner_a.spawn("task", move || {
         log_a.lock().push("a1");
-        test_loop_yield!("midway", task = "a");
+        test_loop_yield!("midway");
         log_a.lock().push("a2");
     });
 
     let log_b = log.clone();
-    spawner.spawn("task_b", move || {
+    spawner_b.spawn("task", move || {
         log_b.lock().push("b1");
-        // Same yield-point name, different tag — the predicate filters this hit out, so B
-        // runs straight through. Proves the matcher discriminates per-tag.
-        test_loop_yield!("midway", task = "b");
+        // Same yield-point name, but `bob` doesn't match the `alice` predicate, so B runs
+        // straight through.
+        test_loop_yield!("midway");
         log_b.lock().push("b2");
     });
 
@@ -55,8 +58,8 @@ fn test_breakpoint_interleaves_two_tasks() {
     // A is parked mid-flight; B has run to completion in the meantime.
     assert_eq!(*log.lock(), vec!["a1", "b1", "b2"]);
 
-    let hit = bp.take_hit().expect("task A should be parked at the breakpoint");
-    assert_eq!(hit.context().get("task"), Some("a"));
+    let hit = bp.take_hit().expect("alice's task should be parked at the breakpoint");
+    assert_eq!(hit.context().node(), Some("alice"));
 
     hit.resume();
     env.test_loop.run_for(Duration::milliseconds(1));
