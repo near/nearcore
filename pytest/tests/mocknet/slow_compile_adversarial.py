@@ -77,9 +77,9 @@ from transaction import sign_deploy_contract_tx
 # Hardcoded after benchmarking (see runtime/near-vm-runner/benchmarks).
 # Compile time scales with funcs × params; bodies are nearly free.
 # Validator rejects contracts with funcs × params > ~1M virtual locals.
-N_FUNCS = 990  # just under the ~1M virtual-locals validator cap
-N_PARAMS = 1000  # params dominate per-function compile cost
-BODY_OPS = 50  # bodies add little compile cost; keep small (~580 KB wasm)
+N_FUNCS = 990
+N_PARAMS = 1000
+BODY_OPS = 50
 
 WASM_MAGIC = b'\x00asm\x01\x00\x00\x00'
 I64 = 0x7E
