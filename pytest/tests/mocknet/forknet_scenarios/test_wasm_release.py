@@ -154,11 +154,8 @@ class TestWasmCandidate(TestSetup):
         Idempotent: clones if missing, otherwise fetches and hard-resets
         to the upstream tip.
         """
-        # TODO: upgrade before merge
-        # repo = "https://github.com/near/nearcore.git"
-        # branch = "master"
-        repo = "https://github.com/VanBarbascu/nearcore.git"
-        branch = "forknet/wasm-test-scenario"
+        repo = "https://github.com/near/nearcore.git"
+        branch = "master"
         checkout_dir = "/home/ubuntu/nearcore"
         cmd = (
             f"set -e; "
