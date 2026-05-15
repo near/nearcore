@@ -62,14 +62,14 @@ class TestWasmCandidate(TestSetup):
     def amend_epoch_config(self):
         """
         This is a workaround to set the protocol upgrade threshold close to 1, so that the upgrade happens when all the **block producers** have upgraded.
-        This avoid the need to properly calculate the upgrade timeline based on the epoch length and the upgrade interval.
+        This avoids the need to properly calculate the upgrade timeline based on the epoch length and the upgrade interval.
         """
         super().amend_epoch_config()
         # Upgrade when all producers vote
         self._amend_epoch_config(
             ".protocol_upgrade_stake_threshold = [9999,10000]")
 
-        # No kickouts dues to missed production/validation
+        # No kickouts due to missed production/validation
         self._amend_epoch_config(".block_producer_kickout_threshold = 0")
         self._amend_epoch_config(".chunk_producer_kickout_threshold = 0")
         self._amend_epoch_config(".chunk_validator_only_kickout_threshold = 0")
