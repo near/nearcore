@@ -160,13 +160,14 @@ mod tests {
             MutableConfigValue::new(Duration::milliseconds(2000), "max_block_time"),
         );
 
-        // Lag of 5 blocks: 600 + 100*3 = 900ms
+        // block_time_step = (2000 - 600) / 10 = 140ms
+        // Lag of 5 blocks: 600 + 140*3 = 1020ms
         let delay = timer.calculate_production_delay_ns(5);
-        assert_eq!(delay, Duration::milliseconds(900).unsigned_abs().as_nanos());
+        assert_eq!(delay, Duration::milliseconds(1020).unsigned_abs().as_nanos());
 
-        // Lag of 10 blocks: 600 + 100*8 = 1400ms
+        // Lag of 10 blocks: 600 + 140*8 = 1720ms
         let delay = timer.calculate_production_delay_ns(10);
-        assert_eq!(delay, Duration::milliseconds(1400).unsigned_abs().as_nanos());
+        assert_eq!(delay, Duration::milliseconds(1720).unsigned_abs().as_nanos());
     }
 
     #[test]
@@ -178,7 +179,7 @@ mod tests {
             MutableConfigValue::new(Duration::milliseconds(2000), "max_block_time"),
         );
 
-        // Lag of 22 blocks: 600 + 100*20 = 2600ms, but capped at 2000ms
+        // Lag of 22 blocks: 600 + 140*20 = 3400ms, but capped at 2000ms
         let delay = timer.calculate_production_delay_ns(22);
         assert_eq!(delay, Duration::milliseconds(2000).unsigned_abs().as_nanos());
 

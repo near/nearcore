@@ -1,7 +1,6 @@
 //! Chain Client Configuration
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
-#[cfg(feature = "schemars")]
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
