@@ -14,23 +14,25 @@ use near_primitives::state::FlatStateValue;
 pub struct MemTrieIteratorInner<'a> {
     memtrie: &'a MemTries,
     trie: &'a Trie,
+    // Pre-resolved at construction so the infallible `get_root` on the trait
+    // doesn't have to panic if the root went missing concurrently.
+    root: Option<MemTrieNodeId>,
 }
 
 impl<'a> MemTrieIteratorInner<'a> {
-    pub fn new(memtrie: &'a MemTries, trie: &'a Trie) -> Self {
-        Self { memtrie, trie }
+    pub fn new(memtrie: &'a MemTries, trie: &'a Trie) -> Result<Self, StorageError> {
+        let root = if trie.root == CryptoHash::default() {
+            None
+        } else {
+            Some(memtrie.get_root(&trie.root)?.id())
+        };
+        Ok(Self { memtrie, trie, root })
     }
 }
 
 impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIteratorInner<'a> {
     fn get_root(&self) -> Option<MemTrieNodeId> {
-        let root_hash = self.trie.root;
-        if root_hash == CryptoHash::default() {
-            return None;
-        }
-        let root_node = self.memtrie.get_root(&root_hash).unwrap();
-        let root_ptr = root_node.id();
-        Some(root_ptr)
+        self.root
     }
 
     fn get_node_with_size(

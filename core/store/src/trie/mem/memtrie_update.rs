@@ -1259,18 +1259,12 @@ mod tests {
         memtrie.delete_until_height(10);
 
         // state_root2 should still exist in snapshot, however state_root should be gone
-        assert!(matches!(
-            memtrie.get_root(&state_root),
-            Err(StorageError::StorageInconsistentState { .. })
-        ));
+        assert!(matches!(memtrie.get_root(&state_root), Err(StorageError::MissingTrieValue(..))));
         let hash = memtrie.get_root(&state_root2).unwrap().view().node_hash().to_string();
         assert_eq!(hash, "87gK6ZaJBgtuBLL3MZ5GB1rVKJmpJ1gYBLusRbTHyZuu");
 
         // delete snapshot, state_root2 should be gone
         memtrie.delete_snapshot();
-        assert!(matches!(
-            memtrie.get_root(&state_root2),
-            Err(StorageError::StorageInconsistentState { .. })
-        ));
+        assert!(matches!(memtrie.get_root(&state_root2), Err(StorageError::MissingTrieValue(..))));
     }
 }

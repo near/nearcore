@@ -590,7 +590,7 @@ fn extension_to_nibbles(extension: &[u8]) -> SmallVec<[u8; MAX_NIBBLES]> {
 pub fn find_trie_split(trie: &Trie) -> FindSplitResult<TrieSplit> {
     match trie.lock_memtries() {
         Some(memtries) => {
-            let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
+            let trie_storage = MemTrieIteratorInner::new(&memtries, trie)?;
             TrieDescent::new(trie_storage)?.find_mem_usage_split()
         }
         None => {
@@ -605,7 +605,7 @@ pub fn find_trie_split(trie: &Trie) -> FindSplitResult<TrieSplit> {
 pub fn total_mem_usage(trie: &Trie) -> FindSplitResult<u64> {
     match trie.lock_memtries() {
         Some(memtries) => {
-            let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
+            let trie_storage = MemTrieIteratorInner::new(&memtries, trie)?;
             let root_id = trie_storage.get_root().ok_or(FindSplitError::NoRoot)?;
             let root_node = trie_storage.get_node_with_size(root_id, AccessOptions::DEFAULT)?;
             Ok(root_node.memory_usage)
@@ -1177,7 +1177,7 @@ mod tests {
         ) -> FindSplitResult<TrieSplit> {
             let key_bytes = boundary_account.as_bytes();
             let memtries = trie.lock_memtries().unwrap();
-            let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
+            let trie_storage = MemTrieIteratorInner::new(&memtries, trie)?;
             TrieDescent::new(trie_storage)?.get_split(key_bytes)
         }
 

@@ -119,7 +119,7 @@ fn run(initial_entries: Vec<(Vec<u8>, Vec<u8>)>, retain_multi_ranges: Vec<Range<
     let entries = if mem_state_root != StateRoot::default() {
         let trie =
             Trie::new(Arc::new(TrieMemoryPartialStorage::<false>::default()), mem_state_root, None);
-        STMemTrieIterator::new(MemTrieIteratorInner::new(&memtries, &trie), None)
+        STMemTrieIterator::new(MemTrieIteratorInner::new(&memtries, &trie).unwrap(), None)
             .unwrap()
             .map(|e| e.unwrap())
             .collect_vec()

@@ -12,7 +12,7 @@ use crate::trie::MemTrieChanges;
 use crate::trie::mem::arena::ArenaMut;
 use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
 use itertools::Itertools;
-use near_primitives::errors::StorageError;
+use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, StateRoot};
@@ -156,12 +156,16 @@ impl MemTries {
         state_root: &CryptoHash,
     ) -> Result<MemTrieNodePtr<'_, HybridArenaMemory>, StorageError> {
         assert_ne!(state_root, &CryptoHash::default());
-        self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory())).ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Failed to find root node {:?} in memtrie",
-                state_root
-            ))
-        })
+        // Memtrie root may be missing due to an in-flight chunk application
+        // which goes past the memtrie GC or over the resharding boundary.
+        // Return MissingTrieValue, not StorageInconsistentState, which
+        // callers may decide to panic on.
+        self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory())).ok_or(
+            StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieStorage,
+                hash: *state_root,
+            }),
+        )
     }
 
     /// Expires all trie roots corresponding to a height smaller than
@@ -209,7 +213,7 @@ impl MemTries {
 
     /// Returns an iterator over the memtrie for the given trie root.
     pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator<'a>, StorageError> {
-        let iter_storage = MemTrieIteratorInner::new(self, trie);
+        let iter_storage = MemTrieIteratorInner::new(self, trie)?;
         STMemTrieIterator::new(iter_storage, None)
     }
 
