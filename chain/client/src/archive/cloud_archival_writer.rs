@@ -7,6 +7,7 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -16,7 +17,8 @@ use near_store::archive::cloud_storage::archive::CloudArchivingError;
 use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
 use near_store::archive::cloud_storage::{BatchRange, compute_next_batch};
 use near_store::db::{
-    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, DBTransaction, cloud_shard_head_key,
+    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY, DBTransaction,
+    cloud_shard_head_key,
 };
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use std::io;
@@ -275,8 +277,7 @@ impl CloudArchivalWriter {
     /// If the min cloud head lags the hot final head, archive the next height.
     /// Only archives components whose individual heads are behind.
     async fn try_archive_data_impl(&self) -> Result<CloudArchivingOutcome, CloudArchivingError> {
-        let min_head =
-            self.get_local_cloud_min_head()?.expect("CLOUD_MIN_HEAD should exist in hot store");
+        let min_head = self.get_local_min_head()?;
         let batch_range = self.next_batch_after(min_head);
         let hot_final_height = self.get_hot_final_head_height()?;
         tracing::trace!(target: "cloud_archival", ?batch_range, hot_final_height, "try_archive");
@@ -316,12 +317,11 @@ impl CloudArchivalWriter {
         batch_range: &BatchRange,
     ) -> Result<(), CloudArchivingError> {
         // TODO(cloud_archival): support resharding.
-        let start_block_hash =
-            self.hot_store.chain_store().get_block_hash_by_height(batch_range.start())?;
-        let start_epoch_id = self.epoch_manager.get_epoch_id(&start_block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&start_epoch_id)?;
+        let prev_epoch_end = self.get_local_prev_epoch_end()?;
+        let epoch_id = self.epoch_manager.get_next_epoch_id(&prev_epoch_end)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let tracked_shards =
-            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&start_epoch_id)?;
+            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
 
         let block_advanced = if self.config.archive_block_data {
             self.archive_block_batch_if_lagging(batch_range).await?
@@ -331,31 +331,52 @@ impl CloudArchivalWriter {
         let advanced_shards = self
             .archive_shard_batches_if_lagging(batch_range, &shard_layout, &tracked_shards)
             .await?;
-        self.advance_local_heads(batch_range.end(), block_advanced, &advanced_shards)?;
+        let new_prev_epoch_end = self.find_epoch_ending_in_batch(batch_range)?;
+        if self.config.archive_block_data {
+            if let Some(last_block_hash) = new_prev_epoch_end {
+                self.archive_ending_epoch_data(last_block_hash).await?;
+            }
+        }
+        self.advance_local_heads(
+            batch_range.end(),
+            block_advanced,
+            &advanced_shards,
+            new_prev_epoch_end,
+        )?;
         Ok(())
     }
 
-    /// Uploads epoch data for any epoch whose last block falls in this batch.
-    async fn archive_epochs_ending_in_batch(
+    /// Uploads epoch data for the epoch whose last block is `last_block_hash`.
+    async fn archive_ending_epoch_data(
+        &self,
+        last_block_hash: CryptoHash,
+    ) -> Result<(), CloudArchivingError> {
+        let epoch_id = self.epoch_manager.get_epoch_id(&last_block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await
+    }
+
+    /// Returns the hash of the last block of the (at most one) epoch ending
+    /// in the batch, or `None` if no epoch ends in the batch.
+    fn find_epoch_ending_in_batch(
         &self,
         batch_range: &BatchRange,
-    ) -> Result<(), CloudArchivingError> {
+    ) -> Result<Option<CryptoHash>, near_chain_primitives::Error> {
+        let chain_store = self.hot_store.chain_store();
         for height in batch_range.start()..=batch_range.end() {
-            let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
-            if !self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
-                continue;
+            let block_hash = match chain_store.get_block_hash_by_height(height) {
+                Ok(hash) => hash,
+                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => continue,
+                Err(other) => return Err(other),
+            };
+            if self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
+                return Ok(Some(block_hash));
             }
-            let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
-            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-            self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await?;
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Archives the block batch if the local block head is behind `batch_range.end()`.
-    /// Also uploads epoch data for any epoch ending in the batch (gated on
-    /// the same lag check so non-block writers and already-caught-up writers
-    /// don't re-upload).
     /// Returns true if the block head was advanced.
     async fn archive_block_batch_if_lagging(
         &self,
@@ -372,7 +393,6 @@ impl CloudArchivalWriter {
         if ext_head.is_some_and(|h| h >= batch_range.end()) {
             return Ok(false);
         }
-        self.archive_epochs_ending_in_batch(batch_range).await?;
         self.cloud_storage.archive_block_batch(&self.hot_store, batch_range).await?;
         self.cloud_storage.update_cloud_block_head(batch_range.end()).await?;
         Ok(true)
@@ -628,12 +648,21 @@ impl CloudArchivalWriter {
         Ok(hot_final_head_height)
     }
 
-    /// Returns the locally stored cloud min head height, if any.
-    fn get_local_cloud_min_head(&self) -> io::Result<Option<BlockHeight>> {
+    /// Returns the writer's stored min head: the highest height up to which
+    /// all components are known archived (by us or another writer).
+    fn get_local_min_head(&self) -> io::Result<BlockHeight> {
         Ok(self
             .hot_store
-            .get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
-            .map(|tip| tip.height))
+            .get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
+            .expect("CLOUD_MIN_HEAD should exist in hot store after initialize"))
+    }
+
+    /// Returns the hash of the last block of the latest fully-archived epoch.
+    fn get_local_prev_epoch_end(&self) -> io::Result<CryptoHash> {
+        Ok(self
+            .hot_store
+            .get_ser::<CryptoHash>(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY)
+            .expect("CLOUD_PREV_EPOCH_END should exist after initialize"))
     }
 
     /// Returns the locally stored cloud block head height, if any.
@@ -650,14 +679,13 @@ impl CloudArchivalWriter {
     /// Sets local heads during initialization, each to its own resolved height.
     /// Block and shard heads are stored as `BlockHeight` (always <=
     /// `hot_final_height - 1`, clamped during `collect_resolved_heads`).
-    /// `CLOUD_MIN_HEAD` is stored as `Tip` because external readers (GC, state
-    /// sync) need `last_block_hash` and `epoch_id`.
+    /// `CLOUD_PREV_EPOCH_END` is derived from `min_height`.
     fn set_local_heads(
         &self,
         block_head: Option<BlockHeight>,
         shard_heads: &[(ShardId, BlockHeight)],
         min_height: BlockHeight,
-    ) -> Result<(), near_chain_primitives::Error> {
+    ) -> Result<(), CloudArchivalInitializationError> {
         let mut transaction = DBTransaction::new();
 
         if let Some(block_head) = block_head {
@@ -670,27 +698,63 @@ impl CloudArchivalWriter {
             transaction.set(DBCol::BlockMisc, cloud_shard_head_key(shard_id), height_bytes);
         }
 
-        // CLOUD_MIN_HEAD needs a Tip (with block hash and epoch ID) for GC and state sync.
-        let header = self.hot_store.chain_store().get_block_header_by_height(min_height)?;
-        let tip_bytes = borsh::to_vec(&Tip::from_header(&header)).unwrap();
-        transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), tip_bytes);
+        let min_head_bytes = borsh::to_vec(&min_height).unwrap();
+        transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), min_head_bytes);
+
+        let prev_epoch_end = self.compute_initial_prev_epoch_end(min_height)?;
+        let prev_epoch_end_bytes = borsh::to_vec(&prev_epoch_end).unwrap();
+        transaction.set(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY.to_vec(), prev_epoch_end_bytes);
 
         self.hot_store.database().write(transaction);
         Ok(())
     }
 
+    fn compute_initial_prev_epoch_end(
+        &self,
+        height: BlockHeight,
+    ) -> Result<CryptoHash, near_chain_primitives::Error> {
+        let chain_store = self.hot_store.chain_store();
+        // `height` may be a skipped slot, so walk down to the nearest present block.
+        let block_hash = self.find_present_block_at_or_below(height)?;
+        // If the block itself ends an epoch, it is the prev-epoch end.
+        if self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
+            return Ok(block_hash);
+        }
+        let epoch_start = self.epoch_manager.get_epoch_start_height(&block_hash)?;
+        if epoch_start <= self.genesis_height {
+            return chain_store.get_block_hash_by_height(self.genesis_height);
+        }
+        let first_block_hash = chain_store.get_block_hash_by_height(epoch_start)?;
+        let first_block_header = chain_store.get_block_header(&first_block_hash)?;
+        Ok(*first_block_header.prev_hash())
+    }
+
+    fn find_present_block_at_or_below(
+        &self,
+        height: BlockHeight,
+    ) -> Result<CryptoHash, near_chain_primitives::Error> {
+        let chain_store = self.hot_store.chain_store();
+        for h in (self.genesis_height..=height).rev() {
+            match chain_store.get_block_hash_by_height(h) {
+                Ok(hash) => return Ok(hash),
+                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => continue,
+                Err(other) => return Err(other),
+            }
+        }
+        unreachable!("genesis block must be present")
+    }
+
     /// Advances local heads after archiving at `height`. Only updates heads for
     /// components that were actually behind. Always advances CLOUD_MIN_HEAD.
+    /// Atomically advances `CLOUD_PREV_EPOCH_END` when an epoch ended in the batch.
     fn advance_local_heads(
         &self,
         height: BlockHeight,
         block_advanced: bool,
         advanced_shard_ids: &[ShardId],
+        new_prev_epoch_end: Option<CryptoHash>,
     ) -> Result<(), near_chain_primitives::Error> {
         let height_bytes = borsh::to_vec(&height).unwrap();
-        let header = self.hot_store.chain_store().get_block_header_by_height(height)?;
-        let tip_bytes = borsh::to_vec(&Tip::from_header(&header)).unwrap();
-
         let mut transaction = DBTransaction::new();
         if block_advanced {
             transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), height_bytes.clone());
@@ -698,7 +762,14 @@ impl CloudArchivalWriter {
         for &shard_id in advanced_shard_ids {
             transaction.set(DBCol::BlockMisc, cloud_shard_head_key(shard_id), height_bytes.clone());
         }
-        transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), tip_bytes);
+        transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), height_bytes);
+        if let Some(new_prev_epoch_end) = new_prev_epoch_end {
+            transaction.set(
+                DBCol::BlockMisc,
+                CLOUD_PREV_EPOCH_END_KEY.to_vec(),
+                borsh::to_vec(&new_prev_epoch_end).unwrap(),
+            );
+        }
         self.hot_store.database().write(transaction);
         Ok(())
     }

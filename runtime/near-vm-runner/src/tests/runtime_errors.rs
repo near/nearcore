@@ -310,6 +310,40 @@ fn test_guest_panic() {
 }
 
 #[test]
+fn test_trampoline_only_start_section() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "panic" (func $panic))
+  (start $panic)
+  (export "main" (func $panic))
+)"#,
+        )
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 364482479 used gas 364482479
+            Err: Smart contract panicked: explicit guest panic
+        "#]]);
+}
+
+#[test]
+fn test_trampoline_only_remaining_gas_global() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "panic" (func $panic))
+  (global $g i32 (i32.const 0))
+  (export "main" (func $panic))
+)"#,
+        )
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 376464724 used gas 376464724
+            Err: Smart contract panicked: explicit guest panic
+        "#]]);
+}
+
+#[test]
 fn test_panic_re_export() {
     test_builder()
         .wat(

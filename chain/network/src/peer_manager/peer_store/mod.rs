@@ -161,10 +161,10 @@ impl Inner {
     /// Deletes peers from the internal cache
     fn delete_peers(&mut self, peer_ids: &[PeerId]) {
         for peer_id in peer_ids {
-            if let Some(peer_state) = self.peer_states.pop(peer_id) {
-                if let Some(addr) = peer_state.peer_info.addr {
-                    self.addr_peers.remove(&addr);
-                }
+            if let Some(peer_state) = self.peer_states.pop(peer_id)
+                && let Some(addr) = peer_state.peer_info.addr
+            {
+                self.addr_peers.remove(&addr);
             }
         }
     }
@@ -197,10 +197,10 @@ impl Inner {
         }
 
         // If this peer already has an address, remove that pair from the index.
-        if let Some(peer_state) = self.peer_states.get_mut(&peer_info.id) {
-            if let Some(cur_addr) = peer_state.peer_info.addr.take() {
-                self.addr_peers.remove(&cur_addr);
-            }
+        if let Some(peer_state) = self.peer_states.get_mut(&peer_info.id)
+            && let Some(cur_addr) = peer_state.peer_info.addr.take()
+        {
+            self.addr_peers.remove(&cur_addr);
         }
 
         // Add new address

@@ -35,7 +35,6 @@ use std::sync::Arc;
 ///   with native functions. Attempting to create a native `Function` with one will
 ///   result in a panic.
 ///   [Closures as host functions tracking issue](https://github.com/wasmerio/wasmer/issues/1840)
-#[derive(PartialEq)]
 pub struct Function {
     pub(crate) store: Store,
     pub(crate) exported: ExportFunction,

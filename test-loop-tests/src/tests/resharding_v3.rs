@@ -30,6 +30,7 @@ use near_crypto::Signer;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
     DynamicReshardingConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
 };
@@ -41,7 +42,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId,
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 /// Default and minimal epoch length used in resharding tests.
@@ -346,6 +347,99 @@ fn get_base_shard_layout() -> ShardLayout {
     let shards_split_map = [(ShardId::new(0), shard_ids.clone())].into_iter().collect();
     let shards_split_map = Some(shards_split_map);
     ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
+}
+
+/// Asserts the stickiness invariants of `ProtocolFeature::StickyReshardingValidatorAssignment`:
+/// every shard in `new_layout` that already existed in `prev_layout` keeps at least
+/// one of its previous chunk producers, and every shard in `new_layout` that is a
+/// child of a split parent inherits at least one of the parent's previous chunk
+/// producers.
+///
+/// The check is skipped when the post-resharding assignment is in the
+/// `assign_to_satisfy_shards` path (taken when
+/// `num_chunk_producers < min_validators_per_shard * num_shards`) — that path
+/// is unrelated to stickiness, it just round-robins producers across shards.
+/// Caller must guarantee that `shuffle_shard_assignment_for_chunk_producers`
+/// is disabled.
+fn assert_validator_stickiness_after_resharding(
+    prev_info: &EpochInfo,
+    prev_layout: &ShardLayout,
+    new_info: &EpochInfo,
+    new_layout: &ShardLayout,
+    min_validators_per_shard: u64,
+) {
+    let validators_for_shard = |info: &EpochInfo, idx: usize| -> HashSet<AccountId> {
+        info.chunk_producers_settlement()[idx]
+            .iter()
+            .map(|&id| info.get_validator(id).account_id().clone())
+            .collect()
+    };
+
+    // Skip when the post-resharding assignment must use `assign_to_satisfy_shards`
+    // because there aren't enough chunk producers to fill every shard at least
+    // `min_validators_per_shard` times. In that regime sticky-by-id doesn't apply.
+    // Count *unique* producers — `chunk_producers_settlement` may repeat ids
+    // across shards once satisfy-shards is hit, which would inflate a flat count.
+    let num_chunk_producers = new_info
+        .chunk_producers_settlement()
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<HashSet<_>>()
+        .len();
+    let num_new_shards = new_layout.num_shards();
+    if (num_chunk_producers as u64) < min_validators_per_shard * num_new_shards {
+        println!(
+            "sticky-resharding check skipped: too few producers ({num_chunk_producers}) \
+             for {num_new_shards} shards at {min_validators_per_shard}/shard"
+        );
+        return;
+    }
+
+    let prev_id_set: HashSet<ShardId> = prev_layout.shard_ids().collect();
+    for new_shard_id in new_layout.shard_ids() {
+        let new_idx = new_layout.get_shard_index(new_shard_id).unwrap();
+        let new_validators = validators_for_shard(new_info, new_idx);
+        if prev_id_set.contains(&new_shard_id) {
+            let prev_idx = prev_layout.get_shard_index(new_shard_id).unwrap();
+            let prev_validators = validators_for_shard(prev_info, prev_idx);
+            // Only meaningful if the unchanged shard had any validators before.
+            if prev_validators.is_empty() {
+                continue;
+            }
+            let kept = prev_validators.intersection(&new_validators).count();
+            assert!(
+                kept > 0,
+                "sticky-resharding violation: unchanged shard {} kept zero validators \
+                 across resharding (prev={:?}, post={:?})",
+                new_shard_id,
+                prev_validators,
+                new_validators,
+            );
+        } else {
+            let parent = new_layout.get_parent_shard_id(new_shard_id).unwrap();
+            let parent_idx = prev_layout.get_shard_index(parent).unwrap();
+            let parent_validators = validators_for_shard(prev_info, parent_idx);
+            // We can only guarantee that *every* child inherits when the parent
+            // had at least as many validators as it has children. Otherwise some
+            // children unavoidably come up empty from the bin-pack and rely on
+            // rebalancing.
+            let children = new_layout.get_children_shards_ids(parent).unwrap_or_default();
+            if parent_validators.len() < children.len() {
+                continue;
+            }
+            let inherited = parent_validators.intersection(&new_validators).count();
+            assert!(
+                inherited > 0,
+                "sticky-resharding violation: split child {} (parent {}) inherited zero \
+                 validators from parent (parent_prev={:?}, child_post={:?})",
+                new_shard_id,
+                parent,
+                parent_validators,
+                new_validators,
+            );
+        }
+    }
 }
 
 /// Returns the two child shard IDs that result from splitting a shard.
@@ -758,6 +852,34 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < num_epochs_to_wait);
             println!("State after resharding:");
             print_and_assert_shard_accounts(&clients, &tip);
+
+            // Verify chunk-producer stickiness across resharding: unchanged shards
+            // keep at least one of their previous validators by ShardId, and split
+            // children inherit at least one of the parent's validators. The shuffle
+            // flag intentionally overrides stickiness, so this only fires when
+            // shuffling is off (which is the default for these tests).
+            if !params.shuffle_shard_assignment_for_chunk_producers
+                && ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION)
+            {
+                let post_epoch_id =
+                    client.epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();
+                let prev_epoch_id = client
+                    .epoch_manager
+                    .get_prev_epoch_id_from_prev_block(&tip.prev_block_hash)
+                    .unwrap();
+                let post_info = client.epoch_manager.get_epoch_info(&post_epoch_id).unwrap();
+                let prev_info = client.epoch_manager.get_epoch_info(&prev_epoch_id).unwrap();
+                let post_layout = client.epoch_manager.get_shard_layout(&post_epoch_id).unwrap();
+                let prev_layout = client.epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
+                let post_config = client.epoch_manager.get_epoch_config(&post_epoch_id).unwrap();
+                assert_validator_stickiness_after_resharding(
+                    &prev_info,
+                    &prev_layout,
+                    &post_info,
+                    &post_layout,
+                    post_config.minimum_validators_per_shard,
+                );
+            }
             if params.second_resharding_boundary_account.is_some() {
                 // With static resharding, the two splits are triggered by consecutive protocol
                 // upgrades, so the second activates 1 epoch after the first. With dynamic

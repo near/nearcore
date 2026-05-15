@@ -16,12 +16,8 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
     Transaction, TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
-#[cfg(feature = "clock")]
-use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, ShardId};
-#[cfg(feature = "clock")]
-use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use itertools::Itertools;
@@ -874,6 +870,7 @@ pub struct TestBlockBuilder {
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
+    newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
 }
 
 #[cfg(feature = "clock")]
@@ -910,6 +907,7 @@ impl TestBlockBuilder {
             } else {
                 None
             },
+            newly_certified_block_execution_results: vec![],
         }
     }
 
@@ -994,6 +992,14 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn newly_certified_block_execution_results(
+        mut self,
+        results: Vec<crate::types::BlockExecutionResults>,
+    ) -> Self {
+        self.newly_certified_block_execution_results = results;
+        self
+    }
+
     pub fn chunk_endorsements(
         mut self,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
@@ -1004,20 +1010,6 @@ impl TestBlockBuilder {
 
     pub fn build(self) -> Arc<Block> {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        let last_certified_block_execution_results = BlockExecutionResults(
-            self.chunks
-                .iter()
-                .map(|chunk| {
-                    (
-                        chunk.shard_id(),
-                        Arc::new(ChunkExecutionResult {
-                            chunk_extra: ChunkExtra::new_with_only_state_root(&StateRoot::new()),
-                            outgoing_receipts_root: CryptoHash::default(),
-                        }),
-                    )
-                })
-                .collect(),
-        );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
@@ -1044,7 +1036,8 @@ impl TestBlockBuilder {
             self.spice_core_statements.map(|core_statements| {
                 crate::block::SpiceNewBlockProductionInfo {
                     core_statements,
-                    last_certified_block_execution_results,
+                    newly_certified_block_execution_results: self
+                        .newly_certified_block_execution_results,
                 }
             }),
         ))

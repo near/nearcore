@@ -6,7 +6,7 @@ use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
-    ActionCosts, ExtCosts, ExtCostsConfig, RuntimeConfig, RuntimeFeesConfig,
+    ActionCosts, ExtCosts, ExtCostsConfig, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
     gas_key_add_key_exec_fee, gas_key_add_key_send_fee, gas_key_transfer_exec_fee,
     gas_key_transfer_send_fee, transfer_exec_fee, transfer_send_fee,
 };
@@ -19,6 +19,9 @@ use near_primitives::types::{AccountId, Balance, Compute, Gas};
 pub struct TransactionCost {
     /// Total amount of gas burnt for converting this transaction into a receipt.
     pub gas_burnt: Gas,
+    /// Total amount of the compute budget of a chunk used by converting this
+    /// transaction into a receipt.
+    pub compute_burnt: Compute,
     /// The remaining amount of gas used for converting this transaction into a receipt.
     /// It includes gas that is not yet spent, e.g. prepaid gas for function calls and
     /// future execution fees.
@@ -69,8 +72,8 @@ pub fn total_send_fees(
     sender_is_receiver: bool,
     actions: &[Action],
     receiver_id: &AccountId,
-) -> Result<Gas, IntegerOverflowError> {
-    let mut result = Gas::ZERO;
+) -> Result<ParameterCost, IntegerOverflowError> {
+    let mut result = ParameterCost::ZERO;
     let fees = &config.fees;
 
     for action in actions {
@@ -182,7 +185,7 @@ fn permission_send_fees(
     permission: &AccessKeyPermission,
     fees: &RuntimeFeesConfig,
     sender_is_receiver: bool,
-) -> Gas {
+) -> ParameterCost {
     let key_fee = match permission {
         AccessKeyPermission::FunctionCall(perm)
         | AccessKeyPermission::GasKeyFunctionCall(_, perm) => {
@@ -207,7 +210,7 @@ fn permission_send_fees(
         AccessKeyPermission::GasKeyFunctionCall(..) | AccessKeyPermission::GasKeyFullAccess(_) => {
             gas_key_add_key_send_fee(fees, sender_is_receiver)
         }
-        _ => Gas::ZERO,
+        _ => ParameterCost::ZERO,
     };
     key_fee.checked_add(gas_key_info_fee).unwrap()
 }
@@ -220,8 +223,8 @@ fn permission_send_fees(
 pub fn total_prepaid_send_fees(
     config: &RuntimeConfig,
     actions: &[Action],
-) -> Result<Gas, IntegerOverflowError> {
-    let mut result = Gas::ZERO;
+) -> Result<ParameterCost, IntegerOverflowError> {
+    let mut result = ParameterCost::ZERO;
     for action in actions {
         use Action::*;
         let delta = match action {
@@ -236,14 +239,14 @@ pub fn total_prepaid_send_fees(
                     &delegate_action.receiver_id,
                 )?
             }
-            _ => Gas::ZERO,
+            _ => ParameterCost::ZERO,
         };
         result = result.checked_add_result(delta)?;
     }
     Ok(result)
 }
 
-pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId) -> Gas {
+pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId) -> ParameterCost {
     use Action::*;
     let fees = &config.fees;
     match action {
@@ -324,7 +327,7 @@ fn permission_exec_fees(
     config: &RuntimeConfig,
     account_id: &AccountId,
     public_key: &PublicKey,
-) -> Gas {
+) -> ParameterCost {
     let fees = &config.fees;
     let key_fee = match permission {
         AccessKeyPermission::FunctionCall(perm)
@@ -373,26 +376,38 @@ pub fn calculate_tx_cost(
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let sender_is_receiver = receiver_id == signer_id;
     let fees = &config.fees;
-    let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
-    gas_burnt = gas_burnt.checked_add_result(total_send_fees(
+    let mut burnt: ParameterCost =
+        fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
+    burnt = burnt.checked_add_result(total_send_fees(
         config,
         sender_is_receiver,
         actions,
         receiver_id,
     )?)?;
-    let prepaid_gas = total_prepaid_gas(&actions)?
-        .checked_add_result(total_prepaid_send_fees(config, &actions)?)?;
-    let mut gas_remaining =
-        prepaid_gas.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
-    gas_remaining =
-        gas_remaining.checked_add_result(total_prepaid_exec_fees(config, actions, receiver_id)?)?;
-    let burnt_amount = safe_gas_to_balance(receipt_gas_price, gas_burnt)?;
+
+    // Calculate `gas_remaining`, which are all gas costs minus what is already
+    // burnt in the sending step. Compute is not relevant here, as this gas will
+    // be burnt later and has no effect on the current chunk capacity.
+    // Gas attached to function calls
+    let prepaid_gas = total_prepaid_gas(&actions)?;
+    // Send/Exec costs for actions inside the receipt
+    let prepaid_send_fee = total_prepaid_send_fees(config, &actions)?;
+    let prepaid_exec_fee = total_prepaid_exec_fees(config, actions, receiver_id)?;
+    // Exec cost for the receipt that wraps the actions
+    let receipt_cost = fees.fee(ActionCosts::new_action_receipt).exec_fee();
+    let gas_remaining = prepaid_gas
+        .checked_add_result(prepaid_send_fee.gas)?
+        .checked_add_result(receipt_cost.gas)?
+        .checked_add_result(prepaid_exec_fee.gas)?;
+
+    let burnt_amount = safe_gas_to_balance(receipt_gas_price, burnt.gas)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;
     let total_cost = safe_add_balance(gas_cost, deposit_cost)?;
     Ok(TransactionCost {
-        gas_burnt,
+        gas_burnt: burnt.gas,
+        compute_burnt: burnt.compute,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
@@ -407,8 +422,8 @@ pub fn total_prepaid_exec_fees(
     config: &RuntimeConfig,
     actions: &[Action],
     receiver_id: &AccountId,
-) -> Result<Gas, IntegerOverflowError> {
-    let mut result = Gas::ZERO;
+) -> Result<ParameterCost, IntegerOverflowError> {
+    let mut result = ParameterCost::ZERO;
     let fees = &config.fees;
     for action in actions {
         let mut delta;
@@ -455,6 +470,17 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
 }
 
 /// Get the total sum of prepaid gas for given actions.
+///
+/// "Prepaid" in this context means the gas that was attached to function calls
+/// for covering dynamic execution costs. This gas is burnt dynamically based on
+/// usage. What is not burnt may be forwarded to outgoing receipts or it may
+/// also be converted back to NEAR for a refund.
+///
+/// Don't confuse this with `prepaid_exec_fees`, those are static fees that are
+/// burnt before execution happens.
+///
+/// Naming isn't great but it is consistent with the user-visible error
+/// `TotalPrepaidGasExceeded`.
 pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError> {
     let mut total_gas = Gas::ZERO;
     for action in actions {

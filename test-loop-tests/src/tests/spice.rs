@@ -1,4 +1,3 @@
-use super::spice_utils::delay_endorsements_propagation;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
@@ -183,7 +182,7 @@ fn test_spice_chain_with_delayed_execution() {
 
     let execution_delay = 4;
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     env = env.warmup();
 
@@ -201,6 +200,65 @@ fn test_spice_chain_with_delayed_execution() {
     let view_account_result =
         env.node_for_account(&producer_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
+}
+
+/// Test that consensus cannot be more than one epoch ahead of certification.
+/// In case execution is lagging, the current epoch will be prolonged until
+/// certification catches up.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_epoch_gated_by_certification() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+
+    let epoch_length = 5;
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .delay_warmup()
+        .build();
+    let execution_delay = 2 * epoch_length;
+    env.delay_endorsements_propagation(execution_delay);
+    env = env.warmup();
+
+    // With the delay active, verify the consensus chain can still produce many
+    // blocks and the epoch advances but only one epoch ahead of the last
+    // certified block's epoch.
+    let starting_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    env.node_runner(0).run_until(
+        |node| {
+            let head = node.head();
+            let client = node.client();
+            let chain_store = &client.chain.chain_store;
+            let last_cert = get_last_certified_block_header(chain_store, &head.last_block_hash)
+                .expect("last certified block should be queryable");
+            let epoch_manager = client.epoch_manager.as_ref();
+            let head_epoch_height =
+                epoch_manager.get_epoch_info(&head.epoch_id).unwrap().epoch_height();
+            let cert_epoch_height =
+                epoch_manager.get_epoch_info(last_cert.epoch_id()).unwrap().epoch_height();
+            assert!(
+                head_epoch_height <= cert_epoch_height + 1,
+                "head epoch {head_epoch_height} more than 1 ahead of cert epoch {cert_epoch_height}",
+            );
+            head.height >= 5 * epoch_length && head.epoch_id != starting_epoch_id
+        },
+        Duration::seconds(30),
+    );
+
+    // Lift the delay and wrap up the current epoch. The chain should go back to transitioning epochs normally.
+    env.delay_endorsements_propagation(0);
+    env.node_runner(0).run_until_new_epoch();
+    let current_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
+    let new_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    assert_ne!(
+        current_epoch_id, new_epoch_id,
+        "epoch should have advanced after delay is lifted with normal amount of blocks"
+    );
 }
 
 /// Sets up a spice env with delayed endorsements so execution lags behind
@@ -222,7 +280,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
         .build();
 
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     let mut env = env.warmup();
 
@@ -368,7 +426,7 @@ fn test_spice_garbage_collection_witnesses() {
 
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     env = env.warmup();
 
     // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
@@ -522,7 +580,7 @@ fn test_restart_producer_node() {
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests for
     // missing data.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     let mut env = env.warmup();
 
@@ -565,6 +623,49 @@ fn test_restart_producer_node() {
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 }
 
+/// After `add_node`, call `delay_endorsements_propagation` again so the new
+/// peer manager actor picks up the endorsement-delay handler. Installation is
+/// tracked per node identifier, so existing nodes aren't instrumented twice.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_delay_endorsements_propagation_instruments_added_node() {
+    init_test_logger();
+
+    let validators_spec = create_validators_spec(2, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients.clone())
+        .delay_warmup()
+        .build();
+
+    env.delay_endorsements_propagation(2);
+    let mut env = env.warmup();
+    env.node_runner(0).run_until_head_height(5);
+
+    let delay_state = env.shared_state.spice_endorsement_delay.clone();
+    let original_identifier = env.get_node_data_by_account_id(&clients[0]).identifier.clone();
+    assert!(delay_state.lock().installed_for.contains(&original_identifier));
+
+    let new_account = create_account_id("new_node");
+    let new_identifier = "new_node";
+    let node_state = env.node_state_builder().account_id(&new_account).build();
+    env.add_node(new_identifier, node_state);
+    assert!(!delay_state.lock().installed_for.contains(new_identifier));
+
+    // Re-run to pick up the new peer; existing identifiers are not
+    // re-registered (idempotent).
+    env.delay_endorsements_propagation(2);
+    let installed_now = delay_state.lock().installed_for.clone();
+    assert!(installed_now.contains(new_identifier));
+    assert!(installed_now.contains(&original_identifier));
+
+    // Chain keeps progressing.
+    env.node_runner(0).run_for_number_of_blocks(5);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_restart_validator_node() {
@@ -594,7 +695,7 @@ fn test_restart_validator_node() {
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests of
     // missing data.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     let mut env = env.warmup();
 
@@ -931,4 +1032,33 @@ fn schedule_send_money_txs(
         );
     }
     (sent_txs, balance_changes)
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_total_supply_decreases_with_gas_burn() {
+    init_test_logger();
+
+    let sender = create_account_id("sender");
+    let receiver = create_account_id("receiver");
+
+    let gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .validators(2, 0)
+        .gas_prices(gas_price, gas_price)
+        .add_user_accounts([&sender, &receiver], Balance::from_near(10))
+        .build();
+
+    let initial_total_supply = env.validator().head_block().header().total_supply();
+
+    let tx = env.validator().tx_send_money(&sender, &receiver, Balance::from_near(1));
+    env.validator_runner().run_tx(tx, Duration::seconds(10));
+
+    let block = env.validator().last_executed_block();
+    assert!(
+        block.header().total_supply() < initial_total_supply,
+        "total_supply should decrease after gas is burned: {} >= {}",
+        block.header().total_supply(),
+        initial_total_supply,
+    );
 }

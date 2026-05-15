@@ -18,7 +18,7 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     Balance, BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
 use std::ops::ControlFlow;
 use std::time::Duration;
@@ -235,13 +235,7 @@ async fn test_protocol_config_rpc() {
                 .unwrap();
 
             let runtime_config_store = RuntimeConfigStore::new(None);
-            let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
             let latest_runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
-            assert_ne!(
-                config_response.config_view.runtime_config.storage_amount_per_byte,
-                initial_runtime_config.storage_amount_per_byte()
-            );
-            // compare JSON view
             assert_eq!(
                 serde_json::json!(config_response.config_view.runtime_config),
                 serde_json::json!(RuntimeConfigView::from(latest_runtime_config.as_ref().clone()))

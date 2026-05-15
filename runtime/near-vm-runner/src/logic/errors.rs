@@ -191,6 +191,15 @@ pub enum PrepareError {
     TooManyBlocksPerFunction = 13,
     /// A contract contains too many basic blocks.
     TooManyBlocksPerContract = 14,
+    /// Contract declares too many entries in the wasm type section.
+    TooManyTypes = 15,
+    /// All contract functions combined have more than `max_params_per_contract` parameters.
+    TooManyParamsPerContract = 16,
+    /// A function has more than `max_params_per_function` parameters.
+    TooManyParamsPerFunction = 17,
+    /// A function's max operand-stack size (in bytes) exceeds
+    /// `max_operand_stack_bytes_per_function`.
+    OperandStackTooLarge = 18,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -425,6 +434,10 @@ impl fmt::Display for PrepareError {
             InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
             TooManyBlocksPerFunction => "Too many basic blocks in a function.",
             TooManyBlocksPerContract => "Too many basic blocks in a contract.",
+            TooManyTypes => "Too many type-section entries declared in the contract.",
+            TooManyParamsPerContract => "Too many function parameters in the contract",
+            TooManyParamsPerFunction => "Too many parameters in a single function",
+            OperandStackTooLarge => "A function uses too much operand stack.",
         })
     }
 }

@@ -1,7 +1,6 @@
 ---
 source: core/primitives/src/views.rs
 expression: "&view"
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -241,12 +240,16 @@ snapshot_kind: text
       "max_number_input_data_dependencies": 128,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
+      "max_params_per_contract": 50000,
+      "max_params_per_function": 64,
+      "max_operand_stack_bytes_per_function": 8192,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
       "max_function_body_size": 196608,
       "max_instrumented_code_size": 16777216,
       "max_blocks_per_function": 5000,
       "max_blocks_per_contract": 50000,
+      "max_types_per_contract": 1024,
       "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,

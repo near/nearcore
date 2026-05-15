@@ -119,6 +119,21 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 - **Chunk header validation**: During state witness validation, the `proposed_split` in the received chunk header is compared against the locally-computed `ChunkExtra.proposed_split()`. Mismatch produces `InvalidChunkHeaderShardSplit`.
 - **Block header validation**: During block processing, the `shard_split` in the block header is recomputed by calling `get_upcoming_shard_split()` with the block's chunk headers. Mismatch produces `InvalidBlockHeaderShardSplit`.
 
+### 2.6 Validator Assignment Across Resharding
+
+Gated by `ProtocolFeature::StickyReshardingValidatorAssignment` (protocol version 153). Without the feature, an epoch with a layout change reassigns all chunk producers from scratch by `ShardIndex`, forcing every producer to potentially state-sync a different shard. With the feature, `EpochManager::finalize_epoch()` calls `AssignmentStrategy::select(prev_layout, new_layout)` which picks one of:
+
+- **`CarryOver`**: layouts equal — copy the prev assignment by `ShardIndex`.
+- **`StickyResharding`**: feature on and `new_layout` is derived from `prev_layout` — preserve the prev assignment by `ShardId`. Unchanged shards keep their chunk producers; a parent that splits has its producers distributed across its children via greedy stake-balanced bin-packing (`bin_pack_into_children` in `chain/epoch-manager/src/shard_assignment.rs`).
+- **`Fresh`**: feature off, or sticky construction failed (e.g. non-derived layouts in tests).
+
+The strategy is built once in `select` (validating the prev->new shard-id mapping) and consumed by `assign_chunk_producers_to_shards`. On a sticky-resharding epoch the per-epoch `chunk_producer_assignment_changes_limit` is raised to `num_chunk_producers / num_shards` so freshly split children can reach target population in one go rather than being chronically understaffed.
+
+Limitations:
+
+- Only single-parent splits are supported. Shard merges would require carrying multiple parents' producers into one child and are not yet implemented.
+- When `num_chunk_producers < min_validators_per_shard * num_shards`, the assignment falls into `assign_to_satisfy_shards`, which round-robins producers across shards with repeats. Sticky-by-id does not hold in that regime; production configurations (`min=1`, validator counts >> shard counts) preclude this in practice.
+
 ---
 
 ## 3. New and Modified Data Structures
@@ -260,18 +275,16 @@ The parent shard's memtrie must be loaded when resharding executes (checked at `
 
 ### General Resharding TODOs (May Affect Dynamic Resharding)
 
-8. **`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.
+8. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
 
-9. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
+9. **`chain/chain/src/stateless_validation/state_witness.rs:260`** -- `get_incoming_receipts_for_shard` generates invalid proofs on resharding boundaries.
 
-10. **`chain/chain/src/stateless_validation/state_witness.rs:260`** -- `get_incoming_receipts_for_shard` generates invalid proofs on resharding boundaries.
+10. **`chain/chain/src/resharding/manager.rs:249`** -- The resharding manager doesn't set all `ChunkExtra` fields (notably the new `proposed_split` field).
 
-11. **`chain/chain/src/resharding/manager.rs:249`** -- The resharding manager doesn't set all `ChunkExtra` fields (notably the new `proposed_split` field).
+11. **`runtime/runtime/src/congestion_control.rs:336`** -- Parent shard's outgoing buffer cleanup after resharding.
 
-12. **`runtime/runtime/src/congestion_control.rs:336`** -- Parent shard's outgoing buffer cleanup after resharding.
-
-13. **`nightly/pytest-sanity.txt:274`** -- Integration between resharding and other features (stateless validation, state sync, congestion control) is incomplete.
+12. **`nightly/pytest-sanity.txt:274`** -- Integration between resharding and other features (stateless validation, state sync, congestion control) is incomplete.
 
 ### Spice-Resharding Integration
 
-14. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.
+13. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.

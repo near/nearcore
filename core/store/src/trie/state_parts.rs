@@ -999,7 +999,7 @@ mod tests {
         let part_id = PartId::new(1, 2);
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
 
-        let state_items = vec![
+        let state_items = [
             (b"a".to_vec(), vec![1]),
             (b"aa".to_vec(), vec![2]),
             (b"ab".to_vec(), vec![3]),

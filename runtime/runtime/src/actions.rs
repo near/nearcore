@@ -6,7 +6,9 @@ use crate::config::{
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
-use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
+use near_parameters::{
+    AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
+};
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
 };
@@ -20,9 +22,7 @@ use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, StakeAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
-};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochInfoProvider, StorageUsage};
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
@@ -514,44 +514,52 @@ pub(crate) fn apply_delegate_action(
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
     let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
-    let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
-    // This gas will be burnt by the receiver of the created receipt,
-    result.gas_used = result.gas_used.checked_add_result(required_gas)?;
+    let required_cost = receipt_required_cost(apply_state, &new_receipt)?;
+    // This gas will be burnt by the receiver of the created receipt.
+    // Compute costs of that are not relevant at this point, the "used" gas is
+    // only reserved for execution later, potentially on a different shard.
+    result.gas_used = result.gas_used.checked_add_result(required_cost.gas)?;
     // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
     // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
-    result.gas_used = result.gas_used.checked_add_result(prepaid_send_fees)?;
-    result.gas_burnt = result.gas_burnt.checked_add_result(prepaid_send_fees)?;
-    // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees.as_gas())?;
+    result.gas_used = result.gas_used.checked_add_result(prepaid_send_fees.gas)?;
+    result.gas_burnt = result.gas_burnt.checked_add_result(prepaid_send_fees.gas)?;
+    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees.compute)?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
 }
 
-/// Returns Gas amount is required to execute Receipt and all actions it contains
-fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
+/// Returns the cost required to execute the Receipt and all actions it contains
+fn receipt_required_cost(
+    apply_state: &ApplyState,
+    receipt: &Receipt,
+) -> Result<ParameterCost, RuntimeError> {
     Ok(match receipt.versioned_receipt() {
         VersionedReceiptEnum::Action(action_receipt)
         | VersionedReceiptEnum::PromiseYield(action_receipt) => {
-            action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
+            action_receipt_required_cost(apply_state, receipt, action_receipt.into())?
         }
         VersionedReceiptEnum::GlobalContractDistribution(_)
         | VersionedReceiptEnum::Data(_)
-        | VersionedReceiptEnum::PromiseResume(_) => Gas::ZERO,
+        | VersionedReceiptEnum::PromiseResume(_) => ParameterCost::ZERO,
     })
 }
 
-fn action_receipt_required_gas(
+fn action_receipt_required_cost(
     apply_state: &ApplyState,
     receipt: &Receipt,
     action_receipt: VersionedActionReceipt,
-) -> Result<Gas, RuntimeError> {
+) -> Result<ParameterCost, RuntimeError> {
     let mut required_gas = total_prepaid_exec_fees(
         &apply_state.config,
         &action_receipt.actions(),
         receipt.receiver_id(),
-    )?
-    .checked_add_result(total_prepaid_gas(&action_receipt.actions())?)?;
+    )?;
+    let attached_gas = total_prepaid_gas(&action_receipt.actions())?;
+    // Gas attached to outgoing function calls have no associated compute costs.
+    // Compute costs are only relevant when burning gas.
+    let attached_gas_cost = ParameterCost { gas: attached_gas, compute: 0 };
+    required_gas = required_gas.checked_add_result(attached_gas_cost)?;
     required_gas = required_gas.checked_add_result(
         apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
     )?;

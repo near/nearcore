@@ -1,4 +1,5 @@
 use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
@@ -15,6 +16,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
 use near_store::ShardUId;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
+use std::collections::{HashMap, HashSet};
 
 /// Test harness for cloud archival tests. Owns the `TestLoopEnv` and exposes
 /// composable action and assertion methods so each test reads as an explicit
@@ -36,6 +38,10 @@ struct CloudArchiveHarness {
 struct CloudArchiveHarnessBuilder {
     cold_storage: bool,
     writer: WriterConfig,
+    num_validators: Option<usize>,
+    dropped_block_heights: HashSet<BlockHeight>,
+    /// Per-shard chunk-production schedule applied every epoch.
+    dropped_chunks_by_shard: HashMap<ShardId, Vec<bool>>,
 }
 
 impl CloudArchiveHarnessBuilder {
@@ -59,13 +65,33 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
+    fn validators(mut self, count: usize) -> Self {
+        // `drop_blocks_at` callers need `count >= 4`; see `block_dropper_by_height`.
+        assert!(count > 0);
+        self.num_validators = Some(count);
+        self
+    }
+
+    fn drop_blocks_at(mut self, heights: &[BlockHeight]) -> Self {
+        self.dropped_block_heights.extend(heights.iter().copied());
+        self
+    }
+
+    /// `pattern[i] == false` drops the chunk at offset `i` of every epoch.
+    fn drop_chunks(mut self, shard_id: ShardId, pattern: Vec<bool>) -> Self {
+        self.dropped_chunks_by_shard.insert(shard_id, pattern);
+        self
+    }
+
     fn build(self) -> CloudArchiveHarness {
         let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
         let archival_kind =
             if self.cold_storage { ArchivalKind::ColdAndCloud } else { ArchivalKind::Cloud };
         let archival_id = self.writer.id.clone();
         let snapshot_every_n_epochs = self.writer.snapshot_every_n_epochs;
-        let env = TestLoopBuilder::new()
+        let has_drops =
+            !self.dropped_block_heights.is_empty() || !self.dropped_chunks_by_shard.is_empty();
+        let mut builder = TestLoopBuilder::new()
             .shard_layout(CloudArchiveHarness::default_shard_layout())
             .epoch_length(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH)
             .add_user_account(&user_account, CloudArchiveHarness::USER_BALANCE)
@@ -84,8 +110,26 @@ impl CloudArchiveHarnessBuilder {
                     &self.writer.tracked_shards,
                     snapshot_every_n_epochs,
                 );
-            })
-            .build();
+            });
+        if let Some(count) = self.num_validators {
+            builder = builder.validators(count, 0);
+        }
+        // Drop conditions must be registered after build but before warmup;
+        // delay_warmup splits build/warmup so we can call drop() in between.
+        // No-drop tests keep the default auto-warmup.
+        if has_drops {
+            builder = builder.delay_warmup();
+        }
+        let mut env = builder.build();
+        if !self.dropped_block_heights.is_empty() {
+            env = env.drop(DropCondition::BlocksByHeight(self.dropped_block_heights));
+        }
+        if !self.dropped_chunks_by_shard.is_empty() {
+            env = env.drop(DropCondition::ChunksProducedByHeight(self.dropped_chunks_by_shard));
+        }
+        if has_drops {
+            env = env.warmup();
+        }
         CloudArchiveHarness {
             env,
             archival_id,
@@ -112,6 +156,9 @@ impl CloudArchiveHarness {
                 tracked_shards: Self::all_shard_uids(),
                 snapshot_every_n_epochs: 1,
             },
+            num_validators: None,
+            dropped_block_heights: HashSet::new(),
+            dropped_chunks_by_shard: HashMap::new(),
         }
     }
 
@@ -302,11 +349,8 @@ fn test_cloud_archival_read_data_at_height() {
     let all_shards = CloudArchiveHarness::all_shard_ids();
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
-    h.check_data(&[
-        (2, &all_shards),
-        (h.epoch_length / 2, &all_shards),
-        (h.epoch_length + 1, &all_shards),
-    ]);
+    // h=3 is the first height where every shard has a new chunk.
+    h.check_data(&[(3, &all_shards), (h.epoch_length + 1, &all_shards)]);
     h.shutdown();
 }
 
@@ -322,7 +366,7 @@ fn test_cloud_archival_batching_cloud_head_at_batch_boundary() {
     // chain head is ~30, so cloud_head is at a batch boundary below it.
     let head = h.cloud_head();
     let batch_size = CloudArchiveHarness::TEST_BATCH_SIZE as u64;
-    assert!(head <= 27 && (head + 1) % batch_size == 0, "cloud_head: {head}");
+    assert!(head <= 27 && (head + 1).is_multiple_of(batch_size), "cloud_head: {head}");
     h.shutdown();
 }
 
@@ -339,8 +383,10 @@ fn test_cloud_archival_batching_blob_per_batch() {
     let batch_size = CloudArchiveHarness::TEST_BATCH_SIZE as u64;
     let cloud_head = h.cloud_head();
     // Each archived batch has a blob; one batch past cloud_head does not.
-    for id in (0..=cloud_head).step_by(batch_size as usize) {
-        assert!(h.block_batch_exists_at(id), "batch at {id} should exist");
+    // Probe at batch ends so the partial first batch (which starts above
+    // its grid position) doesn't fail the "height in batch" check.
+    for batch_end in (batch_size - 1..=cloud_head).step_by(batch_size as usize) {
+        assert!(h.block_batch_exists_at(batch_end), "batch ending at {batch_end} should exist");
     }
     assert!(!h.block_batch_exists_at(cloud_head + 1));
     h.shutdown();
@@ -407,6 +453,8 @@ fn test_cloud_archival_lagging_shard_catchup() {
         (lag_at_height + h.epoch_length, &all_shards),
     ]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that the writer stops when a shard's external head is set back
@@ -431,6 +479,8 @@ fn test_cloud_archival_lagging_shard_beyond_gc() {
         cloud_head_before,
         "cloud head should not advance when writer stops due to lagging shard beyond GC"
     );
+
+    h.shutdown();
 }
 
 /// Verifies that a second writer joining mid-test catches up and covers
@@ -480,6 +530,8 @@ fn test_cloud_archival_writer_joins_later() {
         (join_height + 1, &all_shard_ids),
     ]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that two writers tracking all shards both produce valid data.
@@ -497,8 +549,10 @@ fn test_cloud_archival_multi_writer_same_shards() {
         snapshot_every_n_epochs: 1,
     });
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
-    h.check_data(&[(2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
+    h.check_data(&[(3, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that two writers with disjoint shard assignments together cover
@@ -523,6 +577,8 @@ fn test_cloud_archival_multi_writer_disjoint_shards() {
     // Both writers start together: all shards are archived.
     h.check_data(&[(h.epoch_length / 2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
     h.assert_heads_and_gc_ok();
+
+    h.shutdown();
 }
 
 /// Verifies that a writer with `snapshot_every_n_epochs = 2` only snapshots even epochs
@@ -537,16 +593,207 @@ fn test_cloud_archival_custom_snapshot_cadence() {
     let shard_id = CloudArchiveHarness::all_shard_ids()[0];
     let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
     // Read epoch ids from cloud so the lookup survives local GC of the block.
-    let epoch_id_of =
-        |height| *cloud_storage.get_block_data(height).unwrap().block().header().epoch_id();
+    let epoch_id_of = |height| {
+        *cloud_storage.get_block_data(height).unwrap().unwrap().block().header().epoch_id()
+    };
 
     // Epoch 4 was snapshotted: first probe hits.
     let hit_at_45 = find_snapshot_at_or_before(&cloud_storage, 45, shard_id).unwrap();
-    assert_eq!(hit_at_45, Some((4, epoch_id_of(45))));
+    assert_eq!(hit_at_45, (4, epoch_id_of(45)));
 
     // Epoch 3 was skipped: probe misses, walks back to epoch 2.
     let hit_at_35 = find_snapshot_at_or_before(&cloud_storage, 35, shard_id).unwrap();
-    assert_eq!(hit_at_35, Some((2, epoch_id_of(25))));
+    assert_eq!(hit_at_35, (2, epoch_id_of(25)));
+
+    h.shutdown();
+}
+
+/// `find_snapshot_at_or_before` must skip a missing slot at `epoch_start - 1`
+/// when stepping to the previous epoch. The test drops the block at that
+/// height; the function still locates the earlier snapshot.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
+    // With `epoch_length = 10`, height 29 sits at `epoch_start_3 - 1`, the
+    // first height the walk-back from epoch 3 probes.
+    assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
+    let dropped_height: BlockHeight = 29;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .snapshot_every_n_epochs(2)
+        .drop_blocks_at(&[dropped_height])
+        .build();
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 3);
+    h.assert_snapshots_ok();
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let batch = cloud_storage.get_block_batch_for_height(dropped_height).unwrap();
+    assert!(
+        batch.get_block_at_height(dropped_height).is_none(),
+        "block at h={dropped_height} must be None in cloud"
+    );
+
+    let shard_id = CloudArchiveHarness::all_shard_ids()[0];
+    let epoch_id_of = |height| {
+        *cloud_storage.get_block_data(height).unwrap().unwrap().block().header().epoch_id()
+    };
+    // Probe at height 35 (epoch 3, no snapshot). The walk-back lands on
+    // `epoch_start_3 - 1 = 29` which is the dropped block; the function must
+    // walk further down to a present block in epoch 2 and find its snapshot.
+    let hit = find_snapshot_at_or_before(&cloud_storage, 35, shard_id).unwrap();
+    assert_eq!(hit, (2, epoch_id_of(25)));
+
+    h.shutdown();
+}
+
+/// A block at one height is lost; the batch entry there is `None` and
+/// `cloud_head` advances past it.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_single_skipped_slot() {
+    let dropped_height: BlockHeight = 13;
+    let mut h =
+        CloudArchiveHarness::builder().validators(4).drop_blocks_at(&[dropped_height]).build();
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let batch = cloud_storage.get_block_batch_for_height(dropped_height).unwrap();
+    assert!(batch.get_block_at_height(dropped_height).is_none());
+    assert!(h.cloud_head() > dropped_height);
+    h.assert_heads_and_gc_ok();
+
+    h.shutdown();
+}
+
+/// Every block in a batch window is lost; the batch is uploaded with `None`
+/// at every height and `cloud_head` advances past the gap.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_fully_skipped_batch() {
+    // Drops every height of one batch. `[12, 13, 14, 15]` assumes batch_size 4.
+    assert_eq!(CloudArchiveHarness::TEST_BATCH_SIZE, 4);
+    let dropped_heights: Vec<BlockHeight> = vec![12, 13, 14, 15];
+    // TODO(cloud_archival): drop validator count once `block_dropper_by_height`
+    // also intercepts `BlockRequest` responses.
+    let mut h =
+        CloudArchiveHarness::builder().validators(12).drop_blocks_at(&dropped_heights).build();
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let batch = cloud_storage.get_block_batch_for_height(12).unwrap();
+    for h_drop in &dropped_heights {
+        assert!(
+            batch.get_block_at_height(*h_drop).is_none(),
+            "batch entry at h={h_drop} must be None"
+        );
+    }
+    assert!(h.cloud_head() > 15, "cloud_head must advance past the gap");
+    h.assert_heads_and_gc_ok();
+
+    h.shutdown();
+}
+
+/// Bootstrap a reader over a range whose start and end heights are both
+/// skipped slots, with one shard's chunks also dropped mid-range. Exercises
+/// the start/end clipping in `bootstrap_range` and the carried-over-chunk
+/// path during state apply.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
+    assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
+    // Drop blocks at the bootstrap range's start and end heights. The end
+    // height is chosen near the end of an epoch so the target's epoch's
+    // sync block (computed near the start of that epoch) is comfortably
+    // inside the range, even when block/chunk drops delay finalization.
+    let start = 14;
+    let target = 29;
+    // Drop one shard's chunks at offset 5 of every epoch (heights 16, 26, ...),
+    // placing a carried-over chunk inside the range.
+    let dropped_shard = CloudArchiveHarness::all_shard_ids()[0];
+    let mut chunk_pattern = vec![true; 10];
+    chunk_pattern[5] = false;
+
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .drop_blocks_at(&[start, target])
+        .drop_chunks(dropped_shard, chunk_pattern)
+        .build();
+    let epochs = 4 + MIN_GC_NUM_EPOCHS_TO_KEEP;
+    h.run_until_epoch(epochs);
+    h.assert_heads_and_gc_ok();
+    h.assert_snapshots_ok();
+
+    // Confirm the drops actually landed in cloud storage before bootstrap.
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    for &dropped in &[start, target] {
+        let batch = cloud_storage.get_block_batch_for_height(dropped).unwrap();
+        assert!(
+            batch.get_block_at_height(dropped).is_none(),
+            "block at h={dropped} must be None in cloud"
+        );
+    }
+    // The chunk-drop pattern is applied per epoch; assert that offset 5 of
+    // the target's epoch is missing in cloud for the dropped shard.
+    let target_epoch_id =
+        *cloud_storage.get_block_data(25).unwrap().unwrap().block().header().epoch_id();
+    let target_epoch_start =
+        cloud_storage.get_epoch_data(target_epoch_id).unwrap().epoch_start_height();
+    let chunk_drop_height = target_epoch_start + 5;
+    assert!(
+        cloud_storage.get_shard_data(chunk_drop_height, dropped_shard).unwrap().is_none(),
+        "shard {dropped_shard} chunk at h={chunk_drop_height} must be None in cloud"
+    );
+
+    assert!(h.gc_tail() > target, "target height should be gc-ed");
+    h.bootstrap_reader(start, target);
+    // A correct balance proves bootstrap completed without panic, the trie
+    // was reconstructed up to the target's clipped height, and the
+    // carried-over chunk path was traversed during state apply.
+    h.assert_reader_account_balance(
+        &CloudArchiveHarness::USER_ACCOUNT.parse().unwrap(),
+        CloudArchiveHarness::USER_BALANCE,
+    );
+    h.kill_reader();
+
+    h.shutdown();
+}
+
+/// One shard's chunk producer is offline at some heights; the offline
+/// shard's batch entry must be `None` at those heights while other shards
+/// remain `Some`.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_missing_chunks_one_shard() {
+    // Drop chunks at offset 0 (epoch start), 5 (mid-epoch), and 9 (epoch end)
+    // of every epoch. The hard-coded offsets assume epoch length 10.
+    assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
+    let dropped_offsets = [0, 5, 9];
+    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
+    let dropped_shard = all_shard_ids[0];
+    let other_shard = all_shard_ids[1];
+    let mut pattern = vec![true; 10];
+    for offset in dropped_offsets {
+        pattern[offset as usize] = false;
+    }
+    let mut h =
+        CloudArchiveHarness::builder().validators(4).drop_chunks(dropped_shard, pattern).build();
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    for epoch in [1u64, 2] {
+        let probe = epoch * h.epoch_length + h.epoch_length / 2;
+        let epoch_id =
+            *cloud_storage.get_block_data(probe).unwrap().unwrap().block().header().epoch_id();
+        let epoch_start = cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_start_height();
+        for offset in dropped_offsets {
+            let height = epoch_start + offset;
+            let dropped = cloud_storage.get_shard_data(height, dropped_shard).unwrap();
+            let other = cloud_storage.get_shard_data(height, other_shard).unwrap();
+            assert!(dropped.is_none(), "dropped shard at h={height} must be None");
+            assert!(other.is_some(), "other shard at h={height} must be Some");
+        }
+    }
+    h.assert_heads_and_gc_ok();
 
     h.shutdown();
 }

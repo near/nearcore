@@ -435,7 +435,7 @@ fn read_fp2_point(item_data: &[u8]) -> Option<blst::blst_fp2> {
 }
 
 fn check_input_size(data: &[u8], item_size: usize, fn_name: &str) -> Result<()> {
-    if data.len() % item_size != 0 {
+    if !data.len().is_multiple_of(item_size) {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for {}: {} is not divisible by {}",

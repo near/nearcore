@@ -577,6 +577,7 @@ def update_config_cmd(ctx: CommandContext):
 def start_nodes_cmd(ctx: CommandContext):
     nodes = ctx.nodes
     binary_idx = getattr(ctx.args, 'binary_idx', None)
+    force_restart = getattr(ctx.args, 'force_restart', False)
     if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
@@ -584,7 +585,8 @@ def start_nodes_cmd(ctx: CommandContext):
         return
     pmap(
         lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
-        neard_runner_start(binary_idx=binary_idx), nodes)
+        neard_runner_start(binary_idx=binary_idx, force_restart=force_restart),
+        nodes)
     # Wait for the nodes to be up if not scheduling
     if not ctx.is_scheduled():
         pmap(lambda node: node.wait_node_up(), nodes)
@@ -593,6 +595,7 @@ def start_nodes_cmd(ctx: CommandContext):
 def start_traffic_cmd(ctx: CommandContext):
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
+    force_restart = getattr(ctx.args, 'force_restart', False)
 
     if traffic_generator is None:
         logger.warning('No traffic node selected. Change filters.')
@@ -605,7 +608,7 @@ def start_traffic_cmd(ctx: CommandContext):
         return
     pmap(
         lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
-        neard_runner_start(), nodes)
+        neard_runner_start(force_restart=force_restart), nodes)
     # Wait for the nodes to be up if not scheduling
     if not ctx.is_scheduled():
         logger.info("waiting for validators to be up")
@@ -615,7 +618,8 @@ def start_traffic_cmd(ctx: CommandContext):
         time.sleep(10)
     # TODO: maybe add 20 seconds delay to the schedule command to allow the other nodes to start
     traffic_generator.with_schedule_ctx(ctx.schedule_ctx).neard_runner_start(
-        batch_interval_millis=ctx.args.batch_interval_millis)
+        batch_interval_millis=ctx.args.batch_interval_millis,
+        force_restart=force_restart)
     if not ctx.is_scheduled():
         logger.info(
             f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
@@ -1042,6 +1046,12 @@ def register_subcommands(subparsers):
         So, transactions from consecutive mainnet blocks will be sent with delays
         between them such that they will probably appear in consecutive mocknet blocks.
         ''')
+    start_traffic_parser.add_argument(
+        '--force-restart',
+        action='store_true',
+        help=
+        'Force restart the nodes. Applies to both traffic generator and other nodes.'
+    )
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
 
     start_nodes_parser = subparsers.add_parser(
@@ -1054,6 +1064,11 @@ def register_subcommands(subparsers):
         If not provided, the current binary will be started.
         If the binary index is different from the current binary index, the nodes will be restarted with the binary at the given index.
         ''')
+    start_nodes_parser.add_argument(
+        '--force-restart',
+        action='store_true',
+        help='Force restart the nodes even if the binary index has not changed.'
+    )
     start_nodes_parser.set_defaults(func=start_nodes_cmd)
 
     stop_parser = subparsers.add_parser('stop-nodes',

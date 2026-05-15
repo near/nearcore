@@ -1,13 +1,20 @@
+mod sticky_resharding;
+
 use crate::{EpochInfo, EpochManagerAdapter, RngSeed};
 use near_primitives::errors::EpochError;
-use near_primitives::shard_layout::ShardInfo;
+use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::types::{
-    AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex, validator_stake::ValidatorStake,
+    AccountId, Balance, EpochId, NumShards, ProtocolVersion, ShardId, ShardIndex,
+    validator_stake::ValidatorStake,
 };
 use near_primitives::utils::min_heap::{MinHeap, PeekMut};
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::ShardUId;
 use rand::Rng;
 use std::collections::{BTreeSet, HashMap, HashSet};
+
+/// Local index of a chunk producer in the current epoch's chunk_producers list.
+type ValidatorIdx = usize;
 
 /// Marker struct to communicate the error where you try to assign validators to shards
 /// and there are not enough to even meet the minimum per shard.
@@ -35,21 +42,6 @@ struct ValidatorsFirstShardAssignmentItem {
 }
 
 type ValidatorsFirstShardAssignment = MinHeap<ValidatorsFirstShardAssignmentItem>;
-
-/// A helper struct to maintain the shard assignment sorted by the stake
-/// assigned to each shard.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct StakeFirstShardAssignmentItem {
-    stake: Balance,
-    validators: usize,
-    shard_index: ShardIndex,
-}
-
-impl From<ValidatorsFirstShardAssignmentItem> for StakeFirstShardAssignmentItem {
-    fn from(v: ValidatorsFirstShardAssignmentItem) -> Self {
-        Self { validators: v.validators, stake: v.stake, shard_index: v.shard_index }
-    }
-}
 
 fn assign_to_satisfy_shards_inner<T: HasStake + Eq, I: Iterator<Item = (usize, T)>>(
     shard_assignment: &mut ValidatorsFirstShardAssignment,
@@ -143,43 +135,133 @@ fn assign_to_satisfy_shards<T: HasStake + Eq + Clone>(
     result
 }
 
-/// Get initial chunk producer assignment for the current epoch, given the
-/// assignment for the previous epoch.
-fn get_initial_chunk_producer_assignment(
-    chunk_producers: &[ValidatorStake],
-    num_shards: NumShards,
-    prev_assignment: Vec<Vec<ValidatorStake>>,
-    use_stable_shard_assignment: bool,
-) -> Vec<Vec<usize>> {
-    if !use_stable_shard_assignment {
-        return vec![vec![]; num_shards as usize];
+/// How to seed the chunk-producer-to-shard assignment from the previous epoch's state.
+#[derive(Clone, Debug)]
+pub enum AssignmentStrategy {
+    /// Carry over the previous epoch's assignment by `ShardIndex`. Used when
+    /// the shard layout is unchanged across the boundary.
+    CarryOver,
+    /// Start fresh with no prior assignment. Used pre-`StickyReshardingValidatorAssignment`
+    /// on layout changes, where `ShardIndex`-based copying is meaningless.
+    Fresh,
+    /// Sticky-by-`ShardId` across a resharding. Unchanged shards keep their
+    /// validators by `ShardId`; split children inherit a stake-balanced subset
+    /// of their parent's validators via greedy bin-packing.
+    ///
+    /// `shard_idx_mapping[prev_idx]` is the list of new layout shard indices
+    /// that descend from the prev layout shard at `prev_idx`. Single-item
+    /// entry means the shard persists unchanged, multi-item entry means a
+    /// split.
+    StickyResharding { shard_idx_mapping: Vec<Vec<ShardIndex>> },
+}
+
+impl AssignmentStrategy {
+    /// Pick the strategy for an epoch boundary. If the layouts are identical,
+    /// use `CarryOver`. Otherwise, use `StickyResharding` (when the
+    /// `StickyReshardingValidatorAssignment` feature is enabled and the new
+    /// layout is derived from the prev layout) or `Fresh`.
+    ///
+    /// Falls back to `Fresh` when sticky construction fails: in production,
+    /// `next_next_shard_layout()` always returns an inherited or derived
+    /// layout that `sticky_resharding()` accepts, so the fallback should be
+    /// unreachable there. Test setups that swap in synthetic layouts
+    /// (e.g. `multi_shard`) hit this path and continue with a fresh
+    /// assignment instead of halting.
+    pub fn select(
+        protocol_version: ProtocolVersion,
+        prev_layout: &ShardLayout,
+        new_layout: &ShardLayout,
+    ) -> Self {
+        if prev_layout == new_layout {
+            return Self::CarryOver;
+        }
+        if !ProtocolFeature::StickyReshardingValidatorAssignment.enabled(protocol_version) {
+            return Self::Fresh;
+        }
+        Self::sticky_resharding(new_layout, prev_layout).unwrap_or_else(|err| {
+            tracing::warn!(
+                target: "epoch_manager",
+                ?err,
+                "sticky-resharding strategy unavailable for non-derived layouts; falling back to fresh"
+            );
+            Self::Fresh
+        })
     }
 
-    let mut assignment = vec![vec![]; num_shards as usize];
+    /// Whether this strategy should override the configured
+    /// `shard_assignment_changes_limit` to permit more rebalancing in a single
+    /// epoch. True only for `StickyResharding`, where freshly split children
+    /// would otherwise be chronically under-staffed; bumping the limit lets
+    /// them reach target population in one go.
+    pub(crate) fn needs_changes_limit_override(&self) -> bool {
+        match self {
+            Self::CarryOver | Self::Fresh => false,
+            Self::StickyResharding { .. } => true,
+        }
+    }
+}
 
-    let chunk_producer_indices = chunk_producers
-        .iter()
-        .enumerate()
-        .map(|(i, vs)| (vs.account_id().clone(), i))
-        .collect::<HashMap<_, _>>();
-
-    // Copy over assignments from previous epoch, but only up to the minimum of
-    // current and previous shard counts to handle shard count changes
-    let max_shards_to_copy = prev_assignment.len().min(num_shards as usize);
-
+/// Copy the previous assignment over by `ShardIndex`, up to the minimum of
+/// current and previous shard counts. Validators that are no longer chunk
+/// producers in the new epoch are dropped. Correct only when the shard layout
+/// is unchanged across the boundary (used by `AssignmentStrategy::CarryOver`).
+fn carry_over_by_shard_index(
+    chunk_producers: &[ValidatorStake],
+    num_shards: usize,
+    prev_assignment: &[Vec<ValidatorStake>],
+) -> Vec<Vec<ValidatorIdx>> {
+    let cp_indices = build_chunk_producer_indices(chunk_producers);
+    let mut assignment = vec![vec![]; num_shards];
+    let max_shards_to_copy = prev_assignment.len().min(num_shards);
     for (shard_index, validator_stakes) in
         prev_assignment.iter().take(max_shards_to_copy).enumerate()
     {
-        let mut chunk_producers = vec![];
+        let mut shard_validators = vec![];
         for validator_stake in validator_stakes {
-            let chunk_producer_index = chunk_producer_indices.get(validator_stake.account_id());
-            if let Some(&index) = chunk_producer_index {
-                chunk_producers.push(index);
+            if let Some(&index) = cp_indices.get(validator_stake.account_id()) {
+                shard_validators.push(index);
             }
         }
-        assignment[shard_index] = chunk_producers;
+        assignment[shard_index] = shard_validators;
     }
     assignment
+}
+
+/// Get initial chunk producer assignment for the current epoch, given the
+/// assignment for the previous epoch.
+///
+/// See `AssignmentStrategy` for the meaning of each variant.
+///
+/// PRECONDITION: Each validator appears on at most one prev shard's
+/// assignment. Both `StickyResharding` and `CarryOver` propagate the prev
+/// assignment per-prev-shard, so duplicates would carry into the new
+/// assignment and can trip `assign_to_balance_shards`'s hard-limit assert.
+fn get_initial_chunk_producer_assignment(
+    chunk_producers: &[ValidatorStake],
+    num_shards: usize,
+    strategy: &AssignmentStrategy,
+    prev_assignment: Vec<Vec<ValidatorStake>>,
+) -> Vec<Vec<ValidatorIdx>> {
+    match strategy {
+        AssignmentStrategy::Fresh => vec![vec![]; num_shards],
+        AssignmentStrategy::CarryOver => {
+            carry_over_by_shard_index(chunk_producers, num_shards, &prev_assignment)
+        }
+        AssignmentStrategy::StickyResharding { shard_idx_mapping } => {
+            sticky_resharding::sticky_by_shard_id(
+                chunk_producers,
+                num_shards,
+                shard_idx_mapping,
+                &prev_assignment,
+            )
+        }
+    }
+}
+
+fn build_chunk_producer_indices(
+    chunk_producers: &[ValidatorStake],
+) -> HashMap<AccountId, ValidatorIdx> {
+    chunk_producers.iter().enumerate().map(|(i, vs)| (vs.account_id().clone(), i)).collect()
 }
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone)]
@@ -192,28 +274,22 @@ struct ShardSetItem {
 /// Convert chunk producer assignment from the previous epoch to the assignment
 /// for the current epoch, given the chunk producer list.
 ///
-/// Caller must guarantee that `min_validators_per_shard` is achievable and
-/// `prev_chunk_producers_assignment` corresponds to the same number of shards.
-///
-/// TODO(resharding) - implement shard assignment
-/// The current shard assignment works fully based on the ShardIndex. During
-/// resharding those indices will change and the assignment will move many
-/// validators to different shards. This should be avoided.
+/// Caller must guarantee that `min_validators_per_shard` is achievable.
 fn assign_to_balance_shards(
     chunk_producers: Vec<ValidatorStake>,
     num_shards: NumShards,
     min_validators_per_shard: usize,
     shard_assignment_changes_limit: usize,
     rng_seed: RngSeed,
+    strategy: &AssignmentStrategy,
     prev_chunk_producers_assignment: Vec<Vec<ValidatorStake>>,
-    use_stable_shard_assignment: bool,
 ) -> Vec<Vec<ValidatorStake>> {
     let num_chunk_producers = chunk_producers.len();
     let mut chunk_producer_assignment = get_initial_chunk_producer_assignment(
         &chunk_producers,
-        num_shards,
+        num_shards as usize,
+        strategy,
         prev_chunk_producers_assignment,
-        use_stable_shard_assignment,
     );
 
     // Find and assign new validators first.
@@ -259,15 +335,15 @@ fn assign_to_balance_shards(
 
         assert!(
             new_assignments <= new_assignments_hard_limit,
-            "Couldn't balance {num_shards} shards in {new_assignments_hard_limit}\
-             iterations. It means that some chunk producer was selected for \
+            "couldn't balance {num_shards} shards in {new_assignments_hard_limit} \
+             iterations. it means that some chunk producer was selected for \
              new shard twice which shouldn't happen."
         );
         assert_ne!(
             minimal_shard,
             maximal_shard,
-            "Minimal shard and maximal shard are the same: {minimal_shard}. \
-            Either {} chunk producers are not enough to satisfy minimal number \
+            "minimal shard and maximal shard are the same: {minimal_shard}. \
+            either {} chunk producers are not enough to satisfy minimal number \
             {min_validators_per_shard} for {num_shards} shards, or we try to \
             balance the shard with itself.",
             chunk_producers.len(),
@@ -309,9 +385,16 @@ fn assign_to_balance_shards(
 /// `shard_assignment_changes_limit` allows.
 /// See discussion on #11213 for more details.
 ///
+/// `strategy` selects the seeding behavior (see `AssignmentStrategy` for details).
+///
+/// NOTE: when `chunk_producers.len() < min_validators_per_shard * num_shards`,
+/// `assign_to_satisfy_shards` is taken instead of `assign_to_balance_shards`,
+/// and `strategy`/`prev_chunk_producers_assignment` are ignored —
+/// `StickyResharding`'s stickiness-by-id property does not hold in that
+/// regime.
+///
 /// Caller must guarantee that `chunk_producers` is sorted in non-increasing
-/// order by stake and `prev_chunk_producers_assignment` corresponds to the
-/// same number of shards.
+/// order by stake.
 ///
 /// Returns error if `chunk_producers.len() < min_validators_per_shard`.
 pub(crate) fn assign_chunk_producers_to_shards(
@@ -320,15 +403,28 @@ pub(crate) fn assign_chunk_producers_to_shards(
     min_validators_per_shard: usize,
     shard_assignment_changes_limit: usize,
     rng_seed: RngSeed,
+    strategy: &AssignmentStrategy,
     prev_chunk_producers_assignment: Vec<Vec<ValidatorStake>>,
-    use_stable_shard_assignment: bool,
 ) -> Result<Vec<Vec<ValidatorStake>>, NotEnoughValidators> {
+    debug_assert!(num_shards > 0, "expected at least one shard");
+
     // If there's not enough chunk producers to fill up a single shard there’s
     // nothing we can do. Return with an error.
     let num_chunk_producers = chunk_producers.len();
     if num_chunk_producers < min_validators_per_shard {
         return Err(NotEnoughValidators);
     }
+
+    // On a resharding epoch the freshly split children come in at roughly half
+    // their target population. Raise the change limit so the rebalancing loop
+    // can top them up in one shot, rather than spreading the cost across many
+    // epochs and leaving children chronically understaffed.
+    let effective_changes_limit = if strategy.needs_changes_limit_override() {
+        let target_per_shard = num_chunk_producers / (num_shards as usize);
+        shard_assignment_changes_limit.max(target_per_shard)
+    } else {
+        shard_assignment_changes_limit
+    };
 
     let result = if chunk_producers.len() < min_validators_per_shard * (num_shards as usize) {
         // We don't have enough chunk producers to allow assignment without
@@ -342,10 +438,10 @@ pub(crate) fn assign_chunk_producers_to_shards(
             chunk_producers,
             num_shards,
             min_validators_per_shard,
-            shard_assignment_changes_limit,
+            effective_changes_limit,
             rng_seed,
+            strategy,
             prev_chunk_producers_assignment,
-            use_stable_shard_assignment,
         )
     };
     Ok(result)
@@ -397,16 +493,49 @@ pub fn shard_id_to_index(
 #[cfg(test)]
 mod tests {
     use crate::RngSeed;
-    use crate::shard_assignment::assign_chunk_producers_to_shards;
+    use crate::shard_assignment::assign_chunk_producers_to_shards as assign_inner;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountId, Balance, ShardIndex};
+    use near_primitives::types::{AccountId, Balance, NumShards, ShardIndex};
     use std::collections::{HashMap, HashSet};
 
-    fn validator_stake_for_test(n: usize) -> ValidatorStake {
-        ValidatorStake::test(format!("test{:02}", n).parse().unwrap())
+    /// Test wrapper preserving the legacy boolean-based signature used by the
+    /// historical tests by mapping `use_stable_shard_assignment` to
+    /// `AssignmentStrategy::{CarryOver, Fresh}`. New tests for the
+    /// sticky-by-`ShardId` behavior call `assign_inner` directly.
+    fn assign_chunk_producers_to_shards(
+        chunk_producers: Vec<ValidatorStake>,
+        num_shards: NumShards,
+        min_validators_per_shard: usize,
+        shard_assignment_changes_limit: usize,
+        rng_seed: RngSeed,
+        prev_chunk_producers_assignment: Vec<Vec<ValidatorStake>>,
+        use_stable_shard_assignment: bool,
+    ) -> Result<Vec<Vec<ValidatorStake>>, super::NotEnoughValidators> {
+        let strategy = if use_stable_shard_assignment {
+            super::AssignmentStrategy::CarryOver
+        } else {
+            super::AssignmentStrategy::Fresh
+        };
+        assign_inner(
+            chunk_producers,
+            num_shards,
+            min_validators_per_shard,
+            shard_assignment_changes_limit,
+            rng_seed,
+            &strategy,
+            prev_chunk_producers_assignment,
+        )
     }
 
-    fn assignment_for_test(assignment: Vec<Vec<usize>>) -> Vec<Vec<ValidatorStake>> {
+    pub(super) fn account(n: usize) -> AccountId {
+        format!("test{:02}", n).parse().unwrap()
+    }
+
+    pub(super) fn validator_stake_for_test(n: usize) -> ValidatorStake {
+        ValidatorStake::test(account(n))
+    }
+
+    pub(super) fn assignment_for_test(assignment: Vec<Vec<usize>>) -> Vec<Vec<ValidatorStake>> {
         assignment
             .into_iter()
             .map(|ids| ids.into_iter().map(validator_stake_for_test).collect::<Vec<_>>())
@@ -652,11 +781,8 @@ mod tests {
             is_balanced,
             "Shard assignment didn't converge in 5 iterations, last assignment = {assignment:?}"
         );
-        let original_chunk_producer_ids = (0..num_chunk_producers)
-            .into_iter()
-            .map(validator_stake_for_test)
-            .map(|vs| vs.account_id().clone())
-            .collect::<HashSet<_>>();
+        let original_chunk_producer_ids =
+            (0..num_chunk_producers).map(account).collect::<HashSet<_>>();
         let chunk_producer_ids = assignment
             .into_iter()
             .flat_map(|shard| shard.into_iter().map(|cp| cp.account_id().clone()))
@@ -695,9 +821,7 @@ mod tests {
             .iter()
             .flat_map(|shard| shard.iter().map(|cp| cp.account_id().clone()))
             .collect();
-        let expected_producers: HashSet<_> = (0..num_chunk_producers)
-            .map(|i| validator_stake_for_test(i).account_id().clone())
-            .collect();
+        let expected_producers: HashSet<_> = (0..num_chunk_producers).map(account).collect();
         assert_eq!(assigned_producers, expected_producers);
 
         // Each shard should have at least the minimum required validators

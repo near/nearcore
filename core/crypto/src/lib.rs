@@ -1,4 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
 #![deny(clippy::arithmetic_side_effects)]
 
 pub use errors::{ParseKeyError, ParseKeyTypeError, ParseSignatureError};

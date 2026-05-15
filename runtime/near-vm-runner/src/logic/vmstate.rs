@@ -71,7 +71,7 @@ impl<'a> Memory<'a> {
     }
 
     /// Like [`Self::view`] but does not pay gas fees.
-    pub(super) fn view_for_free(&self, slice: MemSlice) -> Result<Cow<[u8]>> {
+    pub(super) fn view_for_free(&self, slice: MemSlice) -> Result<Cow<'_, [u8]>> {
         self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 

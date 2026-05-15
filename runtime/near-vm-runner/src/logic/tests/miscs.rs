@@ -146,7 +146,7 @@ where
 {
     serde::Deserialize::deserialize(deserializer)
         .map(|v: Option<&str>| v.map(FromHex::from_hex).transpose().map_err(Error::custom))
-        .and_then(|v| v)
+        .flatten()
 }
 
 #[test]

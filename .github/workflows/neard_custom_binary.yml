@@ -18,6 +18,11 @@ on:
           - assertions-release
           - test-features-release
         required: true
+      with-debug-info:
+        default: false
+        description: "Build and upload split DWARF debug symbols (.debug sibling file)"
+        type: boolean
+        required: false
 
 jobs:
   binary-release:
@@ -43,4 +48,6 @@ jobs:
           persist-credentials: false
 
       - name: Neard binary build and upload to S3
+        env:
+          WITH_DEBUG_INFO: ${{ inputs.with-debug-info && '1' || '' }}
         run: ./scripts/binary_release.sh ${{ github.event.inputs.release-type }}

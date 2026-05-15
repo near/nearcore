@@ -5,7 +5,7 @@ pub fn protocol_schema(input: TokenStream) -> TokenStream {
     helper::protocol_schema_impl(input)
 }
 
-#[cfg(all(enable_const_type_id, feature = "protocol_schema"))]
+#[cfg(feature = "protocol_schema")]
 mod helper {
     use proc_macro::TokenStream;
     use proc_macro2::TokenStream as TokenStream2;
@@ -285,7 +285,7 @@ mod helper {
     }
 }
 
-#[cfg(not(all(enable_const_type_id, feature = "protocol_schema")))]
+#[cfg(not(feature = "protocol_schema"))]
 mod helper {
     use proc_macro::TokenStream;
 
