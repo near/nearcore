@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Adversarial load: deploy a fresh, byte-unique WASM on every tx so chunk
+Stress load: deploy a fresh, byte-unique WASM on every tx so chunk
 producers are forced to recompile each contract (no compilation-cache hit).
 
 `--contract SPEC` (default: synth1) selects the WASM source. SPEC is
@@ -34,7 +34,7 @@ Runs indefinitely.
 
 Examples:
   # single signer, default synth1
-  python3 pytest/tests/mocknet/slow_compile_adversarial.py \
+  python3 pytest/tests/mocknet/wasm_stress_test.py \
       --rpc-url http://rpc-0.forknet.example:3030 \
       --account-id astro-stakers.poolv1.near \
       --public-key ed25519:93zQfXQsfWEkDG2n5qKfbTQUxLZdMrvGpBtwpezWpWTJ \
@@ -49,7 +49,7 @@ Examples:
 
   # multiple signers; --tps is per-signer (one deploy per signer per tick).
   # b.near and c.near fall back to the shared --public-key/--private-key.
-  python3 pytest/tests/mocknet/slow_compile_adversarial.py \
+  python3 pytest/tests/mocknet/wasm_stress_test.py \
       --rpc-url http://rpc-0.forknet.example:3030 \
       --signer 'a.near,ed25519:<pk>,ed25519:<sk>' \
       --signer b.near \

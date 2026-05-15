@@ -172,7 +172,7 @@ class TestWasmCandidate(TestSetup):
             # redirected to the current source.
             f"git -C {checkout_dir} remote set-url origin {repo} "
             f"&& git -C {checkout_dir} fetch origin {branch} "
-            f"&& git -C {checkout_dir} checkout -B slow-compile-adversarial origin/{branch} "
+            f"&& git -C {checkout_dir} checkout -B wasm-stress-test origin/{branch} "
             f"&& git -C {checkout_dir} reset --hard origin/{branch}")
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = "traffic"
@@ -204,7 +204,7 @@ class TestWasmCandidate(TestSetup):
         run_cmd_args.host_type = "traffic"
         run_cmd_args.cmd = (
             "cd /home/ubuntu/nearcore "
-            "&& /home/ubuntu/.near/target/neard-runner/venv/bin/python pytest/tests/mocknet/slow_compile_adversarial.py "
+            "&& /home/ubuntu/.near/target/neard-runner/venv/bin/python pytest/tests/mocknet/wasm_stress_test.py "
             "--rpc-url http://localhost:3030 "
             "--concurrency 5 " + " ".join(extra_flags))
         run_cmd_args.on = ScheduleMode(mode="calendar",
