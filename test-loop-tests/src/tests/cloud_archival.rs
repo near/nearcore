@@ -825,8 +825,6 @@ fn test_cloud_archival_missing_chunks_one_shard() {
 /// receipt-to-tx info for its `(block_hash, shard_id)` matching the chain
 /// store entry-by-entry. Walks every still-on-chain height up to `cloud_head`.
 #[test]
-// TODO(cloud_archival): un-ignore once `ShardData` carries outcomes and receipt-to-tx info.
-#[ignore]
 fn test_cloud_archival_outcomes_and_receipts() {
     let mut h = CloudArchiveHarness::builder().build();
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
