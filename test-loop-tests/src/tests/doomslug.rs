@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
+use near_chain_configs::UpdatableClientConfig;
 use near_client::client_actor::AdvProduceBlockHeightSelection;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalType};
@@ -117,4 +118,43 @@ fn test_skip_approval_prefers_producer_matching_parent() {
 
         need_success -= 1;
     }
+}
+
+/// A SIGHUP config reload calls `update_client_config` to push new values
+/// into a running node. Check that a changed consensus field reaches the live
+/// `ClientConfig` and that the node keeps producing blocks.
+#[test]
+fn test_update_client_config_applies_consensus_values() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(2, 0).epoch_length(10).build();
+    env.validator_runner().run_until_head_height(5);
+
+    let client = env.validator().client();
+    let old_doomslug_step_period = client.config.doomslug_step_period.get();
+    let new_doomslug_step_period = old_doomslug_step_period + Duration::milliseconds(7);
+
+    let updatable_config = |doomslug_step_period| UpdatableClientConfig {
+        expected_shutdown: client.config.expected_shutdown.get(),
+        resharding_config: client.config.resharding_config.get(),
+        produce_chunk_add_transactions_time_limit: client
+            .config
+            .produce_chunk_add_transactions_time_limit
+            .get(),
+        block_production_tracking_delay: client.config.block_production_tracking_delay.get(),
+        min_block_production_delay: client.config.min_block_production_delay.get(),
+        max_block_production_delay: client.config.max_block_production_delay.get(),
+        max_block_wait_delay: client.config.max_block_wait_delay.get(),
+        chunk_wait_mult: client.config.chunk_wait_mult.get(),
+        doomslug_step_period,
+    };
+
+    assert!(client.apply_updatable_client_config(updatable_config(new_doomslug_step_period)));
+    assert_eq!(client.config.doomslug_step_period.get(), new_doomslug_step_period);
+
+    // Re-applying identical values reports no change.
+    assert!(!client.apply_updatable_client_config(updatable_config(new_doomslug_step_period)));
+
+    let target_height = env.validator().head().height + 5;
+    env.validator_runner().run_until_head_height(target_height);
 }
