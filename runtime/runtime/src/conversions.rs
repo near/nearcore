@@ -43,6 +43,7 @@ mod prepare_error {
                 From::TooManyTypes => Self::TooManyTypes,
                 From::TooManyParamsPerFunction => Self::TooManyParamsPerFunction,
                 From::TooManyParamsPerContract => Self::TooManyParamsPerContract,
+                From::OperandStackTooLarge => Self::OperandStackTooLarge,
             }
         }
     }

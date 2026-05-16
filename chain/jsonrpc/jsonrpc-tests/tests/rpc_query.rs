@@ -361,8 +361,6 @@ async fn test_query_state() {
 
 /// Connect to json rpc and call function
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -396,8 +394,6 @@ async fn test_query_call_function() {
 
 /// query contract code
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_contract_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -748,15 +744,11 @@ async fn test_get_chunk_with_object_in_params() {
 }
 
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_hash() {
     test_query_global_contract_code(GlobalContractDeployMode::CodeHash).await;
 }
 
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_account_id() {
     test_query_global_contract_code(GlobalContractDeployMode::AccountId).await;
 }
@@ -956,8 +948,6 @@ async fn test_experimental_view_account_missing_account() {
 }
 
 /// Test EXPERIMENTAL_view_code method
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_view_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -1184,8 +1174,6 @@ async fn test_experimental_view_access_key_list_unknown_block() {
 }
 
 /// Test EXPERIMENTAL_call_function method
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -1212,8 +1200,6 @@ async fn test_experimental_call_function() {
 }
 
 /// Test EXPERIMENTAL_call_function error on missing method (MethodNotFound)
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function_nonexisting_method() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);

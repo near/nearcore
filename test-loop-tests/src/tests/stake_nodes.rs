@@ -1,4 +1,3 @@
-use super::spice_utils::delay_endorsements_propagation;
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_validator_ids, create_validators_spec, validators_spec_clients,
@@ -68,9 +67,7 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         .clients(accounts.clone())
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Submit stake transaction from accounts[1]
@@ -143,9 +140,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .track_all_shards()
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Submit reduced stake transactions for nodes 0 and 1
@@ -252,9 +247,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         .track_all_shards()
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Node1 unstakes, Node2 stakes
@@ -340,9 +333,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
         .track_all_shards()
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Verify initial validator set.
@@ -450,7 +441,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         })
         .delay_warmup()
         .build();
-    delay_endorsements_propagation(&mut env, endorsement_delay);
+    env.delay_endorsements_propagation(endorsement_delay);
     let mut env = env.warmup();
 
     let genesis_height = env.node(unstaker_idx).client().chain.genesis().height();

@@ -197,6 +197,9 @@ pub enum PrepareError {
     TooManyParamsPerContract = 16,
     /// A function has more than `max_params_per_function` parameters.
     TooManyParamsPerFunction = 17,
+    /// A function's max operand-stack size (in bytes) exceeds
+    /// `max_operand_stack_bytes_per_function`.
+    OperandStackTooLarge = 18,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -434,6 +437,7 @@ impl fmt::Display for PrepareError {
             TooManyTypes => "Too many type-section entries declared in the contract.",
             TooManyParamsPerContract => "Too many function parameters in the contract",
             TooManyParamsPerFunction => "Too many parameters in a single function",
+            OperandStackTooLarge => "A function uses too much operand stack.",
         })
     }
 }
