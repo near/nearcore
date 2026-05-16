@@ -38,3 +38,4 @@ max_params_per_contract: { new: 50_000 }
 max_params_per_function: { new: 64 }
 deploy_global_contract_execution_base: { old: 0, new: 20_000_000_000_000 }
 deploy_global_contract_execution_per_byte: { old: 0, new: 250_000_000 }
+max_operand_stack_bytes_per_function: { new: 8_192 }
