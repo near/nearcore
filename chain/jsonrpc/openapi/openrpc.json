@@ -10050,9 +10050,29 @@
               "block_id": {
                 "$ref": "#/components/schemas/BlockId"
               },
+              "from_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10074,9 +10094,29 @@
               "finality": {
                 "$ref": "#/components/schemas/Finality"
               },
+              "from_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10095,9 +10135,29 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "from_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10128,6 +10188,16 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "next_key": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "proof": {
             "items": {
@@ -13508,11 +13578,39 @@
           }
         },
         {
+          "name": "from_key_base64",
+          "required": false,
+          "schema": {
+            "default": null,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "include_proof",
           "required": false,
           "schema": {
             "default": false,
             "type": "boolean"
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         {
