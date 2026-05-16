@@ -202,8 +202,9 @@ fn assert_view_state(
         .map(|(key, value)| StateItem { key: key.to_vec().into(), value: value.to_vec().into() })
         .collect::<Vec<_>>();
 
-    let view_state =
-        |include_proof| trie_viewer.view_state(&state_update, &alice, prefix, include_proof);
+    let view_state = |include_proof| {
+        trie_viewer.view_state(&state_update, &alice, prefix, None, None, include_proof)
+    };
 
     // Test without proof
     let result = view_state(false).unwrap();
@@ -368,7 +369,7 @@ fn test_view_state_too_large() {
         &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::None, 50_001),
     );
     let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
-    let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
+    let result = trie_viewer.view_state(&state_update, &alice_account(), b"", None, None, false);
     assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
 }
 
@@ -389,7 +390,7 @@ fn test_view_state_with_large_contract() {
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
     let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
-    let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
+    let result = trie_viewer.view_state(&state_update, &alice_account(), b"", None, None, false);
     assert!(result.is_ok());
 }
 

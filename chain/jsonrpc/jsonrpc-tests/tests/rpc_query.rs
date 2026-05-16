@@ -341,6 +341,8 @@ async fn test_query_state() {
             request: QueryRequest::ViewState {
                 account_id: "test1".parse().unwrap(),
                 prefix: vec![].into(),
+                from_key: None,
+                limit: None,
                 include_proof: false,
             },
         })
@@ -1011,6 +1013,8 @@ async fn test_experimental_view_state() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
+            from_key: None,
+            limit: None,
             include_proof: false,
         })
         .await
@@ -1032,6 +1036,8 @@ async fn test_experimental_view_state_with_proof() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
+            from_key: None,
+            limit: None,
             include_proof: true,
         })
         .await

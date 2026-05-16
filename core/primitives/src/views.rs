@@ -60,6 +60,7 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -276,6 +277,8 @@ pub struct ViewStateResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_key: Option<StoreKey>,
 }
 
 /// A result returned by contract method
@@ -374,6 +377,10 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
+        #[serde(default, rename = "from_key_base64", skip_serializing_if = "Option::is_none")]
+        from_key: Option<StoreKey>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
         #[serde(default, skip_serializing_if = "is_false")]
         include_proof: bool,
     },

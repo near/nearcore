@@ -70,6 +70,8 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         "contract" => QueryRequest::ViewState {
             account_id,
             prefix: parse_data()?.into(),
+            from_key: None,
+            limit: None,
             include_proof: false,
         },
         "call" => match maybe_extra_arg {
