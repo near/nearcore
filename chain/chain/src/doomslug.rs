@@ -956,6 +956,38 @@ mod tests {
     }
 
     #[test]
+    fn test_get_delay_reacts_to_config_updates() {
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
+        let min_delay = MutableConfigValue::new(Duration::milliseconds(1000), "min_delay");
+        let max_delay = MutableConfigValue::new(Duration::milliseconds(3000), "max_delay");
+        let ds = Doomslug::new(
+            clock.clock(),
+            0,
+            MutableConfigValue::new(Duration::milliseconds(400), "endorsement_delay"),
+            min_delay.clone(),
+            max_delay.clone(),
+            MutableConfigValue::new(Rational32::new(1, 3), "chunk_wait_mult"),
+            DoomslugThresholdMode::TwoThirds,
+        );
+
+        // delay_step = min_delay / 10 = 100ms.
+        // n = 5: 1000 + 100 * (5 - 2) = 1300ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(1300));
+        // Large n saturates at max_delay.
+        assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(3000));
+
+        // Update both values while the `Doomslug` is alive.
+        assert!(min_delay.update(Duration::milliseconds(2000)));
+        assert!(max_delay.update(Duration::milliseconds(5000)));
+
+        // delay_step is now 2000 / 10 = 200ms.
+        // n = 5: 2000 + 200 * (5 - 2) = 2600ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(2600));
+        // The cap now follows the updated max_delay.
+        assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(5000));
+    }
+
+    #[test]
     fn test_doomslug_approvals() {
         let accounts: Vec<(&str, Balance, Balance)> = vec![
             ("test1", Balance::from_yoctonear(2), Balance::ZERO),
