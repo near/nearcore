@@ -209,6 +209,23 @@ impl Client {
             .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated |= self
+            .config
+            .block_production_tracking_delay
+            .update(update_client_config.block_production_tracking_delay);
+        is_updated |= self
+            .config
+            .min_block_production_delay
+            .update(update_client_config.min_block_production_delay);
+        is_updated |= self
+            .config
+            .max_block_production_delay
+            .update(update_client_config.max_block_production_delay);
+        is_updated |=
+            self.config.max_block_wait_delay.update(update_client_config.max_block_wait_delay);
+        is_updated |= self.config.chunk_wait_mult.update(update_client_config.chunk_wait_mult);
+        is_updated |=
+            self.config.doomslug_step_period.update(update_client_config.doomslug_step_period);
         is_updated
     }
 

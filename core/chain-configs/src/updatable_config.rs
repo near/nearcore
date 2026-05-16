@@ -3,6 +3,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
 use near_time::Clock;
+use num_rational::Rational32;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
@@ -106,19 +107,34 @@ impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
     fn set_metric_value(&self, _value: T, _metric_value: i64) {}
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
-/// A subset of Config that can be updated white the node is running.
+#[derive(Clone, Serialize, Deserialize)]
+/// A subset of Config that can be updated while the node is running.
 pub struct UpdatableClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: Option<BlockHeight>,
-
     // Configuration for resharding.
     pub resharding_config: ReshardingConfig,
-
     /// Time limit for adding transactions in produce_chunk()
     #[serde(default)]
     #[serde(with = "near_time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    /// Duration to check for producing / skipping block.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub block_production_tracking_delay: Duration,
+    /// Minimum duration before producing block.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub min_block_production_delay: Duration,
+    /// Maximum duration before skipping given height.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub max_block_production_delay: Duration,
+    /// Maximum wait for approvals before producing block.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub max_block_wait_delay: Duration,
+    /// Multiplier for the wait time for all chunks to be received.
+    pub chunk_wait_mult: Rational32,
+    /// Time between running doomslug timer.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub doomslug_step_period: Duration,
 }
 
 pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;
