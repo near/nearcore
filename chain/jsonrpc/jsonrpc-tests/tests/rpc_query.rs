@@ -25,6 +25,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use reqwest::StatusCode;
 use serde_json::Value;
+use std::num::NonZeroU32;
 use std::ops::ControlFlow;
 
 /// Retrieve blocks via json rpc
@@ -1045,6 +1046,49 @@ async fn test_experimental_view_state_with_proof() {
 
     assert!(response.block_height < 100);
     assert_ne!(response.block_hash, CryptoHash::default());
+}
+
+/// Test EXPERIMENTAL_view_state with pagination
+#[tokio::test]
+async fn test_experimental_view_state_paginated() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let response = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            from_key: None,
+            limit: Some(NonZeroU32::new(5).unwrap()),
+            include_proof: false,
+        })
+        .await
+        .unwrap();
+
+    // test1 has no contract data, so a single empty page with no cursor.
+    assert_eq!(response.state.values.len(), 0);
+    assert_eq!(response.state.next_key, None);
+}
+
+/// Test EXPERIMENTAL_view_state rejects include_proof combined with pagination
+#[tokio::test]
+async fn test_experimental_view_state_proof_with_pagination_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            from_key: None,
+            limit: Some(NonZeroU32::new(5).unwrap()),
+            include_proof: true,
+        })
+        .await;
+
+    result.expect_err("include_proof + pagination must be rejected");
 }
 
 /// Test EXPERIMENTAL_view_access_key method

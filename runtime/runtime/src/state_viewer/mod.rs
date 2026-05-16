@@ -1,6 +1,3 @@
-use std::num::NonZeroU32;
-use std::ops::Bound;
-
 use crate::ApplyState;
 use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
 use crate::ext::RuntimeExt;
@@ -32,6 +29,8 @@ use near_store::trie::AccessOptions;
 use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use std::num::NonZeroU32;
+use std::ops::Bound;
 use std::{str, sync::Arc, time::Instant};
 
 pub mod errors;
