@@ -23,6 +23,7 @@ use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::flat::FlatStorageManager;
 use near_store::{
@@ -77,10 +78,10 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
-    /// Sets the number of block-and-chunk-producer validators.
+    /// Sets the number of block-and-chunk-producer validators. Tests that
+    /// call `drop_blocks_at` or `drop_chunks` get this set to >= 4
+    /// automatically; see `build()`.
     fn validators(mut self, count: usize) -> Self {
-        // `drop_blocks_at` / `drop_chunks` need count >= 4 to be observable on
-        // the chain; see `block_dropper_by_height` in `test-loop-tests/src/utils/network.rs`.
         assert!(count > 0);
         self.num_validators = Some(count);
         self
@@ -125,8 +126,22 @@ impl CloudArchiveHarnessBuilder {
                     snapshot_every_n_epochs,
                 );
             });
+        // `drop_blocks_at` / `drop_chunks` need >= 4 validators to be
+        // observable on the chain; see `block_dropper_by_height` in
+        // `test-loop-tests/src/utils/network.rs`. Tests that opt into drops
+        // get this minimum automatically; an explicit lower count panics.
+        const MIN_VALIDATORS_FOR_DROPS: usize = 4;
         if let Some(count) = self.num_validators {
+            if has_drops {
+                assert!(
+                    count >= MIN_VALIDATORS_FOR_DROPS,
+                    "drop_blocks_at / drop_chunks need >= {MIN_VALIDATORS_FOR_DROPS} validators, \
+                     got {count}",
+                );
+            }
             builder = builder.validators(count, 0);
+        } else if has_drops {
+            builder = builder.validators(MIN_VALIDATORS_FOR_DROPS, 0);
         }
         // Drop conditions must be registered after build but before warmup;
         // delay_warmup splits build/warmup so we can call drop() in between.
@@ -309,6 +324,15 @@ impl CloudArchiveHarness {
     fn shutdown(mut self) {
         self.env.test_loop.run_for(Duration::seconds(5));
     }
+}
+
+/// Reads the block at `probe_height` from cloud and returns the start height
+/// of its epoch. Used to anchor per-epoch offsets to absolute heights when
+/// the chain's genesis epoch is shorter than `epoch_length`.
+fn epoch_start_at_height(cloud_storage: &CloudStorage, probe_height: BlockHeight) -> BlockHeight {
+    let epoch_id =
+        *cloud_storage.get_block_data(probe_height).unwrap().unwrap().block().header().epoch_id();
+    cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_start_height()
 }
 
 /// Verifies that `cloud_head` progresses without crashes.
@@ -642,7 +666,6 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
     assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
     let dropped_height: BlockHeight = 29;
     let mut h = CloudArchiveHarness::builder()
-        .validators(4)
         .snapshot_every_n_epochs(2)
         .drop_blocks_at(&[dropped_height])
         .build();
@@ -675,8 +698,7 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_single_skipped_slot() {
     let dropped_height: BlockHeight = 13;
-    let mut h =
-        CloudArchiveHarness::builder().validators(4).drop_blocks_at(&[dropped_height]).build();
+    let mut h = CloudArchiveHarness::builder().drop_blocks_at(&[dropped_height]).build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
 
     let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
@@ -737,7 +759,6 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     chunk_pattern[5] = false;
 
     let mut h = CloudArchiveHarness::builder()
-        .validators(4)
         .drop_blocks_at(&[start, target])
         .drop_chunks(dropped_shard, chunk_pattern)
         .build();
@@ -757,11 +778,7 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     }
     // The chunk-drop pattern is applied per epoch; assert that offset 5 of
     // the target's epoch is missing in cloud for the dropped shard.
-    let target_epoch_id =
-        *cloud_storage.get_block_data(25).unwrap().unwrap().block().header().epoch_id();
-    let target_epoch_start =
-        cloud_storage.get_epoch_data(target_epoch_id).unwrap().epoch_start_height();
-    let chunk_drop_height = target_epoch_start + 5;
+    let chunk_drop_height = epoch_start_at_height(&cloud_storage, 25) + 5;
     assert!(
         cloud_storage.get_shard_data(chunk_drop_height, dropped_shard).unwrap().is_none(),
         "shard {dropped_shard} chunk at h={chunk_drop_height} must be None in cloud"
@@ -798,16 +815,13 @@ fn test_cloud_archival_missing_chunks_one_shard() {
     for offset in dropped_offsets {
         pattern[offset as usize] = false;
     }
-    let mut h =
-        CloudArchiveHarness::builder().validators(4).drop_chunks(dropped_shard, pattern).build();
+    let mut h = CloudArchiveHarness::builder().drop_chunks(dropped_shard, pattern).build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
 
     let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
     for epoch in [1u64, 2] {
         let probe = epoch * h.epoch_length + h.epoch_length / 2;
-        let epoch_id =
-            *cloud_storage.get_block_data(probe).unwrap().unwrap().block().header().epoch_id();
-        let epoch_start = cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_start_height();
+        let epoch_start = epoch_start_at_height(&cloud_storage, probe);
         for offset in dropped_offsets {
             let height = epoch_start + offset;
             let dropped = cloud_storage.get_shard_data(height, dropped_shard).unwrap();
@@ -943,9 +957,7 @@ fn test_cloud_archival_outcomes_and_receipts() {
 /// the per-block cold columns the reader reconstructs from cloud data:
 /// `BlockPerHeight`, `ChunkHashesByHeight`, and `NextBlockHashes`.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-block cold columns.
-#[ignore]
-fn test_cloud_archival_reader_reconstructs_per_block_columns() {
+fn test_cloud_archival_reader_per_block_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
     let start = h.epoch_length / 2;
@@ -978,14 +990,57 @@ fn test_cloud_archival_reader_reconstructs_per_block_columns() {
     h.shutdown();
 }
 
+/// At a height where every shard's chunk is missing but the block itself is
+/// present, the reader writes no `ChunkHashesByHeight` entry, matching what
+/// the chain store does at apply time.
+#[test]
+fn test_cloud_archival_block_present_all_chunks_missing() {
+    let epoch_length = CloudArchiveHarness::DEFAULT_EPOCH_LENGTH;
+    let dropped_offset = epoch_length / 2;
+    let mut pattern = vec![true; epoch_length as usize];
+    pattern[dropped_offset as usize] = false;
+    let mut builder = CloudArchiveHarness::builder();
+    for shard_id in CloudArchiveHarness::all_shard_ids() {
+        builder = builder.drop_chunks(shard_id, pattern.clone());
+    }
+    let mut h = builder.build();
+    h.run_until_epoch(2 + MIN_GC_NUM_EPOCHS_TO_KEEP);
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let dropped_height = epoch_start_at_height(&cloud_storage, 2 * epoch_length) + dropped_offset;
+
+    let start = dropped_height - 2;
+    let target = dropped_height + 2;
+    h.bootstrap_reader(start, target);
+
+    let store = h.reader_store();
+    let block_hash: CryptoHash = store
+        .get_ser(DBCol::BlockHeight, &index_to_bytes(dropped_height))
+        .expect("block must be present");
+    let block: Block = store.get_ser(DBCol::Block, block_hash.as_ref()).unwrap();
+    for chunk_header in block.chunks().iter_raw() {
+        assert!(
+            !chunk_header.is_new_chunk(dropped_height),
+            "shard {} chunk is new at h={dropped_height}; test setup did not produce \
+             the all-chunks-missing state",
+            chunk_header.shard_id(),
+        );
+    }
+    assert!(
+        !store.exists(DBCol::ChunkHashesByHeight, &index_to_bytes(dropped_height)),
+        "ChunkHashesByHeight unexpectedly set at h={dropped_height} with no new chunks",
+    );
+
+    h.kill_reader();
+    h.shutdown();
+}
+
 /// Verifies that after reader bootstrap, the local store has entries in
 /// the always-populated per-shard cold columns: `Chunks`, `ChunkExtra`,
 /// `ChunkApplyStats`, `IncomingReceipts`, `OutgoingReceipts`, and
 /// `OutcomeIds`.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
-#[ignore]
-fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
+fn test_cloud_archival_reader_per_shard_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
     let start = h.epoch_length / 2;
@@ -1046,9 +1101,7 @@ fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
 /// `ReceiptToTx`, and `StateChanges`. The test submits a cross-shard
 /// transfer before the bootstrap range to populate them.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
-#[ignore]
-fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
+fn test_cloud_archival_reader_per_shard_chunk_apply_columns() {
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
     let mut h = CloudArchiveHarness::builder().build();
     let tx = h.env.validator().tx_send_money(
@@ -1134,7 +1187,7 @@ fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
 // TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns
 // and applies per-block state deltas with insertion-only trie updates.
 #[ignore]
-fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
+fn test_cloud_archival_reader_state_through_missing_chunk() {
     let dropped_shard = CloudArchiveHarness::all_shard_ids()[0];
     let dropped_shard_uid = CloudArchiveHarness::all_shard_uids()[0];
     let epoch_length = CloudArchiveHarness::DEFAULT_EPOCH_LENGTH;
@@ -1145,8 +1198,7 @@ fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
     let mut pattern = vec![true; epoch_length as usize];
     pattern[dropped_height as usize] = false;
 
-    let mut h =
-        CloudArchiveHarness::builder().validators(4).drop_chunks(dropped_shard, pattern).build();
+    let mut h = CloudArchiveHarness::builder().drop_chunks(dropped_shard, pattern).build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
     let start = h.epoch_length / 2;
     let target = h.epoch_length + h.epoch_length / 2;

@@ -177,9 +177,9 @@ mod tests {
 
     /// Cold columns intentionally not carried by batch blobs.
     const CLOUD_NON_BATCH_COLUMNS: &[DBCol] = &[
-        // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
+        // Reconstructed from BlockData by the reader at save time.
         DBCol::BlockPerHeight,
-        // TODO(cloud_archival): reconstruct from Block in the reader.
+        // Reconstructed from BlockData by the reader at save time.
         DBCol::ChunkHashesByHeight,
         // Per-epoch state snapshots cover state, not per-block deltas.
         DBCol::State,

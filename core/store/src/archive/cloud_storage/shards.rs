@@ -205,6 +205,18 @@ impl ShardData {
         }
     }
 
+    pub fn incoming_receipts(&self) -> &[ReceiptProof] {
+        match self {
+            ShardData::V1(data) => &data.incoming_receipts,
+        }
+    }
+
+    pub fn outgoing_receipts(&self) -> &[Receipt] {
+        match self {
+            ShardData::V1(data) => &data.outgoing_receipts,
+        }
+    }
+
     pub fn chunk_apply_stats(&self) -> &ChunkApplyStats {
         match self {
             ShardData::V1(data) => &data.chunk_apply_stats,
@@ -301,6 +313,7 @@ impl ShardBatch {
     /// the height is a skipped slot or the shard's chunk at that height is
     /// not new. `height` must be within the batch range - passing an
     /// out-of-range height is a programmer error and panics.
+    // TODO(cloud_archival): rename to `get_data_at_height` to read better.
     pub fn get_shard_at_height(&self, height: BlockHeight) -> Option<&ShardData> {
         let ShardBatch::V1(batch) = self;
         assert!(
