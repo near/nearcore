@@ -14,10 +14,12 @@ use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_client::archive::cloud_archival_reader::find_snapshot_at_or_before;
 use near_primitives::block::Block;
+use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
+use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_store::adapter::StoreAdapter;
@@ -75,8 +77,10 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
+    /// Sets the number of block-and-chunk-producer validators.
     fn validators(mut self, count: usize) -> Self {
-        // `drop_blocks_at` callers need `count >= 4`; see `block_dropper_by_height`.
+        // `drop_blocks_at` / `drop_chunks` need count >= 4 to be observable on
+        // the chain; see `block_dropper_by_height` in `test-loop-tests/src/utils/network.rs`.
         assert!(count > 0);
         self.num_validators = Some(count);
         self
@@ -205,6 +209,10 @@ impl CloudArchiveHarness {
     fn reader_store(&self) -> Store {
         let reader_id = self.reader_id.as_ref().expect("no reader bootstrapped");
         self.env.node_for_account(reader_id).client().chain.chain_store().store()
+    }
+
+    fn writer_store(&self) -> Store {
+        self.env.archival_node().client().chain.chain_store().store()
     }
 
     /// Checks heads alignment and GC tail bounds. Use after a full run when
@@ -822,9 +830,9 @@ fn test_cloud_archival_missing_chunks_one_shard() {
 fn test_cloud_archival_outcomes_and_receipts() {
     let mut h = CloudArchiveHarness::builder().build();
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
-    // Submit cross-shard transfers late enough that the outcomes land above
-    // gc_tail in the iteration range below.
-    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP);
+    // Cross-shard transfers exercise outgoing receipts; one self-transfer
+    // produces a local (non-outgoing) action receipt whose ReceiptToTx the
+    // writer must still archive.
     for _ in 0..3 {
         let tx = h.env.validator().tx_send_money(
             &user_account,
@@ -833,71 +841,101 @@ fn test_cloud_archival_outcomes_and_receipts() {
         );
         h.env.validator().submit_tx(tx);
     }
-    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+    let self_tx =
+        h.env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(1));
+    h.env.validator().submit_tx(self_tx);
+    h.run_until_epoch(3);
 
     let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
-    let chain_store = h.env.archival_node().client().chain.chain_store().store().chain_store();
+    let writer_store = h.writer_store();
+    let chain_store = writer_store.chain_store();
+    let writer_chunk_store = writer_store.chunk_store();
+
+    // Iterate a fixed mid-chain window; assert cloud has caught up past it.
+    let start = h.epoch_length / 2;
+    let end = 2 * h.epoch_length;
+    assert!(h.cloud_head() >= end, "cloud_head {} below end {end}", h.cloud_head());
 
     let mut total_outcomes = 0usize;
-    let mut total_receipts = 0usize;
-    for height in (h.gc_tail() + 1)..=h.cloud_head() {
+    let mut total_receipt_to_tx = 0usize;
+    for height in start..=end {
         let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
         for shard_id in &CloudArchiveHarness::all_shard_ids() {
-            let shard_data = cloud_storage.get_shard_data(height, *shard_id).unwrap();
+            let shard_data = cloud_storage.get_shard_data(height, *shard_id).unwrap().unwrap();
 
-            let expected_outcome_ids =
-                chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, *shard_id);
-            let stored_outcomes = shard_data.transaction_result_for_block();
+            // Cloud outcome_ids must equal chain's OutcomeIds; each outcome must match.
+            let cloud_stored_outcomes: HashMap<CryptoHash, &ExecutionOutcomeWithProof> = shard_data
+                .transaction_result_for_block()
+                .iter()
+                .map(|(id, outcome)| (*id, outcome))
+                .collect();
+            let expected_outcome_ids: HashSet<CryptoHash> = chain_store
+                .get_outcomes_by_block_hash_and_shard_id(&block_hash, *shard_id)
+                .into_iter()
+                .collect();
+            let cloud_stored_outcome_ids: HashSet<CryptoHash> =
+                cloud_stored_outcomes.keys().copied().collect();
             assert_eq!(
-                stored_outcomes.len(),
-                expected_outcome_ids.len(),
-                "transaction_result_for_block length mismatch at h={height} shard={shard_id}"
+                cloud_stored_outcome_ids, expected_outcome_ids,
+                "outcome_ids mismatch at h={height} shard={shard_id}"
             );
-            for (i, (stored_id, stored_outcome)) in stored_outcomes.iter().enumerate() {
-                assert_eq!(
-                    stored_id, &expected_outcome_ids[i],
-                    "outcome id mismatch at h={height} shard={shard_id} index={i}"
-                );
+            for (id, cloud_stored_outcome) in &cloud_stored_outcomes {
+                let chain_outcome =
+                    chain_store.get_outcome_by_id_and_block_hash(id, &block_hash).unwrap();
                 // `ExecutionOutcomeWithProof` has no `PartialEq`; compare via borsh.
                 assert_eq!(
-                    to_vec(
-                        &chain_store
-                            .get_outcome_by_id_and_block_hash(stored_id, &block_hash)
-                            .unwrap(),
-                    )
-                    .unwrap(),
-                    to_vec(stored_outcome).unwrap(),
-                    "outcome proof mismatch at h={height} shard={shard_id} index={i}"
+                    to_vec(&chain_outcome).unwrap(),
+                    to_vec(*cloud_stored_outcome).unwrap(),
+                    "outcome proof mismatch at h={height} shard={shard_id} outcome_id={id}"
                 );
             }
-            total_outcomes += stored_outcomes.len();
+            total_outcomes += cloud_stored_outcomes.len();
 
-            let outgoing = shard_data.outgoing_receipts();
-            let stored_receipts = shard_data.receipt_to_tx();
-            assert_eq!(
-                outgoing.len(),
-                stored_receipts.len(),
-                "receipt_to_tx length mismatch at h={height} shard={shard_id}"
-            );
-            for (i, (receipt, (stored_id, stored_info))) in
-                outgoing.iter().zip(stored_receipts).enumerate()
-            {
+            let cloud_stored_receipt_to_tx: HashMap<CryptoHash, &ReceiptToTxInfo> =
+                shard_data.receipt_to_tx().iter().map(|(id, info)| (*id, info)).collect();
+            for (id, cloud_stored_info) in &cloud_stored_receipt_to_tx {
                 assert_eq!(
-                    receipt.receipt_id(),
-                    stored_id,
-                    "receipt_id mismatch at h={height} shard={shard_id} index={i}"
-                );
-                assert_eq!(
-                    &chain_store.get_receipt_to_tx(stored_id).unwrap(),
-                    stored_info,
-                    "receipt_to_tx info mismatch at h={height} shard={shard_id} index={i}"
+                    &chain_store.get_receipt_to_tx(id).unwrap(),
+                    *cloud_stored_info,
+                    "receipt_to_tx info mismatch at h={height} shard={shard_id} receipt_id={id}"
                 );
             }
-            total_receipts += stored_receipts.len();
+            // Iterate chain's outgoing receipts and verify cloud carries each
+            // one's ReceiptToTx when chain has it. Catches a writer that
+            // skips entries chain has.
+            let chain_outgoing = chain_store
+                .get_outgoing_receipts(&block_hash, *shard_id)
+                .map(|r| r.to_vec())
+                .unwrap_or_default();
+            for receipt in &chain_outgoing {
+                let receipt_id = receipt.receipt_id();
+                if chain_store.get_receipt_to_tx(receipt_id).is_some() {
+                    assert!(
+                        cloud_stored_receipt_to_tx.contains_key(receipt_id),
+                        "outgoing receipt {receipt_id} at h={height} shard={shard_id}: chain has ReceiptToTx but cloud missing",
+                    );
+                }
+            }
+            // Cloud's FromTransaction count must equal the chunk's tx count.
+            let cloud_stored_from_tx_count = cloud_stored_receipt_to_tx
+                .values()
+                .filter(|info| {
+                    let ReceiptToTxInfo::V1(v1) = **info;
+                    matches!(v1.origin, ReceiptOrigin::FromTransaction(_))
+                })
+                .count();
+            let ChunkApplyStats::V0(stats) =
+                writer_chunk_store.get_chunk_apply_stats(&block_hash, shard_id).unwrap();
+            assert_eq!(
+                cloud_stored_from_tx_count, stats.transactions_num as usize,
+                "FromTransaction count mismatch at h={height} shard={shard_id}: cloud has {cloud_stored_from_tx_count}, chunk apply processed {} transactions",
+                stats.transactions_num,
+            );
+            total_receipt_to_tx += cloud_stored_receipt_to_tx.len();
         }
     }
     assert!(total_outcomes > 0, "no outcomes were compared");
-    assert!(total_receipts > 0, "no receipts were compared");
+    assert!(total_receipt_to_tx > 0, "no receipt_to_tx entries were compared");
     h.shutdown();
 }
 
@@ -1013,7 +1051,6 @@ fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
 fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
     let mut h = CloudArchiveHarness::builder().build();
-    h.run_until(3);
     let tx = h.env.validator().tx_send_money(
         &user_account,
         &h.archival_id,
@@ -1100,10 +1137,12 @@ fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
 fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
     let dropped_shard = CloudArchiveHarness::all_shard_ids()[0];
     let dropped_shard_uid = CloudArchiveHarness::all_shard_uids()[0];
-    let dropped_height: BlockHeight = 6;
-    // Drop the dropped_shard chunk at offset `dropped_height` of every epoch
-    // so the missing height lands inside the bootstrap range below.
-    let mut pattern = vec![true; 10];
+    let epoch_length = CloudArchiveHarness::DEFAULT_EPOCH_LENGTH;
+    // Drop the dropped_shard chunk at one mid-epoch offset; the bootstrap
+    // range below is chosen wide enough to cover `dropped_height` and its
+    // `+/- 1` neighbors.
+    let dropped_height: BlockHeight = epoch_length / 2 + 1;
+    let mut pattern = vec![true; epoch_length as usize];
     pattern[dropped_height as usize] = false;
 
     let mut h =

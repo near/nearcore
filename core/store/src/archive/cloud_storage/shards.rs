@@ -180,9 +180,10 @@ impl ShardData {
         }
     }
 
-    pub fn outgoing_receipts(&self) -> &[Receipt] {
-        // TODO(cloud_archival): populate from `ShardDataV1::outgoing_receipts` once the field is added.
-        todo!()
+    pub fn chunk_apply_stats(&self) -> &ChunkApplyStats {
+        match self {
+            ShardData::V1(data) => &data.chunk_apply_stats,
+        }
     }
 
     pub fn transaction_result_for_block(&self) -> &[(CryptoHash, ExecutionOutcomeWithProof)] {
