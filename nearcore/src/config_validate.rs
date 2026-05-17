@@ -297,6 +297,16 @@ impl<'a> ConfigValidator<'a> {
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
+        // Mirrors the fallback in `NearConfig::new`.
+        let save_receipt_to_tx =
+            self.config.save_receipt_to_tx.or(self.config.save_tx_outcomes).unwrap_or(true);
+        if !save_receipt_to_tx {
+            let error_message = "`cloud_archival_writer` is enabled but `save_receipt_to_tx` \
+                resolves to false; the writer needs ReceiptToTx data to populate \
+                `ShardData::receipt_to_tx`. Set `save_receipt_to_tx: true`."
+                .to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
     }
 
     fn validate_tracked_shards_config(&mut self) {
