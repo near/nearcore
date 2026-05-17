@@ -426,6 +426,10 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     global_contract_storage_amount_per_byte: params
                         .get(Parameter::GlobalContractStorageAmountPerByte)?,
                 },
+                deploy_global_contract_execution_base: params
+                    .get(Parameter::DeployGlobalContractExecutionBase)?,
+                deploy_global_contract_execution_per_byte: params
+                    .get(Parameter::DeployGlobalContractExecutionPerByte)?,
             }),
             wasm_config: Arc::new(Config {
                 ext_costs: ExtCostsConfig {

@@ -165,25 +165,25 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
     }
 
     pub fn prune_blocks_below_height(&mut self, height: BlockHeight) {
-        let heights_to_remove: Vec<BlockHeight> =
-            self.height_idx.keys().copied().take_while(|h| *h < height).collect();
-        for h in heights_to_remove {
-            if let Some(block_hashes) = self.height_idx.remove(&h) {
-                for block_hash in block_hashes {
-                    self.blocks_waiting_for_chunks.remove(&block_hash);
-                    if let Some(chunk_hashes) = self.blocks_missing_chunks.remove(&block_hash) {
-                        for chunk_hash in chunk_hashes {
-                            if let hash_map::Entry::Occupied(mut entry) =
-                                self.missing_chunks.entry(chunk_hash)
-                            {
-                                let blocks_for_chunk = entry.get_mut();
-                                blocks_for_chunk.remove(&block_hash);
-                                if blocks_for_chunk.is_empty() {
-                                    entry.remove_entry();
-                                }
-                            }
-                        }
-                    }
+        let block_hashes = self
+            .height_idx
+            .extract_if(..height, |_, _| true)
+            .flat_map(|(_, block_hashes)| block_hashes);
+        for block_hash in block_hashes {
+            self.blocks_waiting_for_chunks.remove(&block_hash);
+            let Some(chunk_hashes) = self.blocks_missing_chunks.remove(&block_hash) else {
+                continue;
+            };
+
+            for chunk_hash in chunk_hashes {
+                let hash_map::Entry::Occupied(mut entry) = self.missing_chunks.entry(chunk_hash)
+                else {
+                    continue;
+                };
+                let blocks_for_chunk = entry.get_mut();
+                blocks_for_chunk.remove(&block_hash);
+                if blocks_for_chunk.is_empty() {
+                    entry.remove_entry();
                 }
             }
         }
@@ -348,15 +348,7 @@ impl OptimisticBlockChunksPool {
     /// Updates the block height threshold and cleans up old blocks.
     pub fn update_block_height_threshold(&mut self, height: BlockHeight) {
         self.block_height_threshold = std::cmp::max(self.block_height_threshold, height);
-        let hashes_to_remove: Vec<_> = self
-            .blocks
-            .iter()
-            .filter(|(_, h)| h.height() <= self.block_height_threshold)
-            .map(|(h, _)| *h)
-            .collect();
-        for h in hashes_to_remove {
-            self.blocks.remove(&h);
-        }
+        self.blocks.retain(|_, h| h.height() > self.block_height_threshold);
 
         let Some((block, _)) = &self.latest_ready_block else {
             return;
@@ -373,15 +365,7 @@ impl OptimisticBlockChunksPool {
         self.update_block_height_threshold(height);
 
         self.minimal_base_height = std::cmp::max(self.minimal_base_height, height);
-        let hashes_to_remove: Vec<_> = self
-            .chunks
-            .iter()
-            .filter(|(_, h)| h.prev_block_height < self.minimal_base_height)
-            .map(|(h, _)| *h)
-            .collect();
-        for h in hashes_to_remove {
-            self.chunks.remove(&h);
-        }
+        self.chunks.retain(|_, h| h.prev_block_height >= self.minimal_base_height);
     }
 }
 

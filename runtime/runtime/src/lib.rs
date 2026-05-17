@@ -96,6 +96,7 @@ use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
 mod access_keys;
+mod action_validation;
 mod actions;
 #[cfg(test)]
 mod actions_test_utils;
@@ -1308,7 +1309,7 @@ impl Runtime {
                 }
             }
             VersionedReceiptEnum::GlobalContractDistribution(_) => {
-                apply_global_contract_distribution_receipt(
+                let compute = apply_global_contract_distribution_receipt(
                     receipt,
                     apply_state,
                     epoch_info_provider,
@@ -1316,6 +1317,7 @@ impl Runtime {
                     receipt_sink,
                     receipt_to_tx,
                 )?;
+                processing_state.total.add(0, compute)?;
                 return Ok(None);
             }
         };

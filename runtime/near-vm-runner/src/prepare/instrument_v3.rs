@@ -97,6 +97,8 @@ pub enum Error {
     TooManyParamsPerContract,
     #[error("too many parameters in a function")]
     TooManyParamsPerFunction,
+    #[error("a function uses too much operand stack")]
+    OperandStackTooLarge,
 }
 
 pub(crate) struct InstrumentContext<'a> {
@@ -110,6 +112,7 @@ pub(crate) struct InstrumentContext<'a> {
     max_blocks_per_contract: u64,
     max_params_per_function: u64,
     max_params_per_contract: u64,
+    max_operand_stack_bytes_per_function: u64,
 
     type_section: we::TypeSection,
     import_section: we::ImportSection,
@@ -238,6 +241,7 @@ impl<'a> InstrumentContext<'a> {
         max_blocks_per_contract: u64,
         max_params_per_function: u64,
         max_params_per_contract: u64,
+        max_operand_stack_bytes_per_function: u64,
     ) -> Self {
         Self {
             analysis,
@@ -250,6 +254,7 @@ impl<'a> InstrumentContext<'a> {
             max_blocks_per_contract,
             max_params_per_function,
             max_params_per_contract,
+            max_operand_stack_bytes_per_function,
 
             type_section: we::TypeSection::new(),
             import_section: we::ImportSection::new(),
@@ -519,6 +524,9 @@ impl<'a> InstrumentContext<'a> {
         let gas_kinds = get_idx!(analysis.gas_kinds)?;
         let gas_offsets = get_idx!(analysis.gas_offsets)?;
         let stack_sz = *get_idx!(analysis.function_operand_stack_sizes)?;
+        if stack_sz > self.max_operand_stack_bytes_per_function {
+            return Err(Error::OperandStackTooLarge);
+        }
         let frame_sz = *get_idx!(analysis.function_frame_sizes)?;
 
         let mut instrumentation_points =

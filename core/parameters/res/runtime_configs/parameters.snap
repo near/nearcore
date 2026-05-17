@@ -234,6 +234,7 @@ max_blocks_per_contract                               50_000
 max_types_per_contract                                 1_024
 max_params_per_function                                   64
 max_params_per_contract                               50_000
+max_operand_stack_bytes_per_function                   8_192
 flat_storage_reads                      true
 fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
@@ -265,6 +266,8 @@ action_deploy_global_contract_per_byte
 - send_not_sir:           47_683_715
 - execution:              70_000_000
 global_contract_storage_amount_per_byte 0.0001 N
+deploy_global_contract_execution_base     20_000_000_000_000
+deploy_global_contract_execution_per_byte         250_000_000
 action_use_global_contract              
 - send_sir:          184_765_750_000
 - send_not_sir:      184_765_750_000
