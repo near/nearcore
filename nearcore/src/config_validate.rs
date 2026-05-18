@@ -285,8 +285,8 @@ impl<'a> ConfigValidator<'a> {
             return;
         };
         let tracked_shards = self.config.tracked_shards_config();
-        if !tracked_shards.tracks_non_empty_subset_of_shards() && !writer_config.archive_block_data
-        {
+        let archives_shards = tracked_shards.tracks_non_empty_subset_of_shards();
+        if !archives_shards && !writer_config.archive_block_data {
             let error_message =
                 "`cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
@@ -296,6 +296,27 @@ impl<'a> ConfigValidator<'a> {
                 "`cloud_archival_writer.snapshot_every_n_epochs` must be greater than 0."
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
+        }
+        if archives_shards {
+            // `ShardData::transaction_result_for_block` is sourced from `OutcomeIds` and
+            // `TransactionResultForBlock`; both are skipped when `save_tx_outcomes` is false.
+            if self.config.save_tx_outcomes == Some(false) {
+                let error_message = "`cloud_archival_writer` archives shards but \
+                    `save_tx_outcomes` is set to false; the writer needs outcome data to \
+                    populate `ShardData::transaction_result_for_block`. Set `save_tx_outcomes: \
+                    true` or omit it (defaults to true on archival and rpc nodes)."
+                    .to_string();
+                self.validation_errors.push_config_semantics_error(error_message);
+            }
+            let save_receipt_to_tx =
+                self.config.save_receipt_to_tx.or(self.config.save_tx_outcomes).unwrap_or(true);
+            if !save_receipt_to_tx {
+                let error_message = "`cloud_archival_writer` archives shards but \
+                    `save_receipt_to_tx` resolves to false; the writer needs ReceiptToTx data to \
+                    populate `ShardData::receipt_to_tx`. Set `save_receipt_to_tx: true`."
+                    .to_string();
+                self.validation_errors.push_config_semantics_error(error_message);
+            }
         }
     }
 
@@ -519,5 +540,52 @@ mod tests {
         config.cloud_archival = Some(test_cloud_archival_config(""));
         config.state_sync = Some(Default::default());
         validate_config(&config).unwrap();
+    }
+
+    fn cloud_archival_writer_archiving_shards_config() -> Config {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival_writer = Some(CloudArchivalWriterConfig::default());
+        config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
+        config
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` archives shards but `save_tx_outcomes` is set to false"
+    )]
+    fn test_cloud_archival_writer_save_tx_outcomes_false() {
+        let mut config = cloud_archival_writer_archiving_shards_config();
+        config.save_tx_outcomes = Some(false);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` archives shards but `save_receipt_to_tx` resolves to false"
+    )]
+    fn test_cloud_archival_writer_save_receipt_to_tx_false() {
+        let mut config = cloud_archival_writer_archiving_shards_config();
+        config.save_receipt_to_tx = Some(false);
+        validate_config(&config).unwrap();
+    }
+
+    /// Block-only writer (no tracked shards, `archive_block_data: true`) must pass
+    /// the shard-data flag checks even with `save_tx_outcomes: false` and
+    /// `save_receipt_to_tx: false` - no shard blobs need outcome / receipt-to-tx data.
+    #[test]
+    fn test_cloud_archival_writer_block_only_skips_shard_flag_checks() {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        let mut writer_config = CloudArchivalWriterConfig::default();
+        writer_config.archive_block_data = true;
+        config.cloud_archival_writer = Some(writer_config);
+        config.save_tx_outcomes = Some(false);
+        config.save_receipt_to_tx = Some(false);
+        let err = validate_config(&config).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(
+            !err.contains("`save_tx_outcomes`") && !err.contains("`save_receipt_to_tx`"),
+            "shard-data flag checks fired for block-only writer: {err}",
+        );
     }
 }
