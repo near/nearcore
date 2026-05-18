@@ -37,7 +37,6 @@ To enable Google Cloud Storage as your external storage, add the following to
 your `config.json` file:
 
 ```json
-"state_sync_enabled": true,
 "state_sync": {
   "sync": {
     "ExternalStorage": {
@@ -85,7 +84,6 @@ To enable Amazon S3 as your external storage, add the following to your
 You may add the other mentioned options too.
 
 ```json
-"state_sync_enabled": true,
 "state_sync": {
   "sync": {
     "ExternalStorage": {
@@ -112,7 +110,6 @@ To enable, add the following to your `config.json` file.
 You may add the other mentioned options too.
 
 ```json
-"state_sync_enabled": true,
 "state_sync": {
   "sync": {
     "ExternalStorage": {
