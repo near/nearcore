@@ -709,6 +709,38 @@ async fn test_receipt_to_tx_handler_error_status_code() {
 }
 
 #[tokio::test]
+async fn test_receipt_parent_by_hint_handler_error_status_code() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let json = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "EXPERIMENTAL_receipt_parent_by_hint",
+        "params": serde_json::json!({
+            "receipt_id": CryptoHash::new().to_string(),
+            "block_height": 1u64,
+            "shard_id": 0u64,
+        })
+    });
+
+    let (status, response_bytes) = client
+        .transport
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
+        .await
+        .unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+
+    let response: serde_json::Value = serde_json::from_slice(&response_bytes).unwrap();
+    let error_data = &response["error"]["data"];
+    // ClientConfig::test() uses NoShards tracking, so the handler returns
+    // ShardNotTracked before doing any scan work.
+    assert_eq!(error_data["name"].as_str().unwrap(), "SHARD_NOT_TRACKED");
+    assert_eq!(error_data["info"]["shard_id"].as_u64().unwrap(), 0);
+}
+
+#[tokio::test]
 async fn test_get_chunk_with_object_in_params() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);

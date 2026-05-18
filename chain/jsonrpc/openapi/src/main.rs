@@ -32,7 +32,8 @@ use near_jsonrpc_primitives::types::{
     network_info::{RpcNetworkInfoError, RpcNetworkInfoResponse},
     query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse},
     receipts::{
-        RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxError,
+        RpcReceiptError, RpcReceiptParentByHintError, RpcReceiptParentByHintRequest,
+        RpcReceiptParentByHintResponse, RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxError,
         RpcReceiptToTxRequest, RpcReceiptToTxResponse,
     },
     split_storage::{
@@ -643,7 +644,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.2.5".to_string(),
+            version: "1.2.6".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -855,6 +856,17 @@ fn main() {
         &mut all_paths,
         "EXPERIMENTAL_receipt_to_tx".to_string(),
         "Resolves a receipt ID back to the originating transaction hash and sender account"
+            .to_string(),
+    );
+    add_spec_for_path::<
+        RpcReceiptParentByHintRequest,
+        RpcReceiptParentByHintResponse,
+        RpcReceiptParentByHintError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_receipt_parent_by_hint".to_string(),
+        "Hint-based historical lookup of a receipt's immediate parent (transaction or parent receipt). Used as a fallback when EXPERIMENTAL_receipt_to_tx returns UnknownReceipt for receipts produced before the node started populating the ReceiptToTx column. Caller drives recursion by re-invoking with the returned parent's hint per hop."
             .to_string(),
     );
     add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(

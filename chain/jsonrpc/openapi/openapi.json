@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.5"
+    "version": "1.2.6"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -278,6 +278,34 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcReceiptResponse_and_RpcReceiptError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_receipt_parent_by_hint": {
+      "post": {
+        "description": "Hint-based historical lookup of a receipt's immediate parent (transaction or parent receipt). Used as a fallback when EXPERIMENTAL_receipt_to_tx returns UnknownReceipt for receipts produced before the node started populating the ReceiptToTx column. Caller drives recursion by re-invoking with the returned parent's hint per hop.",
+        "operationId": "EXPERIMENTAL_receipt_parent_by_hint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_receipt_parent_by_hint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcReceiptParentByHintResponse_and_RpcReceiptParentByHintError"
                 }
               }
             }
@@ -5252,6 +5280,64 @@
           }
         ]
       },
+      "ErrorWrapper_for_RpcReceiptParentByHintError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcReceiptParentByHintError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ErrorWrapper_for_RpcReceiptToTxError": {
         "oneOf": [
           {
@@ -9079,6 +9165,33 @@
         "title": "JsonRpcRequest_for_EXPERIMENTAL_receipt",
         "type": "object"
       },
+      "JsonRpcRequest_for_EXPERIMENTAL_receipt_parent_by_hint": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_receipt_parent_by_hint"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcReceiptParentByHintRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_receipt_parent_by_hint",
+        "type": "object"
+      },
       "JsonRpcRequest_for_EXPERIMENTAL_receipt_to_tx": {
         "properties": {
           "id": {
@@ -10529,6 +10642,46 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_RpcQueryResponse_and_RpcQueryError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcReceiptParentByHintResponse_and_RpcReceiptParentByHintError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcReceiptParentByHintResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcReceiptParentByHintError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcReceiptParentByHintResponse_and_RpcReceiptParentByHintError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcReceiptResponse_and_RpcReceiptError": {
@@ -12115,6 +12268,54 @@
             },
             "required": [
               "GlobalContractDistribution"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReceiptOriginView": {
+        "oneOf": [
+          {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "from_transaction"
+                ],
+                "type": "string"
+              },
+              "sender_account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "tx_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "kind",
+              "tx_hash",
+              "sender_account_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "from_receipt"
+                ],
+                "type": "string"
+              },
+              "parent_predecessor_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "parent_receipt_id": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "kind",
+              "parent_receipt_id",
+              "parent_predecessor_id"
             ],
             "type": "object"
           }
@@ -16055,6 +16256,199 @@
             "type": "object"
           }
         ]
+      },
+      "RpcReceiptParentByHintError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "effective_window": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "receipt_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "receipt_id",
+                  "block_height",
+                  "shard_id",
+                  "effective_window"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "RECEIPT_NOT_FOUND_IN_HINT_WINDOW"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "OUTCOMES_NOT_STORED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "SHARD_NOT_TRACKED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "maximum": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "requested",
+                  "maximum"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "WINDOW_TOO_LARGE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcReceiptParentByHintRequest": {
+        "properties": {
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_id": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
+          },
+          "window": {
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "receipt_id",
+          "block_height",
+          "shard_id"
+        ],
+        "title": "RpcReceiptParentByHintRequest",
+        "type": "object"
+      },
+      "RpcReceiptParentByHintResponse": {
+        "properties": {
+          "origin": {
+            "$ref": "#/components/schemas/ReceiptOriginView"
+          },
+          "receiver_account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
+          }
+        },
+        "required": [
+          "origin",
+          "receiver_account_id",
+          "shard_id"
+        ],
+        "type": "object"
       },
       "RpcReceiptRequest": {
         "properties": {
