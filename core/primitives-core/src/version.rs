@@ -325,14 +325,16 @@ pub enum ProtocolFeature {
     ///
     /// It improves UX during long ranges of missing chunks, as transactions
     /// are much less likely to get rejected with ShardStuck error.
-    IncreaseMaxCongestionMissedChunks,
+    #[deprecated]
+    _DeprecatedIncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
     #[deprecated]
     _DeprecatedSaturatingFloatToInt,
     #[deprecated]
     _DeprecatedChunkPartChecks,
-    StatePartsCompression,
+    #[deprecated]
+    _DeprecatedStatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
     #[deprecated]
     _DeprecatedDeterministicAccountIds,
@@ -483,8 +485,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedChunkPartChecks
             | ProtocolFeature::_DeprecatedSaturatingFloatToInt
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
-            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::StatePartsCompression
+            ProtocolFeature::_DeprecatedIncreaseMaxCongestionMissedChunks => 79,
+            ProtocolFeature::_DeprecatedStatePartsCompression
             | ProtocolFeature::_DeprecatedDeterministicAccountIds => 82,
             ProtocolFeature::InvalidTxGenerateOutcomes
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
