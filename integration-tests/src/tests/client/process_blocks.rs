@@ -14,7 +14,6 @@ use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
-use near_client::sync::SYNC_V2_ENABLED;
 use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -1141,40 +1140,6 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
-fn slow_test_gc_after_state_sync() {
-    if SYNC_V2_ENABLED {
-        // Calls reset_data_pre_state_sync directly, which is dead code under SyncV2.
-        // Replaced by far_horizon tests in test-loop-tests.
-        return;
-    }
-    let epoch_length = 1024;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    let mut env =
-        TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
-    for i in 1..epoch_length * 4 + 2 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
-        env.process_block(1, block, Provenance::NONE);
-    }
-    let sync_height = epoch_length * 4 + 1;
-    let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap();
-    let sync_hash = *sync_block.hash();
-    let prev_block_hash = *sync_block.header().prev_hash();
-    // reset cache
-    for i in epoch_length * 3 - 1..sync_height - 1 {
-        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
-        assert!(env.clients[1].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
-    }
-    env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
-    // mimic what we do in possible_targets
-    assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    env.clients[1].chain.clear_data(&Default::default()).unwrap();
-}
-
-#[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_process_block_after_state_sync() {
@@ -1716,71 +1681,6 @@ fn test_block_merkle_proof_same_hash() {
         )
         .unwrap();
     assert!(proof.is_empty());
-}
-
-#[test]
-fn test_data_reset_before_state_sync() {
-    if SYNC_V2_ENABLED {
-        // Calls reset_data_pre_state_sync directly, which is dead code under SyncV2.
-        // Replaced by far_horizon tests in test-loop-tests.
-        return;
-    }
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let epoch_length = 5;
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
-    let tx = SignedTransaction::create_account(
-        1,
-        "test0".parse().unwrap(),
-        "test_account".parse().unwrap(),
-        Balance::from_near(1),
-        signer.public_key(),
-        &signer,
-        genesis_hash,
-    );
-    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
-    for i in 1..5 {
-        env.produce_block(0, i);
-    }
-    // check that the new account exists
-    let head = env.clients[0].chain.head().unwrap();
-    let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let prev_chunk_extra = env.clients[0]
-        .chain
-        .get_chunk_extra(head_block.header().prev_hash(), &ShardUId::single_shard())
-        .unwrap();
-    let response = env.clients[0]
-        .runtime_adapter
-        .query(
-            ShardUId::single_shard(),
-            prev_chunk_extra.state_root(),
-            head.height,
-            0,
-            &head.prev_block_hash,
-            &head.last_block_hash,
-            head_block.header().epoch_id(),
-            &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
-        )
-        .unwrap();
-    assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
-    env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
-    // account should not exist after clearing state
-    let response = env.clients[0].runtime_adapter.query(
-        ShardUId::single_shard(),
-        prev_chunk_extra.state_root(),
-        head.height,
-        0,
-        &head.prev_block_hash,
-        &head.last_block_hash,
-        head_block.header().epoch_id(),
-        &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
-    );
-    // TODO(#3742): ViewClient still has data in cache by current design.
-    assert!(response.is_ok());
 }
 
 #[test]
