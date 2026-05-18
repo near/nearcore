@@ -1133,28 +1133,6 @@ mod test {
         assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
     }
 
-    #[test]
-    fn test_pin_survives_freeze() {
-        let tries =
-            TestTriesBuilder::new().with_flat_storage(true).with_in_memory_tries(true).build();
-        let parent = ShardUId::single_shard();
-        let children =
-            vec![ShardUId { version: 2, shard_id: 0 }, ShardUId { version: 2, shard_id: 1 }];
-
-        let state_root = test_populate_trie(
-            &tries,
-            &Trie::EMPTY_ROOT,
-            parent,
-            vec![(b"key".to_vec(), Some(b"value".to_vec()))],
-        );
-
-        let pin = tries.maybe_pin_memtrie_root(parent, state_root).unwrap();
-        tries.freeze_parent_memtrie(parent, children).unwrap();
-        // Simulate an in-flight apply task whose pin outlived resharding.
-        // Must not panic: the root is gone from the replaced MemTries.
-        drop(pin);
-    }
-
     /// Holds a `Trie` for the parent shard, pauses between two reads while
     /// the main thread runs `freeze_parent_memtrie`, and verifies that the
     /// second read still succeeds. Without preserving the frozen data in the

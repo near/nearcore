@@ -332,19 +332,7 @@ impl MaybePinnedMemtrieRoot {
 
 impl Drop for MemTrieRootPin {
     fn drop(&mut self) {
-        let mut memtries = self.memtries.write();
-        if !memtries.contains_root(&self.state_root) {
-            // Can happen when resharding replaces the MemTries contents
-            // while an in-flight apply task still holds a pin.
-            tracing::warn!(
-                target: "memtrie",
-                shard_uid = ?self.shard_uid,
-                state_root = ?self.state_root,
-                "pin dropped for root that no longer exists (expected after resharding)",
-            );
-            return;
-        }
-        memtries.delete_root(&self.state_root);
+        self.memtries.write().delete_root(&self.state_root);
     }
 }
 
