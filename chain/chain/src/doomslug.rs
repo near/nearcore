@@ -176,9 +176,8 @@ impl DoomslugTimer {
     pub fn get_delay(&self, n: BlockHeightDelta) -> Duration {
         let n32 = u32::try_from(n).unwrap_or(u32::MAX);
         let min_delay = self.min_delay.get();
-        let max_delay = self.max_delay.get();
-        let delay_step = max_delay / 10;
-        std::cmp::min(max_delay, min_delay + delay_step * n32.saturating_sub(2))
+        let delay_step = min_delay / 10;
+        std::cmp::min(self.max_delay.get(), min_delay + delay_step * n32.saturating_sub(2))
     }
 }
 
@@ -872,8 +871,8 @@ mod tests {
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[3])));
         assert_eq!(approval.target_height, 4);
 
-        // Skip height 4; the wait ramps with lag, get_delay(4) = 1600ms
-        clock.advance(Duration::milliseconds(1000));
+        // Go forward more so we have another second
+        clock.advance(Duration::milliseconds(600));
 
         clock.advance(Duration::milliseconds(199));
         assert_eq!(ds.process_timer(&signer), vec![]);
@@ -888,9 +887,10 @@ mod tests {
             _ => assert!(false),
         }
 
-        // Skip height 5, get_delay(5) = 1900ms
-        clock.advance(Duration::milliseconds(1400));
+        // Go forward more so we have another second
+        clock.advance(Duration::milliseconds(800));
 
+        // Now skip 5 (the extra delay is 200+300 = 500)
         clock.advance(Duration::milliseconds(499));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
@@ -903,9 +903,10 @@ mod tests {
             }
         }
 
-        // Skip height 6, get_delay(6) = 2200ms
-        clock.advance(Duration::milliseconds(1300));
+        // Go forward more so we have another second
+        clock.advance(Duration::milliseconds(500));
 
+        // Skip 6 (the extra delay is 0+200+300+400 = 900)
         clock.advance(Duration::milliseconds(899));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
@@ -939,9 +940,9 @@ mod tests {
         clock.advance(Duration::milliseconds(400));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
-        // The block height was less than the timer height, so the timer was reset.
-        // Skip for height 7 waits get_delay(3) = 1300ms.
-        clock.advance(Duration::milliseconds(899));
+        // The block height was less than the timer height, and thus the timer was reset.
+        // The wait time for height 7 with last ds final block at 5 is 1100
+        clock.advance(Duration::milliseconds(699));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
         clock.advance(Duration::milliseconds(1));
@@ -969,9 +970,9 @@ mod tests {
             DoomslugThresholdMode::TwoThirds,
         );
 
-        // delay_step = max_delay / 10 = 300ms.
-        // n = 5: 1000 + 300 * (5 - 2) = 1900ms.
-        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(1900));
+        // delay_step = min_delay / 10 = 100ms.
+        // n = 5: 1000 + 100 * (5 - 2) = 1300ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(1300));
         // Large n saturates at max_delay.
         assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(3000));
 
@@ -979,9 +980,9 @@ mod tests {
         assert!(min_delay.update(Duration::milliseconds(2000)));
         assert!(max_delay.update(Duration::milliseconds(5000)));
 
-        // delay_step is now max_delay / 10 = 500ms.
-        // n = 5: 2000 + 500 * (5 - 2) = 3500ms.
-        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(3500));
+        // delay_step is now 2000 / 10 = 200ms.
+        // n = 5: 2000 + 200 * (5 - 2) = 2600ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(2600));
         // The cap now follows the updated max_delay.
         assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(5000));
     }
