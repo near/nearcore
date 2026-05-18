@@ -471,4 +471,33 @@ mod tests {
             })
         }
     }
+
+    /// Reject contracts whose static operand-stack size (bytes) in any single
+    /// function exceeds `max_operand_stack_bytes_per_function`. NearVm doesn't run
+    /// the instrumentation pass and so doesn't enforce this cap.
+    #[test]
+    fn operand_stack_too_large() {
+        with_vm_variants(|kind| {
+            if kind == VMKind::NearVm {
+                return;
+            }
+            // 16 i64 pushes leave 128 bytes on the operand stack at peak.
+            // Cap of 127 should reject; cap of 128 should accept.
+            let push_then_drop = "(i64.const 0) ".repeat(16) + &"(drop) ".repeat(16);
+            let wat = format!(
+                r#"(module
+                    (func (export "main") {push_then_drop})
+                )"#
+            );
+
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_operand_stack_bytes_per_function = Some(127);
+            let r = parse_and_prepare_wat(&config, kind, &wat);
+            assert_matches!(r, Err(PrepareError::OperandStackTooLarge));
+
+            config.limit_config.max_operand_stack_bytes_per_function = Some(128);
+            let r = parse_and_prepare_wat(&config, kind, &wat);
+            assert_matches!(r, Ok(_));
+        })
+    }
 }

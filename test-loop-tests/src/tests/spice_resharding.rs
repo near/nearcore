@@ -1,4 +1,3 @@
-use super::spice_utils::delay_endorsements_propagation;
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
@@ -56,7 +55,7 @@ fn test_spice_certified_results_across_resharding() {
         .build();
 
     let execution_delay = 2;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     env = env.warmup();
 
     let epoch_manager = env.validator().client().epoch_manager.clone();
