@@ -31,8 +31,7 @@ pub(crate) fn setup_account(
     tries.new_trie_update(ShardUId::single_shard(), root)
 }
 
-/// The caller owns `state_update` so that contract code can be deployed
-/// beforehand when testing local contracts.
+/// Takes `state_update` from the caller so local-contract tests can deploy code into it first.
 pub(crate) fn test_delete_account(
     account_id: &AccountId,
     contract: AccountContract,
@@ -61,8 +60,7 @@ pub(crate) fn test_delete_account(
     action_result
 }
 
-/// Like [`test_delete_account`] but against an empty trie. Suitable for contract
-/// kinds that need no pre-existing trie state (`None`, `Global`, `GlobalByAccount`).
+/// Like [`test_delete_account`] but with an empty trie: for `None`/`Global`/`GlobalByAccount` (no deployed code).
 pub(crate) fn test_delete_account_in_empty_trie(
     account_id: &AccountId,
     contract: AccountContract,
