@@ -108,7 +108,12 @@ pub(crate) fn action_function_call(
                     .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
-            FunctionCallError::LinkError { .. } | FunctionCallError::LoadingError { .. } => (),
+            FunctionCallError::LinkError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LINK_ERRORS.inc();
+            }
+            FunctionCallError::LoadingError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LOADING_ERRORS.inc();
+            }
             FunctionCallError::MethodResolveError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
                     .with_label_values::<&str>(&[err.into()])
