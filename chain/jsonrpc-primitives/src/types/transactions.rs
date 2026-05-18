@@ -40,13 +40,11 @@ pub enum TransactionInfo {
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
-    InvalidTransaction {
-        #[serde(skip_serializing)]
-        #[cfg_attr(feature = "schemars", schemars(skip))]
-        context: near_primitives::errors::InvalidTxError,
-    },
+    InvalidTransaction { context: near_primitives::errors::InvalidTxError },
     #[error("Node doesn't track this shard. Cannot determine whether the transaction is valid")]
     DoesNotTrackShard,
+    #[error("Transaction was dropped because the mempool is full")]
+    MempoolIsFull,
     #[error("Transaction with hash {transaction_hash} was routed")]
     RequestRouted { transaction_hash: near_primitives::hash::CryptoHash },
     #[error("Transaction {requested_transaction_hash} doesn't exist")]
@@ -138,5 +136,29 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
         };
 
         Self::new_internal_or_handler_error(Some(error_data), error_data_value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RpcTransactionError;
+    use crate::errors::{RpcError, RpcErrorKind};
+    use near_primitives::errors::InvalidTxError;
+    use serde_json::{Value, to_value};
+
+    #[test]
+    fn invalid_transaction_error_struct_carries_context() {
+        let context = InvalidTxError::Expired;
+        let rpc_error =
+            RpcError::from(RpcTransactionError::InvalidTransaction { context: context.clone() });
+
+        let RpcErrorKind::HandlerError(handler_error) =
+            rpc_error.error_struct.expect("error_struct must be set")
+        else {
+            panic!("expected a handler error");
+        };
+        let handler_error: Value = *handler_error;
+        assert_eq!(handler_error["name"], "INVALID_TRANSACTION");
+        assert_eq!(handler_error["info"]["context"], to_value(&context).unwrap());
     }
 }

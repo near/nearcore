@@ -275,3 +275,45 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     }
     assert_eq!(receipts.len(), 1, "only one receipt for the only valid transaction is expected");
 }
+
+/// A forwarded transaction that reaches a chunk producer with a full mempool
+/// is dropped. `process_tx` must report `MempoolFull` instead of success.
+#[test]
+fn test_forwarded_transaction_dropped_when_mempool_full() {
+    let accounts: Vec<AccountId> = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
+    let signers: Vec<_> = accounts
+        .iter()
+        .map(|account_id| create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap()))
+        .collect();
+    let genesis = Genesis::test(accounts.clone(), 2);
+    let env = TestEnv::builder(&genesis.config)
+        .validators(accounts.clone())
+        .clients(accounts.clone())
+        // A one-byte mempool cannot hold any transaction.
+        .transaction_pool_size_limit(Some(1))
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let tip = env.clients[0].chain.head().unwrap();
+    let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, ShardId::new(0));
+    let tx_processor = env.rpc_handler(&chunk_producer).clone();
+
+    let send_money = |nonce| {
+        SignedTransaction::send_money(
+            nonce,
+            accounts[0].clone(),
+            accounts[1].clone(),
+            &signers[0],
+            Balance::from_near(1),
+            tip.last_block_hash,
+        )
+    };
+
+    let forwarded = tx_processor.process_tx(send_money(1), /* is_forwarded */ true, false);
+    assert_eq!(forwarded, ProcessTxResponse::MempoolFull);
+
+    // A non-forwarded transaction can still be routed onward. A full mempool
+    // is not terminal for it, so MempoolFull must not be returned.
+    let first_hand = tx_processor.process_tx(send_money(2), /* is_forwarded */ false, false);
+    assert_ne!(first_hand, ProcessTxResponse::MempoolFull);
+}

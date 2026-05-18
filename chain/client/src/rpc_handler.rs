@@ -269,6 +269,7 @@ impl RpcHandlerActor {
                     InsertTransactionResult::NoSpaceLeft => {
                         if is_forwarded {
                             tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
+                            return Ok(ProcessTxResponse::MempoolFull);
                         } else {
                             tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
                         }
