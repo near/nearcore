@@ -281,47 +281,6 @@ pub fn global_bomb_contract(num_globals: u32) -> Vec<u8> {
     module.finish()
 }
 
-/// Many tiny active data segments, each writing 1 byte to memory offset 0.
-/// Tests whether per-segment instantiation cost is covered by gas.
-///
-/// Binary size ≈ num_segments * 8 bytes. Requires a WASM-internal memory.
-pub fn data_segment_bomb_contract(num_segments: u32) -> Vec<u8> {
-    use wasm_encoder::{
-        CodeSection, ConstExpr, DataSection, ExportKind, ExportSection, Function, FunctionSection,
-        Instruction, MemorySection, MemoryType, Module, TypeSection,
-    };
-    let mut module = Module::new();
-    let mut types = TypeSection::new();
-    types.ty().function([], []);
-    module.section(&types);
-    let mut funcs = FunctionSection::new();
-    funcs.function(0);
-    module.section(&funcs);
-    let mut memories = MemorySection::new();
-    memories.memory(MemoryType {
-        minimum: 1,
-        maximum: None,
-        memory64: false,
-        shared: false,
-        page_size_log2: None,
-    });
-    module.section(&memories);
-    let mut exports = ExportSection::new();
-    exports.export("main", ExportKind::Func, 0);
-    module.section(&exports);
-    let mut data = DataSection::new();
-    for i in 0..num_segments {
-        data.active(0, &ConstExpr::i32_const(0), [i as u8]);
-    }
-    module.section(&data);
-    let mut code = CodeSection::new();
-    let mut f = Function::new([]);
-    f.instruction(&Instruction::End);
-    code.function(&f);
-    module.section(&code);
-    module.finish()
-}
-
 /// Wrapper to get more useful Debug.
 pub struct ArbitraryModule(pub wasm_smith::Module);
 
