@@ -872,8 +872,8 @@ mod tests {
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[3])));
         assert_eq!(approval.target_height, 4);
 
-        // Go forward more so we have another second
-        clock.advance(Duration::milliseconds(600));
+        // Skip height 4; the wait ramps with lag, get_delay(4) = 1600ms
+        clock.advance(Duration::milliseconds(1000));
 
         clock.advance(Duration::milliseconds(199));
         assert_eq!(ds.process_timer(&signer), vec![]);
@@ -888,10 +888,9 @@ mod tests {
             _ => assert!(false),
         }
 
-        // Go forward more so we have another second
-        clock.advance(Duration::milliseconds(800));
+        // Skip height 5, get_delay(5) = 1900ms
+        clock.advance(Duration::milliseconds(1400));
 
-        // Now skip 5 (the extra delay is 200+300 = 500)
         clock.advance(Duration::milliseconds(499));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
@@ -904,10 +903,9 @@ mod tests {
             }
         }
 
-        // Go forward more so we have another second
-        clock.advance(Duration::milliseconds(500));
+        // Skip height 6, get_delay(6) = 2200ms
+        clock.advance(Duration::milliseconds(1300));
 
-        // Skip 6 (the extra delay is 0+200+300+400 = 900)
         clock.advance(Duration::milliseconds(899));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
@@ -941,9 +939,9 @@ mod tests {
         clock.advance(Duration::milliseconds(400));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
-        // The block height was less than the timer height, and thus the timer was reset.
-        // The wait time for height 7 with last ds final block at 5 is 1100
-        clock.advance(Duration::milliseconds(699));
+        // The block height was less than the timer height, so the timer was reset.
+        // Skip for height 7 waits get_delay(3) = 1300ms.
+        clock.advance(Duration::milliseconds(899));
         assert_eq!(ds.process_timer(&signer), vec![]);
 
         clock.advance(Duration::milliseconds(1));
