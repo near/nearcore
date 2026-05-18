@@ -304,11 +304,10 @@ impl<'a> ConfigValidator<'a> {
                 let error_message = "`cloud_archival_writer` archives shards but \
                     `save_tx_outcomes` is set to false; the writer needs outcome data to \
                     populate `ShardData::transaction_result_for_block`. Set `save_tx_outcomes: \
-                    true` or omit it (defaults to true on archival nodes)."
+                    true` or omit it (defaults to true on archival and rpc nodes)."
                     .to_string();
                 self.validation_errors.push_config_semantics_error(error_message);
             }
-            // Mirrors the fallback in `NearConfig::new`.
             let save_receipt_to_tx =
                 self.config.save_receipt_to_tx.or(self.config.save_tx_outcomes).unwrap_or(true);
             if !save_receipt_to_tx {
