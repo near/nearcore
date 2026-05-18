@@ -45,7 +45,7 @@ impl From<Trap> for TrapClassification {
             Trap::Interrupt => Self::Interrupt,
 
             // fuel (not used; NEAR meters gas via instrumentation)
-            Trap::OutOfFuel
+            t @ (Trap::OutOfFuel
             // threads proposal
             | Trap::AtomicWaitNonSharedMemory
             // GC / function-references proposals
@@ -87,9 +87,9 @@ impl From<Trap> for TrapClassification {
             | Trap::ThreadNewIndirectInvalidType
             | Trap::ThreadNewIndirectUninitialized
             // pulley interpreter
-            | Trap::DisabledOpcode => Self::Unreachable { trap },
+            | Trap::DisabledOpcode) => Self::Unreachable { trap: t },
 
-            _ => Self::Unknown { trap },
+            t => Self::Unknown { trap: t },
         }
     }
 }
