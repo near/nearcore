@@ -20561,10 +20561,6 @@
       },
       "VMConfigView": {
         "properties": {
-          "deterministic_account_ids": {
-            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"

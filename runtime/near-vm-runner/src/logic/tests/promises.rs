@@ -461,8 +461,6 @@ fn test_promise_batch_then() {
 #[test]
 fn test_promise_batch_action_state_init() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.deterministic_account_ids = true;
-
     let mut logic = logic_builder.build();
 
     // Note: Sending to an invalid receiver here, "rick.test" is not a
