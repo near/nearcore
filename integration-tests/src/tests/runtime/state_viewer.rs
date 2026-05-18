@@ -718,3 +718,30 @@ fn test_view_state_pagination_bypasses_size_limit() {
     assert_eq!(resumed.values, vec![data_item(b"k2", b"v2")]);
     assert_eq!(resumed.next_key, None);
 }
+
+#[test]
+fn test_view_state_pagination_rejects_include_proof() {
+    let state_update = view_with_contract_data(&ten_entries());
+    let viewer = TrieViewer::default();
+    let alice = alice_account();
+
+    let cases: [(Option<&[u8]>, Option<NonZeroU32>); 3] =
+        [(Some(b"key02"), None), (None, Some(nz(3))), (Some(b"key02"), Some(nz(3)))];
+    for (from_key, limit) in cases {
+        let result = viewer.view_state(&state_update, &alice, b"", from_key, limit, true);
+        assert!(matches!(result, Err(errors::ViewStateError::ProofUnsupportedWithPagination)));
+    }
+}
+
+#[test]
+fn test_view_state_pagination_rejects_from_key_outside_prefix() {
+    let state_update =
+        view_with_contract_data(&[(alice_account(), b"aaa0".to_vec(), b"v".to_vec())]);
+    let viewer = TrieViewer::default();
+    let alice = alice_account();
+
+    for from_key in [b"aa".as_slice(), b"bbb".as_slice()] {
+        let result = viewer.view_state(&state_update, &alice, b"aaa", Some(from_key), None, false);
+        assert!(matches!(result, Err(errors::ViewStateError::FromKeyOutsidePrefix)));
+    }
+}

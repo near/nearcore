@@ -1091,6 +1091,48 @@ async fn test_experimental_view_state_proof_with_pagination_rejected() {
     result.expect_err("include_proof + pagination must be rejected");
 }
 
+/// Test `query` rejects ViewState combining include_proof with pagination.
+#[tokio::test]
+async fn test_query_view_state_proof_with_pagination_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewState {
+                account_id: "test1".parse().unwrap(),
+                prefix: vec![].into(),
+                from_key: None,
+                limit: Some(NonZeroU32::new(5).unwrap()),
+                include_proof: true,
+            },
+        })
+        .await;
+
+    result.expect_err("include_proof + pagination must be rejected");
+}
+
+/// Test EXPERIMENTAL_view_state rejects a from_key that doesn't start with prefix.
+#[tokio::test]
+async fn test_experimental_view_state_from_key_outside_prefix_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: b"aaa".to_vec().into(),
+            from_key: Some(b"bbb".to_vec().into()),
+            limit: None,
+            include_proof: false,
+        })
+        .await;
+
+    result.expect_err("from_key outside prefix range must be rejected");
+}
+
 /// Test EXPERIMENTAL_view_access_key method
 #[tokio::test]
 async fn test_experimental_view_access_key() {

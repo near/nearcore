@@ -231,7 +231,14 @@ impl TrieViewer {
         include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         let paginated = limit.is_some() || from_key.is_some();
-        debug_assert!(!(paginated && include_proof), "include_proof unsupported with pagination");
+        if paginated && include_proof {
+            return Err(errors::ViewStateError::ProofUnsupportedWithPagination);
+        }
+        if let Some(from_key) = from_key {
+            if !from_key.starts_with(prefix) {
+                return Err(errors::ViewStateError::FromKeyOutsidePrefix);
+            }
+        }
 
         let Some(account) = get_account(state_update, account_id)? else {
             return Err(errors::ViewStateError::AccountDoesNotExist {

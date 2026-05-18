@@ -29,7 +29,18 @@ fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseE
 
 impl RpcRequest for RpcQueryRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Params::new(value).try_pair(parse_path_data).unwrap_or_parse()
+        let request: Self = Params::new(value).try_pair(parse_path_data).unwrap_or_parse()?;
+        if let QueryRequest::ViewState { prefix, from_key, limit, include_proof, .. } =
+            &request.request
+        {
+            super::validate_view_state_pagination(
+                prefix.as_slice(),
+                from_key.as_ref().map(|k| k.as_slice()),
+                *limit,
+                *include_proof,
+            )?;
+        }
+        Ok(request)
     }
 }
 

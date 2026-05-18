@@ -6,6 +6,9 @@
 * New opt-in strict nonce mode for transactions added in nightly. When enabled, each transaction must use a nonce exactly equal to the previous nonce for that access key plus one; nonces that repeat or skip values are rejected. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
+### Non-protocol Changes
+* Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `from_key_base64` and `limit`, and the response returns `next_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
+
 ## [2.12.0]
 
 ### Protocol Changes
