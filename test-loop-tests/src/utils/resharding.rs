@@ -16,7 +16,7 @@ use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
 use near_client::Query;
 use near_client::client_actor::ClientActor;
-use near_crypto::Signer;
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::client::ProcessTxRequest;
 use near_primitives::action::{Action, FunctionCallAction};
@@ -1362,6 +1362,58 @@ fn store_and_submit_tx(
     txs_vec.push((tx.get_hash(), height));
     txs.set(txs_vec);
     submit_tx(node_datas, rpc_id, tx);
+}
+
+/// Deterministic test gas-key signer for an account. Setup and verification
+/// share this helper so both sides agree on the public key.
+pub(crate) fn gas_key_signer_for_account(account_id: &AccountId) -> Signer {
+    const GAS_KEY_SIGNER_SEED: &str = "gas_key_resharding";
+    InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, GAS_KEY_SIGNER_SEED).into()
+}
+
+/// Loop action that fires its `assertion` once, `num_blocks_past_split` blocks
+/// after the resharding split block. Pass `0` to run on the split block itself.
+pub(crate) fn assert_after_resharding<F>(num_blocks_past_split: u64, assertion: F) -> LoopAction
+where
+    F: Fn(&TestLoopNode<'_>) + 'static,
+{
+    let split_height: Cell<Option<u64>> = Cell::new(None);
+    let (done, succeeded) = LoopAction::shared_success_flag();
+    let action_fn = Box::new(
+        move |node_datas: &[NodeExecutionData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            if done.get() {
+                return;
+            }
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+            let split = match split_height.get() {
+                Some(h) => h,
+                None => {
+                    if !this_block_has_new_shard_layout(
+                        client_actor.client.epoch_manager.as_ref(),
+                        &tip,
+                    ) {
+                        return;
+                    }
+                    split_height.set(Some(tip.height));
+                    tip.height
+                }
+            };
+            if tip.height < split + num_blocks_past_split {
+                return;
+            }
+            let node = TestLoopNode {
+                data: test_loop_data,
+                node_data: get_node_data(node_datas, &client_account_id),
+            };
+            assertion(&node);
+            done.set(true);
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
 }
 
 /// Checks status of the provided transactions. Panics if transaction result is an error.
