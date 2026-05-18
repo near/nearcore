@@ -88,7 +88,6 @@ fn setup_network_node_with_tcp(
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
         archive: config.archive,
-        state_sync_enabled: true,
         transaction_pool_size_limit: None,
     });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();

@@ -27,13 +27,12 @@ use near_chain_configs::{
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
     default_state_request_server_threads, default_state_request_throttle_period,
-    default_state_requests_per_throttle_period, default_state_sync_enabled,
-    default_state_sync_external_backoff, default_state_sync_external_timeout,
-    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_transaction_pool_strict_nonce_ttl_blocks,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, get_initial_supply,
+    default_state_requests_per_throttle_period, default_state_sync_external_backoff,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -88,9 +87,6 @@ pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 1_800;
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
-/// Horizon at which instead of fetching block, fetch full state.
-const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
-
 /// Behind this horizon header fetch kicks in.
 const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -138,8 +134,6 @@ pub struct Consensus {
     pub chunk_wait_mult: Rational32,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
-    /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeightDelta,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
@@ -207,7 +201,6 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
             chunk_wait_mult: default_chunk_wait_mult(),
             produce_empty_blocks: true,
-            block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::milliseconds(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::milliseconds(CHUNK_REQUEST_RETRY_PERIOD),
@@ -353,8 +346,6 @@ pub struct Config {
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
-    /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    pub state_sync_enabled: bool,
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
@@ -500,7 +491,6 @@ impl Default for Config {
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
-            state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             transaction_pool_strict_nonce_ttl_blocks: None,
             enable_multiline_logging: default_enable_multiline_logging(),
@@ -758,8 +748,6 @@ impl NearConfig {
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
                 ttl_account_id_router: config.network.ttl_account_id_router,
-                // TODO(1047): this should be adjusted depending on the speed of sync of state.
-                block_fetch_horizon: config.consensus.block_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
@@ -796,7 +784,6 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
-                state_sync_enabled: config.state_sync_enabled,
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 transaction_pool_strict_nonce_ttl_blocks: config
