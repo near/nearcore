@@ -176,8 +176,9 @@ impl DoomslugTimer {
     pub fn get_delay(&self, n: BlockHeightDelta) -> Duration {
         let n32 = u32::try_from(n).unwrap_or(u32::MAX);
         let min_delay = self.min_delay.get();
-        let delay_step = min_delay / 10;
-        std::cmp::min(self.max_delay.get(), min_delay + delay_step * n32.saturating_sub(2))
+        let max_delay = self.max_delay.get();
+        let delay_step = max_delay / 10;
+        std::cmp::min(max_delay, min_delay + delay_step * n32.saturating_sub(2))
     }
 }
 
@@ -970,9 +971,9 @@ mod tests {
             DoomslugThresholdMode::TwoThirds,
         );
 
-        // delay_step = min_delay / 10 = 100ms.
-        // n = 5: 1000 + 100 * (5 - 2) = 1300ms.
-        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(1300));
+        // delay_step = max_delay / 10 = 300ms.
+        // n = 5: 1000 + 300 * (5 - 2) = 1900ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(1900));
         // Large n saturates at max_delay.
         assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(3000));
 
@@ -980,9 +981,9 @@ mod tests {
         assert!(min_delay.update(Duration::milliseconds(2000)));
         assert!(max_delay.update(Duration::milliseconds(5000)));
 
-        // delay_step is now 2000 / 10 = 200ms.
-        // n = 5: 2000 + 200 * (5 - 2) = 2600ms.
-        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(2600));
+        // delay_step is now max_delay / 10 = 500ms.
+        // n = 5: 2000 + 500 * (5 - 2) = 3500ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(3500));
         // The cap now follows the updated max_delay.
         assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(5000));
     }

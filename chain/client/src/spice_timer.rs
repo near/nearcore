@@ -42,11 +42,6 @@ impl SpiceTimer {
         min_block_time: MutableConfigValue<Duration>,
         max_block_time: MutableConfigValue<Duration>,
     ) -> Self {
-        assert!(
-            min_block_time.get() <= max_block_time.get(),
-            "min_block_time must be <= max_block_time"
-        );
-
         Self { clock, min_block_time, max_block_time, cached_certification_height: None }
     }
 
@@ -186,18 +181,5 @@ mod tests {
         // Lag of 102 blocks: should still be capped at 2000ms
         let delay = timer.calculate_production_delay_ns(102);
         assert_eq!(delay, Duration::milliseconds(2000).unsigned_abs().as_nanos());
-    }
-
-    #[test]
-    #[should_panic(expected = "min_block_time must be <= max_block_time")]
-    fn test_invalid_config_panics() {
-        let clock = FakeClock::new(Utc::UNIX_EPOCH);
-
-        SpiceTimer::new(
-            clock.clock(),
-            MutableConfigValue::new(Duration::milliseconds(2000), "min_block_time"),
-            // max < min, should panic
-            MutableConfigValue::new(Duration::milliseconds(600), "max_block_time"),
-        );
     }
 }

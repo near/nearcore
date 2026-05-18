@@ -1,4 +1,4 @@
-use crate::ReshardingConfig;
+use crate::{ClientConfig, ReshardingConfig};
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
@@ -124,10 +124,10 @@ pub struct UpdatableClientConfig {
     /// Minimum duration before producing block.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub min_block_production_delay: Duration,
-    /// Maximum duration before skipping given height.
+    /// Maximum wait for approvals before producing block.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub max_block_production_delay: Duration,
-    /// Maximum wait for approvals before producing block.
+    /// Maximum duration before skipping given height.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub max_block_wait_delay: Duration,
     /// Multiplier for the wait time for all chunks to be received.
@@ -135,6 +135,24 @@ pub struct UpdatableClientConfig {
     /// Time between running doomslug timer.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub doomslug_step_period: Duration,
+}
+
+impl From<&ClientConfig> for UpdatableClientConfig {
+    fn from(config: &ClientConfig) -> Self {
+        Self {
+            expected_shutdown: config.expected_shutdown.get(),
+            resharding_config: config.resharding_config.get(),
+            produce_chunk_add_transactions_time_limit: config
+                .produce_chunk_add_transactions_time_limit
+                .get(),
+            block_production_tracking_delay: config.block_production_tracking_delay.get(),
+            min_block_production_delay: config.min_block_production_delay.get(),
+            max_block_production_delay: config.max_block_production_delay.get(),
+            max_block_wait_delay: config.max_block_wait_delay.get(),
+            chunk_wait_mult: config.chunk_wait_mult.get(),
+            doomslug_step_period: config.doomslug_step_period.get(),
+        }
+    }
 }
 
 pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;

@@ -127,7 +127,7 @@ fn test_skip_approval_prefers_producer_matching_parent() {
 fn test_update_client_config_applies_consensus_values() {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().validators(2, 0).epoch_length(10).build();
+    let mut env = TestLoopBuilder::new().build();
     env.validator_runner().run_until_head_height(5);
 
     let client = env.validator().client();
@@ -135,18 +135,8 @@ fn test_update_client_config_applies_consensus_values() {
     let new_doomslug_step_period = old_doomslug_step_period + Duration::milliseconds(7);
 
     let updatable_config = |doomslug_step_period| UpdatableClientConfig {
-        expected_shutdown: client.config.expected_shutdown.get(),
-        resharding_config: client.config.resharding_config.get(),
-        produce_chunk_add_transactions_time_limit: client
-            .config
-            .produce_chunk_add_transactions_time_limit
-            .get(),
-        block_production_tracking_delay: client.config.block_production_tracking_delay.get(),
-        min_block_production_delay: client.config.min_block_production_delay.get(),
-        max_block_production_delay: client.config.max_block_production_delay.get(),
-        max_block_wait_delay: client.config.max_block_wait_delay.get(),
-        chunk_wait_mult: client.config.chunk_wait_mult.get(),
         doomslug_step_period,
+        ..UpdatableClientConfig::from(&client.config)
     };
 
     assert!(client.apply_updatable_client_config(updatable_config(new_doomslug_step_period)));
