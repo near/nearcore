@@ -146,8 +146,6 @@ pub enum SyncStatus {
     },
     /// State sync, with different states of state sync for different shards.
     StateSync(StateSyncStatus),
-    /// Sync state across all shards is done.
-    StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
         /// Header head height at the beginning.
@@ -186,7 +184,6 @@ impl SyncStatus {
             SyncStatus::EpochSync(_) => 2,
             SyncStatus::HeaderSync { .. } => 4,
             SyncStatus::StateSync(_) => 5,
-            SyncStatus::StateSyncDone => 6,
             SyncStatus::BlockSync { .. } => 7,
         }
     }
@@ -248,7 +245,6 @@ impl From<SyncStatus> for SyncStatusView {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
             SyncStatus::StateSync(status) => SyncStatusView::StateSync(status.into()),
-            SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
             SyncStatus::BlockSync { start_height, current_height, highest_height } => {
                 SyncStatusView::BlockSync { start_height, current_height, highest_height }
             }

@@ -138,7 +138,6 @@ export type SyncStatusView =
             computation_tasks: string[];
         };
     }
-    | 'StateSyncDone'
     | {
         BlockSync: {
             start_height: number;
