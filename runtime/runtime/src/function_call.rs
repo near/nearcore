@@ -108,7 +108,12 @@ pub(crate) fn action_function_call(
                     .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
-            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::LinkError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LINK_ERRORS.inc();
+            }
+            FunctionCallError::LoadingError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LOADING_ERRORS.inc();
+            }
             FunctionCallError::MethodResolveError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
                     .with_label_values::<&str>(&[err.into()])
@@ -323,7 +328,7 @@ pub(crate) fn execute_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
-            panic!("Contract runtime failed to load a contract: {msg}")
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
         Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)

@@ -501,7 +501,7 @@ fn build_epoch_config_store(
             memory_usage_threshold: u64::MAX,
             min_child_memory_usage: u64::MAX,
             max_number_of_shards: 100,
-            min_epochs_between_resharding: 0,
+            min_epochs_between_resharding: 1.try_into().unwrap(),
             force_split_shards,
             block_split_shards: vec![],
         };

@@ -319,6 +319,10 @@ pub struct Chain {
     on_post_state_ready_sender: Option<PostStateReadySender>,
     #[cfg(feature = "test_features")]
     pub test_paused_blocks: crate::block_processing_utils::TestPausedBlocks,
+    /// Per-Chain counter of failed optimistic-block applies, for tests that
+    /// need a node-scoped signal instead of the process-global metric.
+    #[cfg(feature = "test_features")]
+    pub failed_optimistic_block_applies: std::sync::atomic::AtomicU64,
 }
 
 impl Drop for Chain {
@@ -457,6 +461,8 @@ impl Chain {
             on_post_state_ready_sender: None,
             #[cfg(feature = "test_features")]
             test_paused_blocks: Default::default(),
+            #[cfg(feature = "test_features")]
+            failed_optimistic_block_applies: Default::default(),
         })
     }
 
@@ -639,6 +645,8 @@ impl Chain {
             on_post_state_ready_sender,
             #[cfg(feature = "test_features")]
             test_paused_blocks: Default::default(),
+            #[cfg(feature = "test_features")]
+            failed_optimistic_block_applies: Default::default(),
         })
     }
 
@@ -1775,6 +1783,11 @@ impl Chain {
     ) {
         // Track all children using `parent_span`, as they may be processed in parallel.
         let parent_span = Span::current();
+        // Distinguish apply tasks by block kind so tests can delay one variant.
+        let task_name = match &block {
+            BlockToApply::Optimistic(_) => "apply_chunks_optimistic",
+            BlockToApply::Normal(_) => "apply_chunks_normal",
+        };
         #[cfg(feature = "test_features")]
         let test_pause_gate = match &block {
             BlockToApply::Normal(hash) => self.test_paused_blocks.get_gate(hash),
@@ -1815,7 +1828,7 @@ impl Chain {
                 ((shard_id, cached_shard_update_key), boxed)
             })
             .collect();
-        PendingShardJobs::run("apply_chunks", self.apply_chunks_spawner.clone(), jobs, on_done);
+        PendingShardJobs::run(task_name, self.apply_chunks_spawner.clone(), jobs, on_done);
     }
 
     #[instrument(level = "debug", target = "chain", skip_all)]
@@ -2061,6 +2074,10 @@ impl Chain {
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);
                 }
                 Err(e) => {
+                    metrics::NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES.inc();
+                    #[cfg(feature = "test_features")]
+                    self.failed_optimistic_block_applies
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     tracing::warn!(
                         target: "chain", ?e,
                         ?prev_block_hash, %block_height, %shard_id,
@@ -3405,8 +3422,11 @@ impl Chain {
         }
         tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "creating shard update job");
 
-        let mut on_post_state_ready = None;
-        let shard_update_reason = if is_new_chunk {
+        // For missing chunks we look up `prev_chunk_extra` once and reuse it
+        // for both the pin's prev-state root and `OldChunkData`. The pin
+        // prevents memtrie GC from freeing the prev-state root while the
+        // apply task sits in the queue.
+        let (prev_state_root, shard_update_reason, on_post_state_ready) = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
             let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
@@ -3454,7 +3474,7 @@ impl Chain {
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
             let chunk_transactions = chunk.into_transactions();
-            on_post_state_ready = self.get_on_post_state_ready_callback(
+            let on_post_state_ready = self.get_on_post_state_ready_callback(
                 &block,
                 prev_block,
                 epoch_id,
@@ -3467,27 +3487,37 @@ impl Chain {
             let transactions: SignedValidPeriodTransactions =
                 SignedValidPeriodTransactions::new(chunk_transactions, tx_valid_list);
 
-            ShardUpdateReason::NewChunk(NewChunkData {
-                gas_limit: chunk_header.gas_limit(),
-                prev_state_root: chunk_header.prev_state_root(),
-                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
-                chunk_hash: Some(chunk_header.chunk_hash().clone()),
-                transactions,
-                receipts,
-                block,
-                storage_context,
-            })
+            (
+                chunk_header.prev_state_root(),
+                ShardUpdateReason::NewChunk(NewChunkData {
+                    gas_limit: chunk_header.gas_limit(),
+                    prev_state_root: chunk_header.prev_state_root(),
+                    prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                    chunk_hash: Some(chunk_header.chunk_hash().clone()),
+                    transactions,
+                    receipts,
+                    block,
+                    storage_context,
+                }),
+                on_post_state_ready,
+            )
         } else {
-            ShardUpdateReason::OldChunk(OldChunkData {
-                block,
-                prev_chunk_extra: ChunkExtra::clone(
-                    self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?.as_ref(),
-                ),
-                storage_context,
-            })
+            let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
+            let prev_state_root = *prev_chunk_extra.state_root();
+            (
+                prev_state_root,
+                ShardUpdateReason::OldChunk(OldChunkData {
+                    block,
+                    prev_chunk_extra: ChunkExtra::clone(prev_chunk_extra.as_ref()),
+                    storage_context,
+                }),
+                None,
+            )
         };
 
         let runtime = self.runtime_adapter.clone();
+        let memtrie_pin =
+            runtime.get_tries().maybe_pin_memtrie_root(shard_context.shard_uid, prev_state_root)?;
         Ok(Some((
             shard_id,
             cached_shard_update_key,
@@ -3497,6 +3527,7 @@ impl Chain {
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    memtrie_pin,
                     on_post_state_ready,
                 )?)
             }),

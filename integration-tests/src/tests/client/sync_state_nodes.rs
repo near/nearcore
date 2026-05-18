@@ -52,7 +52,6 @@ async fn ultra_slow_test_sync_state_dump() {
     // Produce more blocks to make sure that state sync gets triggered when the second node starts.
     let state_sync_horizon = 50;
     let block_header_fetch_horizon = 1;
-    let block_fetch_horizon = 1;
 
     let mut near1 = load_test_config("test1", port1, genesis.clone());
     near1.client_config.min_num_peers = 0;
@@ -97,9 +96,7 @@ async fn ultra_slow_test_sync_state_dump() {
                         near2.client_config.max_block_production_delay =
                             Duration::milliseconds(600);
                         near2.client_config.block_header_fetch_horizon = block_header_fetch_horizon;
-                        near2.client_config.block_fetch_horizon = block_fetch_horizon;
                         near2.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
-                        near2.client_config.state_sync_enabled = true;
                         near2.client_config.state_sync_external_timeout = Duration::seconds(2);
                         near2.client_config.state_sync_p2p_timeout = Duration::seconds(2);
                         near2.client_config.state_sync.sync =
@@ -329,8 +326,6 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         // That should likely be changed to `TrackedShardsConfig::NoShards`.
         near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards; // Track all shards, it is a validator.
         near1.config.store.disable_state_snapshot();
-        near1.config.state_sync_enabled = false;
-        near1.client_config.state_sync_enabled = false;
 
         start_with_config(dir1.path(), near1, actor_system.clone())
             .await
@@ -342,8 +337,6 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         near2.client_config.min_num_peers = 0;
         near2.client_config.tracked_shards_config = TrackedShardsConfig::NoShards;
         near2.config.store.enable_state_snapshot();
-        near2.config.state_sync_enabled = false;
-        near2.client_config.state_sync_enabled = false;
 
         let nearcore::NearNode {
             view_client: view_client2,

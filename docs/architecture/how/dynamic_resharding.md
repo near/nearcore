@@ -95,7 +95,7 @@ At the last block of each epoch, the block producer:
 1. Collects `proposed_split` values from all chunk headers in the block.
 2. Calls `get_upcoming_shard_split()` which:
    - Checks if dynamic resharding is enabled (via `ShardLayoutConfig::Dynamic`).
-   - Checks the resharding cooldown (`can_reshard()` -- verifies `epoch_height - last_resharding >= min_epochs_between_resharding`).
+   - Checks the resharding cooldown (`can_reshard()` -- verifies `epoch_height - last_resharding >= min_epochs_between_resharding`). `min_epochs_between_resharding` must be `> 0`: allowing back-to-back reshardings is unsafe because a freshly-created child shard would inherit `proposed_split` from the parent's final chunk while its own first chunk freshly computes `proposed_split = None`, triggering `InvalidChunkHeaderShardSplit`.
    - Calls `pick_shard_to_split()` to select the winning shard: forced shards have priority, otherwise the shard with highest `total_memory()` wins.
 3. Embeds the result as `shard_split: Option<(ShardId, AccountId)>` in `BlockHeaderInnerRestV6`.
 
