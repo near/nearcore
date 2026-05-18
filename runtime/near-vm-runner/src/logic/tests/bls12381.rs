@@ -950,6 +950,61 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_blst_p1_in_g1_rejects_x_0() {
+        let mut pos = vec![0u8; 96];
+        pos[95] = 2;
+        let neg =
+            G1Operations::serialize_uncompressed_g(&G1Operations::deserialize_g(pos.clone()).neg());
+
+        for (bytes, neg_bytes) in [(&pos, &neg), (&neg, &pos)] {
+            let mut pk_aff = blst::blst_p1_affine::default();
+            let err = unsafe { blst::blst_p1_deserialize(&mut pk_aff, bytes.as_ptr()) };
+            assert_eq!(err, blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP);
+
+            // Not infinity.
+            assert!(!unsafe { blst::blst_p1_affine_is_inf(&pk_aff) });
+
+            // Coordinates of the affine point match the input bytes.
+            let mut x_bytes = [0u8; 48];
+            let mut y_bytes = [0u8; 48];
+            unsafe {
+                blst::blst_bendian_from_fp(x_bytes.as_mut_ptr(), &pk_aff.x);
+                blst::blst_bendian_from_fp(y_bytes.as_mut_ptr(), &pk_aff.y);
+            }
+            assert_eq!(x_bytes.as_slice(), &bytes[0..48]);
+            assert_eq!(y_bytes.as_slice(), &bytes[48..96]);
+
+            let mut pk = blst::blst_p1::default();
+            unsafe { blst::blst_p1_from_affine(&mut pk, &pk_aff) };
+
+            // Round-trip: serialize the parsed point back and check that
+            // blst really did store the input point (not e.g. infinity).
+            let mut round_trip_aff = blst::blst_p1_affine::default();
+            unsafe { blst::blst_p1_to_affine(&mut round_trip_aff, &pk) };
+            let mut round_trip = [0u8; 96];
+            unsafe { blst::blst_p1_affine_serialize(round_trip.as_mut_ptr(), &round_trip_aff) };
+            assert_eq!(round_trip.as_slice(), bytes.as_slice());
+
+            let mut double = blst::blst_p1::default();
+            unsafe { blst::blst_p1_add_or_double(&mut double, &pk, &pk) };
+            let mut double_aff = blst::blst_p1_affine::default();
+            unsafe { blst::blst_p1_to_affine(&mut double_aff, &double) };
+            let mut double_bytes = [0u8; 96];
+            unsafe { blst::blst_p1_affine_serialize(double_bytes.as_mut_ptr(), &double_aff) };
+            assert_eq!(double_bytes.as_slice(), neg_bytes.as_slice());
+
+            let mut triple = blst::blst_p1::default();
+            unsafe { blst::blst_p1_add_or_double(&mut triple, &double, &pk) };
+            assert!(unsafe { blst::blst_p1_is_inf(&triple) });
+
+            assert!(
+                !unsafe { blst::blst_p1_in_g1(&pk) },
+                "blst_p1_in_g1 must reject the not-in-group point"
+            );
+        }
+    }
+
     fn add_p_y(point: &G1Affine) -> Vec<u8> {
         let mut ybig: Fq = *point.y().unwrap();
         ybig = ybig.add(&Fq::from_str(P).unwrap());
