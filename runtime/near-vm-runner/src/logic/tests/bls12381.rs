@@ -1,4 +1,4 @@
-// cspell:ignore cofactor, enot, goperations, multipoint
+// cspell:ignore blst, cofactor, enot, goperations, multipoint
 // cspell:ignore pmul, pneg, psum, regs, wbmap, yabig, ybig
 mod tests {
     use crate::logic::MemSlice;
