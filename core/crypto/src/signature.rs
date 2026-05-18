@@ -340,7 +340,7 @@ impl Hash for KeyHandle {
             }
             Self::SECP256K1(k) => {
                 state.write_u8(1u8);
-                state.write(k.as_ref());
+                state.write(&k.0);
             }
         }
     }
@@ -376,7 +376,10 @@ impl KeyHandle {
 
 impl From<PublicKey> for KeyHandle {
     fn from(pk: PublicKey) -> Self {
-        (&pk).into()
+        match pk {
+            PublicKey::ED25519(k) => Self::ED25519(k),
+            PublicKey::SECP256K1(k) => Self::SECP256K1(k),
+        }
     }
 }
 

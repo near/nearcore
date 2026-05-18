@@ -295,22 +295,13 @@ pub fn gas_key_nonce_key_len(account_id: &AccountId, key_handle: &KeyHandle) -> 
 }
 
 /// Append the on-trie identifier of `key_handle` into the given buffer.
-/// For ed25519 / secp256k1 the identifier matches the borsh encoding of
-/// the full `PublicKey`.
+/// The on-trie bytes are exactly `KeyHandle`'s borsh encoding, so we
+/// delegate to `BorshSerialize` rather than duplicating the layout here.
 fn append_key_handle_trie_id(
     buf: &mut impl trie_key_buffer::TrieKeyBuffer,
     key_handle: &KeyHandle,
 ) {
-    match key_handle {
-        KeyHandle::ED25519(k) => {
-            buf.push(0u8);
-            buf.extend(&k.0);
-        }
-        KeyHandle::SECP256K1(k) => {
-            buf.push(1u8);
-            buf.extend(k.as_ref());
-        }
-    }
+    borsh::to_writer(buf.borsh_writer(), key_handle).unwrap()
 }
 
 impl TrieKey {
