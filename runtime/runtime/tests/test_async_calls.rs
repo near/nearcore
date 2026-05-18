@@ -8,7 +8,6 @@ use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 pub mod runtime_group_tools;
 
@@ -1288,11 +1287,7 @@ fn test_refund_to() {
     let [deposit_refund] = &receipts else { panic!("Incorrect number of produced receipts") };
 
     // This is the redirected refund
-    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        assert_refund!(group, deposit_refund @ "near_3");
-    } else {
-        assert_refund!(group, deposit_refund @ "near_1");
-    }
+    assert_refund!(group, deposit_refund @ "near_3");
 }
 
 #[cfg(feature = "nightly")]

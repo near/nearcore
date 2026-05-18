@@ -11,7 +11,6 @@ use near_primitives_core::deterministic_account_id::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, Gas, GasWeight};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 fn test_public_key() -> PublicKey {
     "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse().unwrap()
@@ -78,18 +77,10 @@ fn test_promise_result_per_byte_gas_fee() {
 
     logic.promise_result(0, 0).expect("promise_result should succeed");
 
-    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-        });
-    } else {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-          ExtCosts::write_register_byte: RESULT_SIZE as u64,
-        });
-    }
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::write_register_base: 1,
+    });
 }
 
 #[test]
