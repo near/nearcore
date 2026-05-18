@@ -250,7 +250,7 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
 }
 
 /// Many zero-initialized globals.
-pub fn global_bomb_contract(num_globals: u32) -> Vec<u8> {
+pub fn contract_with_num_globals(num_globals: u32) -> Vec<u8> {
     use wasm_encoder::{
         CodeSection, ConstExpr, ExportKind, ExportSection, Function, FunctionSection,
         GlobalSection, GlobalType, Instruction, Module, TypeSection, ValType,

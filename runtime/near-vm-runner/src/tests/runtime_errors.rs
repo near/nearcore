@@ -1,7 +1,14 @@
 use super::test_builder::test_builder;
+use crate::logic::errors::VMRunnerError;
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::runner::VMKindExt;
 use expect_test::expect;
+use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
+use near_primitives_core::code::ContractCode;
 use near_primitives_core::types::Gas;
 use std::fmt::Write;
+use std::sync::Arc;
 
 /// Compile and load a contract with 100k globals.
 ///
@@ -15,15 +22,7 @@ use std::fmt::Write;
 /// run the contract successfully.
 #[test]
 fn test_max_core_instance_size_breached() {
-    use crate::logic::errors::VMRunnerError;
-    use crate::logic::mocks::mock_external::MockedExternal;
-    use crate::runner::VMKindExt;
-    use near_parameters::RuntimeFeesConfig;
-    use near_parameters::vm::VMKind;
-    use near_primitives_core::code::ContractCode;
-    use std::sync::Arc;
-
-    let wasm = near_test_contracts::global_bomb_contract(100_000);
+    let wasm = near_test_contracts::contract_with_num_globals(100_000);
 
     super::with_vm_variants(|vm_kind| {
         let code = ContractCode::new(wasm.clone(), None);
