@@ -435,6 +435,12 @@ pub struct Config {
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
     /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
+    /// If true, SPICE nodes track uncertified transactions in a pending
+    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
+    /// constraints during chunk production and RPC validation. Disabled by
+    /// default; only meaningful when SPICE is active.
+    #[cfg(feature = "protocol_feature_spice")]
+    pub spice_pending_transaction_queue_enabled: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -510,6 +516,8 @@ impl Default for Config {
             protocol_version_check_config_override: None,
             enable_early_prepare_transactions: None,
             chunks_cache_height_horizon: None,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transaction_queue_enabled: false,
         }
     }
 }
@@ -797,6 +805,9 @@ impl NearConfig {
                 chunks_cache_height_horizon: config
                     .chunks_cache_height_horizon
                     .unwrap_or_else(default_chunks_cache_height_horizon),
+                #[cfg(feature = "protocol_feature_spice")]
+                spice_pending_transaction_queue_enabled: config
+                    .spice_pending_transaction_queue_enabled,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,

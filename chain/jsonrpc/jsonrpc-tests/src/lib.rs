@@ -269,6 +269,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         epoch_length: client_config.epoch_length,
         transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: client_config
+            .spice_pending_transaction_queue_enabled(),
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(
