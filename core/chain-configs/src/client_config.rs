@@ -582,10 +582,6 @@ pub fn default_epoch_sync() -> Option<EpochSyncConfig> {
     Some(EpochSyncConfig::default())
 }
 
-pub fn default_state_sync_enabled() -> bool {
-    true
-}
-
 pub fn default_view_client_threads() -> usize {
     4
 }
@@ -778,8 +774,6 @@ pub struct ClientConfig {
     /// Time to persist Accounts Id in the router without removing them.
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub ttl_account_id_router: Duration,
-    /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub catchup_step_period: Duration,
@@ -847,9 +841,6 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
-    /// Whether to use the State Sync mechanism.
-    /// If disabled, the node will do Block Sync instead of State Sync.
-    pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
     /// Options for epoch sync.
