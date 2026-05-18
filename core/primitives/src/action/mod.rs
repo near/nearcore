@@ -391,6 +391,46 @@ impl Action {
             _ => Balance::ZERO,
         }
     }
+
+    /// Returns `true` if this action carries (anywhere in its structure) a
+    /// post-quantum public key or signature, meaning the
+    /// `PostQuantumSignatures` protocol feature must be enabled to admit it.
+    ///
+    /// Two layers of exhaustive matching by design: the outer match over
+    /// `Action` variants forces a compile-time decision when a new variant
+    /// is added; `KeyType::is_post_quantum` forces the same for any new
+    /// signature scheme. Do not collapse the action arms into a wildcard.
+    pub fn post_quantum_signatures_required(&self) -> bool {
+        match self {
+            // No key material on the wire.
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::DeterministicStateInit(_) => false,
+            // Each of these carries a single pubkey.
+            Action::Stake(a) => a.public_key.key_type().is_post_quantum(),
+            Action::AddKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::DeleteKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::TransferToGasKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::WithdrawFromGasKey(a) => a.public_key.key_type().is_post_quantum(),
+            // Recursive: a delegate action carries an inner signer pubkey,
+            // its signature, and a nested set of actions; any of them can
+            // transport post-quantum key material.
+            Action::Delegate(sda) => {
+                sda.delegate_action.public_key.key_type().is_post_quantum()
+                    || sda.signature.key_type().is_post_quantum()
+                    || sda
+                        .delegate_action
+                        .get_actions()
+                        .iter()
+                        .any(Action::post_quantum_signatures_required)
+            }
+        }
+    }
 }
 
 impl From<CreateAccountAction> for Action {

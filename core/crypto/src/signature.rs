@@ -41,6 +41,18 @@ pub enum KeyType {
     MLDSA65 = 2,
 }
 
+impl KeyType {
+    /// Returns `true` if this key type belongs to a post-quantum signature
+    /// scheme. Exhaustive match by design: adding a new `KeyType` variant
+    /// forces a compile-time decision about whether it is post-quantum.
+    pub fn is_post_quantum(&self) -> bool {
+        match self {
+            KeyType::ED25519 | KeyType::SECP256K1 => false,
+            KeyType::MLDSA65 => true,
+        }
+    }
+}
+
 impl Display for KeyType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.write_str(match self {

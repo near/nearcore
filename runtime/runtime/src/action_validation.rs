@@ -232,6 +232,12 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 
 /// Validates `AddKeyAction`. Checks validity of the access key permission.
 /// If adding a gas key, validates gas key specific constraints.
+///
+/// Note: ML-DSA-65 keys are gated centrally via
+/// `SignedTransaction::post_quantum_signatures_required` in
+/// `check_valid_for_config`, not here, so an exhaustive match in
+/// `Action::post_quantum_signatures_required` guarantees no action
+/// variant slips through unchecked.
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
