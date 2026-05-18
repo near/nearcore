@@ -934,6 +934,22 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_bls12381_g1_multiexp_x_0() {
+        let mut zero_x_pos = vec![0u8; 2 * 48];
+        zero_x_pos[2 * 48 - 1] = 2;
+        let zero_x_neg = G1Operations::serialize_uncompressed_g(
+            &G1Operations::deserialize_g(zero_x_pos.clone()).neg(),
+        );
+
+        let mut scalar = vec![0u8; 32];
+        scalar[0] = 1;
+
+        for point in [zero_x_pos, zero_x_neg] {
+            run_bls12381_fn!(bls12381_g1_multiexp, [point, scalar.clone()], 1);
+        }
+    }
+
     fn add_p_y(point: &G1Affine) -> Vec<u8> {
         let mut ybig: Fq = *point.y().unwrap();
         ybig = ybig.add(&Fq::from_str(P).unwrap());
