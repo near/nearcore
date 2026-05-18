@@ -713,6 +713,8 @@ async fn test_receipt_parent_by_hint_handler_error_status_code() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
 
+    // Pick a deterministic error: window above MAX_HINT_WINDOW (50) is rejected
+    // at request validation before any tracking check or scan work.
     let json = serde_json::json!({
         "jsonrpc": "2.0",
         "id": "dontcare",
@@ -721,6 +723,7 @@ async fn test_receipt_parent_by_hint_handler_error_status_code() {
             "receipt_id": CryptoHash::new().to_string(),
             "block_height": 1u64,
             "shard_id": 0u64,
+            "window": 999u64,
         })
     });
 
@@ -734,10 +737,9 @@ async fn test_receipt_parent_by_hint_handler_error_status_code() {
 
     let response: serde_json::Value = serde_json::from_slice(&response_bytes).unwrap();
     let error_data = &response["error"]["data"];
-    // ClientConfig::test() uses NoShards tracking, so the handler returns
-    // ShardNotTracked before doing any scan work.
-    assert_eq!(error_data["name"].as_str().unwrap(), "SHARD_NOT_TRACKED");
-    assert_eq!(error_data["info"]["shard_id"].as_u64().unwrap(), 0);
+    assert_eq!(error_data["name"].as_str().unwrap(), "WINDOW_TOO_LARGE");
+    assert_eq!(error_data["info"]["requested"].as_u64().unwrap(), 999);
+    assert_eq!(error_data["info"]["maximum"].as_u64().unwrap(), 50);
 }
 
 #[tokio::test]

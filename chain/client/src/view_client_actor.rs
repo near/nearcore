@@ -7,6 +7,7 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::receipt_to_tx::{DEFAULT_HINT_WINDOW, MAX_HINT_WINDOW, resolve_receipt_via_hint};
 use near_chain::spice_chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -1330,21 +1331,43 @@ impl
             .with_label_values(&["GetReceiptParentByHint"])
             .start_timer();
 
-        let effective_window = msg.window.unwrap_or(near_chain::receipt_to_tx::DEFAULT_HINT_WINDOW);
-        if effective_window > near_chain::receipt_to_tx::MAX_HINT_WINDOW {
+        let effective_window = msg.window.unwrap_or(DEFAULT_HINT_WINDOW);
+        if effective_window > MAX_HINT_WINDOW {
             return Err(GetReceiptParentByHintError::WindowTooLarge {
                 requested: effective_window,
-                maximum: near_chain::receipt_to_tx::MAX_HINT_WINDOW,
+                maximum: MAX_HINT_WINDOW,
             });
         }
         if !self.config.save_tx_outcomes {
             return Err(GetReceiptParentByHintError::OutcomesNotStored);
         }
-        if !self.config.tracked_shards_config.tracks_shard(msg.shard_id) {
-            return Err(GetReceiptParentByHintError::ShardNotTracked { shard_id: msg.shard_id });
+
+        // Resolve the epoch for the hinted block. Falling back to the head epoch when
+        // the hinted height has no block (GC'd or never seen) keeps the tracking check
+        // against the node's current tracking config — the best proxy when the
+        // historical epoch can't be reconstructed.
+        let epoch_id = match self.chain.chain_store().get_block_hash_by_height(msg.block_height) {
+            Ok(block_hash) => match self.chain.get_block_header(&block_hash) {
+                Ok(header) => *header.epoch_id(),
+                Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+            },
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => match self.chain.head() {
+                Ok(tip) => tip.epoch_id,
+                Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+            },
+            Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+        };
+        match self.shard_tracker.rpc_tracks_shard_at_epoch(msg.shard_id, &epoch_id) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(GetReceiptParentByHintError::ShardNotTracked {
+                    shard_id: msg.shard_id,
+                });
+            }
+            Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
         }
 
-        match near_chain::receipt_to_tx::resolve_receipt_via_hint(
+        match resolve_receipt_via_hint(
             self.chain.chain_store(),
             msg.receipt_id,
             msg.block_height,

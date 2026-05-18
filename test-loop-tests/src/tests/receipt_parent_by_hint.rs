@@ -411,33 +411,47 @@ fn test_hint_outcomes_not_stored() {
     );
 }
 
-/// Node tracks a subset that does not include the queried shard → ShardNotTracked.
+/// Bug-coverage for the static-vs-epoch-aware predicate split. A node with
+/// `TrackedShardsConfig::Accounts(...)` whose account lives on the queried shard
+/// **must succeed**. The earlier static `tracks_shard()` predicate returned
+/// `false` for the `Accounts` variant unconditionally; the epoch-aware
+/// `rpc_tracks_shard_at_epoch` correctly returns `true` because the account is
+/// on the queried shard. If this test regresses to `ShardNotTracked`, the
+/// handler is back on the broken static predicate.
 #[test]
-fn test_hint_shard_not_tracked() {
+fn test_hint_shard_tracked_via_account() {
     init_test_logger();
+    let user_account = create_account_id("account0");
+    let tracked_accounts = vec![user_account.clone()];
     let mut env = TestLoopBuilder::new()
-        .num_shards(2)
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
         .epoch_length(EPOCH_LENGTH)
-        .config_modifier(|config, _| {
-            // Default tracking for validators is NoShards, which already returns false for
-            // any concrete shard query. Explicit assertion below covers the variant.
-            config.tracked_shards_config = TrackedShardsConfig::NoShards;
+        .config_modifier(move |config, _| {
+            config.save_receipt_to_tx = false;
+            config.tracked_shards_config = TrackedShardsConfig::Accounts(tracked_accounts.clone());
         })
         .build();
-    let result = handle_message(
+
+    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account, 1, false);
+
+    let response = handle_message(
         &mut env,
         GetReceiptParentByHint {
-            receipt_id: CryptoHash::hash_bytes(b"any"),
-            block_height: 100,
-            shard_id: ShardId::new(1),
+            receipt_id,
+            block_height: height,
+            shard_id: ShardId::new(0),
             window: None,
         },
-    );
-    match result {
-        Err(GetReceiptParentByHintError::ShardNotTracked { shard_id }) => {
-            assert_eq!(shard_id, ShardId::new(1));
+    )
+    .expect("Accounts variant should be recognized by the epoch-aware tracking check");
+
+    let ReceiptToTxInfo::V1(v1) = response.info;
+    match v1.origin {
+        ReceiptOrigin::FromTransaction(origin) => {
+            assert_eq!(origin.tx_hash, tx_hash);
+            assert_eq!(origin.sender_account_id, user_account);
         }
-        other => panic!("expected ShardNotTracked, got {other:?}"),
+        other => panic!("expected FromTransaction, got {other:?}"),
     }
 }
 
