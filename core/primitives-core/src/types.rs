@@ -2,7 +2,7 @@
 pub use crate::account::id::AccountId;
 pub use crate::gas::Gas;
 use crate::hash::CryptoHash;
-use std::num::ParseIntError;
+use std::num::{NonZeroU64, ParseIntError};
 use std::ops::Add;
 use std::str::FromStr;
 /// Hash used by a struct implementing the Merkle tree.
@@ -23,6 +23,8 @@ pub type NonceIndex = u16;
 pub type BlockHeight = u64;
 /// Height of the epoch.
 pub type EpochHeight = u64;
+/// Non-zero epoch height. Used where `0` is semantically invalid.
+pub type NonZeroEpochHeight = NonZeroU64;
 /// Balance is type for storing amounts of tokens.
 pub type Balance = near_token::NearToken;
 /// Compute is a type for storing compute time. Measured in femtoseconds (10^-15 seconds).

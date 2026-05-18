@@ -2433,7 +2433,7 @@ mod check_dynamic_resharding {
             memory_usage_threshold,
             min_child_memory_usage,
             max_number_of_shards,
-            min_epochs_between_resharding: 0,
+            min_epochs_between_resharding: 1.try_into().unwrap(),
             force_split_shards,
             block_split_shards,
         }
