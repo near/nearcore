@@ -323,7 +323,9 @@ pub(crate) fn execute_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
-            panic!("Contract runtime failed to load a contract: {msg}")
+            // Loading the WASM failed, despite passing compilation. `LinkError`
+            // isn't 100% accurate but it can be treated as such.
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::LinkError { msg }));
         }
         Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)

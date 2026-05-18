@@ -3,6 +3,55 @@ use expect_test::expect;
 use near_primitives_core::types::Gas;
 use std::fmt::Write;
 
+/// Compile and load a contract with 100k globals.
+///
+/// Each global produces 8 bytes of instance data, so globals alone add 800kB.
+/// In total, that breaches the (default) limit of 1MiB for
+/// `max_core_instance_size` for the Wasmtime pooling allocator.
+///
+/// This must return `VMRunnerError::LoadingError` and not panic / crash the node.
+///
+/// Other VM backends don't use a pooling allocator with this limit, so they should
+/// run the contract successfully.
+#[test]
+fn test_max_core_instance_size_breached() {
+    use crate::logic::errors::VMRunnerError;
+    use crate::logic::mocks::mock_external::MockedExternal;
+    use crate::runner::VMKindExt;
+    use near_parameters::RuntimeFeesConfig;
+    use near_parameters::vm::VMKind;
+    use near_primitives_core::code::ContractCode;
+    use std::sync::Arc;
+
+    let wasm = near_test_contracts::global_bomb_contract(100_000);
+
+    super::with_vm_variants(|vm_kind| {
+        let code = ContractCode::new(wasm.clone(), None);
+        let config = Arc::new(super::test_vm_config(Some(vm_kind)));
+        let fees = Arc::new(RuntimeFeesConfig::test());
+        let mut ext = MockedExternal::with_code(code.clone_for_tests());
+        let context = super::create_context(vec![]);
+        let gas_counter = context.make_gas_counter(&config);
+
+        let result = vm_kind
+            .runtime(config)
+            .unwrap()
+            .prepare(&ext, None, gas_counter, "main")
+            .run(&mut ext, &context, fees);
+
+        match vm_kind {
+            VMKind::Wasmtime => assert!(
+                matches!(result, Err(VMRunnerError::LoadingError(_))),
+                "Wasmtime: expected LoadingError for oversized instance, got: {result:?}",
+            ),
+            _ => assert!(
+                result.as_ref().is_ok_and(|outcome| outcome.aborted.is_none()),
+                "{vm_kind:?}: expected clean success for many-globals contract, got: {result:?}",
+            ),
+        }
+    });
+}
+
 const FIX_CONTRACT_LOADING_COST: u32 = 129;
 
 static INFINITE_INITIALIZER_CONTRACT: &str = r#"
