@@ -131,7 +131,6 @@ pub fn create_test_setup_with_accounts_and_validity(
         max_block_prod_time: 200,
         num_block_producer_seats: num_validator_seats,
         archive: false,
-        state_sync_enabled: true,
         transaction_pool_size_limit: None,
     });
 

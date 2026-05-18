@@ -75,7 +75,6 @@ fn setup(
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     enable_doomslug: bool,
-    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     genesis_time: Utc,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
@@ -150,7 +149,6 @@ fn setup(
             max_block_prod_time,
             num_block_producer_seats: num_validator_seats,
             archive: false,
-            state_sync_enabled,
             transaction_pool_size_limit: None,
         });
         base.chunk_distribution_network = chunk_distribution_config;
@@ -353,7 +351,6 @@ fn setup_mock_with_validity_period(
         MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         enable_doomslug,
-        true,
         network_adapter.as_multi_sender(),
         clock.now_utc(),
         None,
@@ -470,7 +467,6 @@ pub fn setup_client_with_runtime(
         max_block_prod_time: 20,
         num_block_producer_seats: num_validator_seats,
         archive: split_store_enabled,
-        state_sync_enabled: true,
         transaction_pool_size_limit,
     });
     config.save_tx_outcomes = save_tx_outcomes;
@@ -611,7 +607,6 @@ pub fn setup_tx_request_handler(
         max_block_prod_time: 20,
         num_block_producer_seats: 0,
         archive: true,
-        state_sync_enabled: true,
         transaction_pool_size_limit: None,
     });
     let config = RpcHandlerConfig {
