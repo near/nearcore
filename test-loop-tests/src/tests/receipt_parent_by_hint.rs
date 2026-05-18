@@ -455,6 +455,43 @@ fn test_hint_shard_tracked_via_account() {
     }
 }
 
+/// The response surfaces the parent outcome's execution coordinates so the
+/// caller can drive recursion without needing an out-of-band block lookup. For
+/// a single-hop tx-origin resolution, those coordinates equal the input hint
+/// (the parent tx executed at the same height we scanned).
+#[test]
+fn test_hint_response_carries_parent_outcome_coords() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let (_, receipt_id, height) = send_self_money(&mut env, &user_account, 1, false);
+
+    let response = handle_message(
+        &mut env,
+        GetReceiptParentByHint {
+            receipt_id,
+            block_height: height,
+            shard_id: ShardId::new(0),
+            window: None,
+        },
+    )
+    .expect("hint should resolve");
+
+    assert_eq!(
+        response.outcome_block_height, height,
+        "parent tx executed at the hinted height; response should echo it"
+    );
+    assert_eq!(response.outcome_shard_id, ShardId::new(0));
+}
+
 /// Multi-hop chain resolves through repeated hint calls (caller-driven recursion).
 #[test]
 fn test_hint_recursion_pattern() {
@@ -507,9 +544,6 @@ fn test_hint_recursion_pattern() {
         .get_block_header(&action_outcome.block_hash)
         .unwrap()
         .height();
-    let tx_block_hash = outcome.transaction_outcome.block_hash;
-    let tx_height =
-        env.validator().client().chain.get_block_header(&tx_block_hash).unwrap().height();
 
     // Hop 1: refund_receipt_id -> action_receipt_id (FromReceipt).
     let hop1 = handle_message(
@@ -522,21 +556,25 @@ fn test_hint_recursion_pattern() {
         },
     )
     .unwrap();
-    let parent_receipt_id = match hop1.info {
-        ReceiptToTxInfo::V1(v1) => match v1.origin {
+    let parent_receipt_id = match &hop1.info {
+        ReceiptToTxInfo::V1(v1) => match &v1.origin {
             ReceiptOrigin::FromReceipt(o) => o.parent_receipt_id,
             ReceiptOrigin::FromTransaction(_) => panic!("hop 1 should be FromReceipt"),
         },
     };
     assert_eq!(parent_receipt_id, action_receipt_id);
 
-    // Hop 2: action_receipt_id -> call_tx_hash (FromTransaction). Hint = tx execution height.
+    // Hop 2: action_receipt_id -> call_tx_hash (FromTransaction). The caller
+    // drives recursion using only hop 1's response — no external block lookup.
+    // Hop 1 says the action receipt executed at hop1.outcome_block_height; the
+    // action receipt was created one block earlier (where the tx executed), so
+    // the center-out scan with the default window picks it up.
     let hop2 = handle_message(
         &mut env,
         GetReceiptParentByHint {
             receipt_id: parent_receipt_id,
-            block_height: tx_height,
-            shard_id: ShardId::new(0),
+            block_height: hop1.outcome_block_height,
+            shard_id: hop1.outcome_shard_id,
             window: None,
         },
     )
@@ -722,6 +760,8 @@ fn test_hint_rpc_end_to_end() {
         )
         .unwrap();
 
+    assert_eq!(response.parent_outcome_block_height, height);
+    assert_eq!(response.parent_outcome_shard_id, ShardId::new(0));
     match response.origin {
         ReceiptOriginView::FromTransaction { tx_hash: h, sender_account_id } => {
             assert_eq!(h, tx_hash);

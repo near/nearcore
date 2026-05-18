@@ -962,6 +962,12 @@ pub struct GetReceiptParentByHint {
 #[derive(Debug)]
 pub struct GetReceiptParentByHintResponse {
     pub info: ReceiptToTxInfo,
+    /// Block height at which the returned parent outcome executed; for
+    /// receipt-origin parents this is the height where the child was created.
+    /// Callers use this with `outcome_shard_id` as the next-hop hint.
+    pub outcome_block_height: BlockHeight,
+    /// Shard at which the returned parent outcome executed.
+    pub outcome_shard_id: ShardId,
 }
 
 #[derive(thiserror::Error, Debug)]

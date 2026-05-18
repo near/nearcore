@@ -1956,7 +1956,11 @@ impl JsonRpcHandler {
                 window: request.window,
             })
             .await?;
-        Ok(RpcReceiptParentByHintResponse::from_info(response.info))
+        Ok(RpcReceiptParentByHintResponse::from_parts(
+            response.info,
+            response.outcome_block_height,
+            response.outcome_shard_id,
+        ))
     }
 
     async fn changes_in_block(

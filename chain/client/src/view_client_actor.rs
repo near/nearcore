@@ -1374,7 +1374,11 @@ impl
             msg.shard_id,
             effective_window,
         ) {
-            Ok(Some(info)) => Ok(GetReceiptParentByHintResponse { info }),
+            Ok(Some(res)) => Ok(GetReceiptParentByHintResponse {
+                info: res.info,
+                outcome_block_height: res.outcome_block_height,
+                outcome_shard_id: res.outcome_shard_id,
+            }),
             Ok(None) => Err(GetReceiptParentByHintError::ReceiptNotFoundInHintWindow {
                 receipt_id: msg.receipt_id,
                 block_height: msg.block_height,

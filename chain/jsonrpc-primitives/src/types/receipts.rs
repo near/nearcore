@@ -129,15 +129,31 @@ pub struct RpcReceiptParentByHintResponse {
     pub origin: ReceiptOriginView,
     pub receiver_account_id: AccountId,
     pub shard_id: ShardId,
+    /// Block height at which the returned parent outcome (transaction or
+    /// receipt) executed. For receipt-origin parents this is also the height at
+    /// which the child receipt was created. Use this together with
+    /// `parent_outcome_shard_id` as the next-hop hint when recursing toward the
+    /// originating transaction. Best-effort: works for same-shard chains within
+    /// the default window; cross-shard recursion may need wider windows or a
+    /// different shard guess derived from `parent_predecessor_id`.
+    pub parent_outcome_block_height: BlockHeight,
+    /// Shard at which the returned parent outcome executed.
+    pub parent_outcome_shard_id: ShardId,
 }
 
 impl RpcReceiptParentByHintResponse {
-    pub fn from_info(info: ReceiptToTxInfo) -> Self {
+    pub fn from_parts(
+        info: ReceiptToTxInfo,
+        parent_outcome_block_height: BlockHeight,
+        parent_outcome_shard_id: ShardId,
+    ) -> Self {
         let ReceiptToTxInfo::V1(v1) = info;
         Self {
             origin: ReceiptOriginView::from(&v1.origin),
             receiver_account_id: v1.receiver_account_id,
             shard_id: v1.shard_id,
+            parent_outcome_block_height,
+            parent_outcome_shard_id,
         }
     }
 }

@@ -49,6 +49,20 @@ fn center_out_heights(
     }))
 }
 
+/// Successful resolution of a parent outcome via the hint scan. Carries both
+/// the synthesized `ReceiptToTxInfo` and the execution coordinates of the
+/// outcome itself, so the caller can use `(outcome_block_height, outcome_shard_id)`
+/// as the next-hop hint when recursing toward the originating transaction.
+pub struct HintResolution {
+    pub info: ReceiptToTxInfo,
+    /// Block height at which the parent outcome (transaction or receipt) executed.
+    /// For receipt-origin parents, this is also the height at which the child
+    /// receipt was created.
+    pub outcome_block_height: BlockHeight,
+    /// Shard at which the parent outcome executed.
+    pub outcome_shard_id: ShardId,
+}
+
 /// Attempt to resolve the immediate parent of `receipt_id` by scanning
 /// `OutcomeIds` / `TransactionResultForBlock` rows in a `±window` block range
 /// around `block_height` on `shard_id`.
@@ -67,7 +81,7 @@ pub fn resolve_receipt_via_hint(
     block_height: BlockHeight,
     shard_id: ShardId,
     window: BlockHeightDelta,
-) -> Result<Option<ReceiptToTxInfo>, Error> {
+) -> Result<Option<HintResolution>, Error> {
     let store = chain_store.store();
 
     for height in center_out_heights(block_height, window) {
@@ -110,11 +124,11 @@ pub fn resolve_receipt_via_hint(
                 })
             };
 
-            return Ok(Some(build_receipt_to_tx_info(
-                origin,
-                child.receiver_id().clone(),
-                shard_id,
-            )));
+            return Ok(Some(HintResolution {
+                info: build_receipt_to_tx_info(origin, child.receiver_id().clone(), shard_id),
+                outcome_block_height: height,
+                outcome_shard_id: shard_id,
+            }));
         }
     }
     Ok(None)

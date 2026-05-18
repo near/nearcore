@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.6"
+    "version": "1.2.7"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -16436,6 +16436,20 @@
           "origin": {
             "$ref": "#/components/schemas/ReceiptOriginView"
           },
+          "parent_outcome_block_height": {
+            "description": "Block height at which the returned parent outcome (transaction or\nreceipt) executed. For receipt-origin parents this is also the height at\nwhich the child receipt was created. Use this together with\n`parent_outcome_shard_id` as the next-hop hint when recursing toward the\noriginating transaction. Best-effort: works for same-shard chains within\nthe default window; cross-shard recursion may need wider windows or a\ndifferent shard guess derived from `parent_predecessor_id`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "parent_outcome_shard_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              }
+            ],
+            "description": "Shard at which the returned parent outcome executed."
+          },
           "receiver_account_id": {
             "$ref": "#/components/schemas/AccountId"
           },
@@ -16446,7 +16460,9 @@
         "required": [
           "origin",
           "receiver_account_id",
-          "shard_id"
+          "shard_id",
+          "parent_outcome_block_height",
+          "parent_outcome_shard_id"
         ],
         "type": "object"
       },
