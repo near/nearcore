@@ -1169,20 +1169,26 @@ mod tests {
         };
     }
 
-    /// Input is rejected by the legacy parse path; runs only post-fix.
-    /// Legacy rejection is covered by `test_bls12381_g1_add_x0_test_vectors`.
     #[test]
     fn test_bls12381_decompress_x_0() {
         let mut zero_x = vec![0u8; 48];
         zero_x[0] = 0x80;
-        let res1 = run_bls12381_fn!(
+
+        run_bls12381_fn!(
+            bls12381_p1_decompress,
+            [zero_x.clone()],
+            bls12381_not_in_group_fix: false,
+            1
+        );
+
+        let res = run_bls12381_fn!(
             bls12381_p1_decompress,
             [zero_x],
             bls12381_not_in_group_fix: true
         );
         let mut zero_x_uncompress = vec![0u8; 2 * 48];
         zero_x_uncompress[2 * 48 - 1] = 2;
-        assert_eq!(res1, zero_x_uncompress);
+        assert_eq!(res, zero_x_uncompress);
     }
 
     test_bls12381_decompress!(
