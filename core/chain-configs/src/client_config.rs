@@ -918,6 +918,14 @@ impl ClientConfig {
         #[cfg(not(feature = "protocol_feature_spice"))]
         false
     }
+
+    #[cfg(feature = "protocol_feature_spice")]
+    pub fn set_spice_pending_transaction_queue_enabled(&mut self, value: bool) {
+        self.spice_pending_transaction_queue_enabled = value;
+    }
+
+    #[cfg(not(feature = "protocol_feature_spice"))]
+    pub fn set_spice_pending_transaction_queue_enabled(&mut self, _value: bool) {}
 }
 
 #[cfg(feature = "schemars")]
