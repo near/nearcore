@@ -649,7 +649,6 @@ impl<'a> NodeStateBuilder<'a> {
             max_block_prod_time: 2000,
             num_block_producer_seats: 4,
             archive,
-            state_sync_enabled: false,
             transaction_pool_size_limit: None,
         });
         client_config.epoch_length = self.genesis.config.epoch_length;
@@ -660,7 +659,6 @@ impl<'a> NodeStateBuilder<'a> {
         client_config.state_sync_external_backoff = Duration::milliseconds(100);
 
         if !archive {
-            client_config.state_sync_enabled = true;
             // Testloop does not handle decentralized state sync network messages.
             // Instead, parts are dumped into a tempdir that mocks a centralized state sync bucket.
             client_config.state_sync = default_testloop_state_sync_config(&self.tempdir_path);
@@ -671,7 +669,6 @@ impl<'a> NodeStateBuilder<'a> {
         }
 
         if client_config.cloud_archival_writer.is_some() {
-            client_config.state_sync_enabled = true;
             let cloud_archival_config = test_cloud_archival_config(&self.tempdir_path);
             let mut dump_config: DumpConfig = cloud_archival_config.into_default_dump_config();
             dump_config.iteration_delay = Some(Duration::seconds(1));

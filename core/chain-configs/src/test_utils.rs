@@ -247,7 +247,6 @@ pub struct TestClientConfigParams {
     pub max_block_prod_time: u64,
     pub num_block_producer_seats: NumSeats,
     pub archive: bool,
-    pub state_sync_enabled: bool,
     pub transaction_pool_size_limit: Option<u64>,
 }
 
@@ -259,7 +258,6 @@ impl ClientConfig {
             max_block_prod_time,
             num_block_producer_seats,
             archive,
-            state_sync_enabled,
             transaction_pool_size_limit,
         } = params;
 
@@ -304,7 +302,6 @@ impl ClientConfig {
             epoch_length: 10,
             num_block_producer_seats,
             ttl_account_id_router: Duration::seconds(60 * 60),
-            block_fetch_horizon: 50,
             catchup_step_period: Duration::milliseconds(100),
             chunk_request_retry_period: min(
                 Duration::milliseconds(100),
@@ -337,7 +334,6 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
-            state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit,
