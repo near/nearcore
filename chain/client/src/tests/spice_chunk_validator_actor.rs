@@ -10,7 +10,9 @@ use near_chain::spice_core_writer_actor::{
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
-use near_chain::types::{ApplyChunkShardContext, RuntimeStorageConfig, StorageDataSource};
+use near_chain::types::{
+    ApplyChunkShardContext, MaybePinnedMemtrieRoot, RuntimeStorageConfig, StorageDataSource,
+};
 use near_chain::{
     ApplyChunksSpawner, Block, BlockProcessingArtifact, Chain, ChainGenesis, Provenance,
 };
@@ -30,6 +32,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::stateless_validation::contract_distribution::MAX_CONTRACTS_PER_REQUEST;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
@@ -502,6 +505,8 @@ fn simulate_chunk_application(
     assert_eq!(chunks.len(), 1);
     let chunk_header = &chunks[0];
     let transactions = SignedValidPeriodTransactions::new(vec![], vec![]);
+    let shard_layout = actor.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+    let shard_uid = ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &shard_layout);
     let apply_result = actor
         .chain
         .runtime_adapter
@@ -514,11 +519,12 @@ fn simulate_chunk_application(
             },
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
-                shard_id: chunk_header.shard_id(),
+                shard_uid,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: GAS_LIMIT,
                 is_new_chunk: true,
                 on_post_state_ready: None,
+                memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
             },
             {
                 let is_new_chunk = true;
@@ -530,7 +536,6 @@ fn simulate_chunk_application(
         .unwrap();
 
     let chunk_extra = apply_result.to_chunk_extra(GAS_LIMIT);
-    let shard_layout = actor.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
     let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
         &shard_layout,
         chunk_header.shard_id(),

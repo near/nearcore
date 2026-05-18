@@ -1,7 +1,7 @@
 use super::*;
 use crate::types::{
-    BlockType, ChainConfig, HasContract, RuntimeStorageConfig, StatePartValidationResult,
-    StateRootNodeValidationResult,
+    BlockType, ChainConfig, HasContract, MaybePinnedMemtrieRoot, RuntimeStorageConfig,
+    StatePartValidationResult, StateRootNodeValidationResult,
 };
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
@@ -27,6 +27,7 @@ use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionIn
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::receipt::{ActionReceipt, ReceiptV0};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
@@ -240,6 +241,7 @@ impl TestEnv {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let state_root = self.state_roots[shard_index];
         let gas_limit = Gas::MAX;
         let height = self.head.height + 1;
@@ -258,13 +260,14 @@ impl TestEnv {
                 RuntimeStorageConfig::new(state_root, true),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
-                    shard_id,
+                    shard_uid,
                     last_validator_proposals: ValidatorStakeIter::new(
                         self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
                     ),
                     gas_limit,
                     is_new_chunk: true,
                     on_post_state_ready: None,
+                    memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
                 },
                 ApplyChunkBlockContext {
                     block_type: BlockType::Normal,

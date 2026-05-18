@@ -556,15 +556,22 @@ impl<'a> ChainUpdate<'a> {
             vec![true; transactions.len()]
         };
         let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
+        let memtrie_pin = self
+            .runtime_adapter
+            .get_tries()
+            .maybe_pin_memtrie_root(shard_uid, chunk_header.prev_state_root())?;
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
-                shard_id,
+                shard_uid,
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 is_new_chunk: true,
                 on_post_state_ready: None,
+                memtrie_pin,
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,
@@ -584,8 +591,6 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk(chunk);
 
-        let shard_uid =
-            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
             *block_header.hash(),
@@ -674,16 +679,21 @@ impl<'a> ChainUpdate<'a> {
         let shard_uid =
             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
         let chunk_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
+        let memtrie_pin = self
+            .runtime_adapter
+            .get_tries()
+            .maybe_pin_memtrie_root(shard_uid, *chunk_extra.state_root())?;
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
-                shard_id,
+                shard_uid,
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
                 on_post_state_ready: None,
+                memtrie_pin,
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,
