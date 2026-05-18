@@ -301,6 +301,7 @@ impl TrieViewer {
             random_seed: root,
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
+            next_wasm_config: None,
             cache: view_state.cache,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -331,6 +332,7 @@ impl TrieViewer {
         });
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
+            apply_state.next_wasm_config.clone(),
             apply_state.cache.as_ref().map(|v| v.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
