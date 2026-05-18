@@ -386,6 +386,11 @@ pub enum ProtocolFeature {
     /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
     /// sync after resharding.
     StickyReshardingValidatorAssignment,
+    /// Fix `action_delete_account` not subtracting the global contract
+    /// identifier storage usage. Previously only local contract code was
+    /// subtracted, overstating storage usage for accounts with global
+    /// contracts and making them marginally harder to delete.
+    FixDeleteAccountGlobalContractStorageUsage,
 }
 
 impl ProtocolFeature {
@@ -507,6 +512,7 @@ impl ProtocolFeature {
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::StickyReshardingValidatorAssignment => 153,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage => 154,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -555,7 +561,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 153;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 154;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

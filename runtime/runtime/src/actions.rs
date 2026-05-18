@@ -342,21 +342,35 @@ pub(crate) fn action_delete_account(
     config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    let account_ref = account.as_ref().unwrap();
-    let mut account_storage_usage = account_ref.storage_usage();
-    let code_len = get_code_len_or_default(
-        state_update,
-        account_id.clone(),
-        account_ref.local_contract_hash().unwrap_or_default(),
-        current_protocol_version,
-    )?;
-    debug_assert!(
-        code_len == 0 || account_storage_usage > code_len,
-        "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
-        account_storage_usage,
-        code_len
-    );
-    account_storage_usage = account_storage_usage.saturating_sub(code_len);
+    let account_mut = account.as_mut().unwrap();
+    let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
+        .enabled(current_protocol_version)
+    {
+        clear_account_contract_storage_usage(
+            state_update,
+            account_id,
+            account_mut,
+            current_protocol_version,
+        )?;
+        account_mut.storage_usage()
+    } else {
+        // Legacy behavior: only subtracts local contract code, misses the
+        // global contract identifier overhead.
+        let account_storage_usage = account_mut.storage_usage();
+        let code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            account_mut.local_contract_hash().unwrap_or_default(),
+            current_protocol_version,
+        )?;
+        debug_assert!(
+            code_len == 0 || account_storage_usage > code_len,
+            "account storage usage should be larger than code size. storage usage: {}, code size: {}",
+            account_storage_usage,
+            code_len
+        );
+        account_storage_usage.saturating_sub(code_len)
+    };
     if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
         result.result =
             Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
@@ -374,7 +388,7 @@ pub(crate) fn action_delete_account(
         return Ok(());
     }
     // We use current amount as a pay out to beneficiary.
-    let account_balance = account_ref.amount();
+    let account_balance = account_mut.amount();
     if account_balance > Balance::ZERO {
         result
             .new_receipts
@@ -444,7 +458,14 @@ pub(crate) fn clear_account_contract_storage_usage(
                 *code_hash,
                 current_protocol_version,
             )?;
-            account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+            let prev_storage_usage = account.storage_usage();
+            debug_assert!(
+                prev_code_len == 0 || prev_storage_usage > prev_code_len,
+                "account storage usage should be larger than code size. storage usage: {}, code size: {}",
+                prev_storage_usage,
+                prev_code_len
+            );
+            account.set_storage_usage(prev_storage_usage.saturating_sub(prev_code_len));
         }
         AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
             account.set_storage_usage(
@@ -832,7 +853,10 @@ fn check_transfer_to_nonexisting_account(
 mod tests {
 
     use super::*;
-    use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::actions_test_utils::{
+        setup_account, test_delete_account, test_delete_account_in_empty_trie,
+        test_delete_large_account,
+    };
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::FunctionCallAction;
@@ -844,6 +868,7 @@ mod tests {
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::EpochId;
     use near_primitives::types::Gas;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
@@ -969,7 +994,10 @@ mod tests {
         )
     }
 
-    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
+    fn test_delete_account_with_contract(
+        storage_usage: u64,
+        protocol_version: ProtocolVersion,
+    ) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -992,25 +1020,18 @@ mod tests {
             apply_state.current_protocol_version,
         );
         assert!(res.is_ok());
-        test_delete_large_account(
+        test_delete_account(
             &account_id,
-            &account.local_contract_hash().unwrap_or_default(),
+            AccountContract::from_local_code_hash(
+                account.local_contract_hash().unwrap_or_default(),
+            ),
             storage_usage,
+            protocol_version,
             &mut state_update,
         )
     }
 
-    #[test]
-    fn test_delete_account_with_contract_and_small_state() {
-        let action_result =
-            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
-        assert!(action_result.result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_account_with_contract_and_large_state() {
-        let action_result =
-            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
+    fn expect_delete_account_too_large(action_result: &ActionResult) {
         assert_eq!(
             action_result.result,
             Err(ActionError {
@@ -1020,6 +1041,131 @@ mod tests {
                 }
             })
         );
+    }
+
+    fn fix_enabled_version() -> ProtocolVersion {
+        ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version()
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_small_state() {
+        let action_result = test_delete_account_with_contract(
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
+            PROTOCOL_VERSION,
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_large_state() {
+        let action_result = test_delete_account_with_contract(
+            10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
+            PROTOCOL_VERSION,
+        );
+        expect_delete_account_too_large(&action_result);
+    }
+
+    /// Local contracts must keep working once the fix is enabled: the real code
+    /// length is still subtracted, this time via `clear_account_contract_storage_usage`.
+    #[test]
+    fn test_delete_account_with_local_contract_fix_enabled() {
+        let action_result = test_delete_account_with_contract(
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
+            fix_enabled_version(),
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    /// The fix is protocol-gated: the identical account (Global contract, storage
+    /// usage exactly `MAX + 32`) is rejected on the version before the feature and
+    /// accepted on the version it activates, so this test covers both sides of the gate.
+    #[test]
+    fn test_delete_account_global_contract_protocol_transition() {
+        let account_id: AccountId = "alice".parse().unwrap();
+        let storage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 32;
+        let enabled = fix_enabled_version();
+
+        // Before the fix: the identifier is not subtracted, so `MAX + 32 > MAX`.
+        let before = test_delete_account_in_empty_trie(
+            &account_id,
+            AccountContract::Global(CryptoHash::default()),
+            storage,
+            enabled - 1,
+        );
+        expect_delete_account_too_large(&before);
+
+        // From the fix onwards: the 32-byte identifier is subtracted, landing
+        // exactly on the boundary (`MAX + 32 - 32 == MAX`, not `> MAX`).
+        let after = test_delete_account_in_empty_trie(
+            &account_id,
+            AccountContract::Global(CryptoHash::default()),
+            storage,
+            enabled,
+        );
+        assert!(after.result.is_ok());
+    }
+
+    /// One byte past the boundary: even after subtracting the 32-byte identifier
+    /// the account still exceeds the limit, so deletion is rejected.
+    #[test]
+    fn test_delete_account_global_contract_fix_enabled_over_boundary() {
+        let action_result = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::Global(CryptoHash::default()),
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
+            fix_enabled_version(),
+        );
+        expect_delete_account_too_large(&action_result);
+    }
+
+    /// `GlobalByAccount` identifiers are sized by the referenced account id length
+    /// rather than a fixed 32 bytes.
+    #[test]
+    fn test_delete_account_global_by_account_fix_enabled() {
+        let global_id: AccountId = "global-contract.near".parse().unwrap();
+        let identifier_len = global_id.len() as u64;
+        let action_result = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::GlobalByAccount(global_id),
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
+            fix_enabled_version(),
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    /// Edge case: storage usage smaller than the 32-byte identifier. The
+    /// `saturating_sub` must clamp to 0 rather than underflow-panic.
+    #[test]
+    fn test_delete_account_global_contract_storage_smaller_than_identifier() {
+        let action_result = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::Global(CryptoHash::default()),
+            10,
+            fix_enabled_version(),
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    /// Accounts with no contract are unaffected by the gated code path: nothing is
+    /// subtracted, and the limit check still uses strict `>` (so exactly `MAX` is ok).
+    #[test]
+    fn test_delete_account_no_contract_fix_enabled() {
+        let account_id: AccountId = "alice".parse().unwrap();
+        let at_limit = test_delete_account_in_empty_trie(
+            &account_id,
+            AccountContract::None,
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
+            fix_enabled_version(),
+        );
+        assert!(at_limit.result.is_ok());
+
+        let over_limit = test_delete_account_in_empty_trie(
+            &account_id,
+            AccountContract::None,
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
+            fix_enabled_version(),
+        );
+        expect_delete_account_too_large(&over_limit);
     }
 
     fn create_delegate_action_receipt() -> (ActionReceipt, SignedDelegateAction) {

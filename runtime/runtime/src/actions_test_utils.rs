@@ -6,7 +6,7 @@ use near_primitives::action::DeleteAccountAction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, Balance, StateChangeCause};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, TrieUpdate, set_access_key, set_account};
 
@@ -31,18 +31,17 @@ pub(crate) fn setup_account(
     tries.new_trie_update(ShardUId::single_shard(), root)
 }
 
-pub(crate) fn test_delete_large_account(
+/// The caller owns `state_update` so that contract code can be deployed
+/// beforehand when testing local contracts.
+pub(crate) fn test_delete_account(
     account_id: &AccountId,
-    code_hash: &CryptoHash,
+    contract: AccountContract,
     storage_usage: u64,
+    protocol_version: ProtocolVersion,
     state_update: &mut TrieUpdate,
 ) -> ActionResult {
-    let mut account = Some(Account::new(
-        Balance::from_yoctonear(100),
-        Balance::ZERO,
-        AccountContract::from_local_code_hash(*code_hash),
-        storage_usage,
-    ));
+    let mut account =
+        Some(Account::new(Balance::from_yoctonear(100), Balance::ZERO, contract, storage_usage));
     let mut actor_id = account_id.clone();
     let mut action_result = ActionResult::default();
     let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
@@ -56,8 +55,36 @@ pub(crate) fn test_delete_large_account(
         account_id,
         &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
         &config,
-        PROTOCOL_VERSION,
+        protocol_version,
     );
     assert!(res.is_ok());
     action_result
+}
+
+/// Like [`test_delete_account`] but against an empty trie. Suitable for contract
+/// kinds that need no pre-existing trie state (`None`, `Global`, `GlobalByAccount`).
+pub(crate) fn test_delete_account_in_empty_trie(
+    account_id: &AccountId,
+    contract: AccountContract,
+    storage_usage: u64,
+    protocol_version: ProtocolVersion,
+) -> ActionResult {
+    let tries = TestTriesBuilder::new().build();
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+    test_delete_account(account_id, contract, storage_usage, protocol_version, &mut state_update)
+}
+
+pub(crate) fn test_delete_large_account(
+    account_id: &AccountId,
+    code_hash: &CryptoHash,
+    storage_usage: u64,
+    state_update: &mut TrieUpdate,
+) -> ActionResult {
+    test_delete_account(
+        account_id,
+        AccountContract::from_local_code_hash(*code_hash),
+        storage_usage,
+        PROTOCOL_VERSION,
+        state_update,
+    )
 }
