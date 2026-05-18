@@ -1211,6 +1211,27 @@ mod tests {
         p_ser
     }
 
+    /// `(0, 2)` is on `E(Fp)` but outside the `G1` subgroup. Pairing has
+    /// its own explicit `in_g1` check (independent of the parse path that
+    /// this PR relaxes), so feeding such a point yields the same rejection
+    /// (`1`) under both pre- and post-`BLS12381NotInGroupFix` versions.
+    #[test]
+    fn test_bls12381_pairing_x_0() {
+        let mut zero_x_g1 = vec![0u8; 96];
+        zero_x_g1[95] = 2;
+        let g2 = G2Operations::serialize_uncompressed_g(&G2Affine::generator()).to_vec();
+        let buffer = [zero_x_g1, g2].concat();
+
+        for bls12381_not_in_group_fix in [false, true] {
+            let mut logic_builder = VMLogicBuilder::default();
+            logic_builder.config.bls12381_not_in_group_fix = bls12381_not_in_group_fix;
+            let mut logic = logic_builder.build();
+            let input = logic.internal_mem_write(buffer.as_slice());
+            let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
+            assert_eq!(res, 1, "with bls12381_not_in_group_fix={bls12381_not_in_group_fix}");
+        }
+    }
+
     #[test]
     fn slow_test_bls12381_pairing_check_one_point_fuzzer() {
         bolero::check!().with_type().for_each(|(p1, p2): &(G1Point, G2Point)| {
