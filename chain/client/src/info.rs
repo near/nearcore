@@ -758,7 +758,6 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             .unwrap();
             res
         }
-        SyncStatus::StateSyncDone => "State sync done".to_string(),
     }
 }
 

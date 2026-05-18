@@ -70,6 +70,11 @@ pub struct SharedState {
     /// Archive-wide config for cloud archival nodes. Defaults to
     /// `BucketConfig::canonical()`; tests may override.
     pub bucket_config: BucketConfig,
+    /// Optional per-`(account, task_name)` override of the spawner's
+    /// artificial virtual delay. `None` for a given pair falls back to the
+    /// test-loop default. Used by tests that need to slow specific tasks on
+    /// specific nodes.
+    pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
     /// Per-node installation state for the spice endorsement-delay handler.
     pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
 }

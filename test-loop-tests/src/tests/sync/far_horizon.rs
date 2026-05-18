@@ -23,7 +23,6 @@ use crate::utils::transactions::{execute_money_transfers, get_shared_block_hash,
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
-use near_client::sync::SYNC_V2_ENABLED;
 use near_client::{GetBlock, SyncStatus};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -50,9 +49,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_full_pipeline() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -108,9 +104,6 @@ fn test_far_horizon_full_pipeline() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_chained_epoch_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -185,9 +178,6 @@ fn test_far_horizon_chained_epoch_sync() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_stale_node_shutdown() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -240,9 +230,6 @@ fn test_far_horizon_stale_node_shutdown() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_archival_skips_epoch_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -315,9 +302,6 @@ fn test_far_horizon_archival_skips_epoch_sync() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_header_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -392,9 +376,6 @@ fn test_far_horizon_restart_during_header_sync() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_state_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -466,9 +447,6 @@ fn test_far_horizon_restart_during_state_sync() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_block_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -538,9 +516,6 @@ fn test_far_horizon_restart_during_block_sync() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_after_long_downtime() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -623,9 +598,6 @@ fn test_far_horizon_restart_after_long_downtime() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_staking_state() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -708,9 +680,6 @@ fn test_far_horizon_staking_state() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_tx_during_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -809,9 +778,6 @@ fn test_far_horizon_stale_sync_hash_detection() {
     use near_chain_configs::SyncConfig;
     use near_client::sync::state::STALE_SYNC_HASH_THRESHOLD;
 
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;

@@ -8,7 +8,6 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::sync::SYNC_V2_ENABLED;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
@@ -151,31 +150,11 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         },
         Duration::seconds(30),
     );
-    let expected: Vec<String> = if SYNC_V2_ENABLED {
-        vec![
-            "AwaitingPeers",
-            "NoSync",
-            "EpochSync",
-            "HeaderSync",
-            "StateSync",
-            "BlockSync",
-            "NoSync",
-        ]
-    } else {
-        vec![
-            "AwaitingPeers",
-            "NoSync",
-            "EpochSync",
-            "HeaderSync",
-            "StateSync",
-            "StateSyncDone",
-            "BlockSync",
-            "NoSync",
-        ]
-    }
-    .into_iter()
-    .map(|s| s.to_string())
-    .collect();
+    let expected: Vec<String> =
+        ["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
     assert_eq!(sync_status_history.borrow().as_slice(), expected);
 
     env

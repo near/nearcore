@@ -645,6 +645,16 @@ pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
 }
 
+/// Default number of worker threads in the contract cache-warming pool.
+pub fn default_contract_cache_warming_pool_thread_count() -> usize {
+    1
+}
+
+/// Default cap on the number of submissions in the cache warming pool's queue.
+pub fn default_contract_cache_warming_max_item_count() -> usize {
+    128
+}
+
 /// Returns the default value for `enable_early_prepare_transactions`.
 /// Enabled on nightly as it remains disabled in production builds, and CI will run both with
 /// this enabled and disabled.
@@ -790,6 +800,17 @@ pub struct ClientConfig {
     pub save_tx_outcomes: bool,
     /// Whether to persist receipt-to-tx origin mappings to disk or not.
     pub save_receipt_to_tx: bool,
+    /// Number of worker threads in the contract cache-warming pool. The
+    /// pool runs at the lowest realtime priority of any near pool, so the
+    /// threads yield to chunk application and witness work. Setting this
+    /// to 0 disables warming (the pool is never instantiated). See
+    /// [`contract_cache_warming_max_item_count`] for the other disable knob.
+    pub contract_cache_warming_pool_thread_count: usize,
+    /// Max warming submissions allowed in the pool's queue. Submissions
+    /// over the cap bump `near_contract_cache_warming_dropped_total`. `0`
+    /// disables warming (same as setting
+    /// `contract_cache_warming_pool_thread_count` to 0).
+    pub contract_cache_warming_max_item_count: usize,
     /// Whether to persist state changes on disk or not.
     pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.
