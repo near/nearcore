@@ -172,7 +172,7 @@ fn setup_network_node_with_tcp(
         transaction_validity_period: genesis.config.transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
         spice_pending_transaction_queue_enabled: client_config
-            .spice_pending_transaction_queue_enabled,
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),

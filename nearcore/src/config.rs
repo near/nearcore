@@ -439,6 +439,7 @@ pub struct Config {
     /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
     /// constraints during chunk production and RPC validation. Disabled by
     /// default; only meaningful when SPICE is active.
+    #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
 }
 
@@ -515,6 +516,7 @@ impl Default for Config {
             protocol_version_check_config_override: None,
             enable_early_prepare_transactions: None,
             chunks_cache_height_horizon: None,
+            #[cfg(feature = "protocol_feature_spice")]
             spice_pending_transaction_queue_enabled: false,
         }
     }
@@ -803,6 +805,7 @@ impl NearConfig {
                 chunks_cache_height_horizon: config
                     .chunks_cache_height_horizon
                     .unwrap_or_else(default_chunks_cache_height_horizon),
+                #[cfg(feature = "protocol_feature_spice")]
                 spice_pending_transaction_queue_enabled: config
                     .spice_pending_transaction_queue_enabled,
             },

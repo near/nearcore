@@ -335,7 +335,7 @@ pub fn setup_client(
         transaction_validity_period: genesis.config.transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
         spice_pending_transaction_queue_enabled: client_config
-            .spice_pending_transaction_queue_enabled,
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_handler = RpcHandlerActor::new(
         rpc_handler_config,

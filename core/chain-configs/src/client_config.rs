@@ -907,7 +907,17 @@ pub struct ClientConfig {
     /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
     /// constraints during chunk production and RPC validation. Disabled by
     /// default; only meaningful when SPICE is active.
+    #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
+}
+
+impl ClientConfig {
+    pub fn spice_pending_transaction_queue_enabled(&self) -> bool {
+        #[cfg(feature = "protocol_feature_spice")]
+        return self.spice_pending_transaction_queue_enabled;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        false
+    }
 }
 
 #[cfg(feature = "schemars")]
