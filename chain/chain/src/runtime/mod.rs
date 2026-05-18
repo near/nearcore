@@ -9,7 +9,11 @@ use crate::types::{
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
+use near_chain_configs::{
+    GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig,
+    default_contract_cache_warming_max_item_count,
+    default_contract_cache_warming_pool_thread_count,
+};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -53,6 +57,7 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::cache_warming::cache_keys_differ;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
@@ -93,6 +98,32 @@ pub struct NightshadeRuntime {
     save_receipt_to_tx: bool,
 }
 
+/// Knobs threaded through to [`NightshadeRuntime::new`].
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeOptions {
+    /// True on nodes that mirror archival state to cloud storage.
+    pub is_cloud_archival_writer: bool,
+    /// Persist receipt-to-transaction origin mappings to disk.
+    pub save_receipt_to_tx: bool,
+    /// Number of worker threads in the contract cache-warming pool. `0` disables warming (no pool created);
+    pub contract_cache_warming_pool_thread_count: usize,
+    /// Maximum number of warming submissions allowed to sit in the pool's
+    /// queue at once.  `0` disables warming (every submission rejects silently).
+    pub contract_cache_warming_max_item_count: usize,
+}
+
+impl Default for RuntimeOptions {
+    fn default() -> Self {
+        Self {
+            is_cloud_archival_writer: false,
+            save_receipt_to_tx: true,
+            contract_cache_warming_pool_thread_count:
+                default_contract_cache_warming_pool_thread_count(),
+            contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
+        }
+    }
+}
+
 impl NightshadeRuntime {
     pub fn new(
         store: Store,
@@ -106,9 +137,18 @@ impl NightshadeRuntime {
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
-        is_cloud_archival_writer: bool,
-        save_receipt_to_tx: bool,
+        options: RuntimeOptions,
     ) -> Arc<Self> {
+        let RuntimeOptions {
+            is_cloud_archival_writer,
+            save_receipt_to_tx,
+            contract_cache_warming_pool_thread_count,
+            contract_cache_warming_max_item_count,
+        } = options;
+        node_runtime::cache_warming::init_warming(node_runtime::cache_warming::WarmingConfig {
+            thread_count: contract_cache_warming_pool_thread_count,
+            max_item_count: contract_cache_warming_max_item_count,
+        });
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
@@ -277,6 +317,18 @@ impl NightshadeRuntime {
 
         let save_receipt_to_tx =
             self.save_receipt_to_tx && apply_reason == ApplyChunkReason::UpdateTrackedShard;
+        // Detect an upcoming protocol upgrade that would invalidate the
+        // compiled-contract cache, and surface the next epoch's wasm_config.
+        let next_wasm_config = self
+            .epoch_manager
+            .get_next_epoch_protocol_version_from_prev_block(prev_block_hash)
+            .ok()
+            .filter(|next_pv| *next_pv != current_protocol_version)
+            .and_then(|next_pv| {
+                let next = Arc::clone(&self.runtime_config_store.get_config(next_pv).wasm_config);
+                cache_keys_differ(Arc::clone(&config.wasm_config), Arc::clone(&next))
+                    .then_some(next)
+            });
         let apply_state = ApplyState {
             apply_reason,
             block_height,
@@ -290,6 +342,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: config.clone(),
+            next_wasm_config,
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             save_receipt_to_tx,
