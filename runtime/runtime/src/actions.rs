@@ -1065,8 +1065,7 @@ mod tests {
         expect_delete_account_too_large(&action_result);
     }
 
-    /// Local contracts must keep working once the fix is enabled: the real code
-    /// length is still subtracted, this time via `clear_account_contract_storage_usage`.
+    /// Regression: local contracts still work via the new `clear_account_contract_storage_usage` path.
     #[test]
     fn test_delete_account_with_local_contract_fix_enabled() {
         let action_result = test_delete_account_with_contract(
@@ -1076,9 +1075,7 @@ mod tests {
         assert!(action_result.result.is_ok());
     }
 
-    /// The fix is protocol-gated: the identical account (Global contract, storage
-    /// usage exactly `MAX + 32`) is rejected on the version before the feature and
-    /// accepted on the version it activates, so this test covers both sides of the gate.
+    /// Same `MAX + 32` Global-contract account: rejected before the feature, accepted after.
     #[test]
     fn test_delete_account_global_contract_protocol_transition() {
         let account_id: AccountId = "alice".parse().unwrap();
@@ -1094,8 +1091,8 @@ mod tests {
         );
         expect_delete_account_too_large(&before);
 
-        // From the fix onwards: the 32-byte identifier is subtracted, landing
-        // exactly on the boundary (`MAX + 32 - 32 == MAX`, not `> MAX`).
+        // From the fix onwards: the 32-byte identifier is subtracted, so
+        // `MAX + 32 - 32 == MAX`, which is not `> MAX`.
         let after = test_delete_account_in_empty_trie(
             &account_id,
             AccountContract::Global(CryptoHash::default()),
@@ -1105,8 +1102,7 @@ mod tests {
         assert!(after.result.is_ok());
     }
 
-    /// One byte past the boundary: even after subtracting the 32-byte identifier
-    /// the account still exceeds the limit, so deletion is rejected.
+    /// `MAX + 33`: still over the limit after subtracting the 32-byte identifier.
     #[test]
     fn test_delete_account_global_contract_fix_enabled_over_boundary() {
         let action_result = test_delete_account_in_empty_trie(
@@ -1133,8 +1129,7 @@ mod tests {
         assert!(action_result.result.is_ok());
     }
 
-    /// Edge case: storage usage smaller than the 32-byte identifier. The
-    /// `saturating_sub` must clamp to 0 rather than underflow-panic.
+    /// Storage below the identifier size must `saturating_sub` to 0, not underflow-panic.
     #[test]
     fn test_delete_account_global_contract_storage_smaller_than_identifier() {
         let action_result = test_delete_account_in_empty_trie(
@@ -1146,8 +1141,7 @@ mod tests {
         assert!(action_result.result.is_ok());
     }
 
-    /// Accounts with no contract are unaffected by the gated code path: nothing is
-    /// subtracted, and the limit check still uses strict `>` (so exactly `MAX` is ok).
+    /// No contract: nothing subtracted; strict `>` means exactly `MAX` is still ok.
     #[test]
     fn test_delete_account_no_contract_fix_enabled() {
         let account_id: AccountId = "alice".parse().unwrap();
