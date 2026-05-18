@@ -689,6 +689,54 @@ fn test_hint_skips_missing_data() {
     assert!(matches!(v1.origin, ReceiptOrigin::FromTransaction(_)));
 }
 
+/// The classifier refuses to guess when an outcome id appears in BOTH
+/// `DBCol::Transactions` and `DBCol::Receipts`. Such collisions can't occur
+/// in normal chain operation (the two id spaces are disjoint by construction)
+/// but they can be reached via corrupted storage or bad backfill. The old
+/// `is_tx = exists(Transactions)` short-circuit silently treated such an
+/// outcome as a transaction; the two-column classifier logs an error and
+/// skips, so the scan exhausts the window and returns the typed "not found"
+/// error instead of fabricating a bogus origin.
+#[test]
+fn test_hint_classifier_skips_on_both_origin_rows_present() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account, 1, false);
+
+    // Force the (true, true) ambiguity: the tx's outcome_id (== tx_hash) lives
+    // in `DBCol::Transactions` naturally; impersonate a receipt with the same
+    // hash by inserting bytes into `DBCol::Receipts` under the same key.
+    let store = env.validator().store();
+    let mut update = store.store_update();
+    let fake_receipt_bytes = vec![0u8; 64];
+    update.increment_refcount(near_store::DBCol::Receipts, tx_hash.as_ref(), &fake_receipt_bytes);
+    update.commit();
+
+    let result = handle_message(
+        &mut env,
+        GetReceiptParentByHint {
+            receipt_id,
+            block_height: height,
+            shard_id: ShardId::new(0),
+            window: Some(0),
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptParentByHintError::ReceiptNotFoundInHintWindow { .. })),
+        "the only outcome candidate is ambiguous and should be skipped, expected \
+         ReceiptNotFoundInHintWindow, got {result:?}"
+    );
+}
+
 /// `save_receipt_to_tx=true` env where the column has the entry. The new
 /// endpoint never consults the column — it always scans. Locks in the
 /// "hint-only" decision (changes to add a column fast-path would fail here).

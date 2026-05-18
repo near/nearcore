@@ -1,5 +1,6 @@
 use crate::{ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
+use near_o11y::tracing;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptToTxInfo,
@@ -107,21 +108,39 @@ pub fn resolve_receipt_via_hint(
                 None => continue,
             };
 
-            let is_tx = store.exists(DBCol::Transactions, outcome_id.as_ref());
-            let origin = if is_tx {
-                ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+            // Both `Transactions` and `Receipts` are reference-counted and GC'd at
+            // the historical horizon this endpoint exists to serve. Checking only
+            // `Transactions` misclassifies tx-origin outcomes whose tx row has been
+            // collected as receipt-origin and then silently fails the parent-receipt
+            // lookup. Check both columns; skip the candidate when neither has the
+            // row so the scan moves on to the next height.
+            let in_txs = store.exists(DBCol::Transactions, outcome_id.as_ref());
+            let in_receipts = store.exists(DBCol::Receipts, outcome_id.as_ref());
+            let origin = match (in_txs, in_receipts) {
+                (true, false) => ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
                     tx_hash: outcome_id,
                     sender_account_id: owp.outcome.executor_id,
-                })
-            } else {
-                let parent = match chain_store.get_receipt(&outcome_id) {
-                    Some(r) => r,
-                    None => continue,
-                };
-                ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                    parent_receipt_id: outcome_id,
-                    parent_predecessor_id: parent.predecessor_id().clone(),
-                })
+                }),
+                (false, true) => {
+                    let parent = match chain_store.get_receipt(&outcome_id) {
+                        Some(r) => r,
+                        None => continue,
+                    };
+                    ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                        parent_receipt_id: outcome_id,
+                        parent_predecessor_id: parent.predecessor_id().clone(),
+                    })
+                }
+                (false, false) => continue,
+                (true, true) => {
+                    tracing::error!(
+                        %outcome_id,
+                        height,
+                        "outcome id present in both DBCol::Transactions and DBCol::Receipts; \
+                         skipping ambiguous classification"
+                    );
+                    continue;
+                }
             };
 
             return Ok(Some(HintResolution {

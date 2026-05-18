@@ -76,13 +76,21 @@ pub struct BackfillStats {
     pub missing_child_receipts: u64,
     /// Parent receipts (for receipt-origin outcomes) missing from the store.
     pub missing_parent_receipts: u64,
+    /// Outcomes whose `outcome_id` is absent from both `DBCol::Transactions` and
+    /// `DBCol::Receipts`. Both columns are reference-counted and GC'd; when both
+    /// are gone there is no way to classify the outcome as tx- or receipt-origin,
+    /// so the entry is skipped to avoid silent misclassification.
+    pub missing_origin_rows: u64,
 }
 
 impl BackfillStats {
     /// Total "dropped" data points: receipts we could not backfill because something upstream
     /// was missing. Used as the denominator in the data-quality threshold check.
     pub fn missing_total(&self) -> u64 {
-        self.missing_outcomes + self.missing_child_receipts + self.missing_parent_receipts
+        self.missing_outcomes
+            + self.missing_child_receipts
+            + self.missing_parent_receipts
+            + self.missing_origin_rows
     }
 
     /// Fold another set of stats into this one.
@@ -93,6 +101,7 @@ impl BackfillStats {
         self.missing_outcomes += other.missing_outcomes;
         self.missing_child_receipts += other.missing_child_receipts;
         self.missing_parent_receipts += other.missing_parent_receipts;
+        self.missing_origin_rows += other.missing_origin_rows;
     }
 }
 
@@ -107,6 +116,7 @@ pub struct HeightResult {
     pub missing_outcomes: u64,
     pub missing_child_receipts: u64,
     pub missing_parent_receipts: u64,
+    pub missing_origin_rows: u64,
 }
 
 /// Process a single height: read all execution outcomes and build ReceiptToTxInfo entries.
@@ -131,6 +141,7 @@ pub fn process_height(
     let mut missing_outcomes: u64 = 0;
     let mut missing_child_receipts: u64 = 0;
     let mut missing_parent_receipts: u64 = 0;
+    let mut missing_origin_rows: u64 = 0;
 
     for (key, outcome_ids) in
         read_store.iter_prefix_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, block_hash.as_ref())
@@ -158,10 +169,51 @@ pub fn process_height(
                 continue;
             }
 
-            let is_tx = read_store.exists(DBCol::Transactions, outcome_id.as_ref());
+            // Both `Transactions` and `Receipts` are reference-counted and GC'd at
+            // the historical horizon. A tx-origin outcome whose `Transactions` row
+            // has been collected would otherwise be misclassified as receipt-origin
+            // and then dropped via a failing parent-receipt lookup. Resolve origin
+            // by checking both columns; record an explicit stat when neither has
+            // the row so operators can see the GC-induced data-loss rate.
+            let in_txs = read_store.exists(DBCol::Transactions, outcome_id.as_ref());
+            let in_receipts = read_store.exists(DBCol::Receipts, outcome_id.as_ref());
+
+            enum OutcomeOrigin {
+                Tx,
+                Receipt,
+                BothGcd,
+                BothPresent,
+            }
+            let classification = match (in_txs, in_receipts) {
+                (true, false) => OutcomeOrigin::Tx,
+                (false, true) => OutcomeOrigin::Receipt,
+                (false, false) => OutcomeOrigin::BothGcd,
+                (true, true) => OutcomeOrigin::BothPresent,
+            };
+            if matches!(classification, OutcomeOrigin::BothGcd) {
+                missing_origin_rows += 1;
+                tracing::debug!(
+                    %outcome_id,
+                    height,
+                    "outcome id absent from Transactions and Receipts, can't classify"
+                );
+                continue;
+            }
+            if matches!(classification, OutcomeOrigin::BothPresent) {
+                tracing::error!(
+                    %outcome_id,
+                    height,
+                    "outcome id present in both DBCol::Transactions and DBCol::Receipts; \
+                     skipping ambiguous classification"
+                );
+                continue;
+            }
 
             // For receipt outcomes, look up the parent receipt once (not per child).
-            let parent_receipt = if !is_tx { chain_store.get_receipt(&outcome_id) } else { None };
+            let parent_receipt = match classification {
+                OutcomeOrigin::Receipt => chain_store.get_receipt(&outcome_id),
+                _ => None,
+            };
 
             for child_receipt_id in &outcome.receipt_ids {
                 let child_receipt = match chain_store.get_receipt(child_receipt_id) {
@@ -178,28 +230,30 @@ pub fn process_height(
                     }
                 };
 
-                let origin = if is_tx {
-                    ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                let origin = match classification {
+                    OutcomeOrigin::Tx => ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
                         tx_hash: outcome_id,
                         sender_account_id: outcome.executor_id.clone(),
-                    })
-                } else {
-                    let parent = match &parent_receipt {
-                        Some(r) => r,
-                        None => {
-                            missing_parent_receipts += 1;
-                            tracing::debug!(
-                                %outcome_id,
-                                height,
-                                "missing parent receipt for receipt outcome, skipping"
-                            );
-                            continue;
-                        }
-                    };
-                    ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                        parent_receipt_id: outcome_id,
-                        parent_predecessor_id: parent.predecessor_id().clone(),
-                    })
+                    }),
+                    OutcomeOrigin::Receipt => {
+                        let parent = match &parent_receipt {
+                            Some(r) => r,
+                            None => {
+                                missing_parent_receipts += 1;
+                                tracing::debug!(
+                                    %outcome_id,
+                                    height,
+                                    "missing parent receipt for receipt outcome, skipping"
+                                );
+                                continue;
+                            }
+                        };
+                        ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                            parent_receipt_id: outcome_id,
+                            parent_predecessor_id: parent.predecessor_id().clone(),
+                        })
+                    }
+                    OutcomeOrigin::BothGcd | OutcomeOrigin::BothPresent => unreachable!(),
                 };
 
                 let info =
@@ -214,6 +268,7 @@ pub fn process_height(
         missing_outcomes,
         missing_child_receipts,
         missing_parent_receipts,
+        missing_origin_rows,
     }))
 }
 
@@ -254,6 +309,7 @@ pub fn process_one_batch(
                 stats.missing_outcomes += height_result.missing_outcomes;
                 stats.missing_child_receipts += height_result.missing_child_receipts;
                 stats.missing_parent_receipts += height_result.missing_parent_receipts;
+                stats.missing_origin_rows += height_result.missing_origin_rows;
             }
             Ok(None) => {
                 stats.heights_skipped += 1;
