@@ -266,6 +266,20 @@ pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: LazyLock<IntCounterVec> = LazyLo
     )
     .unwrap()
 });
+pub static FUNCTION_CALL_PROCESSED_LINK_ERRORS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_function_call_processed_link_errors",
+        "The number of function calls resulting in link errors, since starting this node",
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_LOADING_ERRORS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_function_call_processed_loading_errors",
+        "The number of function calls resulting in loading errors, since starting this node",
+    )
+    .unwrap()
+});
 pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_function_call_processed_cache_errors",
