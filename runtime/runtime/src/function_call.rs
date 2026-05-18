@@ -108,7 +108,7 @@ pub(crate) fn action_function_call(
                     .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
-            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::LinkError { .. } | FunctionCallError::LoadingError { .. } => (),
             FunctionCallError::MethodResolveError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
                     .with_label_values::<&str>(&[err.into()])
@@ -323,9 +323,7 @@ pub(crate) fn execute_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
-            // Loading the WASM failed, despite passing compilation. `LinkError`
-            // isn't 100% accurate but it can be treated as such.
-            return Ok(VMOutcome::nop_outcome(FunctionCallError::LinkError { msg }));
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
         Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
