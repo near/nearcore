@@ -417,7 +417,7 @@ fn test_no_duplicate_compilation() {
 
     assert_eq!(cache.put_count(), 1, "should have compiled only once");
     assert!(
-        !compilation_locks().lock().contains_key(&cache_key),
+        !compilation_locks().contains_key(&cache_key),
         "lock entry for this contract should be cleaned up"
     );
 }

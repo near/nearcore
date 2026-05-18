@@ -675,6 +675,7 @@ class NeardRunner:
     class StartParams(BaseModel):
         batch_interval_millis: int | None = None
         binary_idx: int | None = None
+        force_restart: bool = False
 
         model_config = ConfigDict(extra='forbid')
 
@@ -683,6 +684,7 @@ class NeardRunner:
             params = self.StartParams(**kwargs)
             batch_interval_millis = params.batch_interval_millis
             binary_idx = params.binary_idx
+            force_restart = params.force_restart
         except ValueError as e:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32602, message=f'Invalid arguments: {e}')
@@ -705,7 +707,7 @@ class NeardRunner:
                 batch_interval_millis = None
                 # TODO: restart it if we get a different batch_interval_millis than last time
 
-            should_restart = False
+            should_restart = force_restart
             if current_path != new_path:
                 should_restart = True
 

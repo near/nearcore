@@ -3,7 +3,9 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::{Balance, ProtocolVersion};
+#[cfg(feature = "calimero_zero_storage")]
+use near_primitives_core::types::Balance;
+use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -22,7 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (42, include_config!("42.yaml")),
     (46, include_config!("46.yaml")),
     (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
@@ -77,10 +78,9 @@ pub struct RuntimeConfigStore {
 impl RuntimeConfigStore {
     /// Constructs a new store.
     ///
-    /// If genesis_runtime_config is Some, configs for protocol versions 0 and 42 are overridden by
-    /// this config and config with lowered storage cost, respectively.
-    /// This is done to preserve compatibility with previous implementation, where we updated
-    /// runtime config by sequential modifications to the genesis runtime config.
+    /// If genesis_runtime_config is Some, the config for protocol version 0 is overridden by
+    /// this config. This is done to preserve compatibility with previous implementation, where
+    /// we updated runtime config by sequential modifications to the genesis runtime config.
     /// calimero_zero_storage flag sets all storages fees to zero by setting
     /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
     /// protocol upgrades this is done for all protocol versions
@@ -151,21 +151,6 @@ impl RuntimeConfigStore {
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
-            let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte =
-                Balance::from_yoctonear(10u128.pow(19));
-            store.insert(
-                42,
-                Arc::new(RuntimeConfig {
-                    fees: Arc::new(fees),
-                    wasm_config: Arc::clone(&runtime_config.wasm_config),
-                    account_creation_config: runtime_config.account_creation_config.clone(),
-                    congestion_control_config: runtime_config.congestion_control_config,
-                    witness_config: runtime_config.witness_config,
-                    bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-                    use_state_stored_receipt: runtime_config.use_state_stored_receipt,
-                }),
-            );
             store.insert(0, Arc::new(runtime_config.clone()));
         }
 
@@ -417,7 +402,8 @@ mod tests {
 
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
-            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            let config_view =
+                RuntimeConfigView::from(testnet_store.get_config(*version).as_ref().clone());
             any_failure |= std::panic::catch_unwind(|| {
                 insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
             })

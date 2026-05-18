@@ -155,8 +155,7 @@ impl TestEnv {
             Default::default(),
             StateSnapshotConfig::enabled(dir.path().join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
-            false,
-            true,
+            RuntimeOptions::default(),
         );
         let state_roots = get_genesis_state_roots(&store).unwrap();
         let genesis_hash = hash(&[0]);
@@ -2439,7 +2438,7 @@ mod check_dynamic_resharding {
             memory_usage_threshold,
             min_child_memory_usage,
             max_number_of_shards,
-            min_epochs_between_resharding: 0,
+            min_epochs_between_resharding: 1.try_into().unwrap(),
             force_split_shards,
             block_split_shards,
         }

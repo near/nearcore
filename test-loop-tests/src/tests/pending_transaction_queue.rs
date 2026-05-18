@@ -1,4 +1,3 @@
-use super::spice_utils::delay_endorsements_propagation;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
@@ -87,7 +86,7 @@ fn test_ptq_p_max_contract_account() {
         .delay_warmup()
         .build();
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
     deploy_contract_and_certify(&mut env, &contract_account);
 
@@ -122,7 +121,7 @@ fn test_ptq_no_p_max_for_non_contract_account() {
         .delay_warmup()
         .build();
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     let num_txs = P_MAX + 2;
@@ -151,7 +150,7 @@ fn test_ptq_nonce_constraint() {
         .delay_warmup()
         .build();
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Submit a tx with nonce 1 and wait for inclusion.
@@ -203,7 +202,7 @@ fn test_ptq_deploy_exclusivity() {
         .delay_warmup()
         .build();
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Submit a deploy tx and a transfer tx from the same account.
@@ -263,7 +262,7 @@ fn test_ptq_accumulates_across_blocks() {
         .delay_warmup()
         .build();
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
     deploy_contract_and_certify(&mut env, &contract_account);
 
@@ -314,7 +313,7 @@ fn test_ptq_cleanup_on_certification() {
         .delay_warmup()
         .build();
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
     deploy_contract_and_certify(&mut env, &contract_account);
 
@@ -353,7 +352,7 @@ fn setup_gas_key_spice_env(
         .delay_warmup()
         .build();
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "gas_key").into();

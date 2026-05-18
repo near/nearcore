@@ -188,6 +188,7 @@ impl<'c> EstimatorContext<'c> {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
+            next_wasm_config: None,
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
             save_receipt_to_tx: false,
