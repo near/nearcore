@@ -10,13 +10,11 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0,
-    VersionedActionReceipt,
+    ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
-use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
     KeyLookupMode, StorageError, TrieUpdate, enqueue_promise_yield_timeout,
@@ -168,37 +166,19 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_receipt = if ProtocolFeature::DeterministicAccountIds
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    let new_action_receipt = ActionReceiptV2 {
-                        signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.signer_public_key().clone(),
-                        refund_to: receipt.refund_to,
-                        gas_price: action_receipt.gas_price(),
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                    } else {
-                        ReceiptEnum::ActionV2(new_action_receipt)
-                    }
+                let new_action_receipt = ActionReceiptV2 {
+                    signer_id: action_receipt.signer_id().clone(),
+                    signer_public_key: action_receipt.signer_public_key().clone(),
+                    refund_to: receipt.refund_to,
+                    gas_price: action_receipt.gas_price(),
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                };
+                let new_receipt = if receipt.is_promise_yield {
+                    ReceiptEnum::PromiseYieldV2(new_action_receipt)
                 } else {
-                    let new_action_receipt = ActionReceipt {
-                        signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.signer_public_key().clone(),
-                        gas_price: action_receipt.gas_price(),
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYield(new_action_receipt)
-                    } else {
-                        ReceiptEnum::Action(new_action_receipt)
-                    }
+                    ReceiptEnum::ActionV2(new_action_receipt)
                 };
 
                 Receipt::V0(ReceiptV0 {
