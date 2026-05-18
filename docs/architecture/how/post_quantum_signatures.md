@@ -47,8 +47,11 @@ A single `ProtocolFeature::PostQuantumSignatures` gate controls:
 Borsh deserialization of `PublicKey::MLDSA65` and `Signature::MLDSA65` is
 **not** gated — once a value enters state it must always parse — but the
 action-validation gates ensure no ML-DSA-65 value can enter state on a
-pre-feature protocol. After the feature activates there is no question of
-grandfathered keys.
+pre-feature protocol. Practically that means: when `PostQuantumSignatures`
+activates, no ML-DSA-65 access keys exist in state yet, so the runtime
+doesn't have to handle a mixed population of "legacy keys we tolerated
+before the gate existed" and "keys added under the new rules" — every
+ML-DSA-65 key in state was added under the new rules.
 
 ### 3. `PublicKey` enum extension and `KeyHandle` split
 

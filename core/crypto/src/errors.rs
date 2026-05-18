@@ -1,6 +1,5 @@
 use near_account_id::AccountId;
 
-/// "Expected `expected` bytes, got `received`.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("expected the input of {expected} bytes, but {received} was given")]
 pub struct InvalidLength {

@@ -26,12 +26,18 @@ pub const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
 #[cfg(feature = "rand")]
 pub const ML_DSA_65_SEED_LENGTH: usize = 32;
 /// SHA3-384 output length used as the on-trie identifier for an
-/// ML-DSA-65 access key.
+/// ML-DSA-65 access key. The same digest is expected to be reused as
+/// the account-id payload for ML-DSA-65 implicit accounts when that
+/// feature lands; update this comment then.
 pub const ML_DSA_65_HASH_LENGTH: usize = 48;
 /// Domain-separation tag for `MlDsa65PublicKey`-to-hash derivation.
 /// Prepended to the raw pubkey bytes before SHA3-384, so an ML-DSA-65
 /// hash can never collide with another use of SHA3 in the protocol.
 const ML_DSA_65_HASH_DOMAIN_TAG: &[u8] = b"near:ml-dsa-65-pubkey-hash:v1";
+/// Wire-format prefix for an ML-DSA-65 access-key identifier (the SHA3-384
+/// digest, not the full pubkey). Used in `view_access_key_list` responses
+/// and accepted by `KeyHandle::from_str`.
+const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash:";
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
@@ -71,7 +77,7 @@ impl FromStr for KeyType {
         match lowercase_key_type.as_str() {
             "ed25519" => Ok(KeyType::ED25519),
             "secp256k1" => Ok(KeyType::SECP256K1),
-            "ml-dsa-65" | "ml_dsa_65" => Ok(KeyType::MLDSA65),
+            "ml-dsa-65" => Ok(KeyType::MLDSA65),
             _ => Err(Self::Err::UnknownKeyType { unknown_key_type: lowercase_key_type }),
         }
     }
@@ -152,17 +158,6 @@ impl std::fmt::Debug for ED25519PublicKey {
 #[as_ref(forward)]
 pub struct MlDsa65PublicKey(pub Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>);
 
-#[cfg(test)]
-impl bolero::TypeGenerator for MlDsa65PublicKey {
-    fn generate<D: bolero::Driver>(driver: &mut D) -> Option<Self> {
-        let mut buf = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
-        for byte in &mut buf[..] {
-            *byte = u8::generate(driver)?;
-        }
-        Some(MlDsa65PublicKey(buf))
-    }
-}
-
 impl MlDsa65PublicKey {
     /// SHA3-384 of (domain-separation tag || raw pubkey bytes).
     ///
@@ -181,6 +176,31 @@ impl MlDsa65PublicKey {
         let mut out = [0u8; ML_DSA_65_HASH_LENGTH];
         out.copy_from_slice(&hasher.finalize());
         MlDsa65PublicKeyHash(out)
+    }
+}
+
+impl TryFrom<&[u8]> for MlDsa65PublicKey {
+    type Error = crate::errors::ParseKeyError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self(Box::new(try_fixed_array(data)?)))
+    }
+}
+
+impl Debug for MlDsa65PublicKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        Display::fmt(&Bs58(self.0.as_ref()), f)
+    }
+}
+
+#[cfg(test)]
+impl bolero::TypeGenerator for MlDsa65PublicKey {
+    fn generate<D: bolero::Driver>(driver: &mut D) -> Option<Self> {
+        let mut buf = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
+        for byte in &mut buf[..] {
+            *byte = u8::generate(driver)?;
+        }
+        Some(MlDsa65PublicKey(buf))
     }
 }
 
@@ -227,20 +247,6 @@ impl bolero::TypeGenerator for MlDsa65PublicKeyHash {
     }
 }
 
-impl TryFrom<&[u8]> for MlDsa65PublicKey {
-    type Error = crate::errors::ParseKeyError;
-
-    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(Box::new(try_fixed_array(data)?)))
-    }
-}
-
-impl Debug for MlDsa65PublicKey {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        Display::fmt(&Bs58(self.0.as_ref()), f)
-    }
-}
-
 /// Public key container supporting different curves.
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, ProtocolSchema)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
@@ -254,6 +260,11 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    /// Length of this public key's borsh encoding, in bytes — that is,
+    /// the on-the-wire size including the 1-byte type tag.
+    ///
+    /// For storage-fee accounting use [`PublicKey::trie_id_len`] instead;
+    /// for ML-DSA-65 those two diverge (1953 wire vs 49 on-trie).
     // `is_empty` always returns false, so there is no point in adding it
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
@@ -587,7 +598,7 @@ impl Display for KeyHandle {
         match self {
             Self::ED25519(k) => write!(fmt, "{}:{}", KeyType::ED25519, Bs58(&k.0[..])),
             Self::SECP256K1(k) => write!(fmt, "{}:{}", KeyType::SECP256K1, Bs58(&k.0[..])),
-            Self::MlDsa65Hash(h) => write!(fmt, "ml-dsa-65-hash:{}", Bs58(&h.0)),
+            Self::MlDsa65Hash(h) => write!(fmt, "{ML_DSA_65_HASH_PREFIX}{}", Bs58(&h.0)),
         }
     }
 }
@@ -613,7 +624,7 @@ impl FromStr for KeyHandle {
     type Err = crate::errors::ParseKeyError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if let Some(data) = value.strip_prefix("ml-dsa-65-hash:") {
+        if let Some(data) = value.strip_prefix(ML_DSA_65_HASH_PREFIX) {
             return Ok(Self::MlDsa65Hash(MlDsa65PublicKeyHash(try_fixed_array(
                 &bs58::decode(data)
                     .into_vec()
@@ -681,6 +692,12 @@ impl BorshDeserialize for KeyHandle {
             1 => Ok(Self::SECP256K1(Secp256K1PublicKey::from(
                 <[u8; 64] as BorshDeserialize>::deserialize_reader(rd)?,
             ))),
+            // Tag 2 is intentionally absent: it is reserved by `PublicKey`
+            // for the full ML-DSA-65 pubkey, which by construction never
+            // appears in the trie (`KeyHandle` stores the hash, tag 3).
+            // Refusing to decode tag 2 here keeps that invariant
+            // structural — a full ML-DSA-65 key cannot land in a
+            // `KeyHandle`-shaped slot through any borsh round-trip.
             3 => {
                 let mut buf = [0u8; ML_DSA_65_HASH_LENGTH];
                 rd.read_exact(&mut buf)?;
@@ -897,6 +914,12 @@ impl FromStr for SecretKey {
             }
             KeyType::MLDSA65 => {
                 let data = decode_bs58::<ML_DSA_65_SECRET_KEY_LENGTH>(key_data)?;
+                // Mirror SECP256K1: validate the bytes form a valid
+                // private key by handing them to the library. Catches
+                // malformed-but-correct-length blobs at parse time
+                // rather than blowing up later in `sign()`.
+                PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &data[..])
+                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 Self::MLDSA65(MlDsa65SecretKey(Box::new(data)))
             }
         })
@@ -1719,5 +1742,34 @@ mod tests {
                 "KeyHandle full-key encoding must match PublicKey encoding for {key_type:?}"
             );
         }
+    }
+
+    /// Known-Answer Test pinning the (seed → public key) mapping and the
+    /// sign/verify round-trip on a fixed message. If `aws-lc-rs` ever
+    /// changes the bytes it emits for ML-DSA-65 keygen, or makes verify
+    /// reject something it used to accept (or vice versa), this test
+    /// fails — preventing a silent fork between nodes on different
+    /// `aws-lc-rs` versions.
+    ///
+    /// Only the public key is byte-pinned: ML-DSA-65 signatures *can*
+    /// be non-deterministic in some library configurations, but verify
+    /// across versions must always agree on the same (pk, msg, sig)
+    /// triple. The round-trip below catches verify regressions.
+    #[cfg(feature = "rand")]
+    #[test]
+    fn test_ml_dsa_65_known_answer() {
+        const KAT_SEED: &str = "kat-seed-v1";
+        const KAT_PUBKEY: &str = "ml-dsa-65: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";
+        const KAT_MESSAGE: &[u8] = b"kat-message-v1";
+
+        let sk = SecretKey::from_seed(KeyType::MLDSA65, KAT_SEED);
+        let pk = sk.public_key();
+        assert_eq!(
+            pk.to_string(),
+            KAT_PUBKEY,
+            "seed → pubkey mapping changed; possible aws-lc-rs upgrade fork"
+        );
+        let sig = sk.sign(KAT_MESSAGE);
+        assert!(sig.verify(KAT_MESSAGE, &pk), "self-produced signature must verify");
     }
 }

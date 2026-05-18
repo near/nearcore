@@ -628,8 +628,9 @@ pub mod trie_key_parsers {
 
     /// Parse the on-trie identifier of an access-key entry out of the raw
     /// key bytes. Returns the same `KeyHandle` shape that `append_into`
-    /// wrote: `KeyHandle::Full(...)` for ed25519/secp256k1 entries, and
-    /// `KeyHandle::MlDsa65Hash(...)` for ML-DSA-65 entries.
+    /// wrote: `KeyHandle::ED25519(..)` / `KeyHandle::SECP256K1(..)` for
+    /// classical entries, and `KeyHandle::MlDsa65Hash(..)` for ML-DSA-65
+    /// entries.
     pub fn parse_key_handle_from_access_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
