@@ -32,6 +32,7 @@ use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -512,6 +513,7 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending,
             bucket_config: self.bucket_config.clone(),
+            spice_endorsement_delay: Arc::new(Mutex::new(Default::default())),
         };
         (self.test_loop, shared_state)
     }

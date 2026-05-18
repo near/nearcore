@@ -60,7 +60,7 @@ fn test_stale_global_contract_distribution_after_double_resharding() {
         memory_usage_threshold: u64::MAX,
         min_child_memory_usage: u64::MAX,
         max_number_of_shards: 100,
-        min_epochs_between_resharding: 0,
+        min_epochs_between_resharding: 1.try_into().unwrap(),
         force_split_shards: vec![first_split_shard, second_split_shard],
         block_split_shards: vec![],
     };

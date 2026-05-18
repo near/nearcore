@@ -168,7 +168,7 @@ async fn direct_connections() {
     tracing::info!(target:"test", "set chain info");
     let chain_info = peer_manager::testonly::make_chain_info(
         &chain,
-        &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
+        &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>(),
     );
     for pm in &pms {
         pm.set_chain_info(chain_info.clone()).await;
@@ -240,7 +240,7 @@ async fn proxy_connections() {
 
     let chain_info = peer_manager::testonly::make_chain_info(
         &chain,
-        &validators.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
+        &validators.iter().map(|pm| &pm.cfg).collect::<Vec<_>>(),
     );
     for pm in &all {
         pm.set_chain_info(chain_info.clone()).await;

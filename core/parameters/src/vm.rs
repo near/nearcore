@@ -123,6 +123,15 @@ pub struct LimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_params_per_contract: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_params_per_function: Option<u64>,
+    /// If present, stores the max operand stack size (in bytes) at any point
+    /// during the execution of a single function. Per-function: not summed
+    /// across recursion. Computed by `finite_wasm::max_stack`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_operand_stack_bytes_per_function: Option<u64>,
     /// If present, stores max number of tables declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tables_per_contract: Option<u32>,
@@ -145,6 +154,10 @@ pub struct LimitConfig {
     /// This caps total compilation time for a contract.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_blocks_per_contract: Option<u64>,
+    /// If present, stores max number of entries in the wasm type section that
+    /// a contract may declare.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_types_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]

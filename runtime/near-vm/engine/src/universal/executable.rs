@@ -111,9 +111,7 @@ pub enum ExecutableSerializeError {
 
 impl UniversalExecutable {
     /// Serialize the executable into bytes for storage.
-    pub fn serialize(
-        &self,
-    ) -> Result<Vec<u8>, Box<(dyn std::error::Error + Send + Sync + 'static)>> {
+    pub fn serialize(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync + 'static>> {
         // The format is as thus:
         //
         // HEADER

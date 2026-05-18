@@ -75,7 +75,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
         sync_hash: CryptoHash,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<ShardStateSyncResponseHeader, near_chain::Error>> {
+    ) -> BoxFuture<'_, Result<ShardStateSyncResponseHeader, near_chain::Error>> {
         let clock = self.clock.clone();
         let timeout = self.timeout;
         let chain_id = self.chain_id.clone();
@@ -121,7 +121,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<StatePart, near_chain::Error>> {
+    ) -> BoxFuture<'_, Result<StatePart, near_chain::Error>> {
         let clock = self.clock.clone();
         let timeout = self.timeout;
         let chain_id = self.chain_id.clone();

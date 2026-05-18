@@ -869,7 +869,7 @@ fn max_contracts_per_request_covers_chunk_gas_limit() {
     let store = RuntimeConfigStore::new(None);
     let config = store.get_config(PROTOCOL_VERSION);
     let function_call_base = config.fees.fee(ActionCosts::function_call_base).exec_fee();
-    let max_calls_per_chunk = INITIAL_GAS_LIMIT.as_gas() / function_call_base.as_gas();
+    let max_calls_per_chunk = INITIAL_GAS_LIMIT.as_gas() / function_call_base.gas.as_gas();
     // We do not want this limit to be smaller than the number of contracts we can theoretically
     // stuff into a chunk, on the other hand we want it to be as small as reasonably possible to
     // limit the blast radius of attack using the bogus contract hashes in `contract_accesses`.
@@ -878,7 +878,7 @@ fn max_contracts_per_request_covers_chunk_gas_limit() {
         "MAX_CONTRACTS_PER_REQUEST ({}) must be >= chunk_gas_limit / function_call_base ({} / {} = {})",
         MAX_CONTRACTS_PER_REQUEST,
         INITIAL_GAS_LIMIT,
-        function_call_base,
+        function_call_base.gas,
         max_calls_per_chunk,
     );
 }

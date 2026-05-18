@@ -23,7 +23,9 @@ use near_chain::{
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
+use near_epoch_manager::{
+    AssignmentStrategy, EpochManager, EpochManagerAdapter, proposals_to_epoch_info,
+};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
@@ -1112,6 +1114,20 @@ pub(crate) fn print_epoch_analysis(
             .then_some(next_next_epoch_height)
             .or_else(|| next_epoch_info.last_resharding());
 
+        // Backtest replays historical state under the latest protocol, so
+        // `next_next_shard_layout` (computed against `PROTOCOL_VERSION`) and
+        // the historical `next_shard_layout` will routinely differ even on
+        // non-resharding epochs. Force `CarryOver` to suppress that artifact
+        // — same intent as the historical `has_same_shard_layout = true`
+        // override in this mode.
+        let strategy = match mode {
+            EpochAnalysisMode::CheckConsistency => AssignmentStrategy::select(
+                next_next_protocol_version,
+                &next_shard_layout,
+                &next_next_shard_layout,
+            ),
+            EpochAnalysisMode::Backtest => AssignmentStrategy::CarryOver,
+        };
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1121,8 +1137,8 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
-            next_next_shard_layout,
-            has_same_shard_layout,
+            next_next_shard_layout.clone(),
+            &strategy,
             last_resharding,
         )
         .unwrap();

@@ -35,7 +35,7 @@ wat = { workspace = true, optional = true }
 near-vm-vm.workspace = true
 near-vm-compiler.workspace = true
 near-vm-engine.workspace = true
-near-vm-types.workspace = true
+near-vm-types = { workspace = true, features = ["test_features"] }
 target-lexicon.workspace = true
 # - Optional dependencies for `sys`.
 near-vm-compiler-singlepass = { workspace = true, optional = true }

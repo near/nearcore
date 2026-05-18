@@ -49,7 +49,7 @@ impl From<VMExtern> for Export {
 ///
 /// This struct owns the original `host_env`, thus when it gets dropped
 /// it calls the `drop` function on it.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct ExportFunctionMetadata {
     /// This field is stored here to be accessible by `Drop`.
     ///
@@ -125,7 +125,7 @@ impl Drop for ExportFunctionMetadata {
 
 /// A function export value with an extra function pointer to initialize
 /// host environments.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ExportFunction {
     /// The VM function, containing most of the data.
     pub vm_function: VMFunction,

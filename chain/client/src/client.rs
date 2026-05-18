@@ -9,6 +9,7 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use crate::spice_timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
@@ -32,6 +33,7 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_core::find_newly_certified_block_hashes;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -74,6 +76,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -434,7 +437,26 @@ impl Client {
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
-        Ok(Self {
+
+        // Initialize pending transaction queue from uncertified chunks for the chain head.
+        if let Ok(head) = chain.head() {
+            if let Err(err) = Self::reinitialize_pending_transaction_queue(
+                &chunk_producer.pending_transaction_queue,
+                &chain,
+                epoch_manager.as_ref(),
+                runtime_adapter.as_ref(),
+                &shard_tracker,
+                &head.last_block_hash,
+            ) {
+                tracing::error!(
+                    target: "client",
+                    ?err,
+                    "pending transaction queue initialization on startup failed"
+                );
+            }
+        }
+
+        let client = Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
             #[cfg(feature = "sandbox")]
@@ -477,7 +499,8 @@ impl Client {
             shadow_validation_reed_solomon: OnceLock::new(),
             last_validator_key_check_epoch: None,
             block_notification_watch_sender,
-        })
+        };
+        Ok(client)
     }
 
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
@@ -579,6 +602,101 @@ impl Client {
                             txs_to_reintroduce,
                             "reintroduced transactions");
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Add a new block's transactions to the pending transaction queue and remove certified chunks.
+    /// Called on BlockStatus::Next.
+    fn update_pending_transaction_queue_for_block(&self, block: &Block) -> Result<(), Error> {
+        if !block.is_spice_block() {
+            return Ok(());
+        }
+
+        // Remove newly certified blocks from the pending transaction queue.
+        let prev_uncertified =
+            self.chain.spice_core_reader.get_uncertified_chunks(block.header().prev_hash())?;
+        let certified_block_hashes =
+            find_newly_certified_block_hashes(&prev_uncertified, block.spice_core_statements());
+        if !certified_block_hashes.is_empty() {
+            let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
+            for block_hash in &certified_block_hashes {
+                ptq.remove_certified_block(block_hash);
+            }
+        }
+
+        // Add new block's chunk transactions.
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let config = self.runtime_adapter.get_runtime_config(protocol_version);
+        let gas_price = self.chain.get_block_header(block.header().prev_hash())?.next_gas_price();
+        for chunk_header in block.chunks().iter_new() {
+            let shard_id = chunk_header.shard_id();
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            if !self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                continue;
+            }
+            let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
+            let transactions = chunk.to_transactions();
+            let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
+            ptq.get_or_create(shard_uid).add_chunk_transactions(
+                *block.hash(),
+                transactions,
+                &config,
+                gas_price,
+            );
+        }
+        Ok(())
+    }
+
+    /// Re-initialize the pending transaction queue from uncertified chunks for the given chain head.
+    /// Called on startup and after reorgs.
+    fn reinitialize_pending_transaction_queue(
+        pending_transaction_queue: &Mutex<ShardedPendingTransactionQueue>,
+        chain: &Chain,
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime_adapter: &dyn RuntimeAdapter,
+        shard_tracker: &ShardTracker,
+        head_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let head_block = chain.get_block(head_hash)?;
+        if !head_block.is_spice_block() {
+            return Ok(());
+        }
+        pending_transaction_queue.lock().clear();
+
+        let uncertified_chunks = chain.spice_core_reader.get_uncertified_chunks(head_hash)?;
+        let uncertified_block_hashes: HashSet<CryptoHash> =
+            uncertified_chunks.iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
+
+        for block_hash in &uncertified_block_hashes {
+            let block = chain.get_block(block_hash)?;
+            let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
+            let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let config = runtime_adapter.get_runtime_config(protocol_version);
+            let prev_header = chain.get_block_header(block.header().prev_hash())?;
+            let gas_price = prev_header.next_gas_price();
+
+            for chunk_header in block.chunks().iter_new() {
+                let shard_id = chunk_header.shard_id();
+                let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
+                if !shard_tracker
+                    .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+                {
+                    continue;
+                }
+                let chunk = chain.get_chunk(&chunk_header.chunk_hash())?;
+                let transactions = chunk.to_transactions();
+                pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
+                    *block_hash,
+                    transactions,
+                    &config,
+                    gas_price,
+                );
             }
         }
         Ok(())
@@ -1026,14 +1144,16 @@ impl Client {
             let core_statements = SpiceCoreStatements::new(
                 self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?,
             );
-            let last_certified_block_execution_results =
-                self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
+            let newly_certified_block_execution_results = self
+                .chain
+                .spice_core_reader
+                .get_newly_certified_block_execution_results_for_next_block(
                     prev_header,
                     &core_statements,
                 )?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
-                last_certified_block_execution_results,
+                newly_certified_block_execution_results,
             })
         } else {
             None
@@ -1834,6 +1954,14 @@ impl Client {
                         );
                     }
                 }
+                // Update pending transaction queue: remove certified chunks, add new block's txs.
+                if let Err(err) = self.update_pending_transaction_queue_for_block(block) {
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        "updating pending transaction queue for block failed"
+                    );
+                }
             }
             BlockStatus::Fork => {
                 // If it's a fork, no need to reconcile transactions or produce chunks.
@@ -1901,6 +2029,22 @@ impl Client {
                             }
                         }
                     }
+                }
+
+                // Re-initialize pending transaction queue from uncertified chunks for the new head.
+                if let Err(err) = Self::reinitialize_pending_transaction_queue(
+                    &self.chunk_producer.pending_transaction_queue,
+                    &self.chain,
+                    self.epoch_manager.as_ref(),
+                    self.runtime_adapter.as_ref(),
+                    &self.shard_tracker,
+                    block.hash(),
+                ) {
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        "re-initializing pending transaction queue after reorg failed"
+                    );
                 }
             }
         };
@@ -2160,6 +2304,44 @@ impl Client {
         }
     }
 
+    /// Resolve the parent block hash for a skip approval.
+    ///
+    /// Multiple blocks can exist at `parent_height` when there are forks
+    /// (e.g. around an epoch boundary). Each fork block may belong to a
+    /// different epoch with different block-producer assignments for
+    /// `target_height`. We prefer the parent whose epoch makes us the block
+    /// producer so that the approval is not silently dropped later.
+    ///
+    /// Returns `None` when no blocks exist at `parent_height`.
+    fn resolve_skip_parent(
+        &self,
+        parent_height: BlockHeight,
+        target_height: BlockHeight,
+        my_account_id: Option<&AccountId>,
+    ) -> Option<CryptoHash> {
+        let hashes = self.chain.chain_store().get_all_block_hashes_by_height(parent_height);
+        let mut iter = hashes.values().flatten().copied();
+        let first = iter.next()?;
+        let Some(my_account_id) = my_account_id else {
+            return Some(first);
+        };
+        let is_producer = |hash: &CryptoHash| {
+            self.epoch_manager
+                .get_epoch_id_from_prev_block(hash)
+                .and_then(|epoch_id| {
+                    self.epoch_manager.get_block_producer(&epoch_id, target_height)
+                })
+                .ok()
+                .as_ref()
+                == Some(my_account_id)
+        };
+        if is_producer(&first) {
+            Some(first)
+        } else {
+            Some(iter.find(is_producer).unwrap_or(first))
+        }
+    }
+
     /// Collects block approvals.
     ///
     /// We send the approval to doomslug given the epoch of the current tip iff:
@@ -2180,29 +2362,27 @@ impl Client {
             target_height=target_height,
             approval_type=?approval_type,
             "collect_block_approval");
+        let signer = self.validator_signer.get();
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                {
-                    let hashes =
-                        self.chain.chain_store().get_all_block_hashes_by_height(*parent_height);
-                    // If there is more than one block at the height, all of them will be
-                    // eligible to build the next block on, so we just pick one.
-                    let hash = hashes.values().flatten().next();
-                    match hash {
-                        Some(hash) => *hash,
-                        None => {
-                            self.handle_process_approval_error(
-                                approval,
-                                approval_type,
-                                true,
-                                near_chain::Error::DBNotFoundErr(format!(
-                                    "Cannot find any block on height {}",
-                                    parent_height
-                                )),
-                            );
-                            return;
-                        }
+                match self.resolve_skip_parent(
+                    *parent_height,
+                    *target_height,
+                    signer.as_ref().map(|s| s.validator_id()),
+                ) {
+                    Some(hash) => hash,
+                    None => {
+                        self.handle_process_approval_error(
+                            approval,
+                            approval_type,
+                            true,
+                            near_chain::Error::DBNotFoundErr(format!(
+                                "cannot find any block on height {}",
+                                parent_height
+                            )),
+                        );
+                        return;
                     }
                 }
             }
@@ -2250,7 +2430,6 @@ impl Client {
             }
         }
 
-        let signer = self.validator_signer.get();
         let is_block_producer =
             match self.epoch_manager.get_block_producer(&next_block_epoch_id, *target_height) {
                 Err(_) => false,

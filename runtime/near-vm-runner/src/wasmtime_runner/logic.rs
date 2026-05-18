@@ -18,6 +18,7 @@ use crate::logic::{HostError, VMLogicError};
 use ExtCosts::*;
 use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
+use near_parameters::ParameterCost;
 use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, gas_key_add_key_exec_fee, gas_key_add_key_send_fee,
@@ -1986,20 +1987,20 @@ fn pay_gas_for_new_receipt(
     sir: bool,
     data_dependencies: &[bool],
 ) -> Result<()> {
-    let mut burn_gas = fees_config.fee(ActionCosts::new_action_receipt).send_fee(sir);
-    let mut use_gas = fees_config.fee(ActionCosts::new_action_receipt).exec_fee();
+    let mut burn_cost = fees_config.fee(ActionCosts::new_action_receipt).send_fee(sir);
+    let mut use_gas = fees_config.fee(ActionCosts::new_action_receipt).exec_fee().gas;
     for dep in data_dependencies {
         // Both creation and execution for data receipts are considered burnt gas.
-        burn_gas = burn_gas
+        burn_cost = burn_cost
             .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).send_fee(*dep))
             .ok_or(HostError::IntegerOverflow)?
             .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).exec_fee())
             .ok_or(HostError::IntegerOverflow)?;
     }
-    use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+    use_gas = use_gas.checked_add(burn_cost.gas).ok_or(HostError::IntegerOverflow)?;
     // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
-    // But we have to keep charing these two together unless we make a protocol change.
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_action_receipt)
+    // But we have to keep charging these two together unless we make a protocol change.
+    gas_counter.pay_action_accumulated(burn_cost, use_gas, ActionCosts::new_action_receipt)
 }
 
 /// Creates a promise that will execute a method on account with given arguments and attaches
@@ -3105,10 +3106,10 @@ pub fn promise_batch_action_transfer(
         ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
-    let burn_gas = send_fee;
-    let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
+    let burn_cost = send_fee;
+    let use_gas = burn_cost.gas.checked_add(exec_fee.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
-        burn_gas,
+        burn_cost,
         use_gas,
         ActionCosts::transfer,
     )?;
@@ -3164,14 +3165,15 @@ pub fn promise_batch_action_transfer_to_gas_key(
     let exec =
         gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), public_key_len as usize);
     let burn_base = send.base;
-    let use_base = burn_base.checked_add(exec.base).ok_or(HostError::IntegerOverflow)?;
+    let use_base = burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
         burn_base,
         use_base,
         ActionCosts::gas_key_transfer_base,
     )?;
     let burn_byte = send.per_byte;
-    let use_byte = burn_byte.checked_add(exec.per_byte).ok_or(HostError::IntegerOverflow)?;
+    let use_byte =
+        burn_byte.gas.checked_add(exec.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
         burn_byte,
         use_byte,
@@ -3987,7 +3989,7 @@ pub fn value_return(
         value_ptr,
         value_len,
     )?;
-    let mut burn_gas: Gas = Gas::ZERO;
+    let mut burn_cost = ParameterCost::ZERO;
     let num_bytes = return_val.len() as u64;
     if num_bytes > ctx.config.limit_config.max_length_returned_data {
         return Err(HostError::ReturnedValueLengthExceeded {
@@ -4005,7 +4007,7 @@ pub fn value_return(
         // refund in this situation. Which we avoid by just paying for execution of
         // data receipt that might not be performed.
         // The gas here is considered burnt, cause we'll prepay for it upfront.
-        burn_gas = burn_gas
+        burn_cost = burn_cost
             .checked_add(
                 ctx.fees_config
                     .fee(ActionCosts::new_data_receipt_byte)
@@ -4018,8 +4020,8 @@ pub fn value_return(
             .ok_or(HostError::IntegerOverflow)?;
     }
     ctx.result_state.gas_counter.pay_action_accumulated(
-        burn_gas,
-        burn_gas,
+        burn_cost,
+        burn_cost.gas,
         ActionCosts::new_data_receipt_byte,
     )?;
     ctx.result_state.return_data = ReturnData::Value(return_val.into());
@@ -4660,9 +4662,10 @@ pub fn pay_action_base(
     sir: bool,
 ) -> Result<()> {
     let base_fee = fees_config.fee(action);
-    let burn_gas = base_fee.send_fee(sir);
-    let use_gas = burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+    let burn_cost = base_fee.send_fee(sir);
+    let use_gas =
+        burn_cost.gas.checked_add(base_fee.exec_fee().gas).ok_or(HostError::IntegerOverflow)?;
+    gas_counter.pay_action_accumulated(burn_cost, use_gas, action)
 }
 
 /// A helper function to pay per byte gas fee for batching an action.
@@ -4674,12 +4677,13 @@ pub fn pay_action_per_byte(
     sir: bool,
 ) -> Result<()> {
     let per_byte_fee = fees_config.fee(action);
-    let burn_gas =
+    let burn_cost =
         per_byte_fee.send_fee(sir).checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
-    let use_gas = burn_gas
+    let use_gas = burn_cost
+        .gas
         .checked_add(
-            per_byte_fee.exec_fee().checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
+            per_byte_fee.exec_fee().gas.checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
         )
         .ok_or(HostError::IntegerOverflow)?;
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+    gas_counter.pay_action_accumulated(burn_cost, use_gas, action)
 }

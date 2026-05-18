@@ -975,7 +975,7 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn validator_proposals(&self) -> ValidatorStakeIter {
+        pub fn validator_proposals(&self) -> ValidatorStakeIter<'_> {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
@@ -1316,6 +1316,18 @@ impl BlockExecutionResults {
     pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
         self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
             acc.checked_add(execution_result.chunk_extra.gas_limit())
+        })
+    }
+
+    pub fn compute_gas_used_checked(&self) -> Option<Gas> {
+        self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_used())
+        })
+    }
+
+    pub fn compute_balance_burnt_checked(&self) -> Option<Balance> {
+        self.0.iter().try_fold(Balance::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.balance_burnt())
         })
     }
 }

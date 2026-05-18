@@ -320,8 +320,6 @@ pub struct GasKeyNoncesView {
     pub nonces: Vec<Nonce>,
 }
 
-// cspell:words deepsize
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct KnownPeerStateView {
@@ -333,7 +331,6 @@ pub struct KnownPeerStateView {
     pub last_attempt: Option<(i64, String)>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ConnectionInfoView {
@@ -343,7 +340,6 @@ pub struct ConnectionInfoView {
     pub time_connected_until: i64,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SnapshotHostInfoView {
@@ -353,7 +349,6 @@ pub struct SnapshotHostInfoView {
     pub shards: Vec<u64>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -1982,7 +1977,6 @@ impl ExecutionOutcomeView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,

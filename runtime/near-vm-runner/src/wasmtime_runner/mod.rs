@@ -26,9 +26,10 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock, OnceLock};
 use wasmtime::{
-    CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
-    Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig, ResourcesRequired,
-    Store, StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
+    CallHook, Engine, Extern, ExternType, Inlining, Instance, InstanceAllocationStrategy,
+    InstancePre, Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig,
+    RegallocAlgorithm, ResourcesRequired, Store, StoreLimits, StoreLimitsBuilder, Strategy, Val,
+    WasmBacktraceDetails,
 };
 
 mod logic;
@@ -307,7 +308,7 @@ trait IntoVMError {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError>;
 }
 
-impl IntoVMError for anyhow::Error {
+impl IntoVMError for wasmtime::Error {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
         let cause = self.root_cause();
         if let Some(container) = cause.downcast_ref::<ErrorContainer>() {
@@ -432,7 +433,7 @@ impl WasmtimeVM {
                 // > unwinding information which can greatly slow down the module loading/unloading process.
                 // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
                 .native_unwind_info(false)
-                .wasm_backtrace(false)
+                .wasm_backtrace_max_frames(None)
                 .wasm_backtrace_details(WasmBacktraceDetails::Disable)
                 // Disable native -> wasm code address mappings to reduce the generated code size.
                 // This saves around 40% of total size for contracts on mainnet.
@@ -441,9 +442,29 @@ impl WasmtimeVM {
                 .memory_init_cow(true)
                 // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
                 .max_wasm_stack(1024 * 1024 * 1024)
-                // Enable the Cranelift optimizing compiler.
-                .strategy(Strategy::Cranelift)
+                // Winch on x86_64 (production); Cranelift elsewhere
+                // (e.g. aarch64 development environment) since Winch on
+                // aarch64 lacks wide-arithmetic support in wasmtime 45.
+                // TODO: drop the Cranelift fallback once a wasmtime release
+                // adds wide-arithmetic to Winch on aarch64.
+                .strategy(if cfg!(target_arch = "x86_64") {
+                    Strategy::Winch
+                } else {
+                    Strategy::Cranelift
+                })
+                // No-op for Winch wasm bodies (single-pass codegen, no opt
+                // pipeline).
                 .cranelift_opt_level(OptLevel::None)
+                // Single-pass regalloc trades codegen quality for compile
+                // speed. Only applies to Cranelift (Winch has its own
+                // regalloc and silently ignores this setting).
+                .cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass)
+                // Disable inlining. No-op on Winch (Winch doesn't inline)
+                .compiler_inlining(Inlining::No)
+                // Despite the `cranelift_` prefix, this setting also takes
+                // effect on Winch (winch/codegen reads `enable_nan_canonicalization`
+                // from the shared compiler flags at codegen time).
+                .cranelift_nan_canonicalization(true)
                 // Enable signals-based traps. This is required to elide explicit bounds-checking.
                 .signals_based_traps(true)
                 // Configure linear memories such that explicit bounds-checking can be elided.
@@ -454,8 +475,6 @@ impl WasmtimeVM {
                 .memory_may_move(false)
                 .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
                 .memory_reservation_for_growth(0)
-                .compiler_inlining(true)
-                .cranelift_nan_canonicalization(true)
                 .wasm_wide_arithmetic(true);
 
             let config = Arc::clone(&vm_key.config);
@@ -469,7 +488,7 @@ impl WasmtimeVM {
     pub(crate) fn vm_hash(&self) -> u64 {
         // increment the `version` when making modifications that affect the
         // artifact compatibility.
-        let version = 71;
+        let version = 73;
 
         let mut hasher = std::hash::DefaultHasher::new();
         self.engine.precompile_compatibility_hash().hash(&mut hasher);
@@ -883,20 +902,18 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
-        // Pre-resolve the memory export so that host functions don't need to
-        // resolve it lazily via Caller::get_module_export (which can fail when
-        // the Caller's instance is a host-side trampoline for re-exported
-        // host functions). It may already be resolved if a start function
-        // triggered a host import during instantiation.
+        // Pre-resolve the memory export here (on the real, post-instantiation
+        // instance) so host functions don't need to resolve it lazily.
         //
-        // Uses string-based instance.get_memory instead of
-        // instance.get_module_export due to a wasmtime issue: for modules
-        // whose only compiled functions are trampolines (no user-defined
-        // function bodies), LoadedCode::push_module stores the module in
-        // modules_with_only_trampolines, but LoadedCode::module() only
-        // searches self.modules, causing module_for_instance to panic.
-        if let Export::Unresolved(_) = store.data().memory {
-            if let Some(memory) = instance.get_memory(&mut store, MEMORY_EXPORT) {
+        // The lazy Caller::get_module_export → module_for_instance().unwrap()
+        // path panics when the Caller's instance is a Dummy host-side
+        // trampoline for a re-exported host function (module_for_instance
+        // returns None for Dummy instances). See test_panic_re_export and
+        // test_trampoline_only_* for regression coverage.
+        if let Export::Unresolved(memory_export) = store.data().memory {
+            if let Some(Extern::Memory(memory)) =
+                instance.get_module_export(&mut store, &memory_export)
+            {
                 store.data_mut().memory = Export::Resolved(memory);
             }
         }
@@ -991,7 +1008,7 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
           $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
         ) => {
             #[allow(unused_parens)]
-            fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+            fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> wasmtime::Result<($( $returns ),*)> {
                 const TRACE: bool = imports::should_trace_host_function(stringify!($name));
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
@@ -1098,5 +1115,56 @@ mod tests {
             let acquired = thread.join().expect("failed to join thread");
             assert!(acquired);
         });
+    }
+
+    /// Verifies that the engine produced by [`WasmtimeVM`] canonicalizes
+    /// floating-point NaN payloads.
+    ///
+    /// We pass a NaN with a non-canonical payload through `f{32,64}.add`
+    /// (the second operand is a runtime value to defeat constant folding)
+    /// and assert the result is the canonical NaN bit pattern.
+    #[test]
+    fn nan_canonicalization() {
+        let config = crate::tests::test_vm_config(Some(VMKind::Wasmtime));
+        let vm = WasmtimeVM::new_for_target(Arc::new(config), None).unwrap();
+
+        let wat_src = r#"
+            (module
+                (func (export "f32_add") (param f32 f32) (result f32)
+                    local.get 0
+                    local.get 1
+                    f32.add)
+                (func (export "f64_add") (param f64 f64) (result f64)
+                    local.get 0
+                    local.get 1
+                    f64.add)
+            )
+        "#;
+        let wasm = wat::parse_str(wat_src).unwrap();
+        let module = Module::new(&vm.engine, &wasm).unwrap();
+        let mut store = Store::new(&vm.engine, ());
+        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+
+        // Quiet NaN with a non-canonical payload (canonical f32 NaN is
+        // 0x7fc00000, with all-zero significand bits below the quiet bit).
+        let f32_in = f32::from_bits(0x7fc1_2345);
+        let f32_add = instance.get_typed_func::<(f32, f32), f32>(&mut store, "f32_add").unwrap();
+        let out = f32_add.call(&mut store, (f32_in, 0.0)).unwrap();
+        assert_eq!(
+            out.to_bits() & 0x7fff_ffff,
+            0x7fc0_0000,
+            "f32 NaN payload not canonicalized: 0x{:08x}",
+            out.to_bits(),
+        );
+
+        let f64_in = f64::from_bits(0x7ff8_0000_0001_2345);
+        let f64_add = instance.get_typed_func::<(f64, f64), f64>(&mut store, "f64_add").unwrap();
+        let out = f64_add.call(&mut store, (f64_in, 0.0)).unwrap();
+        assert_eq!(
+            out.to_bits() & 0x7fff_ffff_ffff_ffff,
+            0x7ff8_0000_0000_0000,
+            "f64 NaN payload not canonicalized: 0x{:016x}",
+            out.to_bits(),
+        );
     }
 }

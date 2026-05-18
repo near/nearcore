@@ -1,10 +1,10 @@
 use crate::Error;
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
-    StateRootNodeValidationResult, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, HasContract,
+    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
+    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::contract_compilation_pool;
@@ -42,7 +42,7 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::CLOUD_MIN_HEAD_KEY;
+use near_store::db::CLOUD_PREV_EPOCH_END_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
@@ -56,9 +56,9 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, ValidatorAccountsUpdate,
-    get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    ValidatorAccountsUpdate, get_signer_and_access_key, validate_transaction,
+    verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -416,11 +416,8 @@ impl NightshadeRuntime {
         // the GC not to run regardless of what we return here.
         let kind = self.store.get_db_kind();
         if let Some(DbKind::Hot) = kind {
-            let Some(cold_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
-                &self.store,
-                &epoch_manager,
-                COLD_HEAD_KEY,
-            )?
+            let Some(cold_head_epoch_start_height) =
+                get_epoch_start_height_from_cold_head(&self.store, &epoch_manager)?
             else {
                 // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
                 // migration has not finished yet, in which case we should not garbage collect anything.
@@ -429,17 +426,15 @@ impl NightshadeRuntime {
             gc_stop_height = gc_stop_height.min(cold_head_epoch_start_height);
         }
 
-        // Analogous to split storage cold DB: if the cloud archival writer is enabled, we check the cloud
-        // archival head and update `gc_stop_height` to the minimum.
+        // Analogous to split storage cold DB: if the cloud archival writer is enabled, we check the
+        // latest fully-archived epoch and update `gc_stop_height` to the minimum.
         if self.is_cloud_archival_writer {
-            let Some(cloud_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
-                &self.store,
-                &epoch_manager,
-                CLOUD_MIN_HEAD_KEY,
-            )?
+            let Some(cloud_head_epoch_start_height) =
+                get_epoch_start_height_from_cloud_head_prev_epoch(&self.store, &epoch_manager)?
             else {
                 return Err(Error::DBNotFoundErr(
-                    "Cloud archival writer is configured, but CLOUD_MIN_HEAD is missing".into(),
+                    "Cloud archival writer is configured, but CLOUD_PREV_EPOCH_END is missing"
+                        .into(),
                 ));
             };
             gc_stop_height = gc_stop_height.min(cloud_head_epoch_start_height);
@@ -600,16 +595,27 @@ impl NightshadeRuntime {
     }
 }
 
-fn get_epoch_start_height_from_archival_head(
+fn get_epoch_start_height_from_cold_head(
     store: &Store,
     epoch_manager: &EpochManager,
-    archival_head_key: &[u8],
 ) -> Result<Option<BlockHeight>, Error> {
-    let Some(archival_head) = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key) else {
+    let Some(cold_head) = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY) else {
         return Ok(None);
     };
-    let archival_head_hash = archival_head.last_block_hash;
-    let epoch_start_height = epoch_manager.get_epoch_start_height(&archival_head_hash)?;
+    let epoch_start_height = epoch_manager.get_epoch_start_height(&cold_head.last_block_hash)?;
+    Ok(Some(epoch_start_height))
+}
+
+fn get_epoch_start_height_from_cloud_head_prev_epoch(
+    store: &Store,
+    epoch_manager: &EpochManager,
+) -> Result<Option<BlockHeight>, Error> {
+    let Some(prev_epoch_end) =
+        store.get_ser::<CryptoHash>(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY)
+    else {
+        return Ok(None);
+    };
+    let epoch_start_height = epoch_manager.get_epoch_start_height(&prev_epoch_end)?;
     Ok(Some(epoch_start_height))
 }
 
@@ -714,6 +720,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
+        pending_constraints: &PendingConstraints,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
         let tx = validated_tx.to_tx();
@@ -746,6 +753,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &tx,
                 &cost,
                 block_height,
+                pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
                 TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
@@ -759,6 +767,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &cost,
                 block_height,
                 current_protocol_version,
+                pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
                 TxVerdict::Failed(error) => Err(error),
@@ -823,6 +832,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             chain_validate,
             validate_tx_ttl,
             HashSet::new(),
+            &mut PendingTxCheckResult::always_admit(),
             time_limit,
             None,
         ) // skip_tx_hashes is empty, so there will be no skipped transactions
@@ -854,6 +864,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
+        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1008,6 +1019,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                     nonce_index,
                 )?;
 
+                // Check pending transaction queue constraints.
+                let has_contract =
+                    if account.contract().is_some() { HasContract::Yes } else { HasContract::No };
+                let pending_constraints =
+                    match check_pending(validated_tx.to_signed_tx(), has_contract) {
+                        PendingTxCheckResult::Admit(constraints) => constraints,
+                        PendingTxCheckResult::Skip => {
+                            skipped_transactions.push(validated_tx);
+                            continue;
+                        }
+                    };
+
                 let cost = match tx_cost(
                     runtime_config,
                     &validated_tx.to_tx(),
@@ -1033,6 +1056,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
+                        &pending_constraints,
                     )
                 } else {
                     verify_and_charge_tx_ephemeral(
@@ -1043,6 +1067,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &cost,
                         Some(next_block_height),
                         protocol_version,
+                        &pending_constraints,
                     )
                 };
                 match verdict {

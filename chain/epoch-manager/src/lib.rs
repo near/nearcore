@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use crate::adapter::EpochManagerAdapter;
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
@@ -23,8 +21,8 @@ use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
-    EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
-    ValidatorKickoutReason, ValidatorStats,
+    EpochInfoProvider, NonZeroEpochHeight, ProtocolVersion, ShardId, ValidatorId,
+    ValidatorInfoIdentifier, ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
@@ -37,6 +35,7 @@ use num_rational::BigRational;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
+pub use shard_assignment::AssignmentStrategy;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -73,11 +72,11 @@ pub struct EpochManagerHandle {
 }
 
 impl EpochManagerHandle {
-    pub fn write(&self) -> RwLockWriteGuard<EpochManager> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, EpochManager> {
         self.inner.write()
     }
 
-    pub fn read(&self) -> RwLockReadGuard<EpochManager> {
+    pub fn read(&self) -> RwLockReadGuard<'_, EpochManager> {
         self.inner.read()
     }
 }
@@ -733,16 +732,13 @@ impl EpochManager {
     /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
     /// to the current epoch), based on `min_epochs_between_resharding`.
     ///
-    /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
+    /// Returns `true` if no resharding occurred in the last `min_epochs_between_resharding`
+    /// epochs (including the next one).
     fn can_reshard(
         &self,
         block_hash: &CryptoHash,
-        min_epochs_between_resharding: u64,
+        min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError> {
-        if min_epochs_between_resharding == 0 {
-            return Ok(true);
-        }
-
         let block_info = self.get_block_info(block_hash)?;
         let next_epoch_id = self.get_next_epoch_id_from_info(&block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
@@ -751,7 +747,7 @@ impl EpochManager {
         // has been enabled. It is theoretically possible that a static resharding was scheduled
         // right before enabling dynamic resharding, but we assume this didn't happen.
         let can_reshard = next_epoch_info.last_resharding().is_none_or(|last_resharding| {
-            next_epoch_info.epoch_height() - last_resharding >= min_epochs_between_resharding
+            next_epoch_info.epoch_height() - last_resharding >= min_epochs_between_resharding.get()
         });
         Ok(can_reshard)
     }
@@ -830,11 +826,17 @@ impl EpochManager {
             &next_shard_layout,
             block_info,
         )?;
-        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
 
+        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
         let last_resharding = (!has_same_shard_layout)
             .then(|| next_epoch_info.epoch_height() + 1)
             .or_else(|| next_epoch_info.last_resharding());
+
+        let strategy = AssignmentStrategy::select(
+            next_next_epoch_version,
+            &next_shard_layout,
+            &next_next_shard_layout,
+        );
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -846,7 +848,7 @@ impl EpochManager {
             minted_amount,
             next_next_epoch_version,
             next_next_shard_layout.clone(),
-            has_same_shard_layout,
+            &strategy,
             last_resharding,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
@@ -1576,6 +1578,14 @@ impl EpochManager {
         if block_info.is_genesis() {
             return Ok(true);
         }
+        // In SPICE, do not transition to the next epoch if the last certified
+        // block's epoch is different from the current block epoch. This
+        // prevents execution from lagging more than one epoch behind.
+        if let Some(last_certified_block_epoch) = block_info.last_certified_block_epoch() {
+            if last_certified_block_epoch != block_info.epoch_id() {
+                return Ok(false);
+            }
+        }
         self.is_next_block_in_next_epoch_impl(
             block_info.height(),
             block_info.last_finalized_height(),
@@ -1787,16 +1797,6 @@ impl EpochManager {
     ) -> Result<Option<(EpochInfoAggregator, bool)>, EpochError> {
         if block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(None);
-        }
-
-        if cfg!(debug) {
-            let agg_hash = self.epoch_info_aggregator.last_block_hash;
-            let agg_height = self.get_block_info(&agg_hash)?.height();
-            let block_height = self.get_block_info(block_hash)?.height();
-            assert!(
-                agg_height < block_height,
-                "#{agg_hash} {agg_height} >= #{block_hash} {block_height}",
-            );
         }
 
         let epoch_id = *self.get_block_info(block_hash)?.epoch_id();

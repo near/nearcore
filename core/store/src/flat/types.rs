@@ -63,6 +63,11 @@ impl From<FlatStorageError> for StorageError {
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+// suppressed warning:
+// large size difference between variants:
+// the second-largest variant contains at least 72 bytes (FlatStorageReadyStatus)
+// the largest variant contains at least 296 bytes (FlatStorageReshardingStatus)
+#[allow(clippy::large_enum_variant)]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
     Disabled = 0,
@@ -152,6 +157,7 @@ pub enum FlatStorageCreationStatus {
 /// background and could take significant time.
 /// After all elements have been copied the new flat storages will be behind the chain head. To remediate this issue
 /// they will enter a catching up phase. The parent shard, instead, must be removed and cleaned up.
+#[allow(clippy::large_enum_variant)]
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]

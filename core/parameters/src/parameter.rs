@@ -211,6 +211,10 @@ pub enum Parameter {
     MaxInstrumentedCodeSize,
     MaxBlocksPerFunction,
     MaxBlocksPerContract,
+    MaxTypesPerContract,
+    MaxParamsPerFunction,
+    MaxParamsPerContract,
+    MaxOperandStackBytesPerFunction,
 
     // Contract runtime features
     FlatStorageReads,
@@ -247,6 +251,12 @@ pub enum Parameter {
     ActionDeployGlobalContract,
     ActionDeployGlobalContractPerByte,
     GlobalContractStorageAmountPerByte,
+    /// Compute cost charged when applying a `GlobalContractDistribution`
+    /// receipt on the receiver shard (covers precompilation overhead).
+    DeployGlobalContractExecutionBase,
+    /// Per-byte compute cost charged when applying a
+    /// `GlobalContractDistribution` receipt, scaled by deployed code size.
+    DeployGlobalContractExecutionPerByte,
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
@@ -347,6 +357,10 @@ impl Parameter {
             Parameter::MaxInstrumentedCodeSize,
             Parameter::MaxBlocksPerFunction,
             Parameter::MaxBlocksPerContract,
+            Parameter::MaxTypesPerContract,
+            Parameter::MaxParamsPerFunction,
+            Parameter::MaxParamsPerContract,
+            Parameter::MaxOperandStackBytesPerFunction,
         ]
         .iter()
     }

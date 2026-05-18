@@ -53,7 +53,7 @@ pub fn compute_next_batch(height: BlockHeight, batch_size: u32) -> BatchRange {
     let batch_size = batch_size as u64;
     let start = height + 1;
     // Steady state: full window.
-    if start % batch_size == 0 {
+    if start.is_multiple_of(batch_size) {
         return BatchRange { start, end: start + batch_size - 1 };
     }
     // Genesis / fresh init / resharded child: partial window to next boundary.

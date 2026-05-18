@@ -205,7 +205,7 @@ impl ApplyChunksResultCache {
     ) -> Option<ShardUpdateResult> {
         let shard_id_label = shard_id.to_string();
         if let Some(result) = self.cache.pop(key) {
-            self.hits.set(self.hits.get() + 1);
+            self.hits.update(|v| v + 1);
             if record_metric {
                 metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
                     .with_label_values(&[shard_id_label.as_str()])
@@ -214,7 +214,7 @@ impl ApplyChunksResultCache {
             return Some(result);
         }
 
-        self.misses.set(self.misses.get() + 1);
+        self.misses.update(|v| v + 1);
         if record_metric {
             metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
                 .with_label_values(&[shard_id_label.as_str()])
@@ -1452,7 +1452,7 @@ impl Chain {
         (accepted_blocks, errors)
     }
 
-    fn chain_update(&mut self) -> ChainUpdate {
+    fn chain_update(&mut self) -> ChainUpdate<'_> {
         ChainUpdate::new(
             &mut self.chain_store,
             self.epoch_manager.clone(),
@@ -2443,23 +2443,25 @@ impl Chain {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        let last_certified_block_execution_results =
-            if ProtocolFeature::Spice.enabled(protocol_version) {
-                // We cannot get last certified block until block is fully processed.
-                Some(self.spice_core_reader.get_last_certified_execution_results_for_next_block(
+        let newly_certified_block_execution_results = if ProtocolFeature::Spice
+            .enabled(protocol_version)
+        {
+            Some(
+                self.spice_core_reader.get_newly_certified_block_execution_results_for_next_block(
                     &prev,
                     block.spice_core_statements(),
-                )?)
-            } else {
-                None
-            };
+                )?,
+            )
+        } else {
+            None
+        };
 
         match block.verify_gas_price_checked(
             gas_price,
             self.block_economics_config.min_gas_price(),
             self.block_economics_config.max_gas_price(),
             self.block_economics_config.gas_price_adjustment_rate(),
-            last_certified_block_execution_results.as_ref(),
+            newly_certified_block_execution_results.as_deref(),
         ) {
             Some(true) => {}
             Some(false) => {
@@ -2476,7 +2478,13 @@ impl Chain {
             None
         };
 
-        match block.verify_total_supply_checked(prev.total_supply(), minted_amount) {
+        let total_supply_check =
+            if let Some(results) = newly_certified_block_execution_results.as_deref() {
+                block.verify_total_supply_checked_spice(prev.total_supply(), minted_amount, results)
+            } else {
+                block.verify_total_supply_checked(prev.total_supply(), minted_amount)
+            };
+        match total_supply_check {
             Some(true) => {}
             Some(false) => {
                 byzantine_assert!(false);

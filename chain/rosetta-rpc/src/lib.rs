@@ -1069,7 +1069,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsLayer {
     }
     cors.allow_methods([Method::GET, Method::POST])
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
-        .max_age(Duration::from_secs(3600))
+        .max_age(Duration::from_hours(1))
 }
 
 pub fn start_rosetta_rpc(
