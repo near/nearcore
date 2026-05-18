@@ -1,10 +1,10 @@
+use crate::receipt_to_tx::build_receipt_to_tx_info;
 use crate::{ChainStore, ChainStoreAccess, Error};
 use anyhow::Context;
 use near_o11y::tracing;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptToTxInfo,
-    ReceiptToTxInfoV1,
 };
 use near_primitives::types::BlockHeight;
 use near_primitives::utils::get_block_shard_id_rev;
@@ -178,14 +178,10 @@ pub fn process_height(
                     }
                 };
 
-                let info = if is_tx {
-                    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                        origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
-                            tx_hash: outcome_id,
-                            sender_account_id: outcome.executor_id.clone(),
-                        }),
-                        receiver_account_id: child_receipt.receiver_id().clone(),
-                        shard_id,
+                let origin = if is_tx {
+                    ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                        tx_hash: outcome_id,
+                        sender_account_id: outcome.executor_id.clone(),
                     })
                 } else {
                     let parent = match &parent_receipt {
@@ -200,16 +196,14 @@ pub fn process_height(
                             continue;
                         }
                     };
-                    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                        origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                            parent_receipt_id: outcome_id,
-                            parent_predecessor_id: parent.predecessor_id().clone(),
-                        }),
-                        receiver_account_id: child_receipt.receiver_id().clone(),
-                        shard_id,
+                    ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                        parent_receipt_id: outcome_id,
+                        parent_predecessor_id: parent.predecessor_id().clone(),
                     })
                 };
 
+                let info =
+                    build_receipt_to_tx_info(origin, child_receipt.receiver_id().clone(), shard_id);
                 entries.push((*child_receipt_id, info));
             }
         }
