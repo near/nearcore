@@ -1048,4 +1048,57 @@ mod tests {
         ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre)
             .expect("ed25519 tx unaffected by PQ gate pre-feature");
     }
+
+    /// An outer ed25519 transaction whose only action is a `Delegate`
+    /// wrapping an inner ML-DSA-65 signer + an inner `AddKey` of a third
+    /// ML-DSA-65 pubkey must be rejected pre-feature: the centralised
+    /// `post_quantum_signatures_required` walks into `SignedDelegateAction`
+    /// and the nested `actions` vec recursively. This is the case the
+    /// per-action gates would have had to remember to handle for both
+    /// `validate_delegate_action` and `validate_add_key_action`.
+    #[test]
+    fn test_check_valid_for_config_ml_dsa_in_delegate_gated() {
+        use crate::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+
+        let config = RuntimeConfig::test();
+
+        // Inner signer (the meta-tx sender) uses ML-DSA-65.
+        let inner_signer: Signer =
+            InMemorySigner::from_random("carol.near".parse().unwrap(), KeyType::MLDSA65).into();
+        // A *separate* ML-DSA-65 pubkey, target of an inner `AddKey`.
+        let inner_target_pq =
+            near_crypto::SecretKey::from_seed(KeyType::MLDSA65, "delegated-add-key").public_key();
+        let inner_add_key = Action::AddKey(Box::new(AddKeyAction {
+            public_key: inner_target_pq,
+            access_key: AccessKey::full_access(),
+        }));
+
+        let delegate_action = DelegateAction {
+            sender_id: "carol.near".parse().unwrap(),
+            receiver_id: "bob.near".parse().unwrap(),
+            actions: vec![NonDelegateAction::try_from(inner_add_key).unwrap()],
+            nonce: 1,
+            max_block_height: 1,
+            public_key: inner_signer.public_key(),
+        };
+        let signed_delegate = SignedDelegateAction::sign(&inner_signer, delegate_action);
+
+        // Outer transaction is signed with a classical ed25519 key, so the
+        // gate must reach into the delegate to find the PQ material.
+        let signed_tx =
+            signed_tx_with_action(KeyType::ED25519, Action::Delegate(Box::new(signed_delegate)));
+
+        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
+        let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
+
+        assert!(
+            matches!(
+                ValidatedTransaction::check_valid_for_config(&config, &signed_tx, pre),
+                Err(InvalidTxError::InvalidTransactionVersion)
+            ),
+            "ML-DSA-65 buried inside a Delegate action must be rejected pre-feature",
+        );
+        ValidatedTransaction::check_valid_for_config(&config, &signed_tx, post)
+            .expect("same transaction must be accepted post-feature");
+    }
 }
