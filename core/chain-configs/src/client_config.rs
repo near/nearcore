@@ -73,6 +73,24 @@ impl TrackedShardsConfig {
         matches!(self, TrackedShardsConfig::AllShards)
     }
 
+    /// Returns `true` if the node is configured to statically track `shard_id`.
+    ///
+    /// Conservative for dynamic variants (`ShadowValidator`, `Schedule`, `Accounts`):
+    /// these require epoch/shard-layout context to resolve and are reported as `false`.
+    /// Callers that need dynamic-tracking awareness must consult the runtime directly.
+    pub fn tracks_shard(&self, shard_id: ShardId) -> bool {
+        match self {
+            TrackedShardsConfig::AllShards => true,
+            TrackedShardsConfig::Shards(shards) => {
+                shards.iter().any(|shard_uid| shard_uid.shard_id() == shard_id)
+            }
+            TrackedShardsConfig::NoShards
+            | TrackedShardsConfig::Accounts(_)
+            | TrackedShardsConfig::Schedule(_)
+            | TrackedShardsConfig::ShadowValidator(_) => false,
+        }
+    }
+
     pub fn tracks_non_empty_subset_of_shards(&self) -> bool {
         match self {
             TrackedShardsConfig::AllShards => true,

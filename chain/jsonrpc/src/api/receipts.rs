@@ -1,12 +1,12 @@
 use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::{
-    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError,
+    GetReceipt, GetReceiptError, GetReceiptParentByHintError, GetReceiptToTx, GetReceiptToTxError,
 };
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
-    ReceiptReference, RpcReceiptError, RpcReceiptRequest, RpcReceiptToTxError,
-    RpcReceiptToTxRequest,
+    ReceiptReference, RpcReceiptError, RpcReceiptParentByHintError, RpcReceiptParentByHintRequest,
+    RpcReceiptRequest, RpcReceiptToTxError, RpcReceiptToTxRequest,
 };
 use serde_json::Value;
 
@@ -70,6 +70,46 @@ impl RpcFrom<GetReceiptToTxError> for RpcReceiptToTxError {
                 Self::DepthExceeded { receipt_id, limit }
             }
             GetReceiptToTxError::Unsupported(error_message) => Self::Unsupported { error_message },
+        }
+    }
+}
+
+impl RpcRequest for RpcReceiptParentByHintRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::parse(value)
+    }
+}
+
+impl RpcFrom<AsyncSendError> for RpcReceiptParentByHintError {
+    fn rpc_from(error: AsyncSendError) -> Self {
+        Self::InternalError { error_message: error.to_string() }
+    }
+}
+
+impl RpcFrom<GetReceiptParentByHintError> for RpcReceiptParentByHintError {
+    fn rpc_from(error: GetReceiptParentByHintError) -> Self {
+        match error {
+            GetReceiptParentByHintError::ReceiptNotFoundInHintWindow {
+                receipt_id,
+                block_height,
+                shard_id,
+                effective_window,
+            } => Self::ReceiptNotFoundInHintWindow {
+                receipt_id,
+                block_height,
+                shard_id,
+                effective_window,
+            },
+            GetReceiptParentByHintError::OutcomesNotStored => Self::OutcomesNotStored,
+            GetReceiptParentByHintError::ShardNotTracked { shard_id } => {
+                Self::ShardNotTracked { shard_id }
+            }
+            GetReceiptParentByHintError::WindowTooLarge { requested, maximum } => {
+                Self::WindowTooLarge { requested, maximum }
+            }
+            GetReceiptParentByHintError::InternalError(error_message) => {
+                Self::InternalError { error_message }
+            }
         }
     }
 }

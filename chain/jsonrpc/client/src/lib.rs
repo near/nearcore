@@ -7,7 +7,8 @@ use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
 };
 use near_jsonrpc_primitives::types::receipts::{
-    RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+    RpcReceiptParentByHintRequest, RpcReceiptParentByHintResponse, RpcReceiptRequest,
+    RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
@@ -361,6 +362,14 @@ impl JsonRpcClient {
         request: RpcReceiptToTxRequest,
     ) -> RpcRequest<RpcReceiptToTxResponse> {
         call_method(&self.transport, "EXPERIMENTAL_receipt_to_tx", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_receipt_parent_by_hint(
+        &self,
+        request: RpcReceiptParentByHintRequest,
+    ) -> RpcRequest<RpcReceiptParentByHintResponse> {
+        call_method(&self.transport, "EXPERIMENTAL_receipt_parent_by_hint", request)
     }
 
     #[allow(non_snake_case)]

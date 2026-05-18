@@ -22,11 +22,12 @@ pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetChunkExtraExists, GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
     GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
-    GetNextLightClientBlock, GetProcessedReceiptIds, GetProtocolConfig, GetReceipt, GetReceiptToTx,
-    GetReceiptToTxResponse, GetShardChunk, GetSplitStorageInfo, GetStateChanges,
-    GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
-    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    GetNextLightClientBlock, GetProcessedReceiptIds, GetProtocolConfig, GetReceipt,
+    GetReceiptParentByHint, GetReceiptParentByHintResponse, GetReceiptToTx, GetReceiptToTxResponse,
+    GetShardChunk, GetSplitStorageInfo, GetStateChanges, GetStateChangesInBlock,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfo, GetValidatorOrdered, Query, QueryError, Status, StatusResponse, SyncStatus,
+    TxStatus, TxStatusError,
 };
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,

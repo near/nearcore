@@ -21,7 +21,8 @@ use near_client_primitives::types::{
     GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
     GetMaintenanceWindows, GetMaintenanceWindowsError, GetNextLightClientBlockError,
     GetProcessedReceiptIds, GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError,
-    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    GetReceipt, GetReceiptError, GetReceiptParentByHint, GetReceiptParentByHintError,
+    GetReceiptParentByHintResponse, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
     GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
@@ -1311,6 +1312,54 @@ impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>
         }
 
         Err(GetReceiptToTxError::DepthExceeded { receipt_id: msg.receipt_id, limit: MAX_DEPTH })
+    }
+}
+
+impl
+    Handler<
+        GetReceiptParentByHint,
+        Result<GetReceiptParentByHintResponse, GetReceiptParentByHintError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetReceiptParentByHint,
+    ) -> Result<GetReceiptParentByHintResponse, GetReceiptParentByHintError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetReceiptParentByHint"])
+            .start_timer();
+
+        let effective_window = msg.window.unwrap_or(near_chain::receipt_to_tx::DEFAULT_HINT_WINDOW);
+        if effective_window > near_chain::receipt_to_tx::MAX_HINT_WINDOW {
+            return Err(GetReceiptParentByHintError::WindowTooLarge {
+                requested: effective_window,
+                maximum: near_chain::receipt_to_tx::MAX_HINT_WINDOW,
+            });
+        }
+        if !self.config.save_tx_outcomes {
+            return Err(GetReceiptParentByHintError::OutcomesNotStored);
+        }
+        if !self.config.tracked_shards_config.tracks_shard(msg.shard_id) {
+            return Err(GetReceiptParentByHintError::ShardNotTracked { shard_id: msg.shard_id });
+        }
+
+        match near_chain::receipt_to_tx::resolve_receipt_via_hint(
+            self.chain.chain_store(),
+            msg.receipt_id,
+            msg.block_height,
+            msg.shard_id,
+            effective_window,
+        ) {
+            Ok(Some(info)) => Ok(GetReceiptParentByHintResponse { info }),
+            Ok(None) => Err(GetReceiptParentByHintError::ReceiptNotFoundInHintWindow {
+                receipt_id: msg.receipt_id,
+                block_height: msg.block_height,
+                shard_id: msg.shard_id,
+                effective_window,
+            }),
+            Err(e) => Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+        }
     }
 }
 
