@@ -32,6 +32,7 @@ use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -73,6 +74,13 @@ pub(crate) struct TestLoopBuilder {
     /// the corresponding pool entry's transport returns `Err(msg)` instead of
     /// dispatching the request. Used to simulate unreachable / stale nodes.
     rpc_pool_fault_handles: HashMap<AccountId, RpcFaultHandle>,
+    /// Optional per-`(account, task_name)` override of the spawner's
+    /// artificial virtual delay. Returning `None` falls back to the
+    /// test-loop default. Returning `Some(d)` sets the delay for that task.
+    /// Only consulted by the client's `AsyncComputationMultiSpawner` (which
+    /// runs `apply_chunks` and other async client computation); other
+    /// per-node spawners still use the fixed test-loop default.
+    task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
 }
 
 impl TestLoopBuilder {
@@ -92,7 +100,21 @@ impl TestLoopBuilder {
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
             rpc_pool_fault_handles: HashMap::new(),
+            task_delay_fn: None,
         }
+    }
+
+    /// Override the test-loop spawner's artificial virtual delay per
+    /// `(account, task_name)`. Returning `None` falls back to the test-loop
+    /// default. Used by tests that need to slow specific tasks on specific
+    /// nodes (e.g. delay `"apply_chunks_optimistic"` on one validator to
+    /// repro the optimistic-apply / memtrie GC race).
+    pub(crate) fn task_delay_fn(
+        mut self,
+        delay_fn: impl Fn(&AccountId, &str) -> Option<Duration> + Send + Sync + 'static,
+    ) -> Self {
+        self.task_delay_fn = Some(Arc::new(delay_fn));
+        self
     }
 
     pub(crate) fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
@@ -512,6 +534,8 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending,
             bucket_config: self.bucket_config.clone(),
+            task_delay_fn: self.task_delay_fn.clone(),
+            spice_endorsement_delay: Arc::new(Mutex::new(Default::default())),
         };
         (self.test_loop, shared_state)
     }
