@@ -1,18 +1,18 @@
+use crate::adapter::StoreAdapter;
+use crate::adapter::chain_store::option_to_not_found;
+use crate::archive::cloud_storage::batch::BatchRange;
+use crate::{DBCol, KeyForStateChanges, Store};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptToTxInfo};
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
-// TODO(cloud_archival): Re-enable once `get_state_header()` is fixed (see below).
-//use near_primitives::state_sync::ShardStateSyncResponseHeader;
-use crate::adapter::StoreAdapter;
-use crate::archive::cloud_storage::batch::BatchRange;
-use crate::{DBCol, KeyForStateChanges, Store};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
+use near_primitives::utils::get_block_shard_id;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Versioned container for shard-related data stored in the cloud archive.
@@ -31,8 +31,6 @@ pub struct ShardDataV1 {
     /// Read from `chunk`, part of `DBCol::Receipts`.
     receipts: Vec<Receipt>,
 
-    /// Read from `DBCol::OutcomeIds`.
-    outcome_ids: Vec<CryptoHash>,
     /// Read from `DBCol::IncomingReceipts`.
     incoming_receipts: Vec<ReceiptProof>,
     /// Read from `DBCol::OutgoingReceipts`.
@@ -44,9 +42,11 @@ pub struct ShardDataV1 {
     chunk_apply_stats: ChunkApplyStats,
     /// Read from `DBCol::StateChanges`.
     state_changes: Vec<RawStateChangesWithTrieKey>,
-    // TODO(cloud_archival): Re-enable once `get_state_header()` is fixed (see below).
-    // /// Read from `DBCol::StateHeaders`.
-    // state_headers: ShardStateSyncResponseHeader,
+    /// Read from `DBCol::OutcomeIds` and `DBCol::TransactionResultForBlock`.
+    transaction_result_for_block: Vec<(CryptoHash, ExecutionOutcomeWithProof)>,
+    /// Read from `DBCol::ProcessedReceiptIds` (entries tagged
+    /// `ReceiptSource::ReceiptToTxGc`) and `DBCol::ReceiptToTx`.
+    receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
 /// Builds a `ShardData` object for the given block height and shard ID by
@@ -105,28 +105,53 @@ pub fn build_shard_data(
 
     let chunk_extra = (*chunk_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
-    let chunk_apply_stats =
-        chunk_store.get_chunk_apply_stats(&block_hash, &shard_id).ok_or_else(|| {
-            Error::DBNotFoundErr(format!(
-                "CHUNK APPLY STATS, block height: {}, shard ID: {:?}",
-                block_height, shard_id
-            ))
-        })?;
+    let chunk_apply_stats = option_to_not_found(
+        chunk_store.get_chunk_apply_stats(&block_hash, &shard_id),
+        format_args!("CHUNK APPLY STATS: height {block_height}, shard {shard_id:?}"),
+    )?;
 
-    // TODO(cloud_archival) Investigate why get_state_header() is failing and fix it
-    // let state_headers = store.get_state_header(shard_id, block_hash)?;
+    let mut transaction_result_for_block = Vec::with_capacity(outcome_ids.len());
+    for outcome_id in outcome_ids {
+        let outcome = option_to_not_found(
+            chain_store.get_outcome_by_id_and_block_hash(&outcome_id, &block_hash),
+            format_args!(
+                "TRANSACTION RESULT FOR BLOCK: outcome_id {outcome_id}, block_hash {block_hash}"
+            ),
+        )?;
+        transaction_result_for_block.push((outcome_id, outcome));
+    }
+    // Sort so blob bytes are deterministic regardless of chunk-apply enumeration order.
+    transaction_result_for_block.sort_by_key(|(id, _)| *id);
+
+    let processed_receipt_ids: Vec<ProcessedReceiptMetadata> = store
+        .get_ser(DBCol::ProcessedReceiptIds, &get_block_shard_id(&block_hash, shard_id))
+        .unwrap_or_default();
+    let mut receipt_to_tx = Vec::new();
+    for metadata in &processed_receipt_ids {
+        // `ReceiptToTxGc` tags exactly the ids in `apply_result.receipt_to_tx`.
+        if !matches!(metadata.source(), ReceiptSource::ReceiptToTxGc) {
+            continue;
+        }
+        let receipt_id = *metadata.receipt_id();
+        let info = option_to_not_found(
+            chain_store.get_receipt_to_tx(&receipt_id),
+            format_args!("RECEIPT TO TX: receipt_id {receipt_id}"),
+        )?;
+        receipt_to_tx.push((receipt_id, info));
+    }
+    receipt_to_tx.sort_by_key(|(id, _)| *id);
 
     let shard_data = ShardDataV1 {
         chunk,
         transactions,
         receipts,
-        outcome_ids,
         incoming_receipts,
         outgoing_receipts,
         chunk_extra,
         state_changes,
         chunk_apply_stats,
-        //state_headers,
+        transaction_result_for_block,
+        receipt_to_tx,
     };
     Ok(Some(ShardData::V1(shard_data)))
 }
@@ -187,13 +212,15 @@ impl ShardData {
     }
 
     pub fn transaction_result_for_block(&self) -> &[(CryptoHash, ExecutionOutcomeWithProof)] {
-        // TODO(cloud_archival): populate from `ShardDataV1::transaction_result_for_block` once the field is added.
-        todo!()
+        match self {
+            ShardData::V1(data) => &data.transaction_result_for_block,
+        }
     }
 
     pub fn receipt_to_tx(&self) -> &[(CryptoHash, ReceiptToTxInfo)] {
-        // TODO(cloud_archival): populate from `ShardDataV1::receipt_to_tx` once the field is added.
-        todo!()
+        match self {
+            ShardData::V1(data) => &data.receipt_to_tx,
+        }
     }
 }
 
