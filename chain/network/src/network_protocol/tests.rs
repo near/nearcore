@@ -404,12 +404,12 @@ mod versioned_witness_tests {
         assert!(t1_fwd.allow_sending_to_self());
     }
 
-    /// Both V1-wire and V2-wire witness messages should report the legacy
-    /// `PartialEncodedStateWitness` / `PartialEncodedStateWitnessForward`
-    /// labels so that dashboards watching these metric keys don't silently
-    /// split bytes/counts after the V2 rollout.
+    /// Legacy and versioned witness wire variants report distinct metric
+    /// labels so that operators can tell V1-wire and V2-wire traffic apart
+    /// during the rollout. Dashboards keying off the old name need to add
+    /// the new `VersionedPartialEncodedStateWitness*` series.
     #[test]
-    fn test_body_variant_coalesces_versioned_witness() {
+    fn test_body_variant_reports_distinct_witness_labels() {
         let v1 = make_test_v1_witness();
         let v2 = make_test_v2_witness();
         let versioned_v1 = VersionedPartialEncodedStateWitness::V1(v1.clone());
@@ -423,8 +423,8 @@ mod versioned_witness_tests {
             T1MessageBody::VersionedPartialEncodedStateWitness(versioned_v2.clone()),
         ));
         assert_eq!(legacy.variant(), "PartialEncodedStateWitness");
-        assert_eq!(wrapped_v1.variant(), "PartialEncodedStateWitness");
-        assert_eq!(wrapped_v2.variant(), "PartialEncodedStateWitness");
+        assert_eq!(wrapped_v1.variant(), "VersionedPartialEncodedStateWitness");
+        assert_eq!(wrapped_v2.variant(), "VersionedPartialEncodedStateWitness");
 
         let legacy_fwd = TieredMessageBody::T1(Box::new(
             T1MessageBody::PartialEncodedStateWitnessForward(make_test_v1_witness()),
@@ -433,6 +433,6 @@ mod versioned_witness_tests {
             T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned_v2),
         ));
         assert_eq!(legacy_fwd.variant(), "PartialEncodedStateWitnessForward");
-        assert_eq!(wrapped_fwd_v2.variant(), "PartialEncodedStateWitnessForward");
+        assert_eq!(wrapped_fwd_v2.variant(), "VersionedPartialEncodedStateWitnessForward");
     }
 }
