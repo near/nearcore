@@ -1,3 +1,4 @@
+use crate::cache_warming::precompile_contract_with_warming;
 use crate::congestion_control::ReceiptSink;
 use crate::{ActionResult, ApplyState, clear_account_contract_storage_usage};
 use near_primitives::account::{Account, AccountContract};
@@ -16,8 +17,8 @@ use near_primitives::types::{AccountId, Compute, EpochInfoProvider, ShardId, Sta
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieAccess as _, TrieUpdate};
+use near_vm_runner::ContractCode;
 use near_vm_runner::logic::ProtocolVersion;
-use near_vm_runner::{ContractCode, precompile_contract};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -247,9 +248,10 @@ fn apply_distribution_current_shard(
         GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
         GlobalContractIdentifier::AccountId(_) => None,
     };
-    let _ = precompile_contract(
+    precompile_contract_with_warming(
         &ContractCode::new(global_contract_data.code().to_vec(), code_hash),
         config,
+        apply_state.next_wasm_config.clone(),
         apply_state.cache.as_deref(),
     );
     near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");

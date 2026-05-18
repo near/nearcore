@@ -3,7 +3,7 @@ use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{Context, anyhow, bail};
 use bytesize::ByteSize;
 use near_async::time::{Clock, Duration};
-use near_chain::runtime::NightshadeRuntime;
+use near_chain::runtime::{NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::test_utils::{
     TESTING_INIT_BALANCE, TESTING_INIT_STAKE, add_account_with_key, add_protocol_account,
     random_chain_id,
@@ -19,19 +19,21 @@ use near_chain_configs::{
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
     default_chunk_validation_threads, default_chunk_wait_mult, default_chunks_cache_height_horizon,
-    default_enable_early_prepare_transactions, default_enable_multiline_logging,
-    default_epoch_sync, default_header_sync_expected_height_per_second,
-    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
-    default_header_sync_stall_ban_timeout, default_log_summary_period,
-    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
-    default_state_request_throttle_period, default_state_requests_per_throttle_period,
-    default_state_sync_enabled, default_state_sync_external_backoff,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
+    default_contract_cache_warming_max_item_count,
+    default_contract_cache_warming_pool_thread_count, default_enable_early_prepare_transactions,
+    default_enable_multiline_logging, default_epoch_sync,
+    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
+    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
+    default_log_summary_period, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_state_request_server_threads, default_state_request_throttle_period,
+    default_state_requests_per_throttle_period, default_state_sync_enabled,
+    default_state_sync_external_backoff, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_transaction_pool_strict_nonce_ttl_blocks,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -300,6 +302,12 @@ pub struct Config {
     /// If set to `None`, defaults to the same value as `save_tx_outcomes`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_receipt_to_tx: Option<bool>,
+    /// Number of worker threads in the contract-cache-warming pool. `0` disables warming.
+    #[serde(default = "default_contract_cache_warming_pool_thread_count")]
+    pub contract_cache_warming_pool_thread_count: usize,
+    /// Max size (items) of the cache-warming pool queue. `0` disables warming.
+    #[serde(default = "default_contract_cache_warming_max_item_count")]
+    pub contract_cache_warming_max_item_count: usize,
     /// Whether to persist state changes on disk or not.
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -472,6 +480,9 @@ impl Default for Config {
             save_state_changes: None,
             save_tx_outcomes: None,
             save_receipt_to_tx: None,
+            contract_cache_warming_pool_thread_count:
+                default_contract_cache_warming_pool_thread_count(),
+            contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
             save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
@@ -747,6 +758,9 @@ impl NearConfig {
                 save_receipt_to_tx: config
                     .save_receipt_to_tx
                     .unwrap_or_else(|| config.save_tx_outcomes.unwrap_or(is_archive_or_rpc)),
+                contract_cache_warming_pool_thread_count: config
+                    .contract_cache_warming_pool_thread_count,
+                contract_cache_warming_max_item_count: config.contract_cache_warming_max_item_count,
                 save_state_changes: config.save_state_changes.unwrap_or(true),
                 save_untracked_partial_chunks_parts: config
                     .save_untracked_partial_chunks_parts
@@ -910,8 +924,16 @@ impl NightshadeRuntime {
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
             config.client_config.state_sync.parts_compression_lvl,
-            config.client_config.cloud_archival_writer.is_some(),
-            config.client_config.save_receipt_to_tx,
+            RuntimeOptions {
+                is_cloud_archival_writer: config.client_config.cloud_archival_writer.is_some(),
+                save_receipt_to_tx: config.client_config.save_receipt_to_tx,
+                contract_cache_warming_pool_thread_count: config
+                    .client_config
+                    .contract_cache_warming_pool_thread_count,
+                contract_cache_warming_max_item_count: config
+                    .client_config
+                    .contract_cache_warming_max_item_count,
+            },
         ))
     }
 }

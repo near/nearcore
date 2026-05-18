@@ -903,6 +903,11 @@ impl ChunkExecutorActor {
 
         let runtime = self.runtime_adapter.clone();
         let shard_uid = chunk_context.shard_uid;
+        // Pin so `gc_memtrie_roots` can't evict the prev-state root before
+        // the async apply task runs.
+        let memtrie_pin = runtime
+            .get_tries()
+            .maybe_pin_memtrie_root(shard_uid, *prev_chunk_chunk_extra.state_root())?;
         Ok((
             shard_uid.shard_id(),
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
@@ -911,6 +916,7 @@ impl ChunkExecutorActor {
                     runtime.as_ref(),
                     shard_update_reason,
                     ShardContext { shard_uid, should_apply_chunk: true },
+                    memtrie_pin,
                     None,
                 )?)
             }),
