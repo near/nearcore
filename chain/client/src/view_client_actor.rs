@@ -1298,6 +1298,14 @@ fn handle_receipt_to_tx(
         ));
     }
     let hint_provided = msg.block_height.is_some();
+    // `window` is meaningless without a hint; reject explicitly so a caller
+    // who supplies `{receipt_id, window: 999}` doesn't get a silent accept
+    // with the parameter discarded.
+    if msg.window.is_some() && !hint_provided {
+        return Err(GetReceiptToTxError::MalformedHint(
+            "window requires block_height and shard_id".to_string(),
+        ));
+    }
     let effective_window = msg.window.unwrap_or(DEFAULT_HINT_WINDOW);
     if hint_provided && effective_window > MAX_HINT_WINDOW {
         return Err(GetReceiptToTxError::WindowTooLarge {
@@ -1322,6 +1330,7 @@ fn handle_receipt_to_tx(
 
     let mut current_receipt_id = msg.receipt_id;
     let mut current_hint = msg.block_height.zip(msg.shard_id);
+    let mut total_outcomes_scanned: u64 = 0;
 
     for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
         let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
@@ -1332,20 +1341,27 @@ fn handle_receipt_to_tx(
                     if !actor.config.save_tx_outcomes {
                         return Err(GetReceiptToTxError::OutcomesNotStored);
                     }
-                    match resolve_receipt_via_hint(
-                        actor.chain.chain_store(),
+                    let (result, stats) = run_hint_scan(
+                        actor,
                         current_receipt_id,
                         height,
                         shard_id,
                         effective_window,
-                    ) {
-                        Ok((Some(res), stats)) => {
-                            record_hint_scan_stats(stats);
+                    );
+                    total_outcomes_scanned =
+                        total_outcomes_scanned.saturating_add(stats.outcomes_scanned);
+                    if total_outcomes_scanned > MAX_OUTCOMES_PER_REQUEST {
+                        return Err(GetReceiptToTxError::BudgetExceeded {
+                            scanned: total_outcomes_scanned,
+                            limit: MAX_OUTCOMES_PER_REQUEST,
+                        });
+                    }
+                    match result {
+                        Ok(Some(res)) => {
                             current_hint = Some((res.outcome_block_height, res.outcome_shard_id));
                             res.info
                         }
-                        Ok((None, stats)) => {
-                            record_hint_scan_stats(stats);
+                        Ok(None) => {
                             return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
                         }
                         Err(e) => {
@@ -1376,21 +1392,31 @@ fn handle_receipt_to_tx(
                 // for at most a couple of FromReceipt hops per request.
                 if let Some((height, shard_id)) = current_hint {
                     if actor.config.save_tx_outcomes {
-                        match resolve_receipt_via_hint(
-                            actor.chain.chain_store(),
-                            parent_id,
-                            height,
-                            shard_id,
-                            effective_window,
-                        ) {
-                            Ok((Some(res), stats)) => {
-                                record_hint_scan_stats(stats);
+                        let (result, stats) =
+                            run_hint_scan(actor, parent_id, height, shard_id, effective_window);
+                        total_outcomes_scanned =
+                            total_outcomes_scanned.saturating_add(stats.outcomes_scanned);
+                        if total_outcomes_scanned > MAX_OUTCOMES_PER_REQUEST {
+                            return Err(GetReceiptToTxError::BudgetExceeded {
+                                scanned: total_outcomes_scanned,
+                                limit: MAX_OUTCOMES_PER_REQUEST,
+                            });
+                        }
+                        match result {
+                            Ok(Some(res)) => {
                                 current_hint =
                                     Some((res.outcome_block_height, res.outcome_shard_id));
                             }
-                            Ok((None, stats)) => {
-                                record_hint_scan_stats(stats);
-                                // Keep stale hint; the next column lookup might still hit.
+                            Ok(None) => {
+                                // Boundary refresh missed. Keep the existing
+                                // hint; the next iteration's column lookup may
+                                // still hit. If it also misses, the next scan
+                                // runs with this stale hint and may itself
+                                // miss — terminating in UnknownReceipt rather
+                                // than fabricating a result. This is the
+                                // documented best-effort failure mode; see
+                                // commit body for the long-gap / cross-shard
+                                // cases.
                             }
                             Err(e) => {
                                 return Err(GetReceiptToTxError::InternalError(e.to_string()));
@@ -1407,6 +1433,37 @@ fn handle_receipt_to_tx(
         receipt_id: msg.receipt_id,
         limit: RECEIPT_TO_TX_MAX_DEPTH,
     })
+}
+
+/// Per-request ceiling on the total number of outcome rows the hint-fallback
+/// scanner may read across all hops. Worst case without this cap is
+/// `RECEIPT_TO_TX_MAX_DEPTH * (2 * MAX_HINT_WINDOW + 1) * outcomes_per_chunk`,
+/// which a misaligned hint on a deep chain can drive into the millions on
+/// an unauthenticated public endpoint. 100k is well above the legitimate
+/// usage envelope (depth ≤ 3, window ≤ 5, sparse outcomes) and still bounded.
+const MAX_OUTCOMES_PER_REQUEST: u64 = 100_000;
+
+/// Run one hint-fallback scan and unconditionally record its stats. Used by
+/// both the column-miss branch and the boundary-refresh branch so neither
+/// path can drop metric accounting on an error return.
+fn run_hint_scan(
+    actor: &ViewClientActor,
+    receipt_id: CryptoHash,
+    block_height: BlockHeight,
+    shard_id: ShardId,
+    window: near_primitives::types::BlockHeightDelta,
+) -> (Result<Option<near_chain::receipt_to_tx::HintResolution>, near_chain::Error>, HintScanStats) {
+    let mut stats = HintScanStats::default();
+    let result = resolve_receipt_via_hint(
+        actor.chain.chain_store(),
+        receipt_id,
+        block_height,
+        shard_id,
+        window,
+        &mut stats,
+    );
+    record_hint_scan_stats(stats);
+    (result, stats)
 }
 
 fn record_hint_scan_stats(stats: HintScanStats) {
@@ -1427,9 +1484,10 @@ fn record_receipt_to_tx_outcome(result: &Result<GetReceiptToTxResponse, GetRecei
         Err(GetReceiptToTxError::OutcomesNotStored) => "outcomes_not_stored",
         Err(GetReceiptToTxError::WindowTooLarge { .. }) => "window_too_large",
         Err(GetReceiptToTxError::MalformedHint(_)) => "malformed_hint",
+        Err(GetReceiptToTxError::BudgetExceeded { .. }) => "budget_exceeded",
         Err(GetReceiptToTxError::InternalError(_)) => "internal_error",
         // Future-proof against new variants added to the non_exhaustive enum:
-        // metrics keep working, just bucketed as "other" until the match is updated.
+        // metrics keep working, bucketed as "other" until this match is updated.
         Err(_) => "other",
     };
     metrics::RECEIPT_TO_TX_TOTAL.with_label_values(&[outcome]).inc();

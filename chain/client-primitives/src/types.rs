@@ -959,6 +959,8 @@ pub enum GetReceiptToTxError {
     WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
     #[error("malformed hint: {0}")]
     MalformedHint(String),
+    #[error("hint-scan budget exceeded: {scanned} outcomes scanned, limit {limit}")]
+    BudgetExceeded { scanned: u64, limit: u64 },
     #[error("internal error: {0}")]
     InternalError(String),
 }

@@ -93,6 +93,8 @@ pub enum RpcReceiptToTxError {
     WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
     #[error("malformed hint: {error_message}")]
     MalformedHint { error_message: String },
+    #[error("hint-scan budget exceeded: {scanned} outcomes scanned, limit {limit}")]
+    BudgetExceeded { scanned: u64, limit: u64 },
 }
 
 impl From<RpcReceiptToTxError> for crate::errors::RpcError {

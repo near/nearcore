@@ -1401,3 +1401,104 @@ fn test_column_unaffected_without_hint() {
     assert_eq!(response.transaction_hash, tx_hash);
     assert_eq!(response.sender_account_id, user_account);
 }
+
+/// Cross-shard hint walk: 2-shard setup, `save_receipt_to_tx=false`,
+/// cross-shard transfer (sender on shard 0, receiver on shard 1).
+///
+/// The action receipt produced by the tx executes on the *receiver's* shard;
+/// the tx itself executes on the *sender's* shard. A hint pointing at the
+/// action receipt's execution shard cannot find the tx outcome on the
+/// originating shard — the center-out scan walks the wrong shard's
+/// `OutcomeIds` rows.
+///
+/// We hint exactly at the action receipt's execution coordinates. The hint
+/// scan misses (the tx outcome is on the other shard), no column entry
+/// exists, and the handler returns `UnknownReceipt` at the cross-shard
+/// boundary rather than fabricating a result.
+///
+/// Regression guard for the documented best-effort failure mode. If a
+/// future change adds shard-aware hint derivation (e.g. via
+/// `parent.predecessor_id() -> account_id_to_shard_id`), this test should
+/// be updated to reflect the new contract.
+#[test]
+fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
+    init_test_logger();
+    let sender_account = create_account_id("account0");
+    let receiver_account: AccountId = "test1".parse().unwrap();
+
+    let mut env = TestLoopBuilder::new()
+        .num_shards(2)
+        .add_user_account(&sender_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let signer = create_user_test_signer(&sender_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        sender_account,
+        receiver_account,
+        &signer,
+        Balance::from_yoctonear(100),
+        env.validator().head().last_block_hash,
+    );
+    let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
+
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome = outcome
+        .receipts_outcome
+        .iter()
+        .find(|r| r.id == action_receipt_id)
+        .expect("action receipt outcome should exist");
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+
+    // Identify which shard the action receipt actually executed on. We don't
+    // hardcode the layout — multi_shard(2) puts the boundary at "test1" but a
+    // future layout change should still leave this test exercising the
+    // cross-shard scenario.
+    let chain_store = env.validator().client().chain.chain_store();
+    let action_block_hash = chain_store.get_block_hash_by_height(action_height).unwrap();
+    let action_shard = [ShardId::new(0), ShardId::new(1)]
+        .into_iter()
+        .find(|sid| {
+            chain_store
+                .get_outcomes_by_block_hash_and_shard_id(&action_block_hash, *sid)
+                .contains(&action_receipt_id)
+        })
+        .expect("action receipt must execute on one of the two shards");
+
+    // Query the action receipt itself with the hint pointed at *its* execution
+    // shard. The tx outcome that produced this receipt lives on the *other*
+    // shard, so the hint scan walks the wrong shard's outcomes and misses.
+    let handle = env.node_datas[0].view_client_sender.actor_handle();
+    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
+    let result = view_client.handle(GetReceiptToTx {
+        receipt_id: action_receipt_id,
+        block_height: Some(action_height),
+        shard_id: Some(action_shard),
+        window: None,
+    });
+
+    match result {
+        Err(GetReceiptToTxError::UnknownReceipt(id)) => {
+            assert_eq!(
+                id, action_receipt_id,
+                "expected UnknownReceipt for the action receipt; its producing tx is on the other shard"
+            );
+        }
+        other => panic!(
+            "expected UnknownReceipt at the cross-shard hop; got {other:?}. \
+             If a future change adds shard-aware hint advancement, update this test."
+        ),
+    }
+}

@@ -76,23 +76,23 @@ pub struct HintScanStats {
 /// `OutcomeIds` / `TransactionResultForBlock` rows in a `±window` block range
 /// around `block_height` on `shard_id`.
 ///
-/// `Ok((Some(_), stats))` — parent located, info synthesized in-flight.
-/// `Ok((None, stats))` — window exhausted without finding the receipt; caller
-/// should treat as a hint-window miss.
+/// `Ok(Some(_))` — parent located, info synthesized in-flight.
+/// `Ok(None)` — window exhausted without finding the receipt.
 /// `Err(_)` — genuine I/O error mid-scan; bubbles to the handler.
 ///
-/// `stats` is populated in both hit and miss cases so callers can emit
-/// metrics consistently. Missing-data inside the scan (no block at height,
-/// GC'd outcome row, deleted receipt row) is skip-and-continue.
+/// `stats` is accumulated in-place so callers can emit metrics in every
+/// outcome — hit, miss, or error mid-scan. Missing-data inside the scan
+/// (no block at height, GC'd outcome row, deleted receipt row) is
+/// skip-and-continue.
 pub fn resolve_receipt_via_hint(
     chain_store: &ChainStore,
     receipt_id: CryptoHash,
     block_height: BlockHeight,
     shard_id: ShardId,
     window: BlockHeightDelta,
-) -> Result<(Option<HintResolution>, HintScanStats), Error> {
+    stats: &mut HintScanStats,
+) -> Result<Option<HintResolution>, Error> {
     let store = chain_store.store();
-    let mut stats = HintScanStats::default();
 
     for height in center_out_heights(block_height, window) {
         stats.heights_scanned += 1;
@@ -125,6 +125,13 @@ pub fn resolve_receipt_via_hint(
             // collected as receipt-origin and then silently fails the parent-receipt
             // lookup. Check both columns; skip the candidate when neither has the
             // row so the scan moves on to the next height.
+            //
+            // The two `exists` calls are not snapshotted. Concurrent GC between
+            // them can downgrade a (true, true) candidate to (true, false) or
+            // (false, true), or downgrade either to (false, false). The
+            // worst-case outcome is a spurious skip — never a misclassification
+            // — because both subsequent paths re-read from the same store
+            // before producing a result.
             let in_txs = store.exists(DBCol::Transactions, outcome_id.as_ref());
             let in_receipts = store.exists(DBCol::Receipts, outcome_id.as_ref());
             let origin = match (in_txs, in_receipts) {
@@ -144,7 +151,12 @@ pub fn resolve_receipt_via_hint(
                 }
                 (false, false) => continue,
                 (true, true) => {
-                    tracing::error!(
+                    // warn rather than error so a corrupted outcome row that
+                    // recurs across many candidates in a single request doesn't
+                    // flood error-level logging. Operators alert on the
+                    // dedicated `RECEIPT_TO_TX_AMBIGUOUS_OUTCOME_TOTAL` counter
+                    // when they want to be paged on this state.
+                    tracing::warn!(
                         %outcome_id,
                         height,
                         "outcome id present in both DBCol::Transactions and DBCol::Receipts; \
@@ -159,10 +171,10 @@ pub fn resolve_receipt_via_hint(
                 outcome_block_height: height,
                 outcome_shard_id: shard_id,
             };
-            return Ok((Some(resolution), stats));
+            return Ok(Some(resolution));
         }
     }
-    Ok((None, stats))
+    Ok(None)
 }
 
 #[cfg(test)]
