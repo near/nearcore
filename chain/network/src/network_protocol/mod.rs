@@ -7,7 +7,8 @@ use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
-use near_primitives::spice_partial_data::SpicePartialData;
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::partial_data::SpicePartialData;
 pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
@@ -18,7 +19,6 @@ use near_primitives::stateless_validation::contract_distribution::SpiceChunkCont
 use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeResponse;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
 pub use state_sync::*;
@@ -39,7 +39,7 @@ mod _proto {
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::spice_data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpicePartialDataRequest;
 pub use _proto::network as proto;
 use near_async::time;
 use near_crypto::PublicKey;

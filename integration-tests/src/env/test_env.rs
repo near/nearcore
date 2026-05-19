@@ -7,7 +7,7 @@ use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::near_chain_primitives::error::QueryError;
-use near_chain::spice_core_writer_actor::ProcessedBlock;
+use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -17,11 +17,11 @@ use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::ChunkValidationActor;
-use near_client::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
-use near_client::chunk_executor_actor::{
+use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
+use near_client::spice::chunk_executor_actor::{
     ExecutorIncomingUnverifiedReceipts, TryApplyChunksOutcome,
 };
-use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};

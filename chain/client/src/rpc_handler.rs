@@ -5,7 +5,7 @@ use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
-use near_chain::spice_core::get_last_certified_block_header;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::PendingConstraints;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::Tip;
