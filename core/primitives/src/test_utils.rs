@@ -502,6 +502,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV6(header) => {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
+            BlockHeader::BlockHeaderV7(header) => {
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
         }
     }
 
@@ -537,6 +540,10 @@ impl BlockHeader {
                 header.hash = hash;
                 header.signature = signature;
             }
+            BlockHeader::BlockHeaderV7(header) => {
+                header.hash = hash;
+                header.signature = signature;
+            }
         }
     }
 
@@ -550,6 +557,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.init(),
             BlockHeader::BlockHeaderV5(header) => header.init(),
             BlockHeader::BlockHeaderV6(header) => header.init(),
+            BlockHeader::BlockHeaderV7(header) => header.init(),
         }
     }
 
@@ -563,6 +571,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.prev_hash = value,
             BlockHeader::BlockHeaderV5(header) => header.prev_hash = value,
             BlockHeader::BlockHeaderV6(header) => header.prev_hash = value,
+            BlockHeader::BlockHeaderV7(header) => header.prev_hash = value,
         }
     }
 
@@ -576,6 +585,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.height = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.height = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.height = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.height = value,
         }
     }
 
@@ -589,6 +599,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.epoch_id = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.epoch_id = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.epoch_id = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.epoch_id = value,
         }
     }
 
@@ -602,6 +613,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_state_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_state_root = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.prev_state_root = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.prev_state_root = value,
         }
     }
 
@@ -621,6 +633,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV6(header) => {
                 header.inner_rest.prev_chunk_outgoing_receipts_root = value
             }
+            BlockHeader::BlockHeaderV7(header) => {
+                header.inner_rest.prev_chunk_outgoing_receipts_root = value
+            }
         }
     }
 
@@ -634,6 +649,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_headers_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_headers_root = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_headers_root = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.chunk_headers_root = value,
         }
     }
 
@@ -647,6 +663,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_tx_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_tx_root = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_tx_root = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.chunk_tx_root = value,
         }
     }
 
@@ -660,6 +677,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_mask = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_mask = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_mask = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.chunk_mask = value,
         }
     }
 
@@ -675,6 +693,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_endorsements = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_endorsements = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.chunk_endorsements = value,
         }
     }
 
@@ -688,6 +707,7 @@ impl BlockHeader {
                 unreachable!("shard_split is only available in BlockHeaderV6")
             }
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.shard_split = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.shard_split = value,
         }
     }
 
@@ -701,6 +721,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_outcome_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_outcome_root = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.prev_outcome_root = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.prev_outcome_root = value,
         }
     }
 
@@ -714,6 +735,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.timestamp = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.timestamp = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.timestamp = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.timestamp = value,
         }
     }
 
@@ -733,6 +755,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV6(header) => {
                 header.inner_rest.prev_validator_proposals = value
             }
+            BlockHeader::BlockHeaderV7(header) => {
+                header.inner_rest.prev_validator_proposals = value
+            }
         }
     }
 
@@ -746,6 +771,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.next_gas_price = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.next_gas_price = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.next_gas_price = value,
         }
     }
 
@@ -759,6 +785,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.block_merkle_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.block_merkle_root = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.block_merkle_root = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.block_merkle_root = value,
         }
     }
 
@@ -772,6 +799,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.approvals = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.approvals = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.approvals = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.approvals = value,
         }
     }
 
@@ -785,6 +813,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.block_body_hash = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.block_body_hash = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.block_body_hash = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.block_body_hash = value,
         }
     }
 
@@ -798,6 +827,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.signature = value,
             BlockHeader::BlockHeaderV5(header) => header.signature = value,
             BlockHeader::BlockHeaderV6(header) => header.signature = value,
+            BlockHeader::BlockHeaderV7(header) => header.signature = value,
         }
     }
 }
@@ -874,6 +904,7 @@ pub struct TestBlockBuilder {
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
     newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
+    prev_last_certified_block_epoch_id: Option<EpochId>,
 }
 
 #[cfg(feature = "clock")]
@@ -905,13 +936,19 @@ impl TestBlockBuilder {
             chunks: prev_chunks,
             chunk_endorsements: vec![vec![]; chunks_len],
             timestamp_nanos: None,
-            prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(crate::block_body::SpiceCoreStatements::new(vec![]))
             } else {
                 None
             },
             newly_certified_block_execution_results: vec![],
+            prev_last_certified_block_epoch_id: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+            {
+                Some(*prev_header.epoch_id())
+            } else {
+                None
+            },
+            prev_header,
         }
     }
 
@@ -1052,6 +1089,9 @@ impl TestBlockBuilder {
                     core_statements,
                     newly_certified_block_execution_results: self
                         .newly_certified_block_execution_results,
+                    prev_last_certified_block_epoch_id: self
+                        .prev_last_certified_block_epoch_id
+                        .expect("prev_last_certified_block_epoch_id not set for spice block"),
                 }
             }),
         );

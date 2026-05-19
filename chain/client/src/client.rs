@@ -1174,6 +1174,8 @@ impl Client {
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,
+                // TODO(spice): Pass the correct epoch id here
+                prev_last_certified_block_epoch_id: EpochId::default(),
             })
         } else {
             None
