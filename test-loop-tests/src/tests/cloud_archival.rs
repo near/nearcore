@@ -970,13 +970,17 @@ fn test_cloud_archival_reader_per_block_columns() {
         let block_hash: CryptoHash = store
             .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
             .expect("BlockHeight missing");
+        let block: Block = store.get_ser(DBCol::Block, block_hash.as_ref()).unwrap();
         assert!(
             store.exists(DBCol::BlockPerHeight, &index_to_bytes(height)),
             "BlockPerHeight missing at h={height}"
         );
-        assert!(
+        // ChunkHashesByHeight is written only when a block has new chunks.
+        let has_new_chunk = block.chunks().iter_raw().any(|c| c.is_new_chunk(height));
+        assert_eq!(
             store.exists(DBCol::ChunkHashesByHeight, &index_to_bytes(height)),
-            "ChunkHashesByHeight missing at h={height}"
+            has_new_chunk,
+            "ChunkHashesByHeight presence at h={height} should match has_new_chunk={has_new_chunk}"
         );
         if height < target {
             assert!(

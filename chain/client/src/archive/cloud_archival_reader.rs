@@ -1,5 +1,6 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
@@ -85,12 +86,16 @@ pub fn save_shard_data(
 ) {
     let shard_id = shard_uid.shard_id();
     let block_shard_id_key = get_block_shard_id(block_hash, shard_id);
-    let block_shard_uid_key = borsh::to_vec(&(*block_hash, shard_uid)).unwrap();
+    let block_shard_uid_key = get_block_shard_uid(block_hash, &shard_uid);
+    let chunk = shard_data.chunk();
+    // Chunks presence marks (block, shard) already saved; reruns would inflate refcounts.
+    if store.exists(DBCol::Chunks, chunk.chunk_hash().as_ref()) {
+        return;
+    }
     let mut update = store.store_update();
 
     // Chunks, ReceiptToTx, and TransactionResultForBlock are content-addressed;
     // use insert_ser to keep the columns insert-only.
-    let chunk = shard_data.chunk();
     update.insert_ser(DBCol::Chunks, chunk.chunk_hash().as_ref(), chunk);
 
     let chunk_extra: &ChunkExtra = shard_data.chunk_extra();
@@ -203,6 +208,8 @@ pub fn bootstrap_range(
         height = last_in_batch + 1;
     }
 
+    // TODO(cloud_archival): support resharding. Layout is captured once;
+    // a mid-range layout change would write under the wrong ShardUId.
     for shard_id in shard_layout.shard_ids() {
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         save_shard_range(store, cloud_storage, shard_uid, start_height, end_height)?;
