@@ -1371,13 +1371,17 @@ pub(crate) fn gas_key_signer_for_account(account_id: &AccountId) -> Signer {
     InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, GAS_KEY_SIGNER_SEED).into()
 }
 
-/// Loop action that fires its `assertion` once, `num_blocks_past_split` blocks
-/// after the resharding split block. Pass `0` to run on the split block itself.
-pub(crate) fn assert_after_resharding<F>(num_blocks_past_split: u64, assertion: F) -> LoopAction
+/// Loop action that fires its `assertion` once, `num_blocks_after_new_layout`
+/// blocks after the first block of the new shard layout (the block right after
+/// the resharding block). Pass `0` to run on the first block of the new layout.
+pub(crate) fn assert_after_resharding<F>(
+    num_blocks_after_new_layout: u64,
+    assertion: F,
+) -> LoopAction
 where
     F: Fn(&TestLoopNode<'_>) + 'static,
 {
-    let split_height: Cell<Option<u64>> = Cell::new(None);
+    let new_layout_height: Cell<Option<u64>> = Cell::new(None);
     let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[NodeExecutionData],
@@ -1389,7 +1393,7 @@ where
             let client_actor =
                 retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
-            let split = match split_height.get() {
+            let new_layout = match new_layout_height.get() {
                 Some(h) => h,
                 None => {
                     if !this_block_has_new_shard_layout(
@@ -1398,11 +1402,11 @@ where
                     ) {
                         return;
                     }
-                    split_height.set(Some(tip.height));
+                    new_layout_height.set(Some(tip.height));
                     tip.height
                 }
             };
-            if tip.height < split + num_blocks_past_split {
+            if tip.height < new_layout + num_blocks_after_new_layout {
                 return;
             }
             let node = TestLoopNode {
