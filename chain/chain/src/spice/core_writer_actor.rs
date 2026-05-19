@@ -1,4 +1,4 @@
-use crate::spice_core::SpiceCoreReader;
+use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
@@ -10,7 +10,7 @@ use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::spice_chunk_endorsement::{
+use near_primitives::spice::chunk_endorsement::{
     SpiceChunkEndorsement, SpiceStoredVerifiedEndorsement, SpiceVerifiedEndorsement,
 };
 use near_primitives::types::validator_stake::ValidatorStake;

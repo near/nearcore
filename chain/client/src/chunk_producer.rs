@@ -7,7 +7,7 @@ use crate::prepare_transactions::{
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::spice_core::get_last_certified_block_header;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::{
     PendingConstraints, PendingTxCheckResult, PrepareTransactionsBlockContext,
     PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,

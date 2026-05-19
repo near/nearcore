@@ -1,6 +1,6 @@
 use crate::metrics::{SPICE_BLOCK_PRODUCTION_DELAY_MS, SPICE_CERTIFICATION_LAG};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::spice_core::get_last_certified_block_header;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;

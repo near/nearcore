@@ -41,8 +41,8 @@ use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_chain::SpiceChainReader;
-use near_chain::spice_core_writer_actor::ProcessedBlock;
+use near_chain::spice::chain::SpiceChainReader;
+use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
