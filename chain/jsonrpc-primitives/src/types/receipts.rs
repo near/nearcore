@@ -1,5 +1,6 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::AccountId;
+use near_primitives::receipt::{ReceiptOrigin, ReceiptToTxInfo};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -82,6 +83,112 @@ impl From<RpcReceiptToTxError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcReceiptToTxError: {:?}", err),
+                );
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcReceiptParentByHintRequest {
+    pub receipt_id: CryptoHash,
+    pub block_height: BlockHeight,
+    pub shard_id: ShardId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<BlockHeightDelta>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ReceiptOriginView {
+    FromTransaction { tx_hash: CryptoHash, sender_account_id: AccountId },
+    FromReceipt { parent_receipt_id: CryptoHash, parent_predecessor_id: AccountId },
+}
+
+impl From<&ReceiptOrigin> for ReceiptOriginView {
+    fn from(origin: &ReceiptOrigin) -> Self {
+        match origin {
+            ReceiptOrigin::FromTransaction(o) => Self::FromTransaction {
+                tx_hash: o.tx_hash,
+                sender_account_id: o.sender_account_id.clone(),
+            },
+            ReceiptOrigin::FromReceipt(o) => Self::FromReceipt {
+                parent_receipt_id: o.parent_receipt_id,
+                parent_predecessor_id: o.parent_predecessor_id.clone(),
+            },
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcReceiptParentByHintResponse {
+    pub origin: ReceiptOriginView,
+    pub receiver_account_id: AccountId,
+    pub shard_id: ShardId,
+    /// Block height at which the returned parent outcome (transaction or
+    /// receipt) executed. For receipt-origin parents this is also the height at
+    /// which the child receipt was created. Use this together with
+    /// `parent_outcome_shard_id` as the next-hop hint when recursing toward the
+    /// originating transaction. Best-effort: works for same-shard chains within
+    /// the default window; cross-shard recursion may need wider windows or a
+    /// different shard guess derived from `parent_predecessor_id`.
+    pub parent_outcome_block_height: BlockHeight,
+    /// Shard at which the returned parent outcome executed.
+    pub parent_outcome_shard_id: ShardId,
+}
+
+impl RpcReceiptParentByHintResponse {
+    pub fn from_parts(
+        info: ReceiptToTxInfo,
+        parent_outcome_block_height: BlockHeight,
+        parent_outcome_shard_id: ShardId,
+    ) -> Self {
+        let ReceiptToTxInfo::V1(v1) = info;
+        Self {
+            origin: ReceiptOriginView::from(&v1.origin),
+            receiver_account_id: v1.receiver_account_id,
+            shard_id: v1.shard_id,
+            parent_outcome_block_height,
+            parent_outcome_shard_id,
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RpcReceiptParentByHintError {
+    #[error(
+        "receipt {receipt_id} not found in hint window of ±{effective_window} around height {block_height} on shard {shard_id}"
+    )]
+    ReceiptNotFoundInHintWindow {
+        receipt_id: CryptoHash,
+        block_height: BlockHeight,
+        shard_id: ShardId,
+        effective_window: BlockHeightDelta,
+    },
+    #[error("execution outcomes are not stored on this node (save_tx_outcomes=false)")]
+    OutcomesNotStored,
+    #[error("this node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: ShardId },
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
+    #[error("The node reached its limits. Try again later. More details: {error_message}")]
+    InternalError { error_message: String },
+}
+
+impl From<RpcReceiptParentByHintError> for crate::errors::RpcError {
+    fn from(error: RpcReceiptParentByHintError) -> Self {
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcReceiptParentByHintError: {:?}", err),
                 );
             }
         };

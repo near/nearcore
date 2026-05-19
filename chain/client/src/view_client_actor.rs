@@ -7,6 +7,7 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::receipt_to_tx::{DEFAULT_HINT_WINDOW, MAX_HINT_WINDOW, resolve_receipt_via_hint};
 use near_chain::spice_chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -21,7 +22,8 @@ use near_client_primitives::types::{
     GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
     GetMaintenanceWindows, GetMaintenanceWindowsError, GetNextLightClientBlockError,
     GetProcessedReceiptIds, GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError,
-    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    GetReceipt, GetReceiptError, GetReceiptParentByHint, GetReceiptParentByHintError,
+    GetReceiptParentByHintResponse, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
     GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
@@ -1311,6 +1313,80 @@ impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>
         }
 
         Err(GetReceiptToTxError::DepthExceeded { receipt_id: msg.receipt_id, limit: MAX_DEPTH })
+    }
+}
+
+impl
+    Handler<
+        GetReceiptParentByHint,
+        Result<GetReceiptParentByHintResponse, GetReceiptParentByHintError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetReceiptParentByHint,
+    ) -> Result<GetReceiptParentByHintResponse, GetReceiptParentByHintError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetReceiptParentByHint"])
+            .start_timer();
+
+        let effective_window = msg.window.unwrap_or(DEFAULT_HINT_WINDOW);
+        if effective_window > MAX_HINT_WINDOW {
+            return Err(GetReceiptParentByHintError::WindowTooLarge {
+                requested: effective_window,
+                maximum: MAX_HINT_WINDOW,
+            });
+        }
+        if !self.config.save_tx_outcomes {
+            return Err(GetReceiptParentByHintError::OutcomesNotStored);
+        }
+
+        // Resolve the epoch for the hinted block. Falling back to the head epoch when
+        // the hinted height has no block (GC'd or never seen) keeps the tracking check
+        // against the node's current tracking config — the best proxy when the
+        // historical epoch can't be reconstructed.
+        let epoch_id = match self.chain.chain_store().get_block_hash_by_height(msg.block_height) {
+            Ok(block_hash) => match self.chain.get_block_header(&block_hash) {
+                Ok(header) => *header.epoch_id(),
+                Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+            },
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => match self.chain.head() {
+                Ok(tip) => tip.epoch_id,
+                Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+            },
+            Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+        };
+        match self.shard_tracker.rpc_tracks_shard_at_epoch(msg.shard_id, &epoch_id) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(GetReceiptParentByHintError::ShardNotTracked {
+                    shard_id: msg.shard_id,
+                });
+            }
+            Err(e) => return Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+        }
+
+        match resolve_receipt_via_hint(
+            self.chain.chain_store(),
+            msg.receipt_id,
+            msg.block_height,
+            msg.shard_id,
+            effective_window,
+        ) {
+            Ok(Some(res)) => Ok(GetReceiptParentByHintResponse {
+                info: res.info,
+                outcome_block_height: res.outcome_block_height,
+                outcome_shard_id: res.outcome_shard_id,
+            }),
+            Ok(None) => Err(GetReceiptParentByHintError::ReceiptNotFoundInHintWindow {
+                receipt_id: msg.receipt_id,
+                block_height: msg.block_height,
+                shard_id: msg.shard_id,
+                effective_window,
+            }),
+            Err(e) => Err(GetReceiptParentByHintError::InternalError(e.to_string())),
+        }
     }
 }
 

@@ -6,6 +6,9 @@
 * New opt-in strict nonce mode for transactions added in nightly. When enabled, each transaction must use a nonce exactly equal to the previous nonce for that access key plus one; nonces that repeat or skip values are rejected. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
+### Non-protocol Changes
+* New `EXPERIMENTAL_receipt_parent_by_hint` JSON-RPC method that resolves a receipt's immediate parent (transaction or parent receipt) by scanning a small block window around a caller-supplied `(block_height, shard_id)` hint. Intended as a caller-driven fallback when `EXPERIMENTAL_receipt_to_tx` returns `UnknownReceipt` for receipts produced before the node started populating the `ReceiptToTx` column.
+
 ## [2.12.0]
 
 ### Protocol Changes

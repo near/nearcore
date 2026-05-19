@@ -2,10 +2,11 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
+use near_primitives::receipt::ReceiptToTxInfo;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
+    MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
@@ -944,6 +945,46 @@ pub enum GetReceiptToTxError {
     DepthExceeded { receipt_id: CryptoHash, limit: u32 },
     #[error("this node does not support receipt-to-tx lookup: {0}")]
     Unsupported(String),
+}
+
+#[derive(Debug)]
+pub struct GetReceiptParentByHint {
+    pub receipt_id: CryptoHash,
+    pub block_height: BlockHeight,
+    pub shard_id: ShardId,
+    pub window: Option<BlockHeightDelta>,
+}
+
+#[derive(Debug)]
+pub struct GetReceiptParentByHintResponse {
+    pub info: ReceiptToTxInfo,
+    /// Block height at which the returned parent outcome executed; for
+    /// receipt-origin parents this is the height where the child was created.
+    /// Callers use this with `outcome_shard_id` as the next-hop hint.
+    pub outcome_block_height: BlockHeight,
+    /// Shard at which the returned parent outcome executed.
+    pub outcome_shard_id: ShardId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetReceiptParentByHintError {
+    #[error(
+        "receipt {receipt_id} not found in hint window of ±{effective_window} around height {block_height} on shard {shard_id}"
+    )]
+    ReceiptNotFoundInHintWindow {
+        receipt_id: CryptoHash,
+        block_height: BlockHeight,
+        shard_id: ShardId,
+        effective_window: BlockHeightDelta,
+    },
+    #[error("execution outcomes are not stored on this node (save_tx_outcomes=false)")]
+    OutcomesNotStored,
+    #[error("this node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: ShardId },
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
+    #[error("internal error: {0}")]
+    InternalError(String),
 }
 
 #[derive(Debug)]

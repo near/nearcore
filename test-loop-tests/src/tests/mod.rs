@@ -44,6 +44,7 @@ mod pending_transaction_queue;
 mod process_blocks;
 mod processed_receipts_gc;
 mod protocol_upgrade;
+mod receipt_parent_by_hint;
 mod receipt_to_tx;
 mod reject_outdated_blocks;
 mod resharding_cold_storage;
