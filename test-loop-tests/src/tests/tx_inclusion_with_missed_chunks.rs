@@ -88,13 +88,13 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
         Balance::from_near(1),
     );
     let client_actor = env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle());
-    let block_time = client_actor.client.config.max_block_production_delay;
+    let block_time = client_actor.client.config.max_block_production_delay.get();
     let tx_outcome = execute_tx(
         &mut env.test_loop,
         rpc_id,
         TransactionRunner::new(tx, false),
         &env.node_datas,
-        block_time.get() * 5,
+        block_time * 5,
     )
     .unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
