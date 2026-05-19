@@ -349,7 +349,7 @@ pub enum DBCol {
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
-    /// Stores produces witnesses by spice executor.
+    /// Stores witnesses produced by the SPICE executor.
     /// - *Rows*: (BlockHash || ShardId)
     /// - *Content type*: [near_primitives::spice::state_witness::SpiceChunkStateWitness]
     #[cfg(feature = "protocol_feature_spice")]
