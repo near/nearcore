@@ -37,6 +37,7 @@ use wasmtime::{
 mod logic;
 #[cfg(test)]
 pub(crate) mod test_logic;
+mod trap_classification;
 
 /// The maximum amount of concurrent calls this engine can handle.
 /// If this limit is reached, invocations will block until an execution slot is available.
@@ -378,23 +379,30 @@ impl IntoVMError for wasmtime::Error {
             };
         }
         if let Some(trap) = cause.downcast_ref::<wasmtime::Trap>() {
-            use wasmtime::Trap as T;
+            use trap_classification::TrapClassification as C;
+            let classification = C::from(*trap);
             let nondeterministic_message = 'nondet: {
-                return Ok(FunctionCallError::WasmTrap(match *trap {
-                    T::StackOverflow => WasmTrap::StackOverflow,
-                    T::MemoryOutOfBounds => WasmTrap::MemoryOutOfBounds,
-                    T::TableOutOfBounds => WasmTrap::MemoryOutOfBounds,
-                    T::IndirectCallToNull => WasmTrap::IndirectCallToNull,
-                    T::BadSignature => WasmTrap::IncorrectCallIndirectSignature,
-                    T::IntegerOverflow => WasmTrap::IllegalArithmetic,
-                    T::IntegerDivisionByZero => WasmTrap::IllegalArithmetic,
-                    T::BadConversionToInteger => WasmTrap::IllegalArithmetic,
-                    T::UnreachableCodeReached => WasmTrap::Unreachable,
-                    T::Interrupt => break 'nondet "interrupt",
-                    T::HeapMisaligned => break 'nondet "heap misaligned",
-                    t => {
+                return Ok(FunctionCallError::WasmTrap(match classification {
+                    C::StackOverflow => WasmTrap::StackOverflow,
+                    C::MemoryOutOfBounds => WasmTrap::MemoryOutOfBounds,
+                    C::TableOutOfBounds => WasmTrap::MemoryOutOfBounds,
+                    C::IndirectCallToNull => WasmTrap::IndirectCallToNull,
+                    C::BadSignature => WasmTrap::IncorrectCallIndirectSignature,
+                    C::IntegerOverflow => WasmTrap::IllegalArithmetic,
+                    C::IntegerDivisionByZero => WasmTrap::IllegalArithmetic,
+                    C::BadConversionToInteger => WasmTrap::IllegalArithmetic,
+                    C::UnreachableCodeReached => WasmTrap::Unreachable,
+                    C::Interrupt => break 'nondet "interrupt",
+                    C::HeapMisaligned => break 'nondet "heap misaligned",
+                    C::Unreachable { trap } => {
+                        panic!(
+                            "contract produced a trap that should be unreachable \
+                                under NEAR's engine configuration: {trap:?}"
+                        );
+                    }
+                    C::Unknown { trap } => {
                         return Err(VMRunnerError::WasmUnknownError {
-                            debug_message: format!("unhandled trap type: {:?}", t),
+                            debug_message: format!("unhandled trap type: {trap:?}"),
                         });
                     }
                 }));
