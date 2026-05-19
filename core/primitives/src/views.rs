@@ -278,7 +278,7 @@ pub struct ViewStateResult {
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_key: Option<StoreKey>,
+    pub last_key: Option<StoreKey>,
 }
 
 /// A result returned by contract method

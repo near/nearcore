@@ -1058,7 +1058,7 @@ async fn test_experimental_view_state_paginated() {
 
     // test1 has no contract data, so a single empty page with no cursor.
     assert_eq!(response.state.values.len(), 0);
-    assert_eq!(response.state.next_key, None);
+    assert_eq!(response.state.last_key, None);
 }
 
 /// Test EXPERIMENTAL_view_state rejects include_proof combined with pagination

@@ -10215,7 +10215,7 @@
             "minimum": 0,
             "type": "integer"
           },
-          "next_key": {
+          "last_key": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"

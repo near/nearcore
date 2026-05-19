@@ -297,7 +297,7 @@ impl TrieViewer {
             _ => Vec::new(),
         };
         let mut used_bytes: u64 = 0;
-        let mut next_key = None;
+        let mut last_key = None;
 
         for item in &mut iter {
             let (key, value) = item?;
@@ -309,14 +309,14 @@ impl TrieViewer {
             let hit_bytes = byte_cap.is_some_and(|cap| used_bytes >= cap);
             if hit_items || hit_bytes {
                 // At least one more item exists; resume after the last we kept.
-                next_key = values.last().map(|it: &StateItem| it.key.clone());
+                last_key = values.last().map(|it: &StateItem| it.key.clone());
                 break;
             }
             used_bytes += (key.len() + value.len()) as u64;
             values.push(StateItem { key: key[acc_sep_len..].to_vec().into(), value: value.into() });
         }
         let proof = iter.into_visited_nodes();
-        Ok(ViewStateResult { values, proof, next_key })
+        Ok(ViewStateResult { values, proof, last_key })
     }
 
     pub fn call_function(

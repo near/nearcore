@@ -456,7 +456,7 @@ fn commit_and_view(tries: ShardTries, mut state_update: TrieUpdate) -> TrieUpdat
     tries.new_trie_update(TEST_SHARD_UID, new_root)
 }
 
-/// Walk every page, following `next_key`, and return the concatenated items.
+/// Walk every page, following `last_key`, and return the concatenated items.
 fn collect_pages(
     viewer: &TrieViewer,
     state_update: &TrieUpdate,
@@ -478,7 +478,7 @@ fn collect_pages(
             )
             .unwrap();
         all.extend(result.values);
-        match result.next_key {
+        match result.last_key {
             Some(key) => after_key = Some(key),
             None => return all,
         }
@@ -510,7 +510,7 @@ fn test_view_state_pagination_basic() {
             data_item(b"key02", b"val2"),
         ]
     );
-    assert_eq!(page1.next_key, Some(b"key02".to_vec().into()));
+    assert_eq!(page1.last_key, Some(b"key02".to_vec().into()));
 
     // Resuming from the cursor skips that key.
     let page2 =
@@ -523,7 +523,7 @@ fn test_view_state_pagination_basic() {
             data_item(b"key05", b"val5"),
         ]
     );
-    assert_eq!(page2.next_key, Some(b"key05".to_vec().into()));
+    assert_eq!(page2.last_key, Some(b"key05".to_vec().into()));
 
     let all = collect_pages(&viewer, &state_update, &alice, b"", Some(nz(3)));
     let expected: Vec<_> =
@@ -539,13 +539,13 @@ fn test_view_state_pagination_exact_boundary() {
 
     let page1 = viewer.view_state(&state_update, &alice, b"", None, Some(nz(5)), false).unwrap();
     assert_eq!(page1.values.len(), 5);
-    assert_eq!(page1.next_key, Some(b"key04".to_vec().into()));
+    assert_eq!(page1.last_key, Some(b"key04".to_vec().into()));
 
-    // The final full page must not report a next_key when nothing follows.
+    // The final full page must not report a last_key when nothing follows.
     let page2 =
         viewer.view_state(&state_update, &alice, b"", Some(b"key04"), Some(nz(5)), false).unwrap();
     assert_eq!(page2.values.len(), 5);
-    assert_eq!(page2.next_key, None);
+    assert_eq!(page2.last_key, None);
 }
 
 #[test]
@@ -558,7 +558,7 @@ fn test_view_state_pagination_limit_exceeds_total() {
         let result =
             viewer.view_state(&state_update, &alice, b"", None, Some(limit), false).unwrap();
         assert_eq!(result.values.len(), 10, "limit {limit}");
-        assert_eq!(result.next_key, None, "limit {limit}");
+        assert_eq!(result.last_key, None, "limit {limit}");
     }
 }
 
@@ -574,7 +574,7 @@ fn test_view_state_pagination_after_key_without_limit() {
         .map(|i| data_item(format!("key{i:02}").as_bytes(), format!("val{i}").as_bytes()))
         .collect();
     assert_eq!(result.values, expected);
-    assert_eq!(result.next_key, None);
+    assert_eq!(result.last_key, None);
 }
 
 #[test]
@@ -586,7 +586,7 @@ fn test_view_state_pagination_after_key_past_end() {
     let result =
         viewer.view_state(&state_update, &alice, b"", Some(b"zzzz"), Some(nz(3)), false).unwrap();
     assert!(result.values.is_empty());
-    assert_eq!(result.next_key, None);
+    assert_eq!(result.last_key, None);
 }
 
 #[test]
@@ -603,14 +603,14 @@ fn test_view_state_pagination_with_prefix() {
 
     let page1 = viewer.view_state(&state_update, &alice, b"aaa", None, Some(nz(1)), false).unwrap();
     assert_eq!(page1.values, vec![data_item(b"aaa0", b"a0")]);
-    assert_eq!(page1.next_key, Some(b"aaa0".to_vec().into()));
+    assert_eq!(page1.last_key, Some(b"aaa0".to_vec().into()));
 
-    // The last in-prefix item reports no `next_key` even though `bbb*` rows follow it.
+    // The last in-prefix item reports no `last_key` even though `bbb*` rows follow it.
     let page2 = viewer
         .view_state(&state_update, &alice, b"aaa", Some(b"aaa0"), Some(nz(1)), false)
         .unwrap();
     assert_eq!(page2.values, vec![data_item(b"aaa1", b"a1")]);
-    assert_eq!(page2.next_key, None);
+    assert_eq!(page2.last_key, None);
 
     let all = collect_pages(&viewer, &state_update, &alice, b"aaa", Some(nz(1)));
     assert_eq!(all, vec![data_item(b"aaa0", b"a0"), data_item(b"aaa1", b"a1")]);
@@ -625,7 +625,7 @@ fn test_view_state_pagination_empty() {
     let state_update = view_with_contract_data(&[]);
     let result = viewer.view_state(&state_update, &alice, b"", None, Some(nz(5)), false).unwrap();
     assert!(result.values.is_empty());
-    assert_eq!(result.next_key, None);
+    assert_eq!(result.last_key, None);
 
     // Prefix that matches nothing.
     let state_update =
@@ -633,7 +633,7 @@ fn test_view_state_pagination_empty() {
     let result =
         viewer.view_state(&state_update, &alice, b"nomatch", None, Some(nz(5)), false).unwrap();
     assert!(result.values.is_empty());
-    assert_eq!(result.next_key, None);
+    assert_eq!(result.last_key, None);
 }
 
 #[test]
@@ -649,12 +649,12 @@ fn test_view_state_pagination_byte_cap() {
     // since a 3rd 20 KB value crosses it.
     let page1 = viewer.view_state(&state_update, &alice, b"", None, Some(nz(100)), false).unwrap();
     assert_eq!(page1.values.len(), 3);
-    assert_eq!(page1.next_key, Some(b"bk2".to_vec().into()));
+    assert_eq!(page1.last_key, Some(b"bk2".to_vec().into()));
 
     let page2 =
         viewer.view_state(&state_update, &alice, b"", Some(b"bk2"), Some(nz(100)), false).unwrap();
     assert_eq!(page2.values.len(), 2);
-    assert_eq!(page2.next_key, None);
+    assert_eq!(page2.last_key, None);
 
     let all = collect_pages(&viewer, &state_update, &alice, b"", Some(nz(100)));
     assert_eq!(all.len(), 5);
@@ -713,11 +713,11 @@ fn test_view_state_pagination_bypasses_size_limit() {
 
     let paged = viewer.view_state(&state_update, &alice, b"", None, Some(nz(2)), false).unwrap();
     assert_eq!(paged.values, vec![data_item(b"k0", b"v0"), data_item(b"k1", b"v1")]);
-    assert_eq!(paged.next_key, Some(b"k1".to_vec().into()));
+    assert_eq!(paged.last_key, Some(b"k1".to_vec().into()));
 
     let resumed = viewer.view_state(&state_update, &alice, b"", Some(b"k1"), None, false).unwrap();
     assert_eq!(resumed.values, vec![data_item(b"k2", b"v2")]);
-    assert_eq!(resumed.next_key, None);
+    assert_eq!(resumed.last_key, None);
 }
 
 #[test]

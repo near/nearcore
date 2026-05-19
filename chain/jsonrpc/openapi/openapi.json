@@ -15067,7 +15067,7 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "from_key_base64": {
+                  "after_key_base64": {
                     "anyOf": [
                       {
                         "$ref": "#/components/schemas/StoreKey"
@@ -15415,7 +15415,7 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "from_key_base64": {
+                  "after_key_base64": {
                     "anyOf": [
                       {
                         "$ref": "#/components/schemas/StoreKey"
@@ -15763,7 +15763,7 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "from_key_base64": {
+                  "after_key_base64": {
                     "anyOf": [
                       {
                         "$ref": "#/components/schemas/StoreKey"
@@ -18945,7 +18945,7 @@
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
           },
-          "from_key_base64": {
+          "after_key_base64": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"
@@ -18992,7 +18992,7 @@
             "minimum": 0,
             "type": "integer"
           },
-          "next_key": {
+          "last_key": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"
@@ -21059,7 +21059,7 @@
       "ViewStateResult": {
         "description": "Resulting state values for a view state query request",
         "properties": {
-          "next_key": {
+          "last_key": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"
