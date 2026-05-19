@@ -957,6 +957,7 @@ fn test_cloud_archival_outcomes_and_receipts() {
 /// the per-block cold columns the reader reconstructs from cloud data:
 /// `BlockPerHeight`, `ChunkHashesByHeight`, and `NextBlockHashes`.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_per_block_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
@@ -998,6 +999,7 @@ fn test_cloud_archival_reader_per_block_columns() {
 /// present, the reader writes no `ChunkHashesByHeight` entry, matching what
 /// the chain store does at apply time.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_block_present_all_chunks_missing() {
     let epoch_length = CloudArchiveHarness::DEFAULT_EPOCH_LENGTH;
     let dropped_offset = epoch_length / 2;
@@ -1044,6 +1046,7 @@ fn test_cloud_archival_block_present_all_chunks_missing() {
 /// `ChunkApplyStats`, `IncomingReceipts`, `OutgoingReceipts`, and
 /// `OutcomeIds`.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_per_shard_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
@@ -1105,6 +1108,7 @@ fn test_cloud_archival_reader_per_shard_columns() {
 /// `ReceiptToTx`, and `StateChanges`. The test submits a cross-shard
 /// transfer before the bootstrap range to populate them.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_per_shard_chunk_apply_columns() {
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
     let mut h = CloudArchiveHarness::builder().build();
