@@ -31,6 +31,7 @@ use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_crypto::PublicKey;
+use near_parameters::vm::Config as VmConfig;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account};
@@ -102,6 +103,7 @@ mod actions;
 mod actions_test_utils;
 pub mod adapter;
 mod bandwidth_scheduler;
+pub mod cache_warming;
 pub mod config;
 mod congestion_control;
 mod contract_code;
@@ -184,6 +186,12 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// If `Some`, the next epoch's `wasm_config` differs from the current one
+    /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind
+    /// upgrade is scheduled for the next epoch boundary). Hooks throughout the
+    /// runtime use this to pre-warm the cache for the upcoming VM, so the boundary
+    /// doesn't trigger a re-compile avalanche. `None` in steady state.
+    pub next_wasm_config: Option<Arc<VmConfig>>,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Cache for trie node accesses.
@@ -516,6 +524,7 @@ impl Runtime {
                     account_id,
                     deploy_contract,
                     Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
@@ -2964,6 +2973,7 @@ impl<'a> ApplyProcessingState<'a> {
     ) -> ApplyProcessingReceiptState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
+            self.apply_state.next_wasm_config.clone(),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
@@ -3184,6 +3194,7 @@ pub mod estimator {
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(&apply_state.config),
+            apply_state.next_wasm_config.clone(),
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),

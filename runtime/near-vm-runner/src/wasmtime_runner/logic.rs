@@ -681,13 +681,11 @@ pub fn refund_to_account_id(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64)
 pub fn input(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    let charge_bytes_gas = !ctx.config.deterministic_account_ids;
     ctx.registers.set_rc_data(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
         Rc::clone(&ctx.context.input),
-        charge_bytes_gas,
     )
 }
 
@@ -3914,13 +3912,11 @@ pub fn promise_result(
     {
         PromiseResult::NotReady => Ok(0),
         PromiseResult::Successful(data) => {
-            let charge_bytes_gas = !ctx.config.deterministic_account_ids;
             ctx.registers.set_rc_data(
                 &mut ctx.result_state.gas_counter,
                 &ctx.config.limit_config,
                 register_id,
                 Rc::clone(data),
-                charge_bytes_gas,
             )?;
             Ok(1)
         }

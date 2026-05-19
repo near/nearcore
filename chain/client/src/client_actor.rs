@@ -1824,15 +1824,19 @@ impl ClientActor {
     /// This method performs whatever syncing technique is needed (epoch sync, header sync,
     /// state sync, block sync) to make progress towards bring the node up to date.
     fn handle_sync_needed(&mut self, highest_height: u64) {
-        let sync_step_result = self.client.sync_handler.handle_sync_needed(
+        let sync_step_result = match self.client.sync_handler.handle_sync_needed(
             &mut self.client.chain,
             &self.client.shard_tracker,
             highest_height,
             &self.network_info.highest_height_peers,
             Some(self.client.myself_sender.apply_chunks_done.clone()),
-        );
-        let Some(sync_step_result) = sync_step_result else {
-            return;
+        ) {
+            Ok(Some(request)) => request,
+            Ok(None) => return,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "sync: error in sync handler");
+                return;
+            }
         };
         match sync_step_result {
             SyncHandlerRequest::NeedRequestBlocks(blocks_to_request) => {

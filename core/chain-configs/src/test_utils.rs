@@ -3,7 +3,8 @@ use crate::{
     GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
     MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
     ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
+    default_chunks_cache_height_horizon, default_contract_cache_warming_max_item_count,
+    default_contract_cache_warming_pool_thread_count, default_enable_early_prepare_transactions,
     default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
     default_produce_chunk_add_transactions_time_limit,
     default_transaction_pool_strict_nonce_ttl_blocks,
@@ -246,7 +247,6 @@ pub struct TestClientConfigParams {
     pub max_block_prod_time: u64,
     pub num_block_producer_seats: NumSeats,
     pub archive: bool,
-    pub state_sync_enabled: bool,
     pub transaction_pool_size_limit: Option<u64>,
 }
 
@@ -258,7 +258,6 @@ impl ClientConfig {
             max_block_prod_time,
             num_block_producer_seats,
             archive,
-            state_sync_enabled,
             transaction_pool_size_limit,
         } = params;
 
@@ -294,7 +293,6 @@ impl ClientConfig {
             epoch_length: 10,
             num_block_producer_seats,
             ttl_account_id_router: Duration::seconds(60 * 60),
-            block_fetch_horizon: 50,
             catchup_step_period: Duration::milliseconds(100),
             chunk_request_retry_period: min(
                 Duration::milliseconds(100),
@@ -310,6 +308,9 @@ impl ClientConfig {
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
             save_receipt_to_tx: true,
+            contract_cache_warming_pool_thread_count:
+                default_contract_cache_warming_pool_thread_count(),
+            contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
             save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
@@ -321,7 +322,6 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
-            state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit,
@@ -347,6 +347,8 @@ impl ClientConfig {
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
             chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
             disable_tx_routing: false,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transaction_queue_enabled: false,
         }
     }
 }

@@ -70,6 +70,7 @@ pub fn setup_client(
         chunks_storage,
         drop_conditions,
         load_memtries_for_tracked_shards,
+        task_delay_fn,
         ..
     } = shared_state;
 
@@ -160,8 +161,15 @@ pub fn setup_client(
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
 
+    // Default per-task virtual delay for the test-loop spawner. Tests can
+    // override per `(account, task_name)` via `TestLoopBuilder::task_delay_fn`.
+    const DEFAULT_TASK_DELAY: Duration = Duration::milliseconds(80);
+    let task_delay_fn = task_delay_fn.clone();
+    let acc = account_id.clone();
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
-        test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
+        test_loop.async_computation_spawner(identifier, move |task_name| {
+            task_delay_fn.as_ref().and_then(|f| f(&acc, task_name)).unwrap_or(DEFAULT_TASK_DELAY)
+        }),
     ));
 
     let chunk_validation_client_sender = LateBoundSender::<ChunkValidationSender>::new();
@@ -326,6 +334,8 @@ pub fn setup_client(
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: client_config
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_handler = RpcHandlerActor::new(
         rpc_handler_config,

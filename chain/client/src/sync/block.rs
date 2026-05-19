@@ -3,13 +3,10 @@ use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::BlockKnowledge;
-use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
-use near_o11y::log_assert;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
 use tracing::instrument;
 
@@ -33,14 +30,8 @@ pub struct BlockSync {
     // When the last block requests were made.
     last_request: Option<BlockSyncRequest>,
 
-    /// How far to fetch blocks vs fetch state.
-    block_fetch_horizon: BlockHeightDelta,
-
     /// Archival nodes are not allowed to do State Sync, as they need all state from all blocks.
     archive: bool,
-
-    /// Whether State Sync should be enabled when a node falls far enough behind.
-    state_sync_enabled: bool,
 
     /// Maximum number of blocks to request in a single batch.
     max_block_requests: usize,
@@ -50,86 +41,10 @@ impl BlockSync {
     pub fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
-        block_fetch_horizon: BlockHeightDelta,
         archive: bool,
-        state_sync_enabled: bool,
         max_block_requests: usize,
     ) -> Self {
-        BlockSync {
-            clock,
-            network_adapter,
-            last_request: None,
-            block_fetch_horizon,
-            archive,
-            state_sync_enabled,
-            max_block_requests,
-        }
-    }
-
-    /// Returns true if State Sync is needed.
-    /// Returns false is Block Sync is needed. Maybe requests a few blocks from peers.
-    pub fn run(
-        &mut self,
-        sync_status: &mut SyncStatus,
-        chain: &Chain,
-        highest_height: BlockHeight,
-        highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<bool, near_chain::Error> {
-        let _span =
-            tracing::debug_span!(target: "sync", "run_sync", sync_type = "BlockSync").entered();
-        let head = chain.head()?;
-        let header_head = chain.header_head()?;
-
-        match self.block_sync_due(&head, &header_head) {
-            BlockSyncDue::StateSync => {
-                tracing::debug!(target: "sync", "sync: transition to state sync");
-                return Ok(true);
-            }
-            BlockSyncDue::RequestBlock => {
-                self.block_sync(chain, highest_height_peers)?;
-            }
-            BlockSyncDue::WaitForBlock => {
-                // Do nothing.
-            }
-        }
-
-        // start_height is used to report the progress of state sync, e.g. to say that it's 50% complete.
-        // This number has no other functional value.
-        let start_height = sync_status.start_height().unwrap_or(head.height);
-
-        sync_status.update(SyncStatus::BlockSync {
-            start_height,
-            current_height: head.height,
-            highest_height,
-        });
-        Ok(false)
-    }
-
-    /// Check if state download is required
-    fn check_state_needed(&self, head: &Tip, header_head: &Tip) -> bool {
-        if self.archive || !self.state_sync_enabled {
-            return false;
-        }
-
-        log_assert!(head.height <= header_head.height);
-
-        // Only if the header head is more than one epoch ahead, then consider State Sync.
-        // block_fetch_horizon is used for testing to prevent test nodes from switching to State Sync too eagerly.
-        let prefer_state_sync = head.epoch_id != header_head.epoch_id
-            && head.next_epoch_id != header_head.epoch_id
-            && head.height.saturating_add(self.block_fetch_horizon) < header_head.height;
-        if prefer_state_sync {
-            tracing::debug!(
-                target: "sync",
-                head_epoch_id = ?head.epoch_id,
-                header_head_epoch_id = ?header_head.epoch_id,
-                head_next_epoch_id = ?head.next_epoch_id,
-                head_height = head.height,
-                header_head_height = header_head.height,
-                block_fetch_horizon = self.block_fetch_horizon,
-                "switched from block sync to state sync");
-        }
-        prefer_state_sync
+        BlockSync { clock, network_adapter, last_request: None, archive, max_block_requests }
     }
 
     // Finds the last block on the canonical chain that is in store (processed).
@@ -281,68 +196,32 @@ impl BlockSync {
     }
 
     /// Request blocks from peers if a request is due (head changed or
-    /// timeout elapsed). Does not check whether state sync is needed
-    /// and does not update `SyncStatus`.
-    pub fn run_v2(
+    /// timeout elapsed). Does not update `SyncStatus`.
+    pub fn run(
         &mut self,
         chain: &Chain,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
         let head = chain.head()?;
-        match self.block_request_due(&head) {
-            BlockSyncDue::RequestBlock => {
-                self.block_sync(chain, highest_height_peers)?;
-            }
-            BlockSyncDue::WaitForBlock => {}
-            BlockSyncDue::StateSync => unreachable!("block_request_due never returns StateSync"),
+        if self.block_request_due(&head) {
+            self.block_sync(chain, highest_height_peers)?;
         }
         Ok(())
     }
 
-    /// Returns whether block sync should request new blocks, wait, or
-    /// yield to state sync. Checks `state_needed` first, then delegates
-    /// to `block_request_due()` for the timeout/head-freshness check.
-    fn block_sync_due(&self, head: &Tip, header_head: &Tip) -> BlockSyncDue {
-        if self.check_state_needed(head, header_head) {
-            return BlockSyncDue::StateSync;
-        }
-        self.block_request_due(head)
-    }
-
     /// Returns whether a new block request is due based on head freshness
-    /// and request timeout. Does not check whether state sync is needed.
-    fn block_request_due(&self, head: &Tip) -> BlockSyncDue {
-        match &self.last_request {
-            None => {
-                // Request the next block.
-                BlockSyncDue::RequestBlock
-            }
-            Some(request) => {
-                // Head got updated, no need to continue waiting for the requested block.
-                // TODO: This doesn't work nicely with a node requesting config.max_blocks_requests blocks at a time.
-                // TODO: Does receiving a response to one of those requests cancel and restart the other requests?
-                let head_got_updated = head.last_block_hash != request.head;
-                // Timeout elapsed
-                let timeout = self.clock.now_utc() - request.when
-                    > Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS);
-                if head_got_updated || timeout {
-                    // Request the next block.
-                    BlockSyncDue::RequestBlock
-                } else {
-                    // Continue waiting for the currently requested block.
-                    BlockSyncDue::WaitForBlock
-                }
-            }
-        }
+    /// and request timeout.
+    fn block_request_due(&self, head: &Tip) -> bool {
+        let Some(request) = &self.last_request else {
+            // No request yet — issue the first one.
+            return true;
+        };
+        // Head got updated, no need to continue waiting for the requested block.
+        // TODO: This doesn't work nicely with a node requesting config.max_blocks_requests blocks at a time.
+        // TODO: Does receiving a response to one of those requests cancel and restart the other requests?
+        let head_got_updated = head.last_block_hash != request.head;
+        let timeout =
+            self.clock.now_utc() - request.when > Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS);
+        head_got_updated || timeout
     }
-}
-
-/// Whether a new set of blocks needs to be requested.
-enum BlockSyncDue {
-    /// Request the next block.
-    RequestBlock,
-    /// The block is already requested, wait for it.
-    WaitForBlock,
-    /// Too far behind, drop BlockSync and do StateSync instead.
-    StateSync,
 }

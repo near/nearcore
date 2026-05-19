@@ -691,6 +691,9 @@ pub async fn start_with_config_and_synchronization_impl(
         disable_tx_routing: config.client_config.disable_tx_routing,
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
+        spice_pending_transaction_queue_enabled: config
+            .client_config
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_shard_tracker = view_shard_tracker.clone();
     let rpc_handler = spawn_rpc_handler_actor(

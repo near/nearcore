@@ -1,3 +1,16 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling near-primitives-core v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/core/primitives-core)
+   Compiling near-fmt v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/utils/fmt)
+   Compiling near-parameters v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/core/parameters)
+   Compiling near-primitives v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/core/primitives)
+   Compiling near-chain-primitives v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/chain-primitives)
+   Compiling near-chain-configs v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/core/chain-configs)
+   Compiling near-chunks-primitives v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/chunks-primitives)
+   Compiling near-client-primitives v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/client-primitives)
+   Compiling near-jsonrpc-primitives v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/jsonrpc-primitives)
+   Compiling near-jsonrpc-openapi-spec v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/jsonrpc/openapi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.40s
+     Running `target/debug/near-jsonrpc-openapi-spec`
 {
   "openapi": "3.0.0",
   "info": {
@@ -13186,12 +13199,6 @@
             "description": "Not clear old data, set `true` for archive nodes.",
             "type": "boolean"
           },
-          "block_fetch_horizon": {
-            "description": "Horizon at which instead of fetching block, fetch full state.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "block_header_fetch_horizon": {
             "description": "Behind this horizon header fetch kicks in.",
             "format": "uint64",
@@ -13290,6 +13297,18 @@
               }
             ],
             "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards."
+          },
+          "contract_cache_warming_max_item_count": {
+            "description": "Max warming submissions allowed in the pool's queue. Submissions\nover the cap bump `near_contract_cache_warming_dropped_total`. `0`\ndisables warming (same as setting\n`contract_cache_warming_pool_thread_count` to 0).",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "contract_cache_warming_pool_thread_count": {
+            "description": "Number of worker threads in the contract cache-warming pool. The\npool runs at the lowest realtime priority of any near pool, so the\nthreads yield to chunk application and witness work. Setting this\nto 0 disables warming (the pool is never instantiated). See\n[`contract_cache_warming_max_item_count`] for the other disable knob.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
           },
           "disable_tx_routing": {
             "description": "If true, the node won't forward transactions to next the chunk producers.",
@@ -13562,10 +13581,6 @@
               }
             ],
             "description": "Options for syncing state."
-          },
-          "state_sync_enabled": {
-            "description": "Whether to use the State Sync mechanism.\nIf disabled, the node will do Block Sync instead of State Sync.",
-            "type": "boolean"
           },
           "state_sync_external_backoff": {
             "description": "Additional waiting period after a failed request to external storage",
@@ -20969,10 +20984,6 @@
       },
       "VMConfigView": {
         "properties": {
-          "deterministic_account_ids": {
-            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"
