@@ -7,7 +7,6 @@ use borsh::BorshDeserialize;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::time::{Clock, Duration};
-use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
@@ -21,7 +20,6 @@ use tracing::Instrument;
 pub(super) struct StateSyncDownloadSourceExternal {
     pub clock: Clock,
     pub store: Store,
-    pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub chain_id: String,
     pub conn: StateSyncConnection,
     pub timeout: Duration,
@@ -154,8 +152,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             )
             .await?;
             increment_download_count(shard_id, "part", "external", "success");
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-            let state_part = StatePart::from_bytes(data, protocol_version)?;
+            let state_part = StatePart::from_bytes(data)?;
             Ok(state_part)
         }
         .instrument(tracing::debug_span!("StateSyncDownloadSourceExternal::download_shard_part"))

@@ -7,14 +7,12 @@ use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
-use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
 };
 use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolVersion;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -174,36 +172,21 @@ impl StateRequestActor {
             SyncHashValidationResult::Rejected
         }
     }
-
-    /// Returns the protocol version used in the epoch containing the sync block.
-    /// This is used for synchronization related to the state parts format (see #14013 for details).
-    fn get_protocol_version_from_sync_hash(
-        &self,
-        sync_hash: &CryptoHash,
-    ) -> Result<ProtocolVersion, EpochError> {
-        let epoch_id = self.epoch_manager.get_epoch_id(sync_hash)?;
-        self.epoch_manager.get_epoch_protocol_version(&epoch_id)
-    }
 }
 
 fn new_header_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     header: ShardStateSyncResponseHeaderV2,
-    protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_header(Some(header), protocol_version);
+    let state_response = ShardStateSyncResponse::new_from_header(Some(header));
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
 }
 
-fn new_header_response_empty(
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    protocol_version: ProtocolVersion,
-) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_header(None, protocol_version);
+fn new_header_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StatePartOrHeader {
+    let state_response = ShardStateSyncResponse::new_from_header(None);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
@@ -214,21 +197,16 @@ fn new_part_response(
     sync_hash: CryptoHash,
     part_id: u64,
     part: Option<StatePart>,
-    protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
     let part = part.map(|part| (part_id, part));
-    let state_response = ShardStateSyncResponse::new_from_part(part, protocol_version);
+    let state_response = ShardStateSyncResponse::new_from_part(part);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
 }
 
-fn new_part_response_empty(
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    protocol_version: ProtocolVersion,
-) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_part(None, protocol_version);
+fn new_part_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StatePartOrHeader {
+    let state_response = ShardStateSyncResponse::new_from_part(None);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
@@ -257,23 +235,13 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
             return None;
         }
 
-        let protocol_version = self
-            .get_protocol_version_from_sync_hash(&sync_hash)
-            .inspect_err(|err| {
-                tracing::debug!(target: "sync", ?err, "failed to get sync_hash protocol version");
-                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
-                    .with_label_values(&["header", "failed"])
-                    .inc();
-            })
-            .ok()?;
-
         let header = self.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
         let Ok(header) = header else {
             tracing::warn!(target: "sync", "cannot build state sync header");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
                 .with_label_values(&["header", "failed"])
                 .inc();
-            return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
+            return Some(new_header_response_empty(shard_id, sync_hash));
         };
         let ShardStateSyncResponseHeader::V2(header) = header else {
             tracing::warn!(target: "sync", "invalid state sync header format");
@@ -284,7 +252,7 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
         };
 
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["header", "success"]).inc();
-        let response = new_header_response(shard_id, sync_hash, header, protocol_version);
+        let response = new_header_response(shard_id, sync_hash, header);
         Some(response)
     }
 }
@@ -310,28 +278,17 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
             return None;
         }
 
-        let protocol_version = self
-            .get_protocol_version_from_sync_hash(&sync_hash)
-            .inspect_err(|err| {
-                tracing::debug!(target: "sync", ?err, "failed to get sync_hash protocol version");
-                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
-                    .with_label_values(&["part", "failed"])
-                    .inc();
-            })
-            .ok()?;
-
         tracing::debug!(target: "sync", "computing state request part");
         let part = self.state_sync_adapter.get_state_response_part(shard_id, part_id, sync_hash);
         let Ok(part) = part else {
             tracing::warn!(target: "sync", ?part, "cannot build state part");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
-            return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));
+            return Some(new_part_response_empty(shard_id, sync_hash));
         };
         tracing::trace!(target: "sync", "finished computation for state request part");
 
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "success"]).inc();
-        let response =
-            new_part_response(shard_id, sync_hash, part_id, Some(part), protocol_version);
+        let response = new_part_response(shard_id, sync_hash, part_id, Some(part));
         Some(response)
     }
 }

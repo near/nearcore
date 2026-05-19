@@ -80,6 +80,7 @@ pub struct RpcHandlerConfig {
     pub disable_tx_routing: bool,
     pub epoch_length: u64,
     pub transaction_validity_period: BlockHeightDelta,
+    pub spice_pending_transaction_queue_enabled: bool,
 }
 
 /// Accepts and processes rpc requests (`process_tx`, etc) and does some preprocessing on incoming data.
@@ -217,11 +218,13 @@ impl RpcHandlerActor {
                         }
                     }
                 };
-                let constraints = {
+                let constraints = if self.config.spice_pending_transaction_queue_enabled {
                     let ptq = self.pending_transaction_queue.lock();
                     ptq.get(&shard_uid)
                         .map(|q| q.get_pending_constraints(&signed_tx))
                         .unwrap_or_default()
+                } else {
+                    PendingConstraints::default()
                 };
                 (root, constraints)
             } else {

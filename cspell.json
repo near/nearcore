@@ -467,6 +467,7 @@
         "wasmprinter",
         "wasms",
         "wasmtime",
+        "Waitable",
         "webfonts",
         "webrtc",
         "welford",

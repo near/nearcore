@@ -16,6 +16,7 @@ use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
+use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::{InMemorySigner, KeyType, Signature};
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -33,7 +34,6 @@ use near_pool::types::TransactionGroupIterator;
 use near_primitives::block::Approval;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
-use near_primitives::genesis::GenesisId;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -1203,12 +1203,6 @@ fn slow_test_process_block_after_state_sync() {
         .runtime_adapter
         .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
         .unwrap();
-    // reset cache
-    for i in epoch_length * 3 - 1..sync_block.header().height() - 1 {
-        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
-        assert!(env.clients[0].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
-    }
-    env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
         .runtime_adapter
@@ -1398,30 +1392,7 @@ fn test_reject_block_headers_during_epoch_sync() {
     }
 
     let sync_client = &mut env.clients[1];
-    let status = &mut sync_client.sync_handler.sync_status;
-    let chain = &sync_client.chain;
-    let highest_height =
-        sync_client.config.epoch_sync.epoch_sync_horizon_num_epochs * epoch_length + 1;
-    let highest_height_peers = vec![HighestHeightPeerInfo {
-        archival: false,
-        genesis_id: GenesisId::default(),
-        highest_block_hash: *blocks.last().unwrap().hash(),
-        highest_block_height: blocks.len() as u64,
-        tracked_shards: vec![],
-        peer_info: PeerInfo::random(),
-    }];
-
-    // Running epoch sync, sets SyncStatus::EpochSync
-    assert_matches!(
-        sync_client.sync_handler.epoch_sync.run(
-            status,
-            chain,
-            highest_height,
-            &highest_height_peers
-        ),
-        Ok(()),
-        "Epoch sync failure"
-    );
+    sync_client.sync_handler.sync_status = SyncStatus::EpochSync(EpochSyncStatus::NotStarted);
 
     let headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     // actual attempt to sync headers during ongoing epoch sync
@@ -1457,7 +1428,6 @@ fn test_gc_tail_update() {
     let prev_sync_hash = *prev_sync_block.hash();
     let prev_sync_height = prev_sync_block.header().height();
     let sync_block = blocks[blocks.len() - 2].clone();
-    env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
     env.clients[1].chain.save_block(prev_prev_sync_block.into()).unwrap();
     env.clients[1].chain.save_block(prev_sync_block.into()).unwrap();
     let mut store_update = env.clients[1].chain.mut_chain_store().store_update();
@@ -2034,12 +2004,10 @@ fn slow_test_catchup_gas_price_change() {
                 .unwrap()
         );
         store_update.commit();
-        let protocol_version =
-            env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             let bytes = store.get(DBCol::StateParts, &key).unwrap();
-            let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
+            let part = StatePart::from_bytes(bytes.to_vec()).unwrap();
             env.clients[1]
                 .runtime_adapter
                 .apply_state_part(
