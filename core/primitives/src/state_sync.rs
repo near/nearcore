@@ -6,7 +6,7 @@ use crate::sharding::{
 use crate::state_part::{StatePart, StatePartV0};
 use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::{EpochHeight, ProtocolVersion};
+use near_primitives_core::types::EpochHeight;
 use near_schema_checker_lib::ProtocolSchema;
 use std::sync::Arc;
 
@@ -290,24 +290,17 @@ pub enum ShardStateSyncResponse {
 }
 
 impl ShardStateSyncResponse {
-    pub fn new_from_header(
-        header: Option<ShardStateSyncResponseHeaderV2>,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        Self::new_from_header_or_part(header, None, protocol_version)
+    pub fn new_from_header(header: Option<ShardStateSyncResponseHeaderV2>) -> Self {
+        Self::new_from_header_or_part(header, None)
     }
 
-    pub fn new_from_part(
-        part: Option<(u64, StatePart)>,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        Self::new_from_header_or_part(None, part, protocol_version)
+    pub fn new_from_part(part: Option<(u64, StatePart)>) -> Self {
+        Self::new_from_header_or_part(None, part)
     }
 
     fn new_from_header_or_part(
         header: Option<ShardStateSyncResponseHeaderV2>,
         part: Option<(u64, StatePart)>,
-        _protocol_version: ProtocolVersion,
     ) -> Self {
         Self::V4(ShardStateSyncResponseV4 { header, part })
     }

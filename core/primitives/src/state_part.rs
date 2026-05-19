@@ -1,7 +1,6 @@
 use crate::state::PartialState;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::MIB;
-use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Upper bound for a decompressed part size.
@@ -50,13 +49,6 @@ pub enum StatePart {
 }
 
 impl StatePartV0 {
-    #[cfg(test)]
-    fn from_partial_state(partial_state: PartialState) -> Self {
-        let bytes =
-            borsh::to_vec(&partial_state).expect("serializing partial state should not fail");
-        Self(bytes)
-    }
-
     fn to_partial_state(&self) -> borsh::io::Result<PartialState> {
         PartialState::try_from_slice(&self.0)
     }
@@ -89,11 +81,7 @@ impl StatePartV1 {
 }
 
 impl StatePart {
-    pub fn from_partial_state(
-        partial_state: PartialState,
-        _protocol_version: ProtocolVersion,
-        compression_lvl: i32,
-    ) -> Self {
+    pub fn from_partial_state(partial_state: PartialState, compression_lvl: i32) -> Self {
         Self::V1(StatePartV1::from_partial_state(partial_state, compression_lvl))
     }
 
@@ -107,14 +95,11 @@ impl StatePart {
     /// Construct state part from bytes that are supposed to be result of `to_bytes()`.
     /// That's used to construct state part loaded from disk or network.
     /// Note that this does not validate the data, the validation logic happens in `validate_state_part()`.
-    pub fn from_bytes(
-        bytes: Vec<u8>,
-        _protocol_version: ProtocolVersion,
-    ) -> borsh::io::Result<Self> {
+    pub fn from_bytes(bytes: Vec<u8>) -> borsh::io::Result<Self> {
         BorshDeserialize::try_from_slice(&bytes)
     }
 
-    pub fn to_bytes(&self, _protocol_version: ProtocolVersion) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         borsh::to_vec(self).expect("serializing StatePart should not fail")
     }
 
@@ -131,7 +116,6 @@ mod tests {
     use crate::state::PartialState;
     use crate::state_part::{PART_SIZE_LIMIT, StatePart, StatePartV0};
     use itertools::Itertools;
-    use near_primitives_core::version::PROTOCOL_VERSION;
     use std::sync::Arc;
 
     // Some values with low entropy, to benefit from compression.
@@ -148,18 +132,18 @@ mod tests {
     fn test_state_part_compression() {
         let partial_state = dummy_partial_state();
 
-        let state_part_v0 = StatePart::V0(StatePartV0::from_partial_state(partial_state.clone()));
-        let state_part_v1 =
-            StatePart::from_partial_state(partial_state.clone(), PROTOCOL_VERSION, 1);
+        let v0_bytes =
+            borsh::to_vec(&partial_state).expect("serializing partial state should not fail");
+        let state_part_v0 = StatePart::V0(StatePartV0(v0_bytes));
+        let state_part_v1 = StatePart::from_partial_state(partial_state.clone(), 1);
         assert!(state_part_v1.payload_length() < state_part_v0.payload_length());
 
         let partial_state_reconstructed_from_state_part_v1 =
             state_part_v1.to_partial_state().unwrap();
         assert_eq!(partial_state, partial_state_reconstructed_from_state_part_v1);
 
-        let state_part_v1_bytes = state_part_v1.to_bytes(PROTOCOL_VERSION);
-        let state_part_v1_reconstructed =
-            StatePart::from_bytes(state_part_v1_bytes, PROTOCOL_VERSION).unwrap();
+        let state_part_v1_bytes = state_part_v1.to_bytes();
+        let state_part_v1_reconstructed = StatePart::from_bytes(state_part_v1_bytes).unwrap();
         assert_eq!(state_part_v1, state_part_v1_reconstructed);
     }
 
@@ -168,7 +152,7 @@ mod tests {
         let big_value = Arc::from(vec![b'a'; 2 * PART_SIZE_LIMIT as usize].into_boxed_slice());
         let partial_state = PartialState::TrieValues(vec![big_value]);
 
-        let state_part = StatePart::from_partial_state(partial_state, PROTOCOL_VERSION, 1);
+        let state_part = StatePart::from_partial_state(partial_state, 1);
         assert!(state_part.payload_length() < PART_SIZE_LIMIT as usize / 2);
 
         let decompression_result = state_part.to_partial_state();
