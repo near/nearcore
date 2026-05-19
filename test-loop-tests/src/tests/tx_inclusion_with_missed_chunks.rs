@@ -94,7 +94,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
         rpc_id,
         TransactionRunner::new(tx, false),
         &env.node_datas,
-        block_time * 5,
+        block_time.get() * 5,
     )
     .unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
