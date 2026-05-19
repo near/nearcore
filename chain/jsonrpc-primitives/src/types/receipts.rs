@@ -1,5 +1,5 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -51,6 +51,20 @@ impl From<RpcReceiptError> for crate::errors::RpcError {
 pub struct RpcReceiptToTxRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
+    /// Optional `(block_height, shard_id)` pair locating a block near where
+    /// the receipt was created. Together with `shard_id`, enables a
+    /// best-effort historical fallback scan when the local `ReceiptToTx`
+    /// column is missing the entry. Both fields must be supplied together;
+    /// supplying one without the other returns `MalformedHint`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_height: Option<BlockHeight>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shard_id: Option<ShardId>,
+    /// Optional override for the `±window` scan range. Defaults to
+    /// `DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`
+    /// when greater than `MAX_HINT_WINDOW`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<BlockHeightDelta>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -63,6 +77,7 @@ pub struct RpcReceiptToTxResponse {
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
 pub enum RpcReceiptToTxError {
     #[error("Receipt with id {receipt_id} has never been observed on this node")]
     UnknownReceipt { receipt_id: CryptoHash },
@@ -72,6 +87,12 @@ pub enum RpcReceiptToTxError {
     Unsupported { error_message: String },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
+    #[error("execution outcomes are not stored on this node (save_tx_outcomes=false)")]
+    OutcomesNotStored,
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
+    #[error("malformed hint: {error_message}")]
+    MalformedHint { error_message: String },
 }
 
 impl From<RpcReceiptToTxError> for crate::errors::RpcError {

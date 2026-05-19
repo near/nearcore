@@ -7,6 +7,9 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::receipt_to_tx::{
+    DEFAULT_HINT_WINDOW, HintScanStats, MAX_HINT_WINDOW, resolve_receipt_via_hint,
+};
 use near_chain::spice_chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -1276,42 +1279,160 @@ impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceiptToTx"]).start_timer();
 
-        if !self.config.save_receipt_to_tx {
-            return Err(GetReceiptToTxError::Unsupported(
-                "receipt-to-tx mapping is disabled (save_receipt_to_tx=false)".to_string(),
-            ));
-        }
-        if !self.config.tracked_shards_config.tracks_all_shards() {
-            return Err(GetReceiptToTxError::Unsupported(
-                "node does not track all shards".to_string(),
-            ));
-        }
+        let result = handle_receipt_to_tx(self, msg);
+        record_receipt_to_tx_outcome(&result);
+        result
+    }
+}
 
-        const MAX_DEPTH: u32 = 1000;
-        let mut current_receipt_id = msg.receipt_id;
-        for _ in 0..MAX_DEPTH {
-            let info = self
-                .chain
-                .chain_store()
-                .get_receipt_to_tx(&current_receipt_id)
-                .ok_or(GetReceiptToTxError::UnknownReceipt(current_receipt_id))?;
+const RECEIPT_TO_TX_MAX_DEPTH: u32 = 1000;
 
-            let ReceiptToTxInfo::V1(v1) = info;
-            match v1.origin {
-                ReceiptOrigin::FromTransaction(origin) => {
-                    return Ok(GetReceiptToTxResponse {
-                        transaction_hash: origin.tx_hash,
-                        sender_account_id: origin.sender_account_id,
-                    });
-                }
-                ReceiptOrigin::FromReceipt(origin) => {
-                    current_receipt_id = origin.parent_receipt_id;
+fn handle_receipt_to_tx(
+    actor: &ViewClientActor,
+    msg: GetReceiptToTx,
+) -> Result<GetReceiptToTxResponse, GetReceiptToTxError> {
+    // Up-front request shape: exactly-both-or-neither of (block_height, shard_id).
+    if msg.block_height.is_some() ^ msg.shard_id.is_some() {
+        return Err(GetReceiptToTxError::MalformedHint(
+            "block_height and shard_id must be supplied together".to_string(),
+        ));
+    }
+    let hint_provided = msg.block_height.is_some();
+    let effective_window = msg.window.unwrap_or(DEFAULT_HINT_WINDOW);
+    if hint_provided && effective_window > MAX_HINT_WINDOW {
+        return Err(GetReceiptToTxError::WindowTooLarge {
+            requested: effective_window,
+            maximum: MAX_HINT_WINDOW,
+        });
+    }
+
+    // tracks_all_shards is required in both modes: cross-shard historical
+    // lookups only work when this node has every shard's chain data locally.
+    if !actor.config.tracked_shards_config.tracks_all_shards() {
+        return Err(GetReceiptToTxError::Unsupported("node does not track all shards".to_string()));
+    }
+    // Column-only mode still requires save_receipt_to_tx. Hint mode does not —
+    // it can rebuild origin info from OutcomeIds + Receipts/Transactions.
+    if !hint_provided && !actor.config.save_receipt_to_tx {
+        return Err(GetReceiptToTxError::Unsupported(
+            "receipt-to-tx mapping is disabled (save_receipt_to_tx=false) and no hint supplied"
+                .to_string(),
+        ));
+    }
+
+    let mut current_receipt_id = msg.receipt_id;
+    let mut current_hint = msg.block_height.zip(msg.shard_id);
+
+    for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
+        let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
+        let info = match column_info {
+            Some(info) => info,
+            None => {
+                if let Some((height, shard_id)) = current_hint {
+                    if !actor.config.save_tx_outcomes {
+                        return Err(GetReceiptToTxError::OutcomesNotStored);
+                    }
+                    match resolve_receipt_via_hint(
+                        actor.chain.chain_store(),
+                        current_receipt_id,
+                        height,
+                        shard_id,
+                        effective_window,
+                    ) {
+                        Ok((Some(res), stats)) => {
+                            record_hint_scan_stats(stats);
+                            current_hint = Some((res.outcome_block_height, res.outcome_shard_id));
+                            res.info
+                        }
+                        Ok((None, stats)) => {
+                            record_hint_scan_stats(stats);
+                            return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
+                        }
+                        Err(e) => {
+                            return Err(GetReceiptToTxError::InternalError(e.to_string()));
+                        }
+                    }
+                } else {
+                    return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
                 }
             }
-        }
+        };
 
-        Err(GetReceiptToTxError::DepthExceeded { receipt_id: msg.receipt_id, limit: MAX_DEPTH })
+        let ReceiptToTxInfo::V1(v1) = info;
+        match v1.origin {
+            ReceiptOrigin::FromTransaction(origin) => {
+                return Ok(GetReceiptToTxResponse {
+                    transaction_hash: origin.tx_hash,
+                    sender_account_id: origin.sender_account_id,
+                });
+            }
+            ReceiptOrigin::FromReceipt(origin) => {
+                let parent_id = origin.parent_receipt_id;
+                // Boundary refresh: a column hit returning FromReceipt does not
+                // tell us the parent's creation coordinates. If the next column
+                // lookup misses, we'd reuse a stale hint. Proactively scan for
+                // the parent so the next hop's hint is fresh. The scan is
+                // wasted work if the column also has the parent — acceptable
+                // for at most a couple of FromReceipt hops per request.
+                if let Some((height, shard_id)) = current_hint {
+                    if actor.config.save_tx_outcomes {
+                        match resolve_receipt_via_hint(
+                            actor.chain.chain_store(),
+                            parent_id,
+                            height,
+                            shard_id,
+                            effective_window,
+                        ) {
+                            Ok((Some(res), stats)) => {
+                                record_hint_scan_stats(stats);
+                                current_hint =
+                                    Some((res.outcome_block_height, res.outcome_shard_id));
+                            }
+                            Ok((None, stats)) => {
+                                record_hint_scan_stats(stats);
+                                // Keep stale hint; the next column lookup might still hit.
+                            }
+                            Err(e) => {
+                                return Err(GetReceiptToTxError::InternalError(e.to_string()));
+                            }
+                        }
+                    }
+                }
+                current_receipt_id = parent_id;
+            }
+        }
     }
+
+    Err(GetReceiptToTxError::DepthExceeded {
+        receipt_id: msg.receipt_id,
+        limit: RECEIPT_TO_TX_MAX_DEPTH,
+    })
+}
+
+fn record_hint_scan_stats(stats: HintScanStats) {
+    metrics::RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL.inc_by(stats.heights_scanned);
+    metrics::RECEIPT_TO_TX_HINT_OUTCOMES_SCANNED_TOTAL.inc_by(stats.outcomes_scanned);
+}
+
+fn record_receipt_to_tx_outcome(result: &Result<GetReceiptToTxResponse, GetReceiptToTxError>) {
+    let outcome = match result {
+        // The handler can't distinguish a column hit from a hint hit at this
+        // layer (the loop interleaves them). Buckets reflect *terminal*
+        // outcome: "ok" covers both paths; specific error variants get their
+        // own buckets.
+        Ok(_) => "ok",
+        Err(GetReceiptToTxError::UnknownReceipt(_)) => "unknown_receipt",
+        Err(GetReceiptToTxError::DepthExceeded { .. }) => "depth_exceeded",
+        Err(GetReceiptToTxError::Unsupported(_)) => "unsupported",
+        Err(GetReceiptToTxError::OutcomesNotStored) => "outcomes_not_stored",
+        Err(GetReceiptToTxError::WindowTooLarge { .. }) => "window_too_large",
+        Err(GetReceiptToTxError::MalformedHint(_)) => "malformed_hint",
+        Err(GetReceiptToTxError::InternalError(_)) => "internal_error",
+        // Future-proof against new variants added to the non_exhaustive enum:
+        // metrics keep working, just bucketed as "other" until the match is updated.
+        Err(_) => "other",
+    };
+    metrics::RECEIPT_TO_TX_TOTAL.with_label_values(&[outcome]).inc();
 }
 
 impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> for ViewClientActor {

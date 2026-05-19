@@ -1,8 +1,6 @@
 use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use near_client_primitives::types::{
-    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError,
-};
+use near_client_primitives::types::{GetReceipt, GetReceiptError, GetReceiptToTxError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
     ReceiptReference, RpcReceiptError, RpcReceiptRequest, RpcReceiptToTxError,
@@ -46,19 +44,13 @@ impl RpcFrom<GetReceiptError> for RpcReceiptError {
 
 impl RpcRequest for RpcReceiptToTxRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Ok(Self { receipt_reference: Params::parse(value)? })
+        Params::parse(value)
     }
 }
 
 impl RpcFrom<AsyncSendError> for RpcReceiptToTxError {
     fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
-    }
-}
-
-impl RpcFrom<ReceiptReference> for GetReceiptToTx {
-    fn rpc_from(receipt_reference: ReceiptReference) -> Self {
-        Self { receipt_id: receipt_reference.receipt_id }
     }
 }
 
@@ -70,6 +62,19 @@ impl RpcFrom<GetReceiptToTxError> for RpcReceiptToTxError {
                 Self::DepthExceeded { receipt_id, limit }
             }
             GetReceiptToTxError::Unsupported(error_message) => Self::Unsupported { error_message },
+            GetReceiptToTxError::OutcomesNotStored => Self::OutcomesNotStored,
+            GetReceiptToTxError::WindowTooLarge { requested, maximum } => {
+                Self::WindowTooLarge { requested, maximum }
+            }
+            GetReceiptToTxError::MalformedHint(error_message) => {
+                Self::MalformedHint { error_message }
+            }
+            GetReceiptToTxError::InternalError(error_message) => {
+                Self::InternalError { error_message }
+            }
+            // Source enum is `#[non_exhaustive]`; surface unknown future variants
+            // as InternalError rather than dropping or panicking.
+            other => Self::InternalError { error_message: other.to_string() },
         }
     }
 }

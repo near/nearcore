@@ -469,6 +469,44 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+/// Labeled by terminal outcome of an `EXPERIMENTAL_receipt_to_tx` request,
+/// covering the column-only path, the hint-fallback path, and every error
+/// terminal that can short-circuit the handler. Lets operators tell at a
+/// glance whether requests are being served by the column or relying on
+/// the scanner.
+pub(crate) static RECEIPT_TO_TX_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_receipt_to_tx_total",
+        "EXPERIMENTAL_receipt_to_tx requests by terminal outcome",
+        &["outcome"],
+    )
+    .unwrap()
+});
+
+/// Total number of block heights inspected by hint-scan fallback across all
+/// requests. Combined with `receipt_to_tx_hint_outcomes_scanned_total`,
+/// this gives operators a sense of how expensive the scanner is on
+/// average per request.
+pub(crate) static RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_receipt_to_tx_hint_heights_scanned_total",
+            "Total block heights visited by EXPERIMENTAL_receipt_to_tx hint-fallback scans",
+        )
+        .unwrap()
+    });
+
+/// Total number of outcome rows read by hint-scan fallback across all
+/// requests.
+pub(crate) static RECEIPT_TO_TX_HINT_OUTCOMES_SCANNED_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_receipt_to_tx_hint_outcomes_scanned_total",
+            "Total outcome rows read by EXPERIMENTAL_receipt_to_tx hint-fallback scans",
+        )
+        .unwrap()
+    });
+
 pub(crate) static STATE_SYNC_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_request_time",

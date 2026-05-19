@@ -17,6 +17,22 @@ use near_store::DBCol;
 
 const EPOCH_LENGTH: u64 = 5;
 
+/// Build a column-only `GetReceiptToTx` message (no hint). Most of this file's
+/// pre-hint tests only ever exercise the column path.
+fn receipt_to_tx_req(receipt_id: CryptoHash) -> GetReceiptToTx {
+    GetReceiptToTx { receipt_id, block_height: None, shard_id: None, window: None }
+}
+
+/// Build a column-only `RpcReceiptToTxRequest` (no hint).
+fn receipt_to_tx_rpc_req(receipt_id: CryptoHash) -> RpcReceiptToTxRequest {
+    RpcReceiptToTxRequest {
+        receipt_reference: ReceiptReference { receipt_id },
+        block_height: None,
+        shard_id: None,
+        window: None,
+    }
+}
+
 /// When `save_receipt_to_tx` is false, no ReceiptToTx entries should be written.
 #[test]
 fn test_save_receipt_to_tx_false() {
@@ -466,11 +482,7 @@ fn test_receipt_to_tx_rpc_direct() {
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
-            |client| {
-                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
-                    receipt_reference: ReceiptReference { receipt_id },
-                })
-            },
+            |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(receipt_id)),
             Duration::seconds(5),
         )
         .unwrap();
@@ -540,11 +552,7 @@ fn test_receipt_to_tx_rpc_chain_walk() {
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
-            |client| {
-                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
-                    receipt_reference: ReceiptReference { receipt_id: refund_receipt_id },
-                })
-            },
+            |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(refund_receipt_id)),
             Duration::seconds(5),
         )
         .unwrap();
@@ -562,11 +570,7 @@ fn test_receipt_to_tx_rpc_unknown_receipt() {
 
     let fake_receipt_id = CryptoHash::hash_bytes(b"nonexistent");
     let result = env.rpc_runner().run_with_jsonrpc_client(
-        |client| {
-            client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
-                receipt_reference: ReceiptReference { receipt_id: fake_receipt_id },
-            })
-        },
+        |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(fake_receipt_id)),
         Duration::seconds(5),
     );
 
@@ -591,11 +595,7 @@ fn test_receipt_to_tx_rpc_unsupported_disabled() {
 
     let fake_receipt_id = CryptoHash::hash_bytes(b"any");
     let result = env.rpc_runner().run_with_jsonrpc_client(
-        |client| {
-            client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
-                receipt_reference: ReceiptReference { receipt_id: fake_receipt_id },
-            })
-        },
+        |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(fake_receipt_id)),
         Duration::seconds(5),
     );
 
@@ -622,7 +622,7 @@ fn test_receipt_to_tx_unsupported_partial_tracking() {
     // not AllShards. Send GetReceiptToTx directly to its ViewClientActor.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
-    let result = view_client.handle(GetReceiptToTx { receipt_id: CryptoHash::hash_bytes(b"any") });
+    let result = view_client.handle(receipt_to_tx_req(CryptoHash::hash_bytes(b"any")));
 
     match result {
         Err(GetReceiptToTxError::Unsupported(msg)) => {
@@ -693,11 +693,7 @@ fn test_receipt_to_tx_rpc_deep_chain_walk() {
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
-            |client| {
-                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
-                    receipt_reference: ReceiptReference { receipt_id: receipt_ids[0] },
-                })
-            },
+            |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(receipt_ids[0])),
             Duration::seconds(5),
         )
         .unwrap();
@@ -740,7 +736,7 @@ fn test_receipt_to_tx_unknown_parent_mid_walk() {
     // Query the child receipt — the handler should walk to missing_parent and fail.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
-    let result = view_client.handle(GetReceiptToTx { receipt_id: child_receipt_id });
+    let result = view_client.handle(receipt_to_tx_req(child_receipt_id));
 
     match result {
         Err(GetReceiptToTxError::UnknownReceipt(id)) => {
@@ -799,11 +795,7 @@ fn test_receipt_to_tx_rpc_cross_shard() {
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
-            |client| {
-                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
-                    receipt_reference: ReceiptReference { receipt_id },
-                })
-            },
+            |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(receipt_id)),
             Duration::seconds(5),
         )
         .unwrap();
@@ -823,9 +815,7 @@ fn test_receipt_to_tx_rpc_cross_shard() {
             .rpc_runner()
             .run_with_jsonrpc_client(
                 |client| {
-                    client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
-                        receipt_reference: ReceiptReference { receipt_id: refund_receipt_id },
-                    })
+                    client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(refund_receipt_id))
                 },
                 Duration::seconds(5),
             )
@@ -889,7 +879,7 @@ fn test_receipt_to_tx_depth_exceeded() {
     // Query receipt_0 — needs 1001 hops to reach the tx, exceeding MAX_DEPTH=1000.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
-    let result = view_client.handle(GetReceiptToTx { receipt_id: receipt_ids[0] });
+    let result = view_client.handle(receipt_to_tx_req(receipt_ids[0]));
 
     match result {
         Err(GetReceiptToTxError::DepthExceeded { receipt_id, limit }) => {
@@ -904,9 +894,510 @@ fn test_receipt_to_tx_depth_exceeded() {
 
     // Sanity check: querying receipt_2 (999 FromReceipt hops + 1 terminal lookup
     // = 1000 iterations) should succeed since it's exactly at the limit.
-    let result = view_client.handle(GetReceiptToTx { receipt_id: receipt_ids[2] });
+    let result = view_client.handle(receipt_to_tx_req(receipt_ids[2]));
     assert!(result.is_ok(), "100 hops should succeed, got: {result:?}");
     let response = result.unwrap();
     assert_eq!(response.transaction_hash, CryptoHash::hash_bytes(b"tx"));
     assert_eq!(response.sender_account_id.as_str(), "sender");
+}
+
+// ===========================================================================
+// Hint-fallback tests for `EXPERIMENTAL_receipt_to_tx`.
+//
+// All tests below exercise the optional `(block_height, shard_id, window)`
+// hint parameters. The column path remains the source of truth when the
+// column is populated; the hint scan is the fallback.
+// ===========================================================================
+
+fn send_self_money(
+    env: &mut crate::setup::env::TestLoopEnv,
+    user_account: &AccountId,
+    nonce: u64,
+) -> (CryptoHash, CryptoHash, u64) {
+    let signer = create_user_test_signer(user_account);
+    let head = env.validator().head();
+    let tx = SignedTransaction::send_money(
+        nonce,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        Balance::from_yoctonear(100),
+        head.last_block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
+    let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let block_hash = outcome.transaction_outcome.block_hash;
+    let height = env.validator().client().chain.get_block_header(&block_hash).unwrap().height();
+    (tx_hash, receipt_id, height)
+}
+
+fn handle(
+    env: &mut crate::setup::env::TestLoopEnv,
+    msg: GetReceiptToTx,
+) -> Result<near_client_primitives::types::GetReceiptToTxResponse, GetReceiptToTxError> {
+    let handle = env.node_datas[0].view_client_sender.actor_handle();
+    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
+    view_client.handle(msg)
+}
+
+/// `save_receipt_to_tx=false`, hint pointed at the tx execution height →
+/// terminal tx returned. The single-hop column miss falls back to the scan
+/// and walks the same outcome locally.
+#[test]
+fn test_hint_fallback_resolves_tx_origin() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account, 1);
+
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id,
+            block_height: Some(height),
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    )
+    .expect("hint should resolve to tx origin");
+    assert_eq!(response.transaction_hash, tx_hash);
+    assert_eq!(response.sender_account_id, user_account);
+}
+
+/// `save_receipt_to_tx=false`, contract refund chain (depth 2). Hint at the
+/// action receipt's execution height. The handler walks both hops server-side
+/// via repeated hint scans.
+#[test]
+fn test_hint_fallback_resolves_through_refund_chain() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .gas_prices(min_gas_price, min_gas_price)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &user_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &signer,
+        env.validator().head().last_block_hash,
+    );
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    let call_tx = SignedTransaction::call(
+        2,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.validator().head().last_block_hash,
+    );
+    let call_tx_hash = call_tx.get_hash();
+    let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome =
+        outcome.receipts_outcome.iter().find(|r| r.id == action_receipt_id).unwrap();
+    let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: refund_receipt_id,
+            block_height: Some(action_height),
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    )
+    .expect("hint walk should resolve refund → action receipt → tx");
+    assert_eq!(response.transaction_hash, call_tx_hash);
+    assert_eq!(response.sender_account_id, user_account);
+}
+
+/// `save_receipt_to_tx=true`, `save_tx_outcomes=false`, hint supplied but
+/// never used because the column resolves every hop. Must succeed —
+/// `OutcomesNotStored` should only fire when a scan is actually needed.
+#[test]
+fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_tx_outcomes = false;
+        })
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        user_account.clone(),
+        user_account,
+        &signer,
+        Balance::from_yoctonear(100),
+        env.validator().head().last_block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    env.validator().submit_tx(tx);
+    let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
+    env.validator_runner().run_until_executed_height(target_height);
+
+    // Find the receipt_id from the ReceiptToTx column directly (outcomes are not stored).
+    let store = env.validator().store();
+    let (receipt_id, _) = store
+        .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
+        .find_map(|(k, info)| match &info {
+            ReceiptToTxInfo::V1(v1) => match &v1.origin {
+                ReceiptOrigin::FromTransaction(o) if o.tx_hash == tx_hash => {
+                    Some((CryptoHash::try_from(k.as_ref()).unwrap(), info))
+                }
+                _ => None,
+            },
+        })
+        .expect("column entry should exist");
+
+    // Supply a hint that, if it triggered, would hit OutcomesNotStored. The
+    // column path should answer first and ignore the hint.
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id,
+            block_height: Some(1),
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    )
+    .expect("column hit must short-circuit OutcomesNotStored");
+    assert_eq!(response.transaction_hash, tx_hash);
+}
+
+/// `window > MAX_HINT_WINDOW` is rejected up front with `WindowTooLarge`.
+#[test]
+fn test_hint_fallback_window_too_large() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
+
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"any"),
+            block_height: Some(100),
+            shard_id: Some(ShardId::new(0)),
+            window: Some(near_chain::receipt_to_tx::MAX_HINT_WINDOW + 1),
+        },
+    );
+    match result {
+        Err(GetReceiptToTxError::WindowTooLarge { requested, maximum }) => {
+            assert_eq!(requested, near_chain::receipt_to_tx::MAX_HINT_WINDOW + 1);
+            assert_eq!(maximum, near_chain::receipt_to_tx::MAX_HINT_WINDOW);
+        }
+        other => panic!("expected WindowTooLarge, got {other:?}"),
+    }
+}
+
+/// `block_height` near 0 + a wide window must not panic on underflow. The
+/// center-out iterator saturates at 0; receipt lookup just misses.
+#[test]
+fn test_hint_fallback_window_underflow() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
+
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"absent"),
+            block_height: Some(2),
+            shard_id: Some(ShardId::new(0)),
+            window: Some(10),
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptToTxError::UnknownReceipt(_))),
+        "underflow-safe scan should miss cleanly, got {result:?}"
+    );
+}
+
+/// `save_receipt_to_tx=false`, `save_tx_outcomes=false`, hint provided →
+/// `OutcomesNotStored` (fires only because the scan was attempted).
+#[test]
+fn test_hint_fallback_outcomes_not_stored_only_on_scan() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+            config.save_tx_outcomes = false;
+        })
+        .build();
+
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"any"),
+            block_height: Some(100),
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptToTxError::OutcomesNotStored)),
+        "expected OutcomesNotStored, got {result:?}"
+    );
+}
+
+/// Hint far outside the receipt's window → `UnknownReceipt` (no column entry,
+/// scan window exhausted).
+#[test]
+fn test_hint_fallback_wrong_height() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let (_, receipt_id, height) = send_self_money(&mut env, &user_account, 1);
+    let bogus_hint = height + 100;
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id,
+            block_height: Some(bogus_hint),
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    );
+    match result {
+        Err(GetReceiptToTxError::UnknownReceipt(id)) => {
+            assert_eq!(id, receipt_id, "should report the queried receipt that couldn't be found");
+        }
+        other => panic!("expected UnknownReceipt, got {other:?}"),
+    }
+}
+
+/// Only one of (block_height, shard_id) supplied → `MalformedHint`.
+#[test]
+fn test_hint_malformed_only_block_height() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"any"),
+            block_height: Some(1),
+            shard_id: None,
+            window: None,
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptToTxError::MalformedHint(_))),
+        "expected MalformedHint, got {result:?}"
+    );
+}
+
+/// Symmetric: shard_id without block_height → `MalformedHint`.
+#[test]
+fn test_hint_malformed_only_shard_id() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"any"),
+            block_height: None,
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptToTxError::MalformedHint(_))),
+        "expected MalformedHint, got {result:?}"
+    );
+}
+
+/// Synthetic chain: column has child → FromReceipt(P), but the column entry
+/// for P is absent. Hint supplied. The boundary-refresh proactive scan should
+/// pick up P's coordinates, then the next iteration scans for P and resolves
+/// terminally. Regression guard for codex bug #4.
+#[test]
+fn test_hint_column_then_fallback_boundary() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .gas_prices(min_gas_price, min_gas_price)
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &user_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &signer,
+        env.validator().head().last_block_hash,
+    );
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    let call_tx = SignedTransaction::call(
+        2,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.validator().head().last_block_hash,
+    );
+    let call_tx_hash = call_tx.get_hash();
+    let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome =
+        outcome.receipts_outcome.iter().find(|r| r.id == action_receipt_id).unwrap();
+    let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+
+    // Delete the column entry for the parent (action_receipt_id) so the next
+    // iteration column-misses and must fall back to the hint scan.
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+    store_update.delete(DBCol::ReceiptToTx, action_receipt_id.as_ref());
+    store_update.commit();
+    assert!(
+        store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, action_receipt_id.as_ref()).is_none(),
+        "test setup: action receipt's column entry must be gone"
+    );
+
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: refund_receipt_id,
+            block_height: Some(action_height),
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    )
+    .expect("column hit + boundary-refresh scan should resolve to terminal tx");
+    assert_eq!(response.transaction_hash, call_tx_hash);
+    assert_eq!(response.sender_account_id, user_account);
+}
+
+/// (true, true) origin-row collision: outcome id present in both Transactions
+/// and Receipts. The classifier skips, the scan exhausts, terminal error is
+/// `UnknownReceipt`. Carry-forward from Blocker 3.
+#[test]
+fn test_hint_classifier_skips_on_both_origin_rows_present() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account, 1);
+
+    // Force the (true, true) ambiguity by writing a fake receipt row at the
+    // tx hash. The resolver must skip the ambiguous candidate; the scan
+    // exhausts the window and returns `UnknownReceipt`.
+    let store = env.validator().store();
+    let mut update = store.store_update();
+    let fake_receipt_bytes = vec![0u8; 64];
+    update.increment_refcount(DBCol::Receipts, tx_hash.as_ref(), &fake_receipt_bytes);
+    update.commit();
+
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id,
+            block_height: Some(height),
+            shard_id: Some(ShardId::new(0)),
+            window: Some(0),
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptToTxError::UnknownReceipt(_))),
+        "ambiguous candidate must be skipped and the scan exhausted; got {result:?}"
+    );
+}
+
+/// Regression: the column-only path with no hint must keep behaving exactly
+/// as it did before the hint extension landed.
+#[test]
+fn test_column_unaffected_without_hint() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        Balance::from_yoctonear(100),
+        env.rpc_node().head().last_block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
+    let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.EXPERIMENTAL_receipt_to_tx(receipt_to_tx_rpc_req(receipt_id)),
+            Duration::seconds(5),
+        )
+        .unwrap();
+    assert_eq!(response.transaction_hash, tx_hash);
+    assert_eq!(response.sender_account_id, user_account);
 }

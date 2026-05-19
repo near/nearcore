@@ -4,8 +4,8 @@ use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
+    MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
@@ -928,6 +928,14 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
 #[derive(Debug)]
 pub struct GetReceiptToTx {
     pub receipt_id: CryptoHash,
+    /// Optional `(block_height, shard_id)` hint locating a block near where
+    /// the receipt was created. When supplied, the handler falls back to a
+    /// `±window` scan whenever the local `ReceiptToTx` column misses an
+    /// entry mid-walk. Both fields must be set together; supplying one
+    /// without the other returns `MalformedHint`.
+    pub block_height: Option<BlockHeight>,
+    pub shard_id: Option<ShardId>,
+    pub window: Option<BlockHeightDelta>,
 }
 
 #[derive(Debug)]
@@ -937,6 +945,7 @@ pub struct GetReceiptToTxResponse {
 }
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum GetReceiptToTxError {
     #[error("Receipt with id {0} has never been observed on this node")]
     UnknownReceipt(CryptoHash),
@@ -944,6 +953,14 @@ pub enum GetReceiptToTxError {
     DepthExceeded { receipt_id: CryptoHash, limit: u32 },
     #[error("this node does not support receipt-to-tx lookup: {0}")]
     Unsupported(String),
+    #[error("execution outcomes are not stored on this node (save_tx_outcomes=false)")]
+    OutcomesNotStored,
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
+    #[error("malformed hint: {0}")]
+    MalformedHint(String),
+    #[error("internal error: {0}")]
+    InternalError(String),
 }
 
 #[derive(Debug)]

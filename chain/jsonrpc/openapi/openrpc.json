@@ -9109,8 +9109,36 @@
       },
       "RpcReceiptToTxRequest": {
         "properties": {
+          "block_height": {
+            "description": "Optional `(block_height, shard_id)` pair locating a block near where\nthe receipt was created. Together with `shard_id`, enables a\nbest-effort historical fallback scan when the local `ReceiptToTx`\ncolumn is missing the entry. Both fields must be supplied together;\nsupplying one without the other returns `MalformedHint`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "receipt_id": {
             "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window": {
+            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
@@ -13076,10 +13104,50 @@
       "paramStructure": "by-name",
       "params": [
         {
+          "name": "block_height",
+          "required": false,
+          "schema": {
+            "description": "Optional `(block_height, shard_id)` pair locating a block near where\nthe receipt was created. Together with `shard_id`, enables a\nbest-effort historical fallback scan when the local `ReceiptToTx`\ncolumn is missing the entry. Both fields must be supplied together;\nsupplying one without the other returns `MalformedHint`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        {
           "name": "receipt_id",
           "required": true,
           "schema": {
             "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "shard_id",
+          "required": false,
+          "schema": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "window",
+          "required": false,
+          "schema": {
+            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         }
       ],
@@ -13089,7 +13157,7 @@
           "$ref": "#/components/schemas/RpcReceiptToTxResponse"
         }
       },
-      "summary": "Resolves a receipt ID back to the originating transaction hash and sender account",
+      "summary": "Resolves a receipt ID back to the originating transaction hash and sender account. Optional (block_height, shard_id, window) hint enables a best-effort historical fallback scan when the local ReceiptToTx column is missing the entry.",
       "tags": [
         {
           "name": "receipt"

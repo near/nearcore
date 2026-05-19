@@ -643,7 +643,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.2.6".to_string(),
+            version: "1.2.8".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -854,7 +854,7 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_receipt_to_tx".to_string(),
-        "Resolves a receipt ID back to the originating transaction hash and sender account"
+        "Resolves a receipt ID back to the originating transaction hash and sender account. Optional `(block_height, shard_id, window)` hint enables a best-effort historical fallback scan when the local ReceiptToTx column is missing the entry."
             .to_string(),
     );
     add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(
