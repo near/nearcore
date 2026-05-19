@@ -26,11 +26,10 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_crypto::Signer;
+use near_crypto::{PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::account::AccessKey;
-use near_primitives::action::{AddKeyAction, GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
     DynamicReshardingConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
@@ -38,9 +37,9 @@ use near_primitives::epoch_manager::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{Action, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeightDelta, Gas, NonceIndex, ShardId, ShardIndex,
+    AccountId, Balance, BlockHeightDelta, Gas, Nonce, ShardId, ShardIndex,
 };
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
@@ -89,9 +88,6 @@ const TRACKED_SHARD_SCHEDULE_NUM_EPOCHS_TO_WAIT: u64 = 13 + DYNAMIC_RESHARDING_E
 
 /// Account used in resharding tests as a split boundary.
 const NEW_BOUNDARY_ACCOUNT: &str = "account6";
-
-/// Number of gas-key nonce indices planted by the `gas_key_account` setup.
-const GAS_KEY_NUM_NONCES: NonceIndex = 2;
 
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
@@ -154,9 +150,10 @@ struct TestReshardingParameters {
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
     #[builder(setter(custom))]
     use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
-    /// For each account, add a gas key with `GAS_KEY_NUM_NONCES` nonces in setup.
+    /// Gas keys to plant directly in genesis. Each tuple is
+    /// `(account, gas-key public key, initial nonce per slot)`.
     #[builder(setter(custom))]
-    gas_key_accounts: Vec<AccountId>,
+    gas_key_accounts: Vec<(AccountId, PublicKey, Vec<Nonce>)>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
     limit_outgoing_gas: bool,
     /// If non zero, split parent shard for flat state resharding will be delayed by an additional
@@ -344,8 +341,13 @@ impl TestReshardingParametersBuilder {
         self
     }
 
-    fn gas_key_account(mut self, account_id: AccountId) -> Self {
-        self.gas_key_accounts.get_or_insert_default().push(account_id);
+    fn gas_key_account(mut self, account_id: &AccountId, target_nonces: &[Nonce]) -> Self {
+        let public_key = gas_key_signer_for_account(account_id).public_key();
+        self.gas_key_accounts.get_or_insert_default().push((
+            account_id.clone(),
+            public_key,
+            target_nonces.to_vec(),
+        ));
         self
     }
 
@@ -653,6 +655,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &params.validators.iter().map(|account_id| account_id.as_str()).collect_vec(),
         ))
         .add_user_accounts_simple(&params.accounts, params.initial_balance)
+        .add_gas_keys(&params.gas_key_accounts)
         .build();
 
     let (epoch_config_store, expected_num_shards, voting_schedule) = build_epoch_config_store(
@@ -733,19 +736,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             2,
         );
         test_setup_transactions.push(create_account_tx);
-    }
-    for account in &params.gas_key_accounts {
-        let node = env.node_for_account(&client_account_id);
-        let gas_key = gas_key_signer_for_account(account);
-        let add_key_tx = node.tx_from_actions(
-            account,
-            account,
-            vec![Action::AddKey(Box::new(AddKeyAction {
-                public_key: gas_key.public_key(),
-                access_key: AccessKey::gas_key_full_access(GAS_KEY_NUM_NONCES),
-            }))],
-        );
-        test_setup_transactions.push(node.submit_tx(add_key_tx));
     }
     // Wait for the test setup transactions to settle and ensure they all succeeded.
     env.test_loop.run_for(Duration::milliseconds(2300));
@@ -1491,13 +1481,6 @@ fn slow_test_resharding_v3_storage_operations() {
     test_resharding_v3_base(params);
 }
 
-/// Resharding while gas keys are live on both sides of the split boundary.
-///
-/// `TrieKey::GasKeyNonce` rows live under `col::ACCESS_KEY` with a `NonceIndex`
-/// suffix, so they should split along the same boundary as access keys. Plant
-/// a gas key on `account0` (left of `account6`) and `account7` (right), then
-/// assert both rows are still queryable on the correct child shard after the
-/// split.
 #[test]
 // Gas keys gate on `ProtocolFeature::GasKeys`, which only ships in nightly.
 #[cfg_attr(not(feature = "nightly"), ignore)]
@@ -1506,16 +1489,19 @@ fn slow_test_resharding_v3_storage_operations() {
 fn slow_test_resharding_v3_gas_key() {
     let left_account: AccountId = "account0".parse().unwrap();
     let right_account: AccountId = "account7".parse().unwrap();
-    let accounts = vec![left_account.clone(), right_account.clone()];
-    // Check the trie nodes survived a few blocks after resharding.
+    let left_nonces: Vec<Nonce> = vec![1, 2];
+    let right_nonces: Vec<Nonce> = vec![3, 4];
     let num_blocks_after_resharding_to_check = 3;
+
     let params = TestReshardingParametersBuilder::default()
-        .gas_key_account(left_account)
-        .gas_key_account(right_account)
+        .gas_key_account(&left_account, &left_nonces)
+        .gas_key_account(&right_account, &right_nonces)
         .add_loop_action(assert_after_resharding(
             num_blocks_after_resharding_to_check,
             move |node| {
-                for account in &accounts {
+                for (account, expected) in
+                    [(&left_account, &left_nonces), (&right_account, &right_nonces)]
+                {
                     let gas_key = gas_key_signer_for_account(account);
                     let nonces = node
                         .view_gas_key_nonces_query(account, &gas_key.public_key())
@@ -1523,9 +1509,8 @@ fn slow_test_resharding_v3_gas_key() {
                             panic!("gas-key row missing after resharding for {account}: {err:?}")
                         });
                     assert_eq!(
-                        nonces.len(),
-                        GAS_KEY_NUM_NONCES as usize,
-                        "gas-key nonces vector shrunk across resharding for {account}",
+                        &nonces, expected,
+                        "gas-key nonces for {account} changed across resharding",
                     );
                 }
             },
