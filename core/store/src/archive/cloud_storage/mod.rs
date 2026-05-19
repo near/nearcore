@@ -161,12 +161,13 @@ mod tests {
         DBCol::BlockHeader,
         DBCol::BlockInfo,
         DBCol::NextBlockHashes,
-        DBCol::TransactionResultForBlock,
         // Carried by ShardData (one entry per (block, shard)).
         DBCol::Chunks,
         DBCol::Transactions,
         DBCol::Receipts,
         DBCol::OutcomeIds,
+        DBCol::TransactionResultForBlock,
+        DBCol::ReceiptToTx,
         DBCol::IncomingReceipts,
         DBCol::OutgoingReceipts,
         DBCol::ChunkExtra,
@@ -180,8 +181,6 @@ mod tests {
         DBCol::BlockPerHeight,
         // TODO(cloud_archival): reconstruct from Block in the reader.
         DBCol::ChunkHashesByHeight,
-        // TODO(cloud_archival): add to per-shard data and populate from outgoing receipts.
-        DBCol::ReceiptToTx,
         // Per-epoch state snapshots cover state, not per-block deltas.
         DBCol::State,
         // Per-epoch state snapshots cover the shard-layout mapping that keys state.

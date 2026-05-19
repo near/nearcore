@@ -436,7 +436,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     }
 }
 
-fn option_to_not_found<T, F>(res: Option<T>, field_name: F) -> Result<T, Error>
+pub fn option_to_not_found<T, F>(res: Option<T>, field_name: F) -> Result<T, Error>
 where
     F: std::string::ToString,
 {
