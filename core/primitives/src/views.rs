@@ -377,8 +377,8 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
-        #[serde(default, rename = "from_key_base64", skip_serializing_if = "Option::is_none")]
-        from_key: Option<StoreKey>,
+        #[serde(default, rename = "after_key_base64", skip_serializing_if = "Option::is_none")]
+        after_key: Option<StoreKey>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<NonZeroU32>,
         #[serde(default, skip_serializing_if = "is_false")]

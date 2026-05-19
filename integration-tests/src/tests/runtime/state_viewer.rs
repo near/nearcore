@@ -465,21 +465,21 @@ fn collect_pages(
     limit: Option<NonZeroU32>,
 ) -> Vec<StateItem> {
     let mut all = Vec::new();
-    let mut from_key: Option<StoreKey> = None;
+    let mut after_key: Option<StoreKey> = None;
     for _ in 0..10_000 {
         let result = viewer
             .view_state(
                 state_update,
                 account_id,
                 prefix,
-                from_key.as_ref().map(|k| k.as_slice()),
+                after_key.as_ref().map(|k| k.as_slice()),
                 limit,
                 false,
             )
             .unwrap();
         all.extend(result.values);
         match result.next_key {
-            Some(key) => from_key = Some(key),
+            Some(key) => after_key = Some(key),
             None => return all,
         }
     }
@@ -563,7 +563,7 @@ fn test_view_state_pagination_limit_exceeds_total() {
 }
 
 #[test]
-fn test_view_state_pagination_from_key_without_limit() {
+fn test_view_state_pagination_after_key_without_limit() {
     let state_update = view_with_contract_data(&ten_entries());
     let viewer = TrieViewer::default();
     let alice = alice_account();
@@ -578,7 +578,7 @@ fn test_view_state_pagination_from_key_without_limit() {
 }
 
 #[test]
-fn test_view_state_pagination_from_key_past_end() {
+fn test_view_state_pagination_after_key_past_end() {
     let state_update = view_with_contract_data(&ten_entries());
     let viewer = TrieViewer::default();
     let alice = alice_account();
@@ -662,6 +662,7 @@ fn test_view_state_pagination_byte_cap() {
 
 #[test]
 fn test_view_state_pagination_account_isolation() {
+    // cspell:ignore akey
     // alice and bob deliberately share identical contract-data keys.
     let bob: AccountId = "bob.near".parse().unwrap();
     let mut entries = Vec::new();
@@ -727,21 +728,21 @@ fn test_view_state_pagination_rejects_include_proof() {
 
     let cases: [(Option<&[u8]>, Option<NonZeroU32>); 3] =
         [(Some(b"key02"), None), (None, Some(nz(3))), (Some(b"key02"), Some(nz(3)))];
-    for (from_key, limit) in cases {
-        let result = viewer.view_state(&state_update, &alice, b"", from_key, limit, true);
+    for (after_key, limit) in cases {
+        let result = viewer.view_state(&state_update, &alice, b"", after_key, limit, true);
         assert!(matches!(result, Err(errors::ViewStateError::ProofUnsupportedWithPagination)));
     }
 }
 
 #[test]
-fn test_view_state_pagination_rejects_from_key_outside_prefix() {
+fn test_view_state_pagination_rejects_after_key_outside_prefix() {
     let state_update =
         view_with_contract_data(&[(alice_account(), b"aaa0".to_vec(), b"v".to_vec())]);
     let viewer = TrieViewer::default();
     let alice = alice_account();
 
-    for from_key in [b"aa".as_slice(), b"bbb".as_slice()] {
-        let result = viewer.view_state(&state_update, &alice, b"aaa", Some(from_key), None, false);
-        assert!(matches!(result, Err(errors::ViewStateError::FromKeyOutsidePrefix)));
+    for after_key in [b"aa".as_slice(), b"bbb".as_slice()] {
+        let result = viewer.view_state(&state_update, &alice, b"aaa", Some(after_key), None, false);
+        assert!(matches!(result, Err(errors::ViewStateError::AfterKeyOutsidePrefix)));
     }
 }

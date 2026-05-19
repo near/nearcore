@@ -83,7 +83,7 @@ impl User for RpcUser {
         let query = QueryRequest::ViewState {
             account_id: account_id.clone(),
             prefix: prefix.to_vec().into(),
-            from_key: None,
+            after_key: None,
             limit: None,
             include_proof: false,
         };

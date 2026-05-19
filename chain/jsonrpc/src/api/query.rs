@@ -30,12 +30,12 @@ fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseE
 impl RpcRequest for RpcQueryRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         let request: Self = Params::new(value).try_pair(parse_path_data).unwrap_or_parse()?;
-        if let QueryRequest::ViewState { prefix, from_key, limit, include_proof, .. } =
+        if let QueryRequest::ViewState { prefix, after_key, limit, include_proof, .. } =
             &request.request
         {
             super::validate_view_state_pagination(
                 prefix.as_slice(),
-                from_key.as_ref().map(|k| k.as_slice()),
+                after_key.as_ref().map(|k| k.as_slice()),
                 *limit,
                 *include_proof,
             )?;
@@ -81,7 +81,7 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         "contract" => QueryRequest::ViewState {
             account_id,
             prefix: parse_data()?.into(),
-            from_key: None,
+            after_key: None,
             limit: None,
             include_proof: false,
         },

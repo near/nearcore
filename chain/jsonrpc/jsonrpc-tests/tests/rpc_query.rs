@@ -342,7 +342,7 @@ async fn test_query_state() {
             request: QueryRequest::ViewState {
                 account_id: "test1".parse().unwrap(),
                 prefix: vec![].into(),
-                from_key: None,
+                after_key: None,
                 limit: None,
                 include_proof: false,
             },
@@ -1004,7 +1004,7 @@ async fn test_experimental_view_state() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
-            from_key: None,
+            after_key: None,
             limit: None,
             include_proof: false,
         })
@@ -1027,7 +1027,7 @@ async fn test_experimental_view_state_with_proof() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
-            from_key: None,
+            after_key: None,
             limit: None,
             include_proof: true,
         })
@@ -1049,7 +1049,7 @@ async fn test_experimental_view_state_paginated() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
-            from_key: None,
+            after_key: None,
             limit: Some(NonZeroU32::new(5).unwrap()),
             include_proof: false,
         })
@@ -1072,7 +1072,7 @@ async fn test_experimental_view_state_proof_with_pagination_rejected() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
-            from_key: None,
+            after_key: None,
             limit: Some(NonZeroU32::new(5).unwrap()),
             include_proof: true,
         })
@@ -1093,7 +1093,7 @@ async fn test_query_view_state_proof_with_pagination_rejected() {
             request: QueryRequest::ViewState {
                 account_id: "test1".parse().unwrap(),
                 prefix: vec![].into(),
-                from_key: None,
+                after_key: None,
                 limit: Some(NonZeroU32::new(5).unwrap()),
                 include_proof: true,
             },
@@ -1103,9 +1103,9 @@ async fn test_query_view_state_proof_with_pagination_rejected() {
     result.expect_err("include_proof + pagination must be rejected");
 }
 
-/// Test EXPERIMENTAL_view_state rejects a from_key that doesn't start with prefix.
+/// Test EXPERIMENTAL_view_state rejects an after_key that doesn't start with prefix.
 #[tokio::test]
-async fn test_experimental_view_state_from_key_outside_prefix_rejected() {
+async fn test_experimental_view_state_after_key_outside_prefix_rejected() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
 
@@ -1114,13 +1114,13 @@ async fn test_experimental_view_state_from_key_outside_prefix_rejected() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: b"aaa".to_vec().into(),
-            from_key: Some(b"bbb".to_vec().into()),
+            after_key: Some(b"bbb".to_vec().into()),
             limit: None,
             include_proof: false,
         })
         .await;
 
-    result.expect_err("from_key outside prefix range must be rejected");
+    result.expect_err("after_key outside prefix range must be rejected");
 }
 
 /// Test EXPERIMENTAL_view_access_key method

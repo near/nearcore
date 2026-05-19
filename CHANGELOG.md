@@ -7,7 +7,7 @@
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
 ### Non-protocol Changes
-* Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `from_key_base64` and `limit`, and the response returns `next_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
+* Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `after_key_base64` and `limit`, and the response returns `next_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
 
 ## [2.12.0]
 

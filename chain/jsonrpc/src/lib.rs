@@ -1654,7 +1654,7 @@ impl JsonRpcHandler {
                 QueryRequest::ViewState {
                     account_id: request_data.account_id,
                     prefix: request_data.prefix,
-                    from_key: request_data.from_key,
+                    after_key: request_data.after_key,
                     limit: request_data.limit,
                     include_proof: request_data.include_proof,
                 },

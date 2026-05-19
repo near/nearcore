@@ -226,17 +226,17 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
-        from_key: Option<&[u8]>,
+        after_key: Option<&[u8]>,
         limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
-        let paginated = limit.is_some() || from_key.is_some();
+        let paginated = limit.is_some() || after_key.is_some();
         if paginated && include_proof {
             return Err(errors::ViewStateError::ProofUnsupportedWithPagination);
         }
-        if let Some(from_key) = from_key {
-            if !from_key.starts_with(prefix) {
-                return Err(errors::ViewStateError::FromKeyOutsidePrefix);
+        if let Some(after_key) = after_key {
+            if !after_key.starts_with(prefix) {
+                return Err(errors::ViewStateError::AfterKeyOutsidePrefix);
             }
         }
 
@@ -268,11 +268,11 @@ impl TrieViewer {
         let mut iter = state_update.trie().disk_iter()?;
         iter.remember_visited_nodes(include_proof);
 
-        match from_key {
+        match after_key {
             None => iter.seek_prefix(&query)?,
-            Some(from_key) => {
+            Some(after_key) => {
                 let mut full = query[..acc_sep_len].to_vec();
-                full.extend_from_slice(from_key);
+                full.extend_from_slice(after_key);
                 iter.seek(Bound::Excluded(full))?;
             }
         }

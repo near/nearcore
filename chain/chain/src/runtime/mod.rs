@@ -1368,14 +1368,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewState { account_id, prefix, from_key, limit, include_proof } => {
+            QueryRequest::ViewState { account_id, prefix, after_key, limit, include_proof } => {
                 let view_state_result = self
                     .view_state(
                         &shard_uid,
                         *state_root,
                         account_id,
                         prefix.as_ref(),
-                        from_key.as_ref().map(|k| k.as_ref()),
+                        after_key.as_ref().map(|k| k.as_ref()),
                         *limit,
                         *include_proof,
                     )
@@ -1872,7 +1872,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
-        from_key: Option<&[u8]>,
+        after_key: Option<&[u8]>,
         limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
@@ -1881,7 +1881,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             &state_update,
             account_id,
             prefix,
-            from_key,
+            after_key,
             limit,
             include_proof,
         )

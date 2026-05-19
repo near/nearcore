@@ -91,23 +91,25 @@ impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
 /// Rejects view_state pagination arguments the trie viewer can't serve.
 fn validate_view_state_pagination(
     prefix: &[u8],
-    from_key: Option<&[u8]>,
+    after_key: Option<&[u8]>,
     limit: Option<NonZeroU32>,
     include_proof: bool,
 ) -> Result<(), RpcParseError> {
     // TODO(#15612): a resumed page seeks with AccessOptions::NO_SIDE_EFFECTS, so it
     // doesn't record the trie path from the root and the proof can't chain back to
     // the state root. Until we record the seek's nodes, reject proof + pagination.
-    if include_proof && (from_key.is_some() || limit.is_some()) {
+    if include_proof && (after_key.is_some() || limit.is_some()) {
         return Err(RpcParseError(
             "include_proof is not supported with paginated view_state \
-             (from_key_base64 / limit)"
+             (after_key_base64 / limit)"
                 .to_string(),
         ));
     }
-    if let Some(from_key) = from_key {
-        if !from_key.starts_with(prefix) {
-            return Err(RpcParseError("from_key_base64 must start with prefix_base64".to_string()));
+    if let Some(after_key) = after_key {
+        if !after_key.starts_with(prefix) {
+            return Err(RpcParseError(
+                "after_key_base64 must start with prefix_base64".to_string(),
+            ));
         }
     }
     Ok(())

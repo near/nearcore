@@ -10,8 +10,8 @@ pub struct RpcViewStateRequest {
     pub prefix: near_primitives::types::StoreKey,
     #[serde(default)]
     pub include_proof: bool,
-    #[serde(default, rename = "from_key_base64")]
-    pub from_key: Option<near_primitives::types::StoreKey>,
+    #[serde(default, rename = "after_key_base64")]
+    pub after_key: Option<near_primitives::types::StoreKey>,
     #[serde(default)]
     pub limit: Option<NonZeroU32>,
 }

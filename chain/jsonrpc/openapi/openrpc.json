@@ -10073,10 +10073,7 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "from_key_base64": {
+              "after_key_base64": {
                 "default": null,
                 "oneOf": [
                   {
@@ -10086,6 +10083,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
               },
               "include_proof": {
                 "default": false,
@@ -10117,10 +10117,7 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "from_key_base64": {
+              "after_key_base64": {
                 "default": null,
                 "oneOf": [
                   {
@@ -10130,6 +10127,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
               },
               "include_proof": {
                 "default": false,
@@ -10161,7 +10161,7 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
-              "from_key_base64": {
+              "after_key_base64": {
                 "default": null,
                 "oneOf": [
                   {
@@ -13590,21 +13590,7 @@
           }
         },
         {
-          "name": "block_id",
-          "required": false,
-          "schema": {
-            "$ref": "#/components/schemas/BlockId"
-          }
-        },
-        {
-          "name": "finality",
-          "required": false,
-          "schema": {
-            "$ref": "#/components/schemas/Finality"
-          }
-        },
-        {
-          "name": "from_key_base64",
+          "name": "after_key_base64",
           "required": false,
           "schema": {
             "default": null,
@@ -13616,6 +13602,20 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
           }
         },
         {

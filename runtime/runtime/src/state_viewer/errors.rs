@@ -54,8 +54,8 @@ pub enum ViewStateError {
     AccountStateTooLarge { requested_account_id: near_primitives::types::AccountId },
     #[error("include_proof is not supported with paginated view_state")]
     ProofUnsupportedWithPagination,
-    #[error("from_key must start with prefix")]
-    FromKeyOutsidePrefix,
+    #[error("after_key must start with prefix")]
+    AfterKeyOutsidePrefix,
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
 }

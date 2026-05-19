@@ -635,7 +635,7 @@ impl TestEnv {
                 &QueryRequest::ViewState {
                     account_id,
                     prefix: vec![].into(),
-                    from_key: None,
+                    after_key: None,
                     limit: None,
                     include_proof: false,
                 },

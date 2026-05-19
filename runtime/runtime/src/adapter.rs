@@ -74,7 +74,7 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
-        from_key: Option<&[u8]>,
+        after_key: Option<&[u8]>,
         limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, crate::state_viewer::errors::ViewStateError>;
