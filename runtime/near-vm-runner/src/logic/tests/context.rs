@@ -4,7 +4,6 @@ use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_confi
 use near_parameters::ExtCosts;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::Balance;
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -130,16 +129,8 @@ fn test_input_per_byte_gas_fee() {
 
     logic.input(0).expect("input() should succeed");
 
-    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-        });
-    } else {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-          ExtCosts::write_register_byte: INPUT_SIZE as u64,
-        });
-    }
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::write_register_base: 1,
+    });
 }

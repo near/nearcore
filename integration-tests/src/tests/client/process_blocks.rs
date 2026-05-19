@@ -2004,12 +2004,10 @@ fn slow_test_catchup_gas_price_change() {
                 .unwrap()
         );
         store_update.commit();
-        let protocol_version =
-            env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             let bytes = store.get(DBCol::StateParts, &key).unwrap();
-            let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
+            let part = StatePart::from_bytes(bytes.to_vec()).unwrap();
             env.clients[1]
                 .runtime_adapter
                 .apply_state_part(

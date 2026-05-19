@@ -536,12 +536,8 @@ impl NightshadeRuntime {
                 return Err(err.into());
             }
         };
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let state_part = StatePart::from_partial_state(
-            partial_state,
-            protocol_version,
-            self.state_parts_compression_lvl,
-        );
+        let state_part =
+            StatePart::from_partial_state(partial_state, self.state_parts_compression_lvl);
         Ok(state_part)
     }
 

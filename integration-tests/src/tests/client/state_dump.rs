@@ -320,7 +320,6 @@ fn run_state_sync_with_dumped_parts(
     );
     store_update.commit();
     let shard_id = ShardId::new(0);
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     for part_id in 0..num_parts {
         let path = root_dir.path().join(external_storage_location(
             &config.chain_id,
@@ -330,7 +329,7 @@ fn run_state_sync_with_dumped_parts(
             &StateFileType::StatePart { part_id, num_parts },
         ));
         let bytes = std::fs::read(&path).expect("Part file not found. It should exist");
-        let part = StatePart::from_bytes(bytes, protocol_version).unwrap();
+        let part = StatePart::from_bytes(bytes).unwrap();
         let part_id = PartId::new(part_id, num_parts);
         runtime_client_1
             .apply_state_part(shard_id, &state_root, part_id, &part, &epoch_id)

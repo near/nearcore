@@ -445,6 +445,7 @@ impl Client {
             rng_seed,
             config.transaction_pool_size_limit,
             multi_spawner.prepare_transactions,
+            config.spice_pending_transaction_queue_enabled(),
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
@@ -458,6 +459,7 @@ impl Client {
                 runtime_adapter.as_ref(),
                 &shard_tracker,
                 &head.last_block_hash,
+                config.spice_pending_transaction_queue_enabled(),
             ) {
                 tracing::error!(
                     target: "client",
@@ -624,6 +626,9 @@ impl Client {
         if !block.is_spice_block() {
             return Ok(());
         }
+        if !self.config.spice_pending_transaction_queue_enabled() {
+            return Ok(());
+        }
 
         // Remove newly certified blocks from the pending transaction queue.
         let prev_uncertified =
@@ -673,7 +678,11 @@ impl Client {
         runtime_adapter: &dyn RuntimeAdapter,
         shard_tracker: &ShardTracker,
         head_hash: &CryptoHash,
+        spice_pending_transaction_queue_enabled: bool,
     ) -> Result<(), Error> {
+        if !spice_pending_transaction_queue_enabled {
+            return Ok(());
+        }
         let head_block = chain.get_block(head_hash)?;
         if !head_block.is_spice_block() {
             return Ok(());
@@ -2051,6 +2060,7 @@ impl Client {
                     self.runtime_adapter.as_ref(),
                     &self.shard_tracker,
                     block.hash(),
+                    self.config.spice_pending_transaction_queue_enabled(),
                 ) {
                     tracing::error!(
                         target: "client",
