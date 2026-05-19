@@ -1487,7 +1487,7 @@ fn slow_test_resharding_v3_storage_operations() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_gas_key() {
-    let left_account: AccountId = "account0".parse().unwrap();
+    let left_account: AccountId = "account4".parse().unwrap();
     let right_account: AccountId = "account7".parse().unwrap();
     let left_nonces: Vec<Nonce> = vec![1, 2];
     let right_nonces: Vec<Nonce> = vec![3, 4];
@@ -1499,6 +1499,20 @@ fn slow_test_resharding_v3_gas_key() {
         .add_loop_action(assert_after_resharding(
             num_blocks_after_resharding_to_check,
             move |node| {
+                let base_layout = get_base_shard_layout();
+                let new_layout =
+                    node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
+                assert_eq!(
+                    base_layout.account_id_to_shard_id(&left_account),
+                    base_layout.account_id_to_shard_id(&right_account),
+                    "left/right accounts must share the pre-split parent shard",
+                );
+                assert_ne!(
+                    new_layout.account_id_to_shard_id(&left_account),
+                    new_layout.account_id_to_shard_id(&right_account),
+                    "left/right accounts must land on different child shards after the split",
+                );
+
                 for (account, expected) in
                     [(&left_account, &left_nonces), (&right_account, &right_nonces)]
                 {
