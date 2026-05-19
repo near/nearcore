@@ -219,9 +219,6 @@ pub struct Config {
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
 
-    /// Whether to host functions introduced with deterministic account ids.
-    pub deterministic_account_ids: bool,
-
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
 

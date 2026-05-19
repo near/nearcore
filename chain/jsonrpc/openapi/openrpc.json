@@ -7895,12 +7895,6 @@
             "description": "Not clear old data, set `true` for archive nodes.",
             "type": "boolean"
           },
-          "block_fetch_horizon": {
-            "description": "Horizon at which instead of fetching block, fetch full state.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "block_header_fetch_horizon": {
             "description": "Behind this horizon header fetch kicks in.",
             "format": "uint64",
@@ -8276,10 +8270,6 @@
               }
             ],
             "description": "Options for syncing state."
-          },
-          "state_sync_enabled": {
-            "description": "Whether to use the State Sync mechanism.\nIf disabled, the node will do Block Sync instead of State Sync.",
-            "type": "boolean"
           },
           "state_sync_external_backoff": {
             "description": "Additional waiting period after a failed request to external storage",
@@ -12024,10 +12014,6 @@
       },
       "VMConfigView": {
         "properties": {
-          "deterministic_account_ids": {
-            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"

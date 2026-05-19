@@ -84,6 +84,9 @@ fn test_ptq_p_max_contract_account() {
         .add_user_account(&contract_account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
+        .config_modifier(|c, _| {
+            c.set_spice_pending_transaction_queue_enabled(true);
+        })
         .build();
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -119,6 +122,9 @@ fn test_ptq_no_p_max_for_non_contract_account() {
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
+        .config_modifier(|c, _| {
+            c.set_spice_pending_transaction_queue_enabled(true);
+        })
         .build();
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -148,6 +154,9 @@ fn test_ptq_nonce_constraint() {
         .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
+        .config_modifier(|c, _| {
+            c.set_spice_pending_transaction_queue_enabled(true);
+        })
         .build();
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -200,6 +209,9 @@ fn test_ptq_deploy_exclusivity() {
         .add_user_account(&account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
+        .config_modifier(|c, _| {
+            c.set_spice_pending_transaction_queue_enabled(true);
+        })
         .build();
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -260,6 +272,9 @@ fn test_ptq_accumulates_across_blocks() {
         .add_user_account(&contract_account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
+        .config_modifier(|c, _| {
+            c.set_spice_pending_transaction_queue_enabled(true);
+        })
         .build();
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -311,6 +326,9 @@ fn test_ptq_cleanup_on_certification() {
         .add_user_account(&contract_account, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
+        .config_modifier(|c, _| {
+            c.set_spice_pending_transaction_queue_enabled(true);
+        })
         .build();
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
@@ -350,6 +368,9 @@ fn setup_gas_key_spice_env(
         .add_user_account(receiver, Balance::from_near(0))
         .gas_prices(TEST_GAS_PRICE, TEST_GAS_PRICE)
         .delay_warmup()
+        .config_modifier(|c, _| {
+            c.set_spice_pending_transaction_queue_enabled(true);
+        })
         .build();
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);

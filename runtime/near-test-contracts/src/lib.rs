@@ -249,6 +249,38 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
     module.finish()
 }
 
+/// Many zero-initialized globals.
+pub fn contract_with_num_globals(num_globals: u32) -> Vec<u8> {
+    use wasm_encoder::{
+        CodeSection, ConstExpr, ExportKind, ExportSection, Function, FunctionSection,
+        GlobalSection, GlobalType, Instruction, Module, TypeSection, ValType,
+    };
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    module.section(&funcs);
+    let mut globals = GlobalSection::new();
+    for _ in 0..num_globals {
+        globals.global(
+            GlobalType { val_type: ValType::I32, mutable: false, shared: false },
+            &ConstExpr::i32_const(0),
+        );
+    }
+    module.section(&globals);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut code = CodeSection::new();
+    let mut f = Function::new([]);
+    f.instruction(&Instruction::End);
+    code.function(&f);
+    module.section(&code);
+    module.finish()
+}
+
 /// Wrapper to get more useful Debug.
 pub struct ArbitraryModule(pub wasm_smith::Module);
 

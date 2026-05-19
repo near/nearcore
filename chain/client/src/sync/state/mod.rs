@@ -165,7 +165,6 @@ impl StateSync {
                 let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
                     clock: clock.clone(),
                     store: store.clone(),
-                    epoch_manager: epoch_manager.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
