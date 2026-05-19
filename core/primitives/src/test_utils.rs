@@ -978,11 +978,6 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn non_spice_block(mut self) -> Self {
-        self.spice_core_statements = None;
-        self
-    }
-
     pub fn spice_core_statements(
         mut self,
         spice_core_statements: Vec<crate::block_body::SpiceCoreStatement>,
