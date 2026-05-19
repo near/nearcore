@@ -500,8 +500,8 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage => 85,
-            ProtocolFeature::ContinuousEpochSync => 85,
+            | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
+            | ProtocolFeature::ContinuousEpochSync => 85,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
