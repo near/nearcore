@@ -6,7 +6,7 @@ use near_primitives::block::Block;
 use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
-use near_primitives::test_utils::account_new;
+use near_primitives::test_utils::{TestBlockBuilder, account_new};
 use near_primitives::transaction::{
     Action, SignedTransaction, Transaction, TransactionV0, TransferAction,
 };
@@ -15,7 +15,7 @@ use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_time::Clock;
-use num_rational::Rational32;
+use std::sync::Arc;
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -56,32 +56,16 @@ fn create_block() -> Block {
         Balance::from_yoctonear(1_000),
         &vec![],
     );
-    let signer = InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
-    Block::produce(
-        PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
-        genesis.header(),
-        10,
-        genesis.header().block_ordinal() + 1,
-        vec![genesis.chunks()[0].clone()],
-        vec![vec![]; shard_ids.len()],
-        EpochId::default(),
-        EpochId::default(),
-        None,
-        vec![],
-        Rational32::from_integer(0),
-        Balance::ZERO,
-        Balance::ZERO,
-        Some(Balance::ZERO),
-        &signer,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        Clock::real(),
-        None,
-        None,
-        None,
-        None,
-    )
+    let signer =
+        Arc::new(InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519));
+    TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer)
+        .chunks([genesis.chunks()[0].clone()])
+        .height(10)
+        .epoch_id(EpochId::default())
+        .next_epoch_id(EpochId::default())
+        .next_bp_hash(CryptoHash::default())
+        .block_merkle_root(CryptoHash::default())
+        .build_owned()
 }
 
 fn create_account() -> Account {
