@@ -6,7 +6,7 @@ use near_primitives::action::DeleteAccountAction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, Balance, StateChangeCause};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, TrieUpdate, set_access_key, set_account};
 
@@ -70,19 +70,4 @@ pub(crate) fn test_delete_account_in_empty_trie(
     let tries = TestTriesBuilder::new().build();
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
     test_delete_account(account_id, contract, storage_usage, protocol_version, &mut state_update)
-}
-
-pub(crate) fn test_delete_large_account(
-    account_id: &AccountId,
-    code_hash: &CryptoHash,
-    storage_usage: u64,
-    state_update: &mut TrieUpdate,
-) -> ActionResult {
-    test_delete_account(
-        account_id,
-        AccountContract::from_local_code_hash(*code_hash),
-        storage_usage,
-        PROTOCOL_VERSION,
-        state_update,
-    )
 }

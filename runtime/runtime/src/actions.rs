@@ -853,7 +853,6 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{
         setup_account, test_delete_account, test_delete_account_in_empty_trie,
-        test_delete_large_account,
     };
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
@@ -975,10 +974,11 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let action_result = test_delete_large_account(
+        let action_result = test_delete_account(
             &"alice".parse().unwrap(),
-            &CryptoHash::default(),
+            AccountContract::from_local_code_hash(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
+            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert_eq!(
@@ -1137,18 +1137,21 @@ mod tests {
 
     /// No contract: nothing subtracted; strict `>` means exactly `MAX` is still ok.
     #[test]
-    fn test_delete_account_no_contract_fix_enabled() {
-        let account_id: AccountId = "alice".parse().unwrap();
+    fn test_delete_account_no_contract_fix_enabled_at_limit() {
         let at_limit = test_delete_account_in_empty_trie(
-            &account_id,
+            &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
             ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(at_limit.result.is_ok());
+    }
 
+    /// No contract: nothing subtracted; one byte over `MAX` is rejected.
+    #[test]
+    fn test_delete_account_no_contract_fix_enabled_over_limit() {
         let over_limit = test_delete_account_in_empty_trie(
-            &account_id,
+            &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
             ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),

@@ -337,12 +337,14 @@ mod tests {
     use super::*;
     use crate::ActionResult;
     use crate::ApplyState;
-    use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
     use near_crypto::{InMemorySigner, KeyType};
     use near_parameters::RuntimeConfig;
-    use near_primitives::account::{AccessKey, AccessKeyPermission, Account, GasKeyInfo};
+    use near_primitives::account::{
+        AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+    };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -353,6 +355,7 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, NonceIndex, StateChangeCause,
     };
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::{ShardUId, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -678,8 +681,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
         state_update.commit(StateChangeCause::InitialState);
 
@@ -720,8 +728,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
 
         // Verify total burned balance equals sum of all gas key balances
@@ -1118,8 +1131,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         let expected_total =
             deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
         assert_eq!(
@@ -1157,8 +1175,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
         let expected_burnt =
             deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
