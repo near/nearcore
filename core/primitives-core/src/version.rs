@@ -349,6 +349,11 @@ pub enum ProtocolFeature {
     FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
+    /// Fix `action_delete_account` not subtracting the global contract
+    /// identifier storage usage. Previously only local contract code was
+    /// subtracted, overstating storage usage for accounts with global
+    /// contracts and making them marginally harder to delete.
+    FixDeleteAccountGlobalContractStorageUsage,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
@@ -386,11 +391,6 @@ pub enum ProtocolFeature {
     /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
     /// sync after resharding.
     StickyReshardingValidatorAssignment,
-    /// Fix `action_delete_account` not subtracting the global contract
-    /// identifier storage usage. Previously only local contract code was
-    /// subtracted, overstating storage usage for accounts with global
-    /// contracts and making them marginally harder to delete.
-    FixDeleteAccountGlobalContractStorageUsage,
 }
 
 impl ProtocolFeature {
@@ -500,8 +500,8 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::ContinuousEpochSync => 85,
-
+            | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage => 85,
+            ProtocolFeature::ContinuousEpochSync => 85,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -512,7 +512,6 @@ impl ProtocolFeature {
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::StickyReshardingValidatorAssignment => 153,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage => 154,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

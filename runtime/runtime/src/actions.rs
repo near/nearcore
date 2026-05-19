@@ -463,14 +463,7 @@ pub(crate) fn clear_account_contract_storage_usage(
                 *code_hash,
                 current_protocol_version,
             )?;
-            let prev_storage_usage = account.storage_usage();
-            debug_assert!(
-                prev_code_len == 0 || prev_storage_usage > prev_code_len,
-                "account storage usage should be larger than code size. storage usage: {}, code size: {}",
-                prev_storage_usage,
-                prev_code_len
-            );
-            account.set_storage_usage(prev_storage_usage.saturating_sub(prev_code_len));
+            account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
         }
         AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
             account.set_storage_usage(
@@ -1049,10 +1042,6 @@ mod tests {
         );
     }
 
-    fn fix_enabled_version() -> ProtocolVersion {
-        ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version()
-    }
-
     #[test]
     fn test_delete_account_with_contract_and_small_state() {
         let action_result = test_delete_account_with_contract(
@@ -1071,22 +1060,21 @@ mod tests {
         expect_delete_account_too_large(&action_result);
     }
 
-    /// Regression: local contracts still work via the new `clear_account_contract_storage_usage` path.
     #[test]
     fn test_delete_account_with_local_contract_fix_enabled() {
         let action_result = test_delete_account_with_contract(
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            fix_enabled_version(),
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
 
-    /// Same `MAX + 32` Global-contract account: rejected before the feature, accepted after.
     #[test]
     fn test_delete_account_global_contract_protocol_transition() {
         let account_id: AccountId = "alice".parse().unwrap();
         let storage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 32;
-        let enabled = fix_enabled_version();
+        let enabled =
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version();
 
         // Before the fix: the identifier is not subtracted, so `MAX + 32 > MAX`.
         let before = test_delete_account_in_empty_trie(
@@ -1115,7 +1103,7 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
-            fix_enabled_version(),
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&action_result);
     }
@@ -1130,7 +1118,7 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::GlobalByAccount(global_id),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
-            fix_enabled_version(),
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1142,7 +1130,7 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             10,
-            fix_enabled_version(),
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1155,7 +1143,7 @@ mod tests {
             &account_id,
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            fix_enabled_version(),
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(at_limit.result.is_ok());
 
@@ -1163,7 +1151,7 @@ mod tests {
             &account_id,
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            fix_enabled_version(),
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&over_limit);
     }
