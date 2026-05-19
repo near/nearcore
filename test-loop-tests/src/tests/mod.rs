@@ -29,7 +29,6 @@ mod gas_keys;
 mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
-mod increase_max_congestion_missing_chunks;
 #[cfg(feature = "test_features")]
 mod indexer;
 mod jsonrpc;
@@ -60,6 +59,7 @@ mod spice_utils;
 mod split_storage;
 mod stake_nodes;
 mod sync;
+mod tx_inclusion_with_missed_chunks;
 mod validator_key_check;
 mod view_requests;
 mod view_requests_to_archival_node;
