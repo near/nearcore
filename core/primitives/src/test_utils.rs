@@ -1041,6 +1041,11 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn prev_last_certified_block_epoch_id(mut self, epoch_id: EpochId) -> Self {
+        self.prev_last_certified_block_epoch_id = Some(epoch_id);
+        self
+    }
+
     pub fn chunk_endorsements(
         mut self,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,

@@ -15,7 +15,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
-    ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    EpochId, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -258,6 +258,34 @@ impl SpiceCoreReader {
             });
         }
         Ok(core_statements)
+    }
+
+    /// Epoch id of the last fully certified block as of `prev_hash`.
+    /// Used by the block producer to populate `prev_last_certified_block_epoch_id`
+    /// and by the validator to check it.
+    pub fn prev_last_certified_block_epoch_id(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        Ok(*get_last_certified_block_header(&self.chain_store, prev_hash)?.epoch_id())
+    }
+
+    pub fn validate_prev_last_certified_block_epoch_id(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        let actual = header.prev_last_certified_block_epoch_id().ok_or_else(|| {
+            Error::InvalidPrevLastCertifiedBlockEpochId(
+                "missing field on spice block header".to_string(),
+            )
+        })?;
+        let expected = self.prev_last_certified_block_epoch_id(header.prev_hash())?;
+        if &expected != actual {
+            return Err(Error::InvalidPrevLastCertifiedBlockEpochId(format!(
+                "expected {expected:?}, got {actual:?}"
+            )));
+        }
+        Ok(())
     }
 
     pub fn validate_core_statements_in_block(

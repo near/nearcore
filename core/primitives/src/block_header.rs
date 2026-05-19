@@ -996,9 +996,7 @@ impl BlockHeader {
                 latest_protocol_version,
                 chunk_endorsements,
                 shard_split,
-                prev_last_certified_block_epoch_id: prev_last_certified_block_epoch_id.expect(
-                    "BlockHeaderV7 is enabled but prev_last_certified_block_epoch_id is not provided",
-                ),
+                prev_last_certified_block_epoch_id,
             };
             let (hash, signature) =
                 Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
