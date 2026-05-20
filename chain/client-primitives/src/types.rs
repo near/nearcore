@@ -634,9 +634,7 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
-    /// Rejected because the local mempool was full.
     Dropped,
-    /// Validity window passed before inclusion; carries the tx hash.
     Expired(CryptoHash),
     InternalError(String),
     TimeoutError,
