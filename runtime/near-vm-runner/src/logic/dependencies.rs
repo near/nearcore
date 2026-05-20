@@ -299,7 +299,8 @@ pub trait External {
 
     /// Create a PromiseYield action receipt with a user-provided yield ID.
     ///
-    /// Returns the ReceiptIndex of the newly created receipt and the runtime-generated data_id.
+    /// Returns `Some((ReceiptIndex, data_id))` of the newly created receipt on success, or
+    /// `None` if a yield with the same `user_yield_id` is already pending for this account.
     /// The yield_id -> data_id mapping is stored in the trie for duplicate detection.
     ///
     /// # Arguments
@@ -310,7 +311,7 @@ pub trait External {
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
-    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
+    ) -> Result<Option<(ReceiptIndex, CryptoHash)>, VMLogicError>;
 
     /// Creates a receipt under the specified `data_id` containing given `data`.
     ///

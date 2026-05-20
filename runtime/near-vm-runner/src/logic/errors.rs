@@ -345,8 +345,6 @@ pub enum HostError {
     ContractCodeHashMalformed,
     /// Data entry within DeterministicStateInit already exists.
     DataEntryAlreadyExists,
-    /// A yield with the given yield ID already exists for this account.
-    YieldIdAlreadyExists,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -613,9 +611,6 @@ impl std::fmt::Display for HostError {
             ),
             ContractCodeHashMalformed => write!(f, "contract code hash is malformed"),
             DataEntryAlreadyExists => write!(f, "Data entry for given key already exists"),
-            YieldIdAlreadyExists => {
-                write!(f, "a yield with the given yield ID already exists for this account")
-            }
         }
     }
 }

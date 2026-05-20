@@ -365,15 +365,13 @@ impl<'a> External for RuntimeExt<'a> {
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
-    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
-        use near_vm_runner::logic::HostError;
-
+    ) -> Result<Option<(ReceiptIndex, CryptoHash)>, VMLogicError> {
         // Check for duplicate yield_id in trie. TrieUpdate also reflects writes from earlier
         // calls within the same function call, so this also catches in-transaction duplicates.
         if has_yield_id_mapping(self.trie_update, &receiver_id, user_yield_id)
             .map_err(wrap_storage_error)?
         {
-            return Err(HostError::YieldIdAlreadyExists.into());
+            return Ok(None);
         }
 
         let input_data_id = self.generate_data_id();
@@ -391,7 +389,7 @@ impl<'a> External for RuntimeExt<'a> {
             PromiseYieldStatus::Yielded,
         );
 
-        Ok((receipt_index, input_data_id))
+        Ok(Some((receipt_index, input_data_id)))
     }
 
     fn submit_promise_resume_data(

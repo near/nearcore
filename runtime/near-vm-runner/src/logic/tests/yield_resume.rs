@@ -455,7 +455,7 @@ fn test_promise_yield_create_with_id_duplicate_in_same_call() {
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
     // First call should succeed
-    logic
+    let first_idx = logic
         .promise_yield_create_with_id(
             method_name.len,
             method_name.ptr,
@@ -467,27 +467,23 @@ fn test_promise_yield_create_with_id_duplicate_in_same_call() {
             yield_id_mem.ptr,
         )
         .expect("first yield_create_with_id should succeed");
+    assert_ne!(first_idx, u64::MAX, "first call should return a real promise index");
 
-    // Second call with the same yield_id should fail
+    // Second call with the same yield_id should return u64::MAX without aborting.
     let yield_id_mem2 = logic.internal_mem_write(&yield_id);
-    let result = logic.promise_yield_create_with_id(
-        method_name.len,
-        method_name.ptr,
-        args.len,
-        args.ptr,
-        0,
-        1,
-        yield_id_mem2.len,
-        yield_id_mem2.ptr,
-    );
-
-    assert!(
-        matches!(
-            result,
-            Err(crate::logic::VMLogicError::HostError(HostError::YieldIdAlreadyExists))
-        ),
-        "expected YieldIdAlreadyExists for duplicate yield_id in same call, got {result:?}"
-    );
+    let result = logic
+        .promise_yield_create_with_id(
+            method_name.len,
+            method_name.ptr,
+            args.len,
+            args.ptr,
+            0,
+            1,
+            yield_id_mem2.len,
+            yield_id_mem2.ptr,
+        )
+        .expect("second yield_create_with_id should succeed (returning sentinel)");
+    assert_eq!(result, u64::MAX, "duplicate yield_id should return u64::MAX");
 }
 
 #[test]

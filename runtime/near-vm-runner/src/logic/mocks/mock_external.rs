@@ -249,12 +249,12 @@ impl External for MockedExternal {
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
-    ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
+    ) -> Result<Option<(ReceiptIndex, CryptoHash)>, crate::logic::VMLogicError> {
         // Check for duplicate yield_id
         for action in &self.action_log {
             if let MockAction::YieldCreate { yield_id: Some(existing), .. } = action {
                 if *existing == user_yield_id {
-                    return Err(crate::logic::HostError::YieldIdAlreadyExists.into());
+                    return Ok(None);
                 }
             }
         }
@@ -265,7 +265,7 @@ impl External for MockedExternal {
             receiver_id,
             yield_id: Some(user_yield_id),
         });
-        Ok((index as u64, data_id))
+        Ok(Some((index as u64, data_id)))
     }
 
     fn submit_promise_resume_data(

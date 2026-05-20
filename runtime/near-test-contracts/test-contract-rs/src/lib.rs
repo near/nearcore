@@ -1338,7 +1338,8 @@ pub unsafe fn call_yield_create_with_id() {
 }
 
 /// Call promise_yield_create_with_id twice with the same yield_id derived from input.
-/// The second call should abort execution with YieldIdAlreadyExists.
+/// The second call should return u64::MAX (sentinel for "already pending") without aborting.
+/// Returns a single byte: 1 if the second call returned the sentinel as expected, 0 otherwise.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_with_id_duplicate() {
@@ -1354,7 +1355,20 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
     let gas_fixed = 0;
     let gas_weight = 1;
     // First call should succeed
-    promise_yield_create_with_id(
+    let first = promise_yield_create_with_id(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        yield_id.len() as u64,
+        yield_id.as_ptr() as u64,
+    );
+    assert_ne!(first, u64::MAX);
+
+    // Second call with the same yield_id should return u64::MAX (sentinel) without aborting.
+    let second = promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
         payload.len() as u64,
@@ -1365,17 +1379,8 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
         yield_id.as_ptr() as u64,
     );
 
-    // Second call with the same yield_id should abort with YieldIdAlreadyExists
-    promise_yield_create_with_id(
-        method_name.len() as u64,
-        method_name.as_ptr() as u64,
-        payload.len() as u64,
-        payload.as_ptr() as u64,
-        gas_fixed,
-        gas_weight,
-        yield_id.len() as u64,
-        yield_id.as_ptr() as u64,
-    );
+    let result = if second == u64::MAX { vec![1u8] } else { vec![0u8] };
+    value_return(result.len() as u64, result.as_ptr() as u64);
 }
 
 /// Call promise_yield_resume_with_id with the user-provided yield_id.

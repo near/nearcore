@@ -3438,6 +3438,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
     /// The yield ID must be exactly 32 bytes. The yield is resumed via
     /// [`promise_yield_resume_with_id`] using the same yield ID.
+    ///
+    /// Returns `u64::MAX` if a yield with the same `yield_id` is already pending for this
+    /// account; otherwise returns the new promise index. Contracts can branch on this to
+    /// recover from duplicates without aborting execution.
     pub fn promise_yield_create_with_id(
         &mut self,
         method_name_len: u64,
@@ -3476,16 +3480,22 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
         self.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
-        // Prepay gas for the callback so that it cannot be used for this execution any longer.
-        self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
-        // Here we are creating a receipt with a single data dependency which will then be
-        // resolved by the resume call.
-        self.pay_gas_for_new_receipt(true, &[true])?;
-        let (new_receipt_idx, _data_id) = self.ext.create_promise_yield_receipt_with_id(
+        // Attempt to create the yield receipt. Returns None when a yield with the same
+        // user_yield_id is already pending; in that case we return a sentinel without
+        // charging for receipt creation.
+        let Some((new_receipt_idx, _data_id)) = self.ext.create_promise_yield_receipt_with_id(
             self.context.current_account_id.clone(),
             user_yield_id,
-        )?;
+        )?
+        else {
+            return Ok(u64::MAX);
+        };
+
+        // Prepay gas for the callback so that it cannot be used for this execution any longer.
+        self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
+        // Charge gas for the new receipt with a single data dependency.
+        self.pay_gas_for_new_receipt(true, &[true])?;
 
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
         self.pay_action_base(ActionCosts::function_call_base, true)?;

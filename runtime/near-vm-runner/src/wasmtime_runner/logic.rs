@@ -3832,14 +3832,22 @@ pub fn promise_yield_create_with_id(
     // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
     let num_bytes = method_name.len() as u64 + arguments.len() as u64;
     ctx.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
-    // Prepay gas for the callback so that it cannot be used for this execution any longer.
-    ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
-    pay_gas_for_new_receipt(&mut ctx.result_state.gas_counter, &ctx.fees_config, true, &[true])?;
-    let (new_receipt_idx, _data_id) = ctx.ext.create_promise_yield_receipt_with_id(
+    // Attempt to create the yield receipt. Returns None when a yield with the same
+    // user_yield_id is already pending; in that case we return a sentinel without
+    // charging for receipt creation.
+    let Some((new_receipt_idx, _data_id)) = ctx.ext.create_promise_yield_receipt_with_id(
         ctx.context.current_account_id.clone(),
         user_yield_id,
-    )?;
+    )?
+    else {
+        return Ok(u64::MAX);
+    };
+
+    // Prepay gas for the callback so that it cannot be used for this execution any longer.
+    ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
+    // Charge gas for the new receipt with a single data dependency.
+    pay_gas_for_new_receipt(&mut ctx.result_state.gas_counter, &ctx.fees_config, true, &[true])?;
 
     let new_promise_idx = checked_push_promise(ctx, Promise::Receipt(new_receipt_idx))?;
     pay_action_base(

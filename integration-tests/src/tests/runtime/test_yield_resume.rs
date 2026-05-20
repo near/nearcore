@@ -289,7 +289,7 @@ fn resume_with_id_without_yield() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create_with_id_duplicate_in_same_call_fails() {
+fn create_with_id_duplicate_in_same_call_returns_sentinel() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -306,10 +306,11 @@ fn create_with_id_duplicate_in_same_call_fails() {
         )
         .unwrap();
 
-    let err_msg = format!("{:?}", res.status);
-    assert!(
-        err_msg.contains("yield with the given yield ID already exists"),
-        "expected YieldIdAlreadyExists error, got {res:?}"
+    // The contract returns 1 if the second call returned the duplicate sentinel.
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![1u8]),
+        "{res:?} unexpected result; expected contract to observe duplicate sentinel"
     );
 }
 
