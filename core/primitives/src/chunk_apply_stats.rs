@@ -16,12 +16,12 @@ use std::collections::BTreeMap;
 #[repr(u8)]
 pub enum ChunkApplyStats {
     V0(ChunkApplyStatsV0) = 0,
+    V1(ChunkApplyStatsV1) = 1,
 }
 
 /// Information gathered during chunk application.
-/// This feature is still in development. Consider V0 as unstable, fields might be added or removed
-/// from it at any time. We will do proper versioning after stabilization when there will be other
-/// services depending on this structure.
+/// V0 is kept only to deserialize rows written by older binaries; new code
+/// constructs and persists [`ChunkApplyStatsV1`] instead.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkApplyStatsV0 {
     /// Height at which the chunk was applied
@@ -43,9 +43,34 @@ pub struct ChunkApplyStatsV0 {
     pub balance: BalanceStats,
 }
 
-impl ChunkApplyStatsV0 {
-    pub fn new(height: BlockHeight, shard_id: ShardId) -> ChunkApplyStatsV0 {
-        ChunkApplyStatsV0 {
+/// Information gathered during chunk application.
+/// This feature is still in development. Consider V1 as unstable, fields might be added or removed
+/// from it at any time. We will do proper versioning after stabilization when there will be other
+/// services depending on this structure.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkApplyStatsV1 {
+    /// Height at which the chunk was applied
+    pub height: BlockHeight,
+    /// Shard ID of the chunk
+    pub shard_id: ShardId,
+    /// Was this chunk applied as a new (non-missing) chunk or a missing one (apply_old_chunk)?
+    pub is_new_chunk: bool,
+    /// Number of new transactions in this chunk
+    pub transactions_num: u64,
+    /// Number of incoming receipts to this chunk
+    pub incoming_receipts_num: u64,
+
+    /// Receipt sink stats - forwarded receipts, buffered receipts, outgoing limits
+    pub receipt_sink: ReceiptSinkStats,
+    /// Bandwidth scheduler stats
+    pub bandwidth_scheduler: BandwidthSchedulerStats,
+    /// Balance stats - used in balance checker.
+    pub balance: BalanceStatsV1,
+}
+
+impl ChunkApplyStatsV1 {
+    pub fn new(height: BlockHeight, shard_id: ShardId) -> ChunkApplyStatsV1 {
+        ChunkApplyStatsV1 {
             height: height,
             shard_id: shard_id,
             is_new_chunk: false,
@@ -66,8 +91,8 @@ impl ChunkApplyStatsV0 {
     }
 
     /// Dummy data for tests.
-    pub fn dummy() -> ChunkApplyStatsV0 {
-        ChunkApplyStatsV0 {
+    pub fn dummy() -> ChunkApplyStatsV1 {
+        ChunkApplyStatsV1 {
             height: 0,
             shard_id: ShardId::new(0),
             is_new_chunk: false,
@@ -199,8 +224,24 @@ impl ReceiptsStats {
 }
 
 /// Stats about token balance, used in balance checker.
+///
+/// This V0 layout is only kept so rows written by older binaries still
+/// deserialize. New code uses [`BalanceStatsV1`].
 #[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BalanceStats {
+    pub tx_burnt_amount: Balance,
+    pub slashed_burnt_amount: Balance,
+    pub other_burnt_amount: Balance,
+    /// This is a negative amount. This amount was not charged from the account that issued
+    /// the transaction. It's likely due to the delayed queue of the receipts.
+    pub gas_deficit_amount: Balance,
+    /// No longer used, keeping to preserve borsh deserialization of the old data in the db.
+    pub _deprecated_global_actions_burnt_amount: Balance,
+}
+
+/// Stats about token balance, used in balance checker.
+#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct BalanceStatsV1 {
     pub tx_burnt_amount: Balance,
     pub slashed_burnt_amount: Balance,
     pub other_burnt_amount: Balance,
@@ -228,4 +269,82 @@ fn get_requested_values(
         }
     }
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use borsh::BorshDeserialize;
+
+    fn make_v0() -> ChunkApplyStatsV0 {
+        ChunkApplyStatsV0 {
+            height: 7,
+            shard_id: ShardId::new(3),
+            is_new_chunk: true,
+            transactions_num: 11,
+            incoming_receipts_num: 13,
+            receipt_sink: Default::default(),
+            bandwidth_scheduler: Default::default(),
+            balance: BalanceStats {
+                tx_burnt_amount: Balance::from_yoctonear(1),
+                slashed_burnt_amount: Balance::from_yoctonear(2),
+                other_burnt_amount: Balance::from_yoctonear(3),
+                gas_deficit_amount: Balance::from_yoctonear(4),
+                _deprecated_global_actions_burnt_amount: Balance::from_yoctonear(5),
+            },
+        }
+    }
+
+    fn make_v1() -> ChunkApplyStatsV1 {
+        ChunkApplyStatsV1 {
+            height: 7,
+            shard_id: ShardId::new(3),
+            is_new_chunk: true,
+            transactions_num: 11,
+            incoming_receipts_num: 13,
+            receipt_sink: Default::default(),
+            bandwidth_scheduler: Default::default(),
+            balance: BalanceStatsV1 {
+                tx_burnt_amount: Balance::from_yoctonear(1),
+                slashed_burnt_amount: Balance::from_yoctonear(2),
+                other_burnt_amount: Balance::from_yoctonear(3),
+                gas_deficit_amount: Balance::from_yoctonear(4),
+                _deprecated_global_actions_burnt_amount: Balance::from_yoctonear(5),
+                subsidized_amount: Balance::from_yoctonear(6),
+            },
+        }
+    }
+
+    /// V0 bytes written by older binaries must continue to deserialize, otherwise
+    /// readers like `view-state chunk-apply-stats` will panic on existing rows.
+    #[test]
+    fn v0_round_trips() {
+        let stats = ChunkApplyStats::V0(make_v0());
+        let bytes = borsh::to_vec(&stats).unwrap();
+        assert_eq!(bytes[0], 0, "discriminant byte must be 0 for V0");
+        let decoded = ChunkApplyStats::try_from_slice(&bytes).unwrap();
+        let ChunkApplyStats::V0(decoded_v0) = decoded else {
+            panic!("expected V0 after round-trip");
+        };
+        let original_v0 = make_v0();
+        assert_eq!(decoded_v0.height, original_v0.height);
+        assert_eq!(decoded_v0.shard_id, original_v0.shard_id);
+        assert_eq!(decoded_v0.balance.tx_burnt_amount, original_v0.balance.tx_burnt_amount);
+        assert_eq!(
+            decoded_v0.balance._deprecated_global_actions_burnt_amount,
+            original_v0.balance._deprecated_global_actions_burnt_amount
+        );
+    }
+
+    #[test]
+    fn v1_round_trips() {
+        let stats = ChunkApplyStats::V1(make_v1());
+        let bytes = borsh::to_vec(&stats).unwrap();
+        assert_eq!(bytes[0], 1, "discriminant byte must be 1 for V1");
+        let decoded = ChunkApplyStats::try_from_slice(&bytes).unwrap();
+        let ChunkApplyStats::V1(decoded_v1) = decoded else {
+            panic!("expected V1 after round-trip");
+        };
+        assert_eq!(decoded_v1.balance.subsidized_amount, Balance::from_yoctonear(6));
+    }
 }
