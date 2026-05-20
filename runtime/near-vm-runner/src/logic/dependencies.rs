@@ -3,7 +3,7 @@ use super::VMLogicError;
 use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
 use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
-use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
 use std::borrow::Cow;
 
@@ -310,7 +310,7 @@ pub trait External {
     fn create_promise_yield_receipt_with_id(
         &mut self,
         receiver_id: AccountId,
-        user_yield_id: CryptoHash,
+        user_yield_id: YieldId,
     ) -> Result<Option<(ReceiptIndex, CryptoHash)>, VMLogicError>;
 
     /// Creates a receipt under the specified `data_id` containing given `data`.
@@ -345,7 +345,7 @@ pub trait External {
     /// * `data` - contents of the DataReceipt
     fn submit_promise_resume_data_with_id(
         &mut self,
-        user_yield_id: CryptoHash,
+        user_yield_id: YieldId,
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError>;
 

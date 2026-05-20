@@ -7,7 +7,7 @@ use crate::logic::{External, HostError, ValuePtr};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
-use near_primitives_core::hash::{CryptoHash, hash};
+use near_primitives_core::hash::{CryptoHash, YieldId, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -104,7 +104,7 @@ pub enum MockAction {
     YieldCreate {
         data_id: CryptoHash,
         receiver_id: AccountId,
-        yield_id: Option<CryptoHash>,
+        yield_id: Option<YieldId>,
     },
     YieldResume {
         data_id: CryptoHash,
@@ -248,7 +248,7 @@ impl External for MockedExternal {
     fn create_promise_yield_receipt_with_id(
         &mut self,
         receiver_id: AccountId,
-        user_yield_id: CryptoHash,
+        user_yield_id: YieldId,
     ) -> Result<Option<(ReceiptIndex, CryptoHash)>, crate::logic::VMLogicError> {
         // Check for duplicate yield_id
         for action in &self.action_log {
@@ -290,7 +290,7 @@ impl External for MockedExternal {
 
     fn submit_promise_resume_data_with_id(
         &mut self,
-        user_yield_id: CryptoHash,
+        user_yield_id: YieldId,
         data: Vec<u8>,
     ) -> Result<bool, crate::logic::VMLogicError> {
         // Look up data_id for the given yield_id

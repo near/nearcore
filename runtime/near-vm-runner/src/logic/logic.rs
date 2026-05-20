@@ -22,7 +22,7 @@ use near_parameters::{
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
-use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
@@ -3470,9 +3470,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
         // Read and validate the yield ID (must be exactly 32 bytes)
         let yield_id_bytes = get_memory_or_register!(self, yield_id_ptr, yield_id_len)?;
-        let yield_id: [u8; CryptoHash::LENGTH] =
+        let yield_id: [u8; YieldId::LENGTH] =
             (&*yield_id_bytes).try_into().map_err(|_| HostError::DataIdMalformed)?;
-        let user_yield_id = CryptoHash(yield_id);
+        let user_yield_id = YieldId::from_bytes(yield_id);
 
         let method_name = method_name.into_owned();
         let arguments = arguments.into_owned();
@@ -3604,9 +3604,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
 
-        let yield_id: [_; CryptoHash::LENGTH] =
+        let yield_id: [_; YieldId::LENGTH] =
             (&*yield_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
-        let yield_id = CryptoHash(yield_id);
+        let yield_id = YieldId::from_bytes(yield_id);
         let payload = payload.into_owned();
         self.ext.submit_promise_resume_data_with_id(yield_id, payload).map(u32::from)
     }

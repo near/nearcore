@@ -3,7 +3,7 @@ use crate::receipt_manager::ReceiptManager;
 use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
 use near_primitives::errors::{EpochError, StorageError};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, YieldId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
@@ -364,7 +364,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn create_promise_yield_receipt_with_id(
         &mut self,
         receiver_id: AccountId,
-        user_yield_id: CryptoHash,
+        user_yield_id: YieldId,
     ) -> Result<Option<(ReceiptIndex, CryptoHash)>, VMLogicError> {
         // Check for duplicate yield_id in trie. TrieUpdate also reflects writes from earlier
         // calls within the same function call, so this also catches in-transaction duplicates.
@@ -420,7 +420,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn submit_promise_resume_data_with_id(
         &mut self,
-        user_yield_id: CryptoHash,
+        user_yield_id: YieldId,
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError> {
         let Some(data_id) =

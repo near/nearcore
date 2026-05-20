@@ -1,5 +1,8 @@
 use crate::types::AccountId;
-use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
+use crate::{
+    action::GlobalContractIdentifier,
+    hash::{CryptoHash, YieldId},
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::trie_key::access_key_key_len;
@@ -268,7 +271,7 @@ pub enum TrieKey {
     /// Used by `promise_yield_create_with_id` for duplicate detection.
     YieldIdToDataId {
         receiver_id: AccountId,
-        yield_id: CryptoHash,
+        yield_id: YieldId,
     } = col::YIELD_ID_TO_DATA_ID,
     /// Reverse mapping from runtime-generated data ID to user-provided yield ID.
     /// Used to clean up `YieldIdToDataId` when a yield is resumed or times out.
