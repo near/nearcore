@@ -45,7 +45,6 @@ impl RecentTransactionTracker {
         self.dropped.put(tx_hash, ());
     }
 
-    /// Check `dropped` first so a violated invariant still returns the terminal `Dropped*` status.
     pub fn status(&mut self, tx_hash: &CryptoHash) -> TransactionStatus {
         if self.dropped.get(tx_hash).is_some() {
             return TransactionStatus::DroppedMempoolFull;
