@@ -10,14 +10,14 @@ use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActor;
 use near_client::recent_transaction_tracker::RecentTransactionTracker;
-use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
     ViewClientActor,
@@ -41,7 +41,7 @@ use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -71,6 +71,21 @@ pub struct SharedState {
     /// Archive-wide config for cloud archival nodes. Defaults to
     /// `BucketConfig::canonical()`; tests may override.
     pub bucket_config: BucketConfig,
+    /// Optional per-`(account, task_name)` override of the spawner's
+    /// artificial virtual delay. `None` for a given pair falls back to the
+    /// test-loop default. Used by tests that need to slow specific tasks on
+    /// specific nodes.
+    pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
+    /// Per-node installation state for the spice endorsement-delay handler.
+    pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+}
+
+/// Shared state for the spice endorsement-delay network handler installed by
+/// `TestLoopEnv::delay_endorsements_propagation`.
+#[derive(Default)]
+pub struct SpiceEndorsementDelayState {
+    pub installed_for: HashSet<String>,
+    pub senders: HashMap<AccountId, TestLoopSender<SpiceCoreWriterActor>>,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
@@ -124,6 +139,13 @@ impl NodeExecutionData {
 
     pub fn set_expected_execution_delay(&self, delay: u64) {
         self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    /// Returns a clone of the shared atomic backing `expected_execution_delay`,
+    /// so the endorsement-delay network handler can read the same value that
+    /// timeouts do without extra plumbing.
+    pub fn expected_execution_delay_handle(&self) -> Arc<AtomicU64> {
+        self.expected_execution_delay.clone()
     }
 
     pub fn jsonrpc_client(&self) -> JsonRpcClient {

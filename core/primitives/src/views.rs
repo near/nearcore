@@ -60,6 +60,7 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -276,6 +277,8 @@ pub struct ViewStateResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_key: Option<StoreKey>,
 }
 
 /// A result returned by contract method
@@ -374,6 +377,10 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
+        #[serde(default, rename = "after_key_base64", skip_serializing_if = "Option::is_none")]
+        after_key: Option<StoreKey>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
         #[serde(default, skip_serializing_if = "is_false")]
         include_proof: bool,
     },
@@ -543,8 +550,6 @@ pub enum SyncStatusView {
     },
     /// State sync, with different states of state sync for different shards.
     StateSync(StateSyncStatusView),
-    /// Sync state across all shards is done.
-    StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
         start_height: BlockHeight,

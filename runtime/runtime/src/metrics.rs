@@ -56,6 +56,35 @@ pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyL
     }
 });
 
+pub static COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_contract_cache_warming_compiles_total",
+            "Warming compilations that produced a fresh cache entry. Duplicate \
+         submissions short-circuited as `ContractAlreadyInCache` are not counted.",
+        )
+        .unwrap()
+    });
+
+pub static COMPILATION_CACHE_WARMING_FAILURES: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_cache_warming_failures_total",
+        "Warming compilations that did not produce a usable cache entry. \
+         Covers both cache infrastructure errors (disk, fd limits) and \
+         compilation errors under the next epoch's VM.",
+    )
+    .unwrap()
+});
+
+pub static COMPILATION_CACHE_WARMING_DROPPED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_cache_warming_dropped_total",
+        "Warming submissions dropped because the pool's queue was at \
+         its configured max-item cap.",
+    )
+    .unwrap()
+});
+
 pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_applied_total",
@@ -234,6 +263,20 @@ pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: LazyLock<IntCounterVec> = LazyLo
         "near_function_call_processed_host_errors",
         "The number of function calls resulting in host errors, since starting this node",
         &["error_type"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_LINK_ERRORS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_function_call_processed_link_errors",
+        "The number of function calls resulting in link errors, since starting this node",
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_LOADING_ERRORS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_function_call_processed_loading_errors",
+        "The number of function calls resulting in loading errors, since starting this node",
     )
     .unwrap()
 });

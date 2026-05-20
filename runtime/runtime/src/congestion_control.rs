@@ -7,7 +7,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
 };
-use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats, ReceiptsStats};
+use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
@@ -205,7 +205,7 @@ impl ReceiptSink {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         match self {
             ReceiptSink::V2(sink_with_info) => sink_with_info.sink.generate_bandwidth_requests(
@@ -497,7 +497,7 @@ impl ReceiptSinkV2 {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         let params = &self.bandwidth_scheduler_output.params;
 

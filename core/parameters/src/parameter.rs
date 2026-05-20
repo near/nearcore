@@ -214,6 +214,7 @@ pub enum Parameter {
     MaxTypesPerContract,
     MaxParamsPerFunction,
     MaxParamsPerContract,
+    MaxOperandStackBytesPerFunction,
 
     // Contract runtime features
     FlatStorageReads,
@@ -260,9 +261,6 @@ pub enum Parameter {
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
     GlobalContractHostFns,
-
-    // Flag to enabled deterministic account ids
-    DeterministicAccountIds,
 
     // Flag to enable gas key host functions
     GasKeyHostFns,
@@ -359,6 +357,7 @@ impl Parameter {
             Parameter::MaxTypesPerContract,
             Parameter::MaxParamsPerFunction,
             Parameter::MaxParamsPerContract,
+            Parameter::MaxOperandStackBytesPerFunction,
         ]
         .iter()
     }

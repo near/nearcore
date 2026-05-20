@@ -54,6 +54,11 @@ pub enum FunctionCallError {
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
     HostError(HostError),
+    /// The compiled module was rejected by the VM host when instantiating it.
+    /// This covers host-side resource limits.
+    LoadingError {
+        msg: String,
+    },
 }
 
 impl FunctionCallError {
@@ -61,7 +66,9 @@ impl FunctionCallError {
         const BASE_SIZE: usize = 4; // to roughly accommodate for static parts of the enum
         match self {
             FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
-            FunctionCallError::LinkError { msg } => BASE_SIZE + msg.len(),
+            FunctionCallError::LinkError { msg } | FunctionCallError::LoadingError { msg } => {
+                BASE_SIZE + msg.len()
+            }
             FunctionCallError::MethodResolveError(_)
             | FunctionCallError::WasmTrap(_)
             | FunctionCallError::HostError(_) => BASE_SIZE,
@@ -197,6 +204,9 @@ pub enum PrepareError {
     TooManyParamsPerContract = 16,
     /// A function has more than `max_params_per_function` parameters.
     TooManyParamsPerFunction = 17,
+    /// A function's max operand-stack size (in bytes) exceeds
+    /// `max_operand_stack_bytes_per_function`.
+    OperandStackTooLarge = 18,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -434,6 +444,7 @@ impl fmt::Display for PrepareError {
             TooManyTypes => "Too many type-section entries declared in the contract.",
             TooManyParamsPerContract => "Too many function parameters in the contract",
             TooManyParamsPerFunction => "Too many parameters in a single function",
+            OperandStackTooLarge => "A function uses too much operand stack.",
         })
     }
 }
@@ -445,6 +456,7 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::MethodResolveError(e) => e.fmt(f),
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
+            FunctionCallError::LoadingError { msg } => write!(f, "Loading error: {}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
         }
     }

@@ -15,9 +15,9 @@ use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::chunk_executor_actor::ChunkExecutorConfig;
-use near_client::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::recent_transaction_tracker::RecentTransactionTracker;
+use near_client::spice::chunk_executor_actor::ChunkExecutorConfig;
+use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::{ChunkValidationActor, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};

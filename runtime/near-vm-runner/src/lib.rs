@@ -24,10 +24,13 @@ mod wasmtime_runner;
 pub use crate::logic::with_ext_cost_counter;
 #[cfg(not(windows))]
 pub use cache::FilesystemContractRuntimeCache;
+#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+pub use cache::config_cache_key_signature;
 pub use cache::{
     CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
-    NoContractRuntimeCache, precompile_contract,
+    NoContractRuntimeCache, precompile_contract, try_precompile_contract,
 };
+pub use errors::ContractPrecompilatonResult;
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
 pub use near_primitives_core::code::ContractCode;

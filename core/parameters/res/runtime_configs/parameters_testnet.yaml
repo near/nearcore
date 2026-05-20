@@ -26,7 +26,7 @@ min_allowed_top_level_account_length: 0
 registrar_account_id: "registrar"
 
 # Storage usage config
-storage_amount_per_byte: 0.0001 N
+storage_amount_per_byte: 10000000000000000000 yN
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
 
@@ -276,7 +276,6 @@ eth_implicit_global_contract: false
 discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
-deterministic_account_ids: false
 gas_key_host_fns: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false

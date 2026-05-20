@@ -31,11 +31,12 @@ use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_crypto::PublicKey;
+use near_parameters::vm::Config as VmConfig;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
-use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
@@ -96,11 +97,13 @@ use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
 mod access_keys;
+mod action_validation;
 mod actions;
 #[cfg(test)]
 mod actions_test_utils;
 pub mod adapter;
 mod bandwidth_scheduler;
+pub mod cache_warming;
 pub mod config;
 mod congestion_control;
 mod contract_code;
@@ -183,6 +186,12 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// If `Some`, the next epoch's `wasm_config` differs from the current one
+    /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind
+    /// upgrade is scheduled for the next epoch boundary). Hooks throughout the
+    /// runtime use this to pre-warm the cache for the upcoming VM, so the boundary
+    /// doesn't trigger a re-compile avalanche. `None` in steady state.
+    pub next_wasm_config: Option<Arc<VmConfig>>,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Cache for trie node accesses.
@@ -334,7 +343,7 @@ pub struct ApplyResult {
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
-    pub stats: ChunkApplyStatsV0,
+    pub stats: ChunkApplyStatsV1,
     pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
@@ -515,6 +524,7 @@ impl Runtime {
                     account_id,
                     deploy_contract,
                     Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
@@ -698,7 +708,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
         epoch_info_provider: &dyn EpochInfoProvider,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
@@ -1340,7 +1350,7 @@ impl Runtime {
         apply_state: &ApplyState,
         epoch_info_provider: &dyn EpochInfoProvider,
         pipeline_manager: &ReceiptPreparationPipeline,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
         account_id: &AccountId,
         action_receipt: VersionedActionReceipt<'_>,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
@@ -2924,7 +2934,7 @@ struct ApplyProcessingState<'a> {
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
-    stats: ChunkApplyStatsV0,
+    stats: ChunkApplyStatsV1,
 }
 
 impl<'a> ApplyProcessingState<'a> {
@@ -2944,7 +2954,7 @@ impl<'a> ApplyProcessingState<'a> {
             gas: 0,
             compute: 0,
         };
-        let stats = ChunkApplyStatsV0::new(apply_state.block_height, apply_state.shard_id);
+        let stats = ChunkApplyStatsV1::new(apply_state.block_height, apply_state.shard_id);
         Self {
             protocol_version,
             apply_state,
@@ -2963,6 +2973,7 @@ impl<'a> ApplyProcessingState<'a> {
     ) -> ApplyProcessingReceiptState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
+            self.apply_state.next_wasm_config.clone(),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
@@ -2998,7 +3009,7 @@ struct ApplyProcessingReceiptState<'a> {
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
-    stats: ChunkApplyStatsV0,
+    stats: ChunkApplyStatsV1,
     outcomes: Vec<ExecutionOutcomeWithId>,
     metrics: ApplyMetrics,
     local_receipts: VecDeque<Receipt>,
@@ -3126,7 +3137,7 @@ pub mod estimator {
     use crate::congestion_control::ReceiptSinkV2WithInfo;
     use crate::pipelining::ReceiptPreparationPipeline;
     use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
-    use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats};
+    use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
@@ -3148,7 +3159,7 @@ pub mod estimator {
         outgoing_receipts: &mut Vec<Receipt>,
         instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
@@ -3183,6 +3194,7 @@ pub mod estimator {
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(&apply_state.config),
+            apply_state.next_wasm_config.clone(),
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),

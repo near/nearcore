@@ -29,6 +29,8 @@ use near_store::trie::AccessOptions;
 use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use std::num::NonZeroU32;
+use std::ops::Bound;
 use std::{str, sync::Arc, time::Instant};
 
 pub mod errors;
@@ -224,43 +226,97 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
+        after_key: Option<&[u8]>,
+        limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
-        match get_account(state_update, account_id)? {
-            Some(account) => {
-                let code_len = state_update
-                    .get_code_len(
-                        account_id.clone(),
-                        account.local_contract_hash().unwrap_or_default(),
-                    )?
-                    .unwrap_or_default() as u64;
-                if let Some(limit) = self.state_size_limit {
-                    if account.storage_usage().saturating_sub(code_len) > limit {
-                        return Err(errors::ViewStateError::AccountStateTooLarge {
-                            requested_account_id: account_id.clone(),
-                        });
-                    }
-                }
+        let paginated = limit.is_some() || after_key.is_some();
+        if paginated && include_proof {
+            return Err(errors::ViewStateError::ProofUnsupportedWithPagination);
+        }
+        if let Some(after_key) = after_key {
+            if !after_key.starts_with(prefix) {
+                return Err(errors::ViewStateError::AfterKeyOutsidePrefix);
             }
-            None => {
-                return Err(errors::ViewStateError::AccountDoesNotExist {
-                    requested_account_id: account_id.clone(),
-                });
-            }
+        }
+
+        let Some(account) = get_account(state_update, account_id)? else {
+            return Err(errors::ViewStateError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
         };
 
-        let mut values = vec![];
+        // Legacy per-account gate — paginated callers opt out of it.
+        if !paginated {
+            let code_len = state_update
+                .get_code_len(
+                    account_id.clone(),
+                    account.local_contract_hash().unwrap_or_default(),
+                )?
+                .unwrap_or_default() as u64;
+            if let Some(limit) = self.state_size_limit {
+                if account.storage_usage().saturating_sub(code_len) > limit {
+                    return Err(errors::ViewStateError::AccountStateTooLarge {
+                        requested_account_id: account_id.clone(),
+                    });
+                }
+            }
+        }
+
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie().disk_iter()?;
         iter.remember_visited_nodes(include_proof);
-        iter.seek_prefix(&query)?;
+
+        match after_key {
+            None => iter.seek_prefix(&query)?,
+            Some(after_key) => {
+                let mut full = query[..acc_sep_len].to_vec();
+                full.extend_from_slice(after_key);
+                iter.seek(Bound::Excluded(full))?;
+            }
+        }
+
+        // Per-page caps, separate from the `trie_viewer_state_size_limit` that pagination skips.
+        // The byte cap is soft: it's checked before each append, so a page can run one item over.
+        const MAX_VIEW_STATE_PAGE_ITEMS: u32 = 10_000;
+        const MAX_VIEW_STATE_PAGE_BYTES: u64 = 50_000;
+
+        let (item_cap, byte_cap) = if paginated {
+            let items = limit
+                .map_or(MAX_VIEW_STATE_PAGE_ITEMS, NonZeroU32::get)
+                .min(MAX_VIEW_STATE_PAGE_ITEMS);
+            (Some(items), Some(MAX_VIEW_STATE_PAGE_BYTES))
+        } else {
+            (None, None)
+        };
+
+        // Pre-allocate only for an explicit `limit`; the default page size is too big to assume.
+        let mut values = match (limit, item_cap) {
+            (Some(_), Some(cap)) => Vec::with_capacity(cap as usize),
+            _ => Vec::new(),
+        };
+        let mut used_bytes: u64 = 0;
+        let mut last_key = None;
+
         for item in &mut iter {
             let (key, value) = item?;
+            // `seek` (resumed pages) is not prefix-bounded — stop at the account edge.
+            if !key.starts_with(&query) {
+                break;
+            }
+            let hit_items = item_cap.is_some_and(|cap| values.len() as u64 >= u64::from(cap));
+            let hit_bytes = byte_cap.is_some_and(|cap| used_bytes >= cap);
+            if hit_items || hit_bytes {
+                // At least one more item exists; resume after the last we kept.
+                last_key = values.last().map(|it: &StateItem| it.key.clone());
+                break;
+            }
+            used_bytes += (key.len() + value.len()) as u64;
             values.push(StateItem { key: key[acc_sep_len..].to_vec().into(), value: value.into() });
         }
         let proof = iter.into_visited_nodes();
-        Ok(ViewStateResult { values, proof })
+        Ok(ViewStateResult { values, proof, last_key })
     }
 
     pub fn call_function(
@@ -301,6 +357,7 @@ impl TrieViewer {
             random_seed: root,
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
+            next_wasm_config: None,
             cache: view_state.cache,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -331,6 +388,7 @@ impl TrieViewer {
         });
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
+            apply_state.next_wasm_config.clone(),
             apply_state.cache.as_ref().map(|v| v.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),

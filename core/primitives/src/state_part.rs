@@ -1,8 +1,6 @@
 use crate::state::PartialState;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::MIB;
-use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Upper bound for a decompressed part size.
@@ -51,12 +49,6 @@ pub enum StatePart {
 }
 
 impl StatePartV0 {
-    fn from_partial_state(partial_state: PartialState) -> Self {
-        let bytes =
-            borsh::to_vec(&partial_state).expect("serializing partial state should not fail");
-        Self(bytes)
-    }
-
     fn to_partial_state(&self) -> borsh::io::Result<PartialState> {
         PartialState::try_from_slice(&self.0)
     }
@@ -89,16 +81,8 @@ impl StatePartV1 {
 }
 
 impl StatePart {
-    pub fn from_partial_state(
-        partial_state: PartialState,
-        protocol_version: ProtocolVersion,
-        compression_lvl: i32,
-    ) -> Self {
-        if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
-            Self::V1(StatePartV1::from_partial_state(partial_state, compression_lvl))
-        } else {
-            Self::V0(StatePartV0::from_partial_state(partial_state))
-        }
+    pub fn from_partial_state(partial_state: PartialState, compression_lvl: i32) -> Self {
+        Self::V1(StatePartV1::from_partial_state(partial_state, compression_lvl))
     }
 
     pub fn to_partial_state(&self) -> borsh::io::Result<PartialState> {
@@ -111,25 +95,12 @@ impl StatePart {
     /// Construct state part from bytes that are supposed to be result of `to_bytes()`.
     /// That's used to construct state part loaded from disk or network.
     /// Note that this does not validate the data, the validation logic happens in `validate_state_part()`.
-    pub fn from_bytes(
-        bytes: Vec<u8>,
-        protocol_version: ProtocolVersion,
-    ) -> borsh::io::Result<Self> {
-        if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
-            BorshDeserialize::try_from_slice(&bytes)
-        } else {
-            Ok(Self::V0(StatePartV0(bytes)))
-        }
+    pub fn from_bytes(bytes: Vec<u8>) -> borsh::io::Result<Self> {
+        BorshDeserialize::try_from_slice(&bytes)
     }
 
-    pub fn to_bytes(&self, protocol_version: ProtocolVersion) -> Vec<u8> {
-        if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
-            return borsh::to_vec(self).expect("serializing StatePart should not fail");
-        }
-        let StatePart::V0(state_part) = self else {
-            panic!("{self:?} used without `StatePartsCompression` feature enabled");
-        };
-        state_part.0.clone()
+    pub fn to_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(self).expect("serializing StatePart should not fail")
     }
 
     pub fn payload_length(&self) -> usize {
@@ -143,9 +114,8 @@ impl StatePart {
 #[cfg(test)]
 mod tests {
     use crate::state::PartialState;
-    use crate::state_part::{PART_SIZE_LIMIT, StatePart};
+    use crate::state_part::{PART_SIZE_LIMIT, StatePart, StatePartV0};
     use itertools::Itertools;
-    use near_primitives_core::version::ProtocolFeature;
     use std::sync::Arc;
 
     // Some values with low entropy, to benefit from compression.
@@ -159,60 +129,30 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_state_part() {
-        let new_protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
-
-        let partial_state = dummy_partial_state();
-        let state_part_v0 =
-            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, 1);
-        assert!(matches!(state_part_v0, StatePart::V0(_)));
-        let partial_state_reconstructed = state_part_v0.to_partial_state().unwrap();
-        assert_eq!(partial_state, partial_state_reconstructed);
-
-        let bytes = state_part_v0.to_bytes(old_protocol_version);
-        let state_part_v0_reconstructed =
-            StatePart::from_bytes(bytes.clone(), old_protocol_version).unwrap();
-        assert_eq!(state_part_v0, state_part_v0_reconstructed);
-
-        // Legacy state parts (without version discriminant) cannot be used for sync to
-        // epoch which has `StatePartsCompression` enabled.
-        assert!(StatePart::from_bytes(bytes, new_protocol_version).is_err());
-    }
-
-    #[test]
     fn test_state_part_compression() {
-        let new_protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
         let partial_state = dummy_partial_state();
 
-        let state_part_v0 =
-            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, 1);
-        let state_part_v1 =
-            StatePart::from_partial_state(partial_state.clone(), new_protocol_version, 1);
+        let v0_bytes =
+            borsh::to_vec(&partial_state).expect("serializing partial state should not fail");
+        let state_part_v0 = StatePart::V0(StatePartV0(v0_bytes));
+        let state_part_v1 = StatePart::from_partial_state(partial_state.clone(), 1);
         assert!(state_part_v1.payload_length() < state_part_v0.payload_length());
 
         let partial_state_reconstructed_from_state_part_v1 =
             state_part_v1.to_partial_state().unwrap();
         assert_eq!(partial_state, partial_state_reconstructed_from_state_part_v1);
 
-        let state_part_v1_bytes = state_part_v1.to_bytes(new_protocol_version);
-        let state_part_v1_reconstructed =
-            StatePart::from_bytes(state_part_v1_bytes, new_protocol_version).unwrap();
+        let state_part_v1_bytes = state_part_v1.to_bytes();
+        let state_part_v1_reconstructed = StatePart::from_bytes(state_part_v1_bytes).unwrap();
         assert_eq!(state_part_v1, state_part_v1_reconstructed);
-
-        // Compressed state parts are not backward compatible, i.e. cannot be used for sync to
-        // epoch which does not have `StatePartsCompression` enabled yet.
-        assert!(std::panic::catch_unwind(|| state_part_v1.to_bytes(old_protocol_version)).is_err());
     }
 
     #[test]
     fn test_state_part_compression_bomb() {
-        let protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
         let big_value = Arc::from(vec![b'a'; 2 * PART_SIZE_LIMIT as usize].into_boxed_slice());
         let partial_state = PartialState::TrieValues(vec![big_value]);
 
-        let state_part = StatePart::from_partial_state(partial_state, protocol_version, 1);
+        let state_part = StatePart::from_partial_state(partial_state, 1);
         assert!(state_part.payload_length() < PART_SIZE_LIMIT as usize / 2);
 
         let decompression_result = state_part.to_partial_state();
