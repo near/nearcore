@@ -17,11 +17,9 @@ pub const DEFAULT_HINT_WINDOW: BlockHeightDelta = 5;
 /// this cap are rejected so a single RPC call can't blow up I/O cost.
 pub const MAX_HINT_WINDOW: BlockHeightDelta = 20;
 
-/// Bundle the three components of a `ReceiptToTxInfo` record into a versioned value.
-///
-/// Used by both the bulk backfill path (`backfill_receipt_to_tx::process_height`)
-/// and the live RPC hint-scan resolver. Centralising the constructor avoids
-/// two copies of the variant-selection logic drifting out of sync.
+/// Versioned constructor for `ReceiptToTxInfo`. Used by the RPC hint-scan
+/// resolver (`resolve_receipt_via_hint`) when synthesizing origin info
+/// from chain data on the fly.
 pub fn build_receipt_to_tx_info(
     origin: ReceiptOrigin,
     receiver_account_id: AccountId,
@@ -153,9 +151,7 @@ pub fn resolve_receipt_via_hint(
                 (true, true) => {
                     // warn rather than error so a corrupted outcome row that
                     // recurs across many candidates in a single request doesn't
-                    // flood error-level logging. Operators alert on the
-                    // dedicated `RECEIPT_TO_TX_AMBIGUOUS_OUTCOME_TOTAL` counter
-                    // when they want to be paged on this state.
+                    // flood error-level logging.
                     tracing::warn!(
                         %outcome_id,
                         height,

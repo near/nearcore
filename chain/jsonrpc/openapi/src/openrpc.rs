@@ -1153,7 +1153,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut methods,
         &mut all_schemas,
         "EXPERIMENTAL_receipt_to_tx",
-        "Resolves a receipt ID back to the originating transaction hash and sender account. Optional (block_height, shard_id, window) hint enables a best-effort historical fallback scan when the local ReceiptToTx column is missing the entry.",
+        "Resolves a receipt ID back to the originating transaction hash and sender account",
         false,
         &["receipt", "experimental"],
     );
