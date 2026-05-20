@@ -3534,6 +3534,7 @@ dependencies = [
  "assert_matches",
  "aurora-engine-transactions",
  "aurora-engine-types",
+ "base64 0.21.0",
  "borsh",
  "bytesize 1.1.0",
  "chrono",

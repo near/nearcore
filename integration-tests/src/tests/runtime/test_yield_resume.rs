@@ -168,53 +168,85 @@ fn resume_without_yield() {
     );
 }
 
+#[cfg(feature = "nightly")]
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[cfg(feature = "nightly")]
+fn yield_create_with_id_op(yield_id: &[u8; 32], payload: &[u8], id: i64) -> serde_json::Value {
+    serde_json::json!({
+        "yield_create_with_id": {
+            "method_name": "check_promise_result_return_value",
+            "arguments": b64(payload),
+            "gas": 0,
+            "gas_weight": 1,
+            "yield_id": b64(yield_id),
+        },
+        "id": id,
+    })
+}
+
+#[cfg(feature = "nightly")]
+fn yield_resume_with_yield_id_op(yield_id: &[u8], payload: &[u8], id: i64) -> serde_json::Value {
+    serde_json::json!({
+        "yield_resume_with_yield_id": { "yield_id": b64(yield_id), "payload": b64(payload) },
+        "id": id,
+    })
+}
+
 #[test]
 #[cfg(feature = "nightly")]
 fn create_with_id_then_resume_with_yield_id() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
-    // The test contract derives yield_id from the first 32 bytes of input
-    // (padded with zeros). Use a 16-byte payload so the yield_id is the
-    // 16-byte payload followed by 16 zero bytes.
     let yield_payload = vec![6u8; 16];
-    let mut yield_id = [0u8; 32];
-    yield_id[..16].copy_from_slice(&yield_payload);
-    let key = 123u64.to_le_bytes().to_vec();
+    let yield_id = [9u8; 32];
 
-    // Create the yield using yield_create_with_id
+    // TX1: Create the yield using yield_create_with_id (via call_promise).
+    // Use callback that writes to storage so we can observe execution.
+    let create_args = serde_json::json!([{
+        "yield_create_with_id": {
+            "method_name": "check_promise_result_write_status",
+            "arguments": b64(&yield_payload),
+            "gas": 0,
+            "gas_weight": 1,
+            "yield_id": b64(&yield_id),
+        },
+        "id": 0,
+    }]);
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id",
-            yield_payload.clone(),
+            "call_promise",
+            serde_json::to_vec(&create_args).unwrap(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 
-    // Resume using yield_resume_with_id with the yield_id
-    let args: Vec<u8> = yield_id.iter().copied().chain(yield_payload.iter().copied()).collect();
+    // TX2: Resume using yield_resume_with_yield_id (expect success = 1).
+    let resume_args =
+        serde_json::json!([yield_resume_with_yield_id_op(&yield_id, &yield_payload, 1)]);
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume_with_yield_id",
-            args,
+            "call_promise",
+            serde_json::to_vec(&resume_args).unwrap(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(vec![1u8]),
-        "{res:?} unexpected result; expected 1",
-    );
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 
     // Confirm the yield callback executed
+    let key = 123u64.to_le_bytes().to_vec();
     let res = node
         .user()
         .function_call(
@@ -239,19 +271,36 @@ fn create_with_id_and_resume_with_yield_id_in_one_call() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![23u8; 16];
+    let yield_id = [3u8; 32];
 
+    // Create yield (id=0, with promise_return), then resume in the same call (id=1 = success).
+    let args = serde_json::json!([
+        {
+            "yield_create_with_id": {
+                "method_name": "check_promise_result_return_value",
+                "arguments": b64(&yield_payload),
+                "gas": 0,
+                "gas_weight": 1,
+                "yield_id": b64(&yield_id),
+            },
+            "id": 0,
+            "return": true,
+        },
+        yield_resume_with_yield_id_op(&yield_id, &yield_payload, 1),
+    ]);
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id_and_resume_with_yield_id",
-            yield_payload,
+            "call_promise",
+            serde_json::to_vec(&args).unwrap(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
 
+    // The yield callback returns twice the first byte of the payload (23 * 2 - mod gives 16).
     assert_eq!(
         res.status,
         FinalExecutionStatus::SuccessValue(vec![16u8]),
@@ -264,27 +313,21 @@ fn create_with_id_and_resume_with_yield_id_in_one_call() {
 fn resume_with_yield_id_without_yield() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
-    // yield_id followed by payload
-    let args: Vec<u8> = vec![23u8; 32].into_iter().chain(vec![42u8; 12].into_iter()).collect();
-
+    // Resume with a yield_id that was never created — expect failure (id=0).
+    let args = serde_json::json!([yield_resume_with_yield_id_op(&[23u8; 32], &[42u8; 12], 0)]);
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume_with_yield_id",
-            args,
+            "call_promise",
+            serde_json::to_vec(&args).unwrap(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
 
-    // expect the execution to succeed, but return 'false'
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(vec![0u8]),
-        "{res:?} unexpected result; expected 0",
-    );
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 }
 
 #[test]
@@ -293,25 +336,27 @@ fn create_with_id_duplicate_in_same_call_returns_sentinel() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
+    let yield_id = [5u8; 32];
 
+    // First create returns 0 (first promise idx); second call with same yield_id returns
+    // u64::MAX (-1 as i64) without aborting.
+    let args = serde_json::json!([
+        yield_create_with_id_op(&yield_id, &yield_payload, 0),
+        yield_create_with_id_op(&yield_id, &yield_payload, -1),
+    ]);
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id_duplicate",
-            yield_payload,
+            "call_promise",
+            serde_json::to_vec(&args).unwrap(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
 
-    // The contract returns 1 if the second call returned the duplicate sentinel.
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(vec![1u8]),
-        "{res:?} unexpected result; expected contract to observe duplicate sentinel"
-    );
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 }
 
 #[test]
@@ -319,43 +364,38 @@ fn create_with_id_duplicate_in_same_call_returns_sentinel() {
 fn create_with_id_then_resume_with_yield_id_fails() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
-    // The test contract derives yield_id from the first 32 bytes of input.
     let yield_payload = vec![6u8; 16];
-    let mut yield_id = [0u8; 32];
-    yield_id[..16].copy_from_slice(&yield_payload);
+    let yield_id = [7u8; 32];
 
-    // Create yield with yield_create_with_id
+    // TX1: Create yield with yield_create_with_id.
+    let create_args = serde_json::json!([yield_create_with_id_op(&yield_id, &yield_payload, 0)]);
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id",
-            yield_payload.clone(),
+            "call_promise",
+            serde_json::to_vec(&create_args).unwrap(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 
-    // Try to resume using yield_id as data_id (call_yield_resume expects
-    // payload followed by data_id at the end, so we pass yield_id where
-    // data_id should be).
-    let args: Vec<u8> = yield_payload.into_iter().chain(yield_id.into_iter()).collect();
+    // TX2: Try to resume using yield_id with the OLD yield_resume (data_id flavor).
+    // The yield_id is not a valid data_id, so resume returns 0 (false).
+    let resume_args: Vec<u8> = yield_payload.into_iter().chain(yield_id.into_iter()).collect();
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
             "call_yield_resume",
-            args,
+            resume_args,
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
-
-    // Resume should succeed at the host level but return 0 (false) since the
-    // yield_id is not the runtime-generated data_id.
     assert_eq!(
         res.status,
         FinalExecutionStatus::SuccessValue(vec![0u8]),
@@ -370,7 +410,7 @@ fn create_then_resume_with_yield_id_fails() {
 
     let yield_payload = vec![6u8; 16];
 
-    // Create yield with the original yield_create (no yield_id mapping is stored)
+    // TX1: Create yield with the original yield_create (no yield_id mapping stored).
     let res = node
         .user()
         .function_call(
@@ -387,24 +427,19 @@ fn create_then_resume_with_yield_id_fails() {
         _ => panic!("{res:?} unexpected result"),
     };
 
-    // Try to resume with yield_resume_with_id using the data_id as a yield_id.
-    // Since no yield_id mapping exists for this data_id, this should return 0 (false).
-    let args: Vec<u8> = data_id.into_iter().chain(yield_payload.into_iter()).collect();
+    // TX2: Try resuming with yield_resume_with_yield_id using the data_id as a yield_id.
+    // No yield_id mapping exists for this data_id → returns 0 (failure).
+    let args = serde_json::json!([yield_resume_with_yield_id_op(&data_id, &yield_payload, 0)]);
     let res = node
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume_with_yield_id",
-            args,
+            "call_promise",
+            serde_json::to_vec(&args).unwrap(),
             MAX_GAS,
             Balance::ZERO,
         )
         .unwrap();
-
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(vec![0u8]),
-        "{res:?} unexpected result; expected 0",
-    );
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 }
