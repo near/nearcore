@@ -58,10 +58,14 @@ class TestWasmCandidate(TestSetup):
         self.stress_signers = [
             ("astro-stakers.poolv1.near", None, None),
         ]
-        self.tps = 1  # set the number of contract deploy actions per signer per second.
+        # Per-signer deploys-per-second for the stress-test script. Default
+        # and validation live on the `start` subparser; getattr keeps this
+        # safe for create/destroy subcommands that don't define --tps.
+        self.tps = getattr(args, 'tps', 1.0)
         # Value passed via --contract to the stress-test script. When None
         # the flag is omitted and the script uses its built-in default.
-        self.contract = None
+        # CLI --contract overrides; otherwise None.
+        self.contract = getattr(args, 'contract', None)
 
     def amend_epoch_config(self):
         """
@@ -194,8 +198,12 @@ class TestWasmCandidate(TestSetup):
             extra_flags.append(f"--signer {shlex.quote(csv)}")
         if self.contract:
             extra_flags.append(f"--contract {shlex.quote(self.contract)}")
-        if self.tps:
-            extra_flags.append(f"--tps {shlex.quote(str(self.tps))}")
+        extra_flags.append(f"--tps {shlex.quote(str(self.tps))}")
+
+        # Scale workers with TPS so the per-signer queue (size = 2*concurrency)
+        # has ~2s of slack before the ticker starts dropping.
+        max_concurrency = 16
+        concurrency = int(min(max(4, self.tps * 2), max_concurrency))
 
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = "traffic"
@@ -203,7 +211,7 @@ class TestWasmCandidate(TestSetup):
             "cd /home/ubuntu/nearcore "
             "&& /home/ubuntu/.near/target/neard-runner/venv/bin/python pytest/tests/mocknet/wasm_stress_test.py "
             "--rpc-url http://localhost:3030 "
-            "--concurrency 5 " + " ".join(extra_flags))
+            f"--concurrency {concurrency} " + " ".join(extra_flags))
         run_cmd_args.on = ScheduleMode(mode="calendar",
                                        value=time_to_str(run_at))
         run_cmd_args.schedule_id = schedule_id
