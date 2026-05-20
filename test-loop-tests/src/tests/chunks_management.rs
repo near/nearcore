@@ -77,9 +77,9 @@ impl Test {
             .clients(accounts)
             .epoch_config_store(epoch_config_store)
             .config_modifier(move |config, _| {
-                config.min_block_production_delay = self.block_timeout;
-                config.max_block_production_delay = 3 * self.block_timeout;
-                config.max_block_wait_delay = 3 * self.block_timeout;
+                config.min_block_production_delay.update(self.block_timeout);
+                config.max_block_production_delay.update(3 * self.block_timeout);
+                config.max_block_wait_delay.update(3 * self.block_timeout);
                 config.chunk_distribution_network = chunk_distribution_config.clone();
             })
             .build();

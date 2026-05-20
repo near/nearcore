@@ -209,6 +209,23 @@ impl Client {
             .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated |= self
+            .config
+            .block_production_tracking_delay
+            .update(update_client_config.block_production_tracking_delay);
+        is_updated |= self
+            .config
+            .min_block_production_delay
+            .update(update_client_config.min_block_production_delay);
+        is_updated |= self
+            .config
+            .max_block_production_delay
+            .update(update_client_config.max_block_production_delay);
+        is_updated |=
+            self.config.max_block_wait_delay.update(update_client_config.max_block_wait_delay);
+        is_updated |= self.config.chunk_wait_mult.update(update_client_config.chunk_wait_mult);
+        is_updated |=
+            self.config.doomslug_step_period.update(update_client_config.doomslug_step_period);
         is_updated
     }
 
@@ -404,18 +421,16 @@ impl Client {
         let doomslug = Doomslug::new(
             clock.clone(),
             chain.chain_store().largest_target_height(),
-            config.min_block_production_delay,
-            config.max_block_production_delay,
-            config.max_block_production_delay / 10,
-            config.max_block_wait_delay,
-            config.chunk_wait_mult,
+            config.min_block_production_delay.clone(),
+            config.max_block_production_delay.clone(),
+            config.max_block_wait_delay.clone(),
+            config.chunk_wait_mult.clone(),
             doomslug_threshold_mode,
         );
         let spice_timer = SpiceTimer::new(
             clock.clone(),
-            config.min_block_production_delay,
-            config.max_block_production_delay,
-            (config.max_block_production_delay - config.min_block_production_delay) / 10,
+            config.min_block_production_delay.clone(),
+            config.max_block_production_delay.clone(),
         );
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
@@ -1730,9 +1745,10 @@ impl Client {
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
     pub fn sandbox_delta_time(&self) -> Duration {
-        let avg_block_prod_time = (self.config.min_block_production_delay.whole_nanoseconds()
-            + self.config.max_block_production_delay.whole_nanoseconds())
-            / 2;
+        let avg_block_prod_time =
+            (self.config.min_block_production_delay.get().whole_nanoseconds()
+                + self.config.max_block_production_delay.get().whole_nanoseconds())
+                / 2;
 
         let ns = (self.accrued_fastforward_delta as i128 * avg_block_prod_time)
             .try_into()

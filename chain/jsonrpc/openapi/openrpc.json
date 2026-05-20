@@ -7902,15 +7902,12 @@
             "type": "integer"
           },
           "block_production_tracking_delay": {
-            "description": "Duration to check for producing / skipping block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Duration to check for producing / skipping block."
           },
           "catchup_step_period": {
             "description": "Time between check to perform catchup.",
@@ -7956,14 +7953,12 @@
             "type": "integer"
           },
           "chunk_wait_mult": {
-            "description": "Multiplier for the wait time for all chunks to be received.",
-            "items": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
             "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
@@ -8005,15 +8000,12 @@
             "type": "boolean"
           },
           "doomslug_step_period": {
-            "description": "Time between running doomslug timer.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Time between running doomslug timer."
           },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
@@ -8115,26 +8107,20 @@
             "description": "Enable coloring of the logs"
           },
           "max_block_production_delay": {
-            "description": "Maximum wait for approvals before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum wait for approvals before producing block."
           },
           "max_block_wait_delay": {
-            "description": "Maximum duration before skipping given height.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum duration before skipping given height."
           },
           "max_gas_burnt_view": {
             "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain.",
@@ -8148,15 +8134,12 @@
             ]
           },
           "min_block_production_delay": {
-            "description": "Minimum duration before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Minimum duration before producing block."
           },
           "min_num_peers": {
             "description": "Minimum number of peers to start syncing.",

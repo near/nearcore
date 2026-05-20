@@ -715,11 +715,26 @@ impl NearConfig {
                     config.expected_shutdown,
                     "expected_shutdown",
                 ),
-                block_production_tracking_delay: config.consensus.block_production_tracking_delay,
-                min_block_production_delay: config.consensus.min_block_production_delay,
-                max_block_production_delay: config.consensus.max_block_production_delay,
-                max_block_wait_delay: config.consensus.max_block_wait_delay,
-                chunk_wait_mult: config.consensus.chunk_wait_mult,
+                block_production_tracking_delay: MutableConfigValue::new(
+                    config.consensus.block_production_tracking_delay,
+                    "block_production_tracking_delay",
+                ),
+                min_block_production_delay: MutableConfigValue::new(
+                    config.consensus.min_block_production_delay,
+                    "min_block_production_delay",
+                ),
+                max_block_production_delay: MutableConfigValue::new(
+                    config.consensus.max_block_production_delay,
+                    "max_block_production_delay",
+                ),
+                max_block_wait_delay: MutableConfigValue::new(
+                    config.consensus.max_block_wait_delay,
+                    "max_block_wait_delay",
+                ),
+                chunk_wait_mult: MutableConfigValue::new(
+                    config.consensus.chunk_wait_mult,
+                    "chunk_wait_mult",
+                ),
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
@@ -744,7 +759,10 @@ impl NearConfig {
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
-                doomslug_step_period: config.consensus.doomslug_step_period,
+                doomslug_step_period: MutableConfigValue::new(
+                    config.consensus.doomslug_step_period,
+                    "doomslug_step_period",
+                ),
                 tracked_shards_config: config.tracked_shards_config(),
                 state_sync: config.state_sync_config(),
                 archive: config.archive,

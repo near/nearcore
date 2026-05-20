@@ -654,6 +654,6 @@ impl<'a> NodeRunner<'a> {
     }
 
     fn calculate_block_distance_timeout(&self, num_blocks: usize) -> Duration {
-        self.client().config.max_block_production_delay * (num_blocks as u32 + 1)
+        self.client().config.max_block_production_delay.get() * (num_blocks as u32 + 1)
     }
 }
