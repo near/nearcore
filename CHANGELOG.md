@@ -8,6 +8,7 @@
 
 ### Non-protocol Changes
 * Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `after_key_base64` and `limit`, and the response returns `last_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
+* `tx_status` and `EXPERIMENTAL_tx_status` now report when a transaction was dropped (mempool full) or expired before inclusion, instead of returning a generic unknown. Two new error variants surface in those cases: `MEMPOOL_IS_FULL` and `TRANSACTION_EXPIRED`. Only the node that handled submission has this information. ([#15781](https://github.com/near/nearcore/pull/15781))
 
 ## [2.12.0]
 
