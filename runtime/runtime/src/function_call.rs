@@ -331,10 +331,16 @@ pub(crate) fn execute_function_call(
             return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
         Err(VMRunnerError::Nondeterministic(msg)) => {
-            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+            tracing::error!(target: "runtime", "contract runner returned non-deterministic error '{}'", msg);
+            debug_assert!(false, "contract runner returned non-deterministic error '{}'", msg);
+            let msg = format!("non-deterministic error: {}", msg);
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
         Err(VMRunnerError::WasmUnknownError { debug_message }) => {
-            panic!("Wasmer returned unknown message: {}", debug_message)
+            tracing::error!(target: "runtime", "wasm unknown error: {}", debug_message);
+            debug_assert!(false, "wasm unknown error: {}", debug_message);
+            let msg = format!("wasm unknown error: {}", debug_message);
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
         Ok(r) => r,
     };
