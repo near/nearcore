@@ -221,7 +221,7 @@ async fn tx_status_reports_dropped_transaction() {
         block_hash,
     );
     let tx_hash = transaction.get_hash();
-    actor_handles.transaction_tracker.lock().record_dropped_mempool_full(tx_hash);
+    actor_handles.tx_fate_cache.lock().record_dropped_mempool_full(tx_hash);
 
     let res = actor_handles
         .view_client_actor
@@ -272,7 +272,7 @@ async fn tx_status_reports_pending_transaction() {
         block_hash,
     );
     let tx_hash = transaction.get_hash();
-    actor_handles.transaction_tracker.lock().record_pending(tx_hash, block_hash);
+    actor_handles.tx_fate_cache.lock().record_pending(tx_hash, block_hash);
 
     let res = actor_handles
         .view_client_actor

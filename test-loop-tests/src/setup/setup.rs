@@ -22,7 +22,7 @@ use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ClientActor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
-use near_client::recent_transaction_tracker::RecentTransactionTracker;
+use near_client::recent_tx_fate_cache::RecentTxFateCache;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
@@ -232,7 +232,7 @@ pub fn setup_client(
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
         };
-    let transaction_tracker = Arc::new(Mutex::new(RecentTransactionTracker::new()));
+    let tx_fate_cache = Arc::new(Mutex::new(RecentTxFateCache::new()));
     let view_client_actor = ViewClientActor::new(
         test_loop.clock(),
         chain_genesis.clone(),
@@ -243,7 +243,7 @@ pub fn setup_client(
         client_config.clone(),
         near_client::adversarial::Controls::default(),
         validator_signer.clone(),
-        transaction_tracker.clone(),
+        tx_fate_cache.clone(),
     )
     .unwrap();
     let state_request_actor = StateRequestActor::new(
@@ -344,7 +344,7 @@ pub fn setup_client(
         rpc_handler_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
         client_actor.client.chunk_producer.pending_transaction_queue.clone(),
-        transaction_tracker.clone(),
+        tx_fate_cache.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),
@@ -608,7 +608,7 @@ pub fn setup_client(
         cloud_archival_writer_handle,
         jsonrpc_transport,
         sharded_rpc_pool,
-        transaction_tracker,
+        tx_fate_cache,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
         pending_nonces: Default::default(),
     };

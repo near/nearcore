@@ -22,7 +22,7 @@ fn tx_status_reports_expired_for_pending_past_validity_window() {
     let signer_account_id = env.node_datas[0].account_id.clone();
 
     let tx_hash = hash(b"never-submitted-tx");
-    env.node_datas[0].transaction_tracker.lock().record_pending(tx_hash, base_block_hash);
+    env.node_datas[0].tx_fate_cache.lock().record_pending(tx_hash, base_block_hash);
 
     env.validator_runner().run_until_head_height(start_height + validity_period + 2);
 

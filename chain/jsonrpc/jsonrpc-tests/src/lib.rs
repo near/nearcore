@@ -10,7 +10,7 @@ use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::recent_transaction_tracker::RecentTransactionTracker;
+use near_client::recent_tx_fate_cache::RecentTxFateCache;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
@@ -137,7 +137,7 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
-    let transaction_tracker = Arc::new(Mutex::new(RecentTransactionTracker::new()));
+    let tx_fate_cache = Arc::new(Mutex::new(RecentTxFateCache::new()));
     let view_client_actor = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
@@ -149,7 +149,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         client_config.clone(),
         adv.clone(),
         signer.clone(),
-        transaction_tracker.clone(),
+        tx_fate_cache.clone(),
     );
 
     // 7. Create ClientActor
@@ -281,7 +281,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         rpc_handler_config,
         client_result.tx_pool,
         client_result.pending_transaction_queue,
-        transaction_tracker,
+        tx_fate_cache,
         epoch_manager,
         shard_tracker.clone(),
         signer,

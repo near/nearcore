@@ -15,7 +15,7 @@ use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::recent_transaction_tracker::RecentTransactionTracker;
+use near_client::recent_tx_fate_cache::RecentTxFateCache;
 use near_client::spice::chunk_executor_actor::ChunkExecutorConfig;
 use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::{ChunkValidationActor, Client};
@@ -607,7 +607,7 @@ impl TestEnvBuilder {
                     shard_trackers[i].clone(),
                     runtimes[i].clone(),
                     network_adapters[i].clone().as_multi_sender(),
-                    Arc::new(Mutex::new(RecentTransactionTracker::new())),
+                    Arc::new(Mutex::new(RecentTxFateCache::new())),
                 )
             })
             .collect();

@@ -1,6 +1,6 @@
 use crate::metrics;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
-use crate::recent_transaction_tracker::RecentTransactionTracker;
+use crate::recent_tx_fate_cache::RecentTxFateCache;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -56,7 +56,7 @@ pub fn spawn_rpc_handler_actor(
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
-    transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
+    tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
@@ -67,7 +67,7 @@ pub fn spawn_rpc_handler_actor(
         config.clone(),
         tx_pool,
         pending_transaction_queue,
-        transaction_tracker,
+        tx_fate_cache,
         epoch_manager,
         shard_tracker,
         validator_signer,
@@ -97,7 +97,7 @@ pub struct RpcHandlerActor {
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
-    transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
+    tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -112,7 +112,7 @@ impl RpcHandlerActor {
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
         pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
-        transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
+        tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
@@ -125,7 +125,7 @@ impl RpcHandlerActor {
             config,
             tx_pool,
             pending_transaction_queue,
-            transaction_tracker,
+            tx_fate_cache,
             validator_signer,
             chain_store,
             epoch_manager,
@@ -338,11 +338,11 @@ impl RpcHandlerActor {
     }
 
     fn record_tx_pending(&self, tx_hash: CryptoHash, base_block_hash: CryptoHash) {
-        self.transaction_tracker.lock().record_pending(tx_hash, base_block_hash);
+        self.tx_fate_cache.lock().record_pending(tx_hash, base_block_hash);
     }
 
     fn record_tx_dropped_mempool_full(&self, tx_hash: CryptoHash) {
-        self.transaction_tracker.lock().record_dropped_mempool_full(tx_hash);
+        self.tx_fate_cache.lock().record_dropped_mempool_full(tx_hash);
     }
 
     /// Forwards given transaction to upcoming validators.

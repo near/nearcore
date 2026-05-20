@@ -27,7 +27,7 @@ use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::client_actor::{ClientActor, SpiceClientConfig};
-use near_client::recent_transaction_tracker::RecentTransactionTracker;
+use near_client::recent_tx_fate_cache::RecentTxFateCache;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActor, ChunkValidationSender,
     ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor,
@@ -87,7 +87,7 @@ fn setup(
     MultithreadRuntimeHandle<ChunkEndorsementHandlerActor>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
-    Arc<Mutex<RecentTransactionTracker>>,
+    Arc<Mutex<RecentTxFateCache>>,
     tempfile::TempDir,
 ) {
     let store = create_test_store();
@@ -160,7 +160,7 @@ fn setup(
 
     let adv = Controls::default();
 
-    let transaction_tracker = Arc::new(Mutex::new(RecentTransactionTracker::new()));
+    let tx_fate_cache = Arc::new(Mutex::new(RecentTxFateCache::new()));
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         clock.clone(),
         actor_system.clone(),
@@ -172,7 +172,7 @@ fn setup(
         config.clone(),
         adv.clone(),
         signer.clone(),
-        transaction_tracker.clone(),
+        tx_fate_cache.clone(),
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
@@ -255,7 +255,7 @@ fn setup(
         rpc_handler_config,
         tx_pool,
         pending_transaction_queue,
-        transaction_tracker.clone(),
+        tx_fate_cache.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         signer,
@@ -291,7 +291,7 @@ fn setup(
         chunk_endorsement_handler_addr,
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
-        transaction_tracker,
+        tx_fate_cache,
         tempdir,
     )
 }
@@ -348,7 +348,7 @@ fn setup_mock_with_validity_period(
         chunk_endorsement_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
-        transaction_tracker,
+        tx_fate_cache,
         runtime_tempdir,
     ) = setup(
         clock.clone(),
@@ -377,7 +377,7 @@ fn setup_mock_with_validity_period(
         rpc_handler_actor: rpc_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
-        transaction_tracker,
+        tx_fate_cache,
         runtime_tempdir: Some(runtime_tempdir.into()),
     }
 }
@@ -389,7 +389,7 @@ pub struct ActorHandlesForTesting {
     pub rpc_handler_actor: MultithreadRuntimeHandle<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
-    pub transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
+    pub tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
     // If testing something with runtime that needs runtime home dir users should make sure that
     // this TempDir isn't dropped before test finishes, but is dropped after to avoid leaking temp
     // dirs.
@@ -611,7 +611,7 @@ pub fn setup_tx_request_handler(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-    transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
+    tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
 ) -> RpcHandlerActor {
     let client_config = ClientConfig::test(TestClientConfigParams {
         skip_sync_wait: true,
@@ -635,7 +635,7 @@ pub fn setup_tx_request_handler(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
         client.chunk_producer.pending_transaction_queue.clone(),
-        transaction_tracker,
+        tx_fate_cache,
         epoch_manager,
         shard_tracker,
         client.validator_signer.clone(),

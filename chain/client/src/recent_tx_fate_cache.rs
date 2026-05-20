@@ -14,19 +14,19 @@ pub const DEFAULT_PENDING_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100_000).
 pub const DEFAULT_DROPPED_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(10_000).unwrap();
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TransactionStatus {
+pub enum TransactionFate {
     Pending { base_block_hash: CryptoHash },
     DroppedMempoolFull,
     Unknown,
 }
 
 #[derive(Debug)]
-pub struct RecentTransactionTracker {
+pub struct RecentTxFateCache {
     pending: LruCache<CryptoHash, CryptoHash>,
     dropped: LruCache<CryptoHash, ()>,
 }
 
-impl RecentTransactionTracker {
+impl RecentTxFateCache {
     pub fn new() -> Self {
         Self::with_capacities(DEFAULT_PENDING_CACHE_SIZE, DEFAULT_DROPPED_CACHE_SIZE)
     }
@@ -45,14 +45,14 @@ impl RecentTransactionTracker {
         self.dropped.put(tx_hash, ());
     }
 
-    pub fn status(&mut self, tx_hash: &CryptoHash) -> TransactionStatus {
+    pub fn fate(&mut self, tx_hash: &CryptoHash) -> TransactionFate {
         if self.dropped.get(tx_hash).is_some() {
-            return TransactionStatus::DroppedMempoolFull;
+            return TransactionFate::DroppedMempoolFull;
         }
         if let Some(&base_block_hash) = self.pending.get(tx_hash) {
-            return TransactionStatus::Pending { base_block_hash };
+            return TransactionFate::Pending { base_block_hash };
         }
-        TransactionStatus::Unknown
+        TransactionFate::Unknown
     }
 
     #[cfg(test)]
@@ -62,7 +62,7 @@ impl RecentTransactionTracker {
     }
 }
 
-impl Default for RecentTransactionTracker {
+impl Default for RecentTxFateCache {
     fn default() -> Self {
         Self::new()
     }
@@ -73,7 +73,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use std::num::NonZeroUsize;
 
-    use super::{RecentTransactionTracker, TransactionStatus};
+    use super::{RecentTxFateCache, TransactionFate};
 
     fn hash(n: u8) -> CryptoHash {
         let mut bytes = [0u8; 32];
@@ -87,84 +87,84 @@ mod tests {
 
     #[test]
     fn pending_lookup_returns_base_block_hash() {
-        let mut tracker = RecentTransactionTracker::new();
+        let mut cache = RecentTxFateCache::new();
         let tx = hash(1);
         let base = hash(2);
-        tracker.record_pending(tx, base);
-        assert_eq!(tracker.status(&tx), TransactionStatus::Pending { base_block_hash: base });
+        cache.record_pending(tx, base);
+        assert_eq!(cache.fate(&tx), TransactionFate::Pending { base_block_hash: base });
     }
 
     #[test]
     fn dropped_lookup_returns_dropped() {
-        let mut tracker = RecentTransactionTracker::new();
+        let mut cache = RecentTxFateCache::new();
         let tx = hash(1);
-        tracker.record_dropped_mempool_full(tx);
-        assert_eq!(tracker.status(&tx), TransactionStatus::DroppedMempoolFull);
+        cache.record_dropped_mempool_full(tx);
+        assert_eq!(cache.fate(&tx), TransactionFate::DroppedMempoolFull);
     }
 
     #[test]
     fn unknown_tx_returns_unknown() {
-        let mut tracker = RecentTransactionTracker::new();
-        assert_eq!(tracker.status(&hash(42)), TransactionStatus::Unknown);
+        let mut cache = RecentTxFateCache::new();
+        assert_eq!(cache.fate(&hash(42)), TransactionFate::Unknown);
     }
 
     #[test]
     fn lru_eviction_pending() {
         let cap = 3;
-        let mut tracker = RecentTransactionTracker::with_capacities(nz(cap), nz(1));
+        let mut cache = RecentTxFateCache::with_capacities(nz(cap), nz(1));
         let base = hash(0);
         for i in 1..=(cap + 1) as u8 {
-            tracker.record_pending(hash(i), base);
+            cache.record_pending(hash(i), base);
         }
-        assert_eq!(tracker.status(&hash(1)), TransactionStatus::Unknown);
-        assert_eq!(tracker.status(&hash(4)), TransactionStatus::Pending { base_block_hash: base });
+        assert_eq!(cache.fate(&hash(1)), TransactionFate::Unknown);
+        assert_eq!(cache.fate(&hash(4)), TransactionFate::Pending { base_block_hash: base });
     }
 
     #[test]
     fn lru_eviction_dropped() {
         let cap = 3;
-        let mut tracker = RecentTransactionTracker::with_capacities(nz(1), nz(cap));
+        let mut cache = RecentTxFateCache::with_capacities(nz(1), nz(cap));
         for i in 1..=(cap + 1) as u8 {
-            tracker.record_dropped_mempool_full(hash(i));
+            cache.record_dropped_mempool_full(hash(i));
         }
-        assert_eq!(tracker.status(&hash(1)), TransactionStatus::Unknown);
-        assert_eq!(tracker.status(&hash(4)), TransactionStatus::DroppedMempoolFull);
+        assert_eq!(cache.fate(&hash(1)), TransactionFate::Unknown);
+        assert_eq!(cache.fate(&hash(4)), TransactionFate::DroppedMempoolFull);
     }
 
     #[test]
     fn pending_then_dropped_ends_in_dropped_only() {
-        let mut tracker = RecentTransactionTracker::new();
+        let mut cache = RecentTxFateCache::new();
         let tx = hash(1);
         let base = hash(2);
-        tracker.record_pending(tx, base);
-        tracker.record_dropped_mempool_full(tx);
-        assert_eq!(tracker.status(&tx), TransactionStatus::DroppedMempoolFull);
+        cache.record_pending(tx, base);
+        cache.record_dropped_mempool_full(tx);
+        assert_eq!(cache.fate(&tx), TransactionFate::DroppedMempoolFull);
     }
 
     #[test]
     fn dropped_then_pending_ends_in_pending_only() {
-        let mut tracker = RecentTransactionTracker::new();
+        let mut cache = RecentTxFateCache::new();
         let tx = hash(1);
         let base = hash(2);
-        tracker.record_dropped_mempool_full(tx);
-        tracker.record_pending(tx, base);
-        assert_eq!(tracker.status(&tx), TransactionStatus::Pending { base_block_hash: base });
+        cache.record_dropped_mempool_full(tx);
+        cache.record_pending(tx, base);
+        assert_eq!(cache.fate(&tx), TransactionFate::Pending { base_block_hash: base });
     }
 
     #[test]
     fn record_absent_from_other_cache_is_noop() {
-        let mut tracker = RecentTransactionTracker::new();
-        tracker.record_pending(hash(1), hash(2));
-        tracker.record_dropped_mempool_full(hash(99));
-        tracker.record_dropped_mempool_full(hash(3));
-        tracker.record_pending(hash(98), hash(0));
+        let mut cache = RecentTxFateCache::new();
+        cache.record_pending(hash(1), hash(2));
+        cache.record_dropped_mempool_full(hash(99));
+        cache.record_dropped_mempool_full(hash(3));
+        cache.record_pending(hash(98), hash(0));
     }
 
     #[test]
     fn dropped_checked_before_pending() {
-        let mut tracker = RecentTransactionTracker::new();
+        let mut cache = RecentTxFateCache::new();
         let tx = hash(1);
-        tracker.force_both_for_test(tx, hash(2));
-        assert_eq!(tracker.status(&tx), TransactionStatus::DroppedMempoolFull);
+        cache.force_both_for_test(tx, hash(2));
+        assert_eq!(cache.fate(&tx), TransactionFate::DroppedMempoolFull);
     }
 }
