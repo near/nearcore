@@ -21,6 +21,7 @@ use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerAdapter;
 use near_network::types::PeerManagerMessageRequest;
 use near_pool::InsertTransactionResult;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -95,7 +96,8 @@ pub struct RpcHandlerActor {
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
-    /// Lock order: never take this while `tx_pool` is held.
+    /// Lock order: never take this while `tx_pool` is held. Access goes through
+    /// `record_tx_pending` and `record_tx_dropped_mempool_full` so the convention stays visible.
     transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
 
     chain_store: ChainStoreAdapter,
@@ -201,14 +203,6 @@ impl RpcHandlerActor {
         let shard_uid = shard_layout.account_id_to_shard_uid(signed_tx.transaction.signer_id());
         let shard_id = shard_uid.shard_id();
 
-        // Record before any forwarding/inclusion decision so `tx_status` can distinguish
-        // "still waiting" from "never seen". Skip `check_only`: it doesn't handle the tx.
-        if !check_only {
-            self.transaction_tracker
-                .lock()
-                .record_pending(signed_tx.get_hash(), *signed_tx.transaction.block_hash());
-        }
-
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
             // TODO(spice): get_last_certified_block_header does multiple DB reads per
@@ -270,6 +264,10 @@ impl RpcHandlerActor {
             if check_only {
                 return Ok(ProcessTxResponse::ValidTx);
             }
+            // Validation passed and this node is committing to handle the tx (insert or forward),
+            // so `tx_status` can distinguish "still waiting" from "never seen". The pool-full
+            // branch below downgrades this to `Dropped*` before returning.
+            self.record_tx_pending(signed_tx.get_hash(), *signed_tx.transaction.block_hash());
             // Transactions only need to be recorded if this node is a chunk producer for the transaction's shard.
             if self.is_chunk_producer_for_transaction(&head, signed_tx.transaction.signer_id())? {
                 // Tracker lock must not be taken while the pool lock is held. Record the
@@ -296,7 +294,7 @@ impl RpcHandlerActor {
                     }
                 }
                 if dropped {
-                    self.transaction_tracker.lock().record_dropped(signed_tx.get_hash());
+                    self.record_tx_dropped_mempool_full(signed_tx.get_hash());
                     return Ok(ProcessTxResponse::MempoolFull);
                 }
             }
@@ -341,6 +339,16 @@ impl RpcHandlerActor {
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
         self.forward_tx(&epoch_id, signed_tx).map(|()| ProcessTxResponse::RequestRouted)
+    }
+
+    /// Tracker lock helper. Caller must not hold `self.tx_pool` (see field doc).
+    fn record_tx_pending(&self, tx_hash: CryptoHash, base_block_hash: CryptoHash) {
+        self.transaction_tracker.lock().record_pending(tx_hash, base_block_hash);
+    }
+
+    /// Tracker lock helper. Caller must not hold `self.tx_pool` (see field doc).
+    fn record_tx_dropped_mempool_full(&self, tx_hash: CryptoHash) {
+        self.transaction_tracker.lock().record_dropped_mempool_full(tx_hash);
     }
 
     /// Forwards given transaction to upcoming validators.

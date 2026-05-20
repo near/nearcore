@@ -634,7 +634,7 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
-    Dropped,
+    DroppedMempoolFull,
     Expired(CryptoHash),
     InternalError(String),
     TimeoutError,
@@ -797,7 +797,7 @@ impl From<TxStatusError> for GetExecutionOutcomeError {
             }
             // Enumerated so adding a `TxStatusError` variant forces a decision here.
             TxStatusError::MissingTransaction(_)
-            | TxStatusError::Dropped
+            | TxStatusError::DroppedMempoolFull
             | TxStatusError::Expired(_)
             | TxStatusError::InternalError(_)
             | TxStatusError::TimeoutError => {

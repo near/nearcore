@@ -45,7 +45,7 @@ impl From<near_client::TxStatusError> for ErrorKind {
             near_client::TxStatusError::MissingTransaction(err) => {
                 Self::NotFound(format!("Transaction is missing: {:?}", err))
             }
-            near_client::TxStatusError::Dropped => {
+            near_client::TxStatusError::DroppedMempoolFull => {
                 Self::NotFound("Transaction was dropped because the mempool was full".to_string())
             }
             near_client::TxStatusError::Expired(hash) => {

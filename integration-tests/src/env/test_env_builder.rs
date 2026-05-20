@@ -17,7 +17,8 @@ use near_chain_configs::{
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::chunk_executor_actor::ChunkExecutorConfig;
 use near_client::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
-use near_client::{ChunkValidationActor, Client, RecentTransactionTracker};
+use near_client::recent_transaction_tracker::RecentTransactionTracker;
+use near_client::{ChunkValidationActor, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;

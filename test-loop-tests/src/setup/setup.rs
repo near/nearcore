@@ -23,13 +23,13 @@ use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig}
 use near_client::client_actor::ClientActor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
+use near_client::recent_transaction_tracker::RecentTransactionTracker;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
-    RecentTransactionTracker, RpcHandlerActor, RpcHandlerConfig, StateRequestActor,
-    ViewClientActor,
+    RpcHandlerActor, RpcHandlerConfig, StateRequestActor, ViewClientActor,
 };
 use near_client::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,

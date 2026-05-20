@@ -7,10 +7,8 @@ use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{
-    RecentTransactionTracker, RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor,
-    start_client,
-};
+use near_client::recent_transaction_tracker::RecentTransactionTracker;
+use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;

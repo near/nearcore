@@ -11,10 +11,11 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
+use near_client::recent_transaction_tracker::RecentTransactionTracker;
 use near_client::{ChunkValidationActor, spawn_chunk_endorsement_handler_actor};
 use near_client::{
-    PartialWitnessActor, RecentTransactionTracker, RpcHandlerConfig, StartClientResult,
-    StateRequestActor, ViewClientActor, spawn_rpc_handler_actor, start_client,
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;

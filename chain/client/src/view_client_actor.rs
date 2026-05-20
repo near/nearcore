@@ -703,7 +703,9 @@ impl ViewClientActor {
                         // scrutinee temporary would hold the lock across chain-store I/O below.
                         let tracker_status = self.transaction_tracker.lock().status(&tx_hash);
                         match tracker_status {
-                            TransactionStatus::Dropped => Err(TxStatusError::Dropped),
+                            TransactionStatus::DroppedMempoolFull => {
+                                Err(TxStatusError::DroppedMempoolFull)
+                            }
                             TransactionStatus::Pending(base_block_hash) => {
                                 let head_block = self.chain.get_block(&head.last_block_hash)?;
                                 match self.chain.chain_store().check_transaction_validity_period(
