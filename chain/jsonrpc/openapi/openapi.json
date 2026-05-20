@@ -15040,8 +15040,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -15369,8 +15388,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -15698,8 +15736,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -18861,9 +18918,30 @@
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
           },
+          "after_key_base64": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "default": null
+          },
           "include_proof": {
             "default": false,
             "type": "boolean"
+          },
+          "limit": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
           },
           "prefix_base64": {
             "$ref": "#/components/schemas/StoreKey"
@@ -18886,6 +18964,19 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
           },
           "proof": {
             "items": {
@@ -20937,6 +21028,19 @@
       "ViewStateResult": {
         "description": "Resulting state values for a view state query request",
         "properties": {
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
           "proof": {
             "items": {
               "type": "string"

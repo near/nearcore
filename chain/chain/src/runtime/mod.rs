@@ -66,6 +66,7 @@ use node_runtime::{
     verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1363,13 +1364,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewState { account_id, prefix, include_proof } => {
+            QueryRequest::ViewState { account_id, prefix, after_key, limit, include_proof } => {
                 let view_state_result = self
                     .view_state(
                         &shard_uid,
                         *state_root,
                         account_id,
                         prefix.as_ref(),
+                        after_key.as_ref().map(|k| k.as_ref()),
+                        *limit,
                         *include_proof,
                     )
                     .map_err(|err| {
@@ -1865,10 +1868,19 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
+        after_key: Option<&[u8]>,
+        limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_state(&state_update, account_id, prefix, include_proof)
+        self.trie_viewer.view_state(
+            &state_update,
+            account_id,
+            prefix,
+            after_key,
+            limit,
+            include_proof,
+        )
     }
 
     fn view_global_contract_code(

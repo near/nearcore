@@ -10046,12 +10046,32 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "block_id": {
                 "$ref": "#/components/schemas/BlockId"
               },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10070,12 +10090,32 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "finality": {
                 "$ref": "#/components/schemas/Finality"
               },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10094,9 +10134,29 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10127,6 +10187,16 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "last_key": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "proof": {
             "items": {
@@ -13489,6 +13559,21 @@
           }
         },
         {
+          "name": "after_key_base64",
+          "required": false,
+          "schema": {
+            "default": null,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "block_id",
           "required": false,
           "schema": {
@@ -13508,6 +13593,19 @@
           "schema": {
             "default": false,
             "type": "boolean"
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         {
