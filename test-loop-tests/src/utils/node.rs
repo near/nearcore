@@ -160,6 +160,21 @@ impl<'a> TestLoopNode<'a> {
         Ok(access_key_view)
     }
 
+    pub fn view_gas_key_nonces_query(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Vec<Nonce>, QueryError> {
+        let response = self.runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+        })?;
+        let QueryResponseKind::GasKeyNonces(view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(view.nonces)
+    }
+
     pub fn query_balance(&self, account_id: &AccountId) -> Balance {
         self.view_account_query(account_id).unwrap().amount
     }

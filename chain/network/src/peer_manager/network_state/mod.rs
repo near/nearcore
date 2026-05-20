@@ -888,10 +888,20 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitness(witness) => {
-                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessMessage(witness.into()));
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessForwardMessage(witness.into()));
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitness(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(witness) => {
                     self.partial_witness_adapter
                         .send(PartialEncodedStateWitnessForwardMessage(witness));
                     None

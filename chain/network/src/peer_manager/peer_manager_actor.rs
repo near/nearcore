@@ -42,6 +42,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -1267,11 +1268,19 @@ impl PeerManagerActor {
                 )
                 .entered();
 
-                for (chunk_validator, partial_witness) in validator_witness_tuple {
+                for (chunk_validator, versioned_witness) in validator_witness_tuple {
+                    let t1_body = match versioned_witness {
+                        VersionedPartialEncodedStateWitness::V1(w) => {
+                            T1MessageBody::PartialEncodedStateWitness(w)
+                        }
+                        v @ VersionedPartialEncodedStateWitness::V2(_) => {
+                            T1MessageBody::VersionedPartialEncodedStateWitness(v)
+                        }
+                    };
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
+                        t1_body.into(),
                         &*self.transport,
                     );
                 }
@@ -1279,22 +1288,31 @@ impl PeerManagerActor {
             }
             NetworkRequests::PartialEncodedStateWitnessForward(
                 chunk_validators,
-                partial_witness,
+                versioned_witness,
             ) => {
                 let _span = tracing::debug_span!(target: "network",
                     "send partial_encoded_state_witness_forward",
-                    height = partial_witness.chunk_production_key().height_created,
-                    shard_id = %partial_witness.chunk_production_key().shard_id,
-                    part_ord = partial_witness.part_ord(),
+                    height = versioned_witness.chunk_production_key().height_created,
+                    shard_id = %versioned_witness.chunk_production_key().shard_id,
+                    part_ord = versioned_witness.part_ord(),
                     tag_witness_distribution = true,
                 )
                 .entered();
+                let t1_body = match &versioned_witness {
+                    VersionedPartialEncodedStateWitness::V1(w) => {
+                        T1MessageBody::PartialEncodedStateWitnessForward(w.clone())
+                    }
+                    VersionedPartialEncodedStateWitness::V2(_) => {
+                        T1MessageBody::VersionedPartialEncodedStateWitnessForward(
+                            versioned_witness.clone(),
+                        )
+                    }
+                };
                 for chunk_validator in chunk_validators {
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
-                            .into(),
+                        t1_body.clone().into(),
                         &*self.transport,
                     );
                 }

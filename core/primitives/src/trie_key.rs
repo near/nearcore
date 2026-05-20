@@ -70,6 +70,10 @@ pub mod col {
     pub const GLOBAL_CONTRACT_NONCE: u8 = 19;
     /// Status of a yielded receipt. Values are of type `PromiseYieldStatus`.
     pub const PROMISE_YIELD_STATUS: u8 = 20;
+    // Reserved: byte 21 is the `TrieKey::GasKeyNonce` enum discriminant.
+    // GasKeyNonce rows live on disk under `ACCESS_KEY` (extending the access-key
+    // trie key with a `NonceIndex` suffix), so no `col` constant exists for byte
+    // 21. Do not introduce one without coordinating with the `TrieKey` repr.
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
