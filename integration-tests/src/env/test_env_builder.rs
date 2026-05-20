@@ -597,7 +597,6 @@ impl TestEnvBuilder {
                 })
                 .unzip();
 
-        // TestEnv has no view client; each RPC handler gets its own unread tracker.
         let tx_request_handlers = (0..num_clients)
             .map(|i| {
                 setup_tx_request_handler(

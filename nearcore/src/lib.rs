@@ -510,7 +510,6 @@ pub async fn start_with_config_and_synchronization_impl(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    // RPC handler writes, view client reads, both for `tx_status` feedback.
     let transaction_tracker = Arc::new(Mutex::new(RecentTransactionTracker::new()));
 
     let view_client_addr = ViewClientActor::spawn_multithread_actor(

@@ -1,9 +1,8 @@
-//! Best-effort feedback for `tx_status`. The RPC handler records whether a submitted transaction
-//! was accepted (pending) or dropped (pool full); the view client reads it back. Shared via
-//! `Arc<Mutex<RecentTransactionTracker>>`. Nothing is persisted.
+//! Best-effort `tx_status` feedback. The RPC handler writes whether a tx is pending or dropped,
+//! the view client reads it back, and nothing is persisted.
 //!
-//! Two caches so a flood of pending inserts cannot evict the rarer dropped records. A hash lives
-//! in at most one cache at a time.
+//! Pending and dropped get separate caches so heavy pending traffic can't evict drops. A hash
+//! lives in at most one.
 
 use lru::LruCache;
 use near_primitives::hash::CryptoHash;
@@ -16,7 +15,6 @@ const DROPPED_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(10_000).unwrap();
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionStatus {
-    /// Accepted into the pool; carries the base block hash attached at submission.
     Pending(CryptoHash),
     Dropped,
     Unknown,

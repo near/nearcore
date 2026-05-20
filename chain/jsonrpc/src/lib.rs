@@ -877,7 +877,6 @@ impl JsonRpcHandler {
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         self.clock
             .timeout(self.polling_config.polling_timeout, async {
-                // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
                 let mut new_block_watcher = self.block_notification_watcher.clone();
                 new_block_watcher.mark_unchanged();
 
@@ -942,7 +941,6 @@ impl JsonRpcHandler {
         let mut tx_status_result =
             Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
         self.clock.timeout(self.polling_config.polling_timeout, async {
-            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
             let mut new_block_watcher = self.block_notification_watcher.clone();
             new_block_watcher.mark_unchanged();
 

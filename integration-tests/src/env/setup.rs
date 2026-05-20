@@ -391,7 +391,6 @@ pub struct ActorHandlesForTesting {
     pub rpc_handler_actor: MultithreadRuntimeHandle<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
-    /// Shared between the view client and the RPC handler.
     pub transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
     // If testing something with runtime that needs runtime home dir users should make sure that
     // this TempDir isn't dropped before test finishes, but is dropped after to avoid leaking temp
