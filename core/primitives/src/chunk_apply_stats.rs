@@ -16,12 +16,12 @@ use std::collections::BTreeMap;
 #[repr(u8)]
 pub enum ChunkApplyStats {
     V0(ChunkApplyStatsV0) = 0,
+    V1(ChunkApplyStatsV1) = 1,
 }
 
 /// Information gathered during chunk application.
-/// This feature is still in development. Consider V0 as unstable, fields might be added or removed
-/// from it at any time. We will do proper versioning after stabilization when there will be other
-/// services depending on this structure.
+/// V0 is kept only to deserialize rows written by older binaries; new code
+/// constructs and persists [`ChunkApplyStatsV1`] instead.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkApplyStatsV0 {
     /// Height at which the chunk was applied
@@ -43,9 +43,34 @@ pub struct ChunkApplyStatsV0 {
     pub balance: BalanceStats,
 }
 
-impl ChunkApplyStatsV0 {
-    pub fn new(height: BlockHeight, shard_id: ShardId) -> ChunkApplyStatsV0 {
-        ChunkApplyStatsV0 {
+/// Information gathered during chunk application.
+/// This feature is still in development. Consider V1 as unstable, fields might be added or removed
+/// from it at any time. We will do proper versioning after stabilization when there will be other
+/// services depending on this structure.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkApplyStatsV1 {
+    /// Height at which the chunk was applied
+    pub height: BlockHeight,
+    /// Shard ID of the chunk
+    pub shard_id: ShardId,
+    /// Was this chunk applied as a new (non-missing) chunk or a missing one (apply_old_chunk)?
+    pub is_new_chunk: bool,
+    /// Number of new transactions in this chunk
+    pub transactions_num: u64,
+    /// Number of incoming receipts to this chunk
+    pub incoming_receipts_num: u64,
+
+    /// Receipt sink stats - forwarded receipts, buffered receipts, outgoing limits
+    pub receipt_sink: ReceiptSinkStats,
+    /// Bandwidth scheduler stats
+    pub bandwidth_scheduler: BandwidthSchedulerStats,
+    /// Balance stats - used in balance checker.
+    pub balance: BalanceStatsV1,
+}
+
+impl ChunkApplyStatsV1 {
+    pub fn new(height: BlockHeight, shard_id: ShardId) -> ChunkApplyStatsV1 {
+        ChunkApplyStatsV1 {
             height: height,
             shard_id: shard_id,
             is_new_chunk: false,
@@ -66,8 +91,8 @@ impl ChunkApplyStatsV0 {
     }
 
     /// Dummy data for tests.
-    pub fn dummy() -> ChunkApplyStatsV0 {
-        ChunkApplyStatsV0 {
+    pub fn dummy() -> ChunkApplyStatsV1 {
+        ChunkApplyStatsV1 {
             height: 0,
             shard_id: ShardId::new(0),
             is_new_chunk: false,
@@ -199,6 +224,9 @@ impl ReceiptsStats {
 }
 
 /// Stats about token balance, used in balance checker.
+///
+/// This V0 layout is only kept so rows written by older binaries still
+/// deserialize. New code uses [`BalanceStatsV1`].
 #[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BalanceStats {
     pub tx_burnt_amount: Balance,
@@ -209,6 +237,17 @@ pub struct BalanceStats {
     pub gas_deficit_amount: Balance,
     /// No longer used, keeping to preserve borsh deserialization of the old data in the db.
     pub _deprecated_global_actions_burnt_amount: Balance,
+}
+
+/// Stats about token balance, used in balance checker.
+#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct BalanceStatsV1 {
+    pub tx_burnt_amount: Balance,
+    pub slashed_burnt_amount: Balance,
+    pub other_burnt_amount: Balance,
+    /// This is a negative amount. This amount was not charged from the account that issued
+    /// the transaction. It's likely due to the delayed queue of the receipts.
+    pub gas_deficit_amount: Balance,
     /// Amount of balance subsidized (effectively minted) for zero-balance contracts
     /// attaching 1 yoctoNEAR to promise function calls. This amount must be
     /// subtracted from total_balance_burnt to keep total supply correct.
