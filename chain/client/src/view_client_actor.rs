@@ -699,8 +699,7 @@ impl ViewClientActor {
                             })
                         }
                     } else {
-                        // Bind first so the MutexGuard drops before the match, otherwise the
-                        // scrutinee temporary would hold the lock across chain-store I/O below.
+                        // Drop the tracker MutexGuard before chain-store I/O below.
                         let tracker_status = self.transaction_tracker.lock().status(&tx_hash);
                         match tracker_status {
                             TransactionStatus::DroppedMempoolFull => {

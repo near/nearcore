@@ -188,7 +188,6 @@ async fn test_execution_outcome_for_chunk() {
     actor_system.stop();
 }
 
-/// A dropped tx must surface as `DroppedMempoolFull`, not as a generic `MissingTransaction`.
 #[tokio::test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn tx_status_reports_dropped_transaction() {
@@ -240,7 +239,6 @@ async fn tx_status_reports_dropped_transaction() {
     actor_system.stop();
 }
 
-/// An accepted-but-not-yet-included tx returns `Ok` with `None` status, so callers keep waiting.
 #[tokio::test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn tx_status_reports_pending_transaction() {
@@ -274,7 +272,6 @@ async fn tx_status_reports_pending_transaction() {
         block_hash,
     );
     let tx_hash = transaction.get_hash();
-    // Record as pending but never submit, so the validity window stays open while we query.
     actor_handles.transaction_tracker.lock().record_pending(tx_hash, block_hash);
 
     let res = actor_handles
@@ -292,7 +289,6 @@ async fn tx_status_reports_pending_transaction() {
     actor_system.stop();
 }
 
-/// A hash the node has never heard of still reports `MissingTransaction`.
 #[tokio::test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn tx_status_reports_unknown_transaction() {
@@ -323,7 +319,3 @@ async fn tx_status_reports_unknown_transaction() {
     );
     actor_system.stop();
 }
-
-// TODO: cover the pending-then-expired -> `TxStatusError::Expired` path in a test-loop
-// integration test. The previous version polled block height in real time, which made it
-// flaky under CI load.

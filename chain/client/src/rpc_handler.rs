@@ -96,8 +96,7 @@ pub struct RpcHandlerActor {
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
-    /// Lock order: never take this while `tx_pool` is held. Access goes through
-    /// `record_tx_pending` and `record_tx_dropped_mempool_full` so the convention stays visible.
+    /// Lock order: never take this while `tx_pool` is held.
     transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
 
     chain_store: ChainStoreAdapter,
@@ -264,14 +263,9 @@ impl RpcHandlerActor {
             if check_only {
                 return Ok(ProcessTxResponse::ValidTx);
             }
-            // Validation passed and this node is committing to handle the tx (insert or forward),
-            // so `tx_status` can distinguish "still waiting" from "never seen". The pool-full
-            // branch below downgrades this to `Dropped*` before returning.
             self.record_tx_pending(signed_tx.get_hash(), *signed_tx.transaction.block_hash());
             // Transactions only need to be recorded if this node is a chunk producer for the transaction's shard.
             if self.is_chunk_producer_for_transaction(&head, signed_tx.transaction.signer_id())? {
-                // Tracker lock must not be taken while the pool lock is held. Record the
-                // decision inside the block; write to the tracker after the pool guard drops.
                 let mut dropped = false;
                 {
                     let mut pool = self.tx_pool.lock();
@@ -341,12 +335,10 @@ impl RpcHandlerActor {
         self.forward_tx(&epoch_id, signed_tx).map(|()| ProcessTxResponse::RequestRouted)
     }
 
-    /// Tracker lock helper. Caller must not hold `self.tx_pool` (see field doc).
     fn record_tx_pending(&self, tx_hash: CryptoHash, base_block_hash: CryptoHash) {
         self.transaction_tracker.lock().record_pending(tx_hash, base_block_hash);
     }
 
-    /// Tracker lock helper. Caller must not hold `self.tx_pool` (see field doc).
     fn record_tx_dropped_mempool_full(&self, tx_hash: CryptoHash) {
         self.transaction_tracker.lock().record_dropped_mempool_full(tx_hash);
     }

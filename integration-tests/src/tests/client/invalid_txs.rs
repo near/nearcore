@@ -276,7 +276,6 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     assert_eq!(receipts.len(), 1, "only one receipt for the only valid transaction is expected");
 }
 
-/// A forwarded tx hitting a chunk producer with a full mempool must report `MempoolFull`.
 #[test]
 fn test_forwarded_transaction_dropped_when_mempool_full() {
     let accounts: Vec<AccountId> = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
@@ -311,7 +310,6 @@ fn test_forwarded_transaction_dropped_when_mempool_full() {
     let forwarded = tx_processor.process_tx(send_money(1), /* is_forwarded */ true, false);
     assert_eq!(forwarded, ProcessTxResponse::MempoolFull);
 
-    // A non-forwarded tx can still be routed onward, so a full local pool isn't the end of it.
     let first_hand = tx_processor.process_tx(send_money(2), /* is_forwarded */ false, false);
     assert_ne!(first_hand, ProcessTxResponse::MempoolFull);
 }

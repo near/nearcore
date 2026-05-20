@@ -334,7 +334,7 @@ pub fn setup_client(
         rpc_handler_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
         client_actor.client.chunk_producer.pending_transaction_queue.clone(),
-        transaction_tracker,
+        transaction_tracker.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),
@@ -598,6 +598,7 @@ pub fn setup_client(
         cloud_archival_writer_handle,
         jsonrpc_transport,
         sharded_rpc_pool,
+        transaction_tracker,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
         pending_nonces: Default::default(),
     };

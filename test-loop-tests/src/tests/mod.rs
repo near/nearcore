@@ -61,6 +61,7 @@ mod spice_utils;
 mod split_storage;
 mod stake_nodes;
 mod sync;
+mod tx_status;
 mod validator_key_check;
 mod view_requests;
 mod view_requests_to_archival_node;
