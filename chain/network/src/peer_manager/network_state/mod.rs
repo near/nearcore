@@ -26,7 +26,7 @@ use crate::private_messages::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
-use crate::spice_data_distribution::{
+use crate::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage, SpiceDataDistributorSenderForNetwork,
     SpiceIncomingPartialData,

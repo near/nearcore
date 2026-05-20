@@ -9,7 +9,11 @@ use crate::types::{
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
+use near_chain_configs::{
+    GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig,
+    default_contract_cache_warming_max_item_count,
+    default_contract_cache_warming_pool_thread_count,
+};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -53,6 +57,7 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::cache_warming::cache_keys_differ;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
@@ -92,6 +97,32 @@ pub struct NightshadeRuntime {
     save_receipt_to_tx: bool,
 }
 
+/// Knobs threaded through to [`NightshadeRuntime::new`].
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeOptions {
+    /// True on nodes that mirror archival state to cloud storage.
+    pub is_cloud_archival_writer: bool,
+    /// Persist receipt-to-transaction origin mappings to disk.
+    pub save_receipt_to_tx: bool,
+    /// Number of worker threads in the contract cache-warming pool. `0` disables warming (no pool created);
+    pub contract_cache_warming_pool_thread_count: usize,
+    /// Maximum number of warming submissions allowed to sit in the pool's
+    /// queue at once.  `0` disables warming (every submission rejects silently).
+    pub contract_cache_warming_max_item_count: usize,
+}
+
+impl Default for RuntimeOptions {
+    fn default() -> Self {
+        Self {
+            is_cloud_archival_writer: false,
+            save_receipt_to_tx: true,
+            contract_cache_warming_pool_thread_count:
+                default_contract_cache_warming_pool_thread_count(),
+            contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
+        }
+    }
+}
+
 impl NightshadeRuntime {
     pub fn new(
         store: Store,
@@ -105,9 +136,18 @@ impl NightshadeRuntime {
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
-        is_cloud_archival_writer: bool,
-        save_receipt_to_tx: bool,
+        options: RuntimeOptions,
     ) -> Arc<Self> {
+        let RuntimeOptions {
+            is_cloud_archival_writer,
+            save_receipt_to_tx,
+            contract_cache_warming_pool_thread_count,
+            contract_cache_warming_max_item_count,
+        } = options;
+        node_runtime::cache_warming::init_warming(node_runtime::cache_warming::WarmingConfig {
+            thread_count: contract_cache_warming_pool_thread_count,
+            max_item_count: contract_cache_warming_max_item_count,
+        });
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
@@ -194,12 +234,15 @@ impl NightshadeRuntime {
             bandwidth_requests,
         } = block;
         let ApplyChunkShardContext {
-            shard_id,
+            shard_uid,
             last_validator_proposals,
             gas_limit,
             is_new_chunk,
             on_post_state_ready,
+            // Held until end of fn so the memtrie root stays alive.
+            memtrie_pin: _memtrie_pin,
         } = chunk;
+        let shard_id = shard_uid.shard_id();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -276,6 +319,18 @@ impl NightshadeRuntime {
 
         let save_receipt_to_tx =
             self.save_receipt_to_tx && apply_reason == ApplyChunkReason::UpdateTrackedShard;
+        // Detect an upcoming protocol upgrade that would invalidate the
+        // compiled-contract cache, and surface the next epoch's wasm_config.
+        let next_wasm_config = self
+            .epoch_manager
+            .get_next_epoch_protocol_version_from_prev_block(prev_block_hash)
+            .ok()
+            .filter(|next_pv| *next_pv != current_protocol_version)
+            .and_then(|next_pv| {
+                let next = Arc::clone(&self.runtime_config_store.get_config(next_pv).wasm_config);
+                cache_keys_differ(Arc::clone(&config.wasm_config), Arc::clone(&next))
+                    .then_some(next)
+            });
         let apply_state = ApplyState {
             apply_reason,
             block_height,
@@ -289,6 +344,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: config.clone(),
+            next_wasm_config,
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             save_receipt_to_tx,
@@ -480,12 +536,8 @@ impl NightshadeRuntime {
                 return Err(err.into());
             }
         };
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let state_part = StatePart::from_partial_state(
-            partial_state,
-            protocol_version,
-            self.state_parts_compression_lvl,
-        );
+        let state_part =
+            StatePart::from_partial_state(partial_state, self.state_parts_compression_lvl);
         Ok(state_part)
     }
 
@@ -1152,7 +1204,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_id))]
+    #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_uid.shard_id()))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -1162,10 +1214,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         receipts: &[Receipt],
         transactions: SignedValidPeriodTransactions,
     ) -> Result<ApplyChunkResult, Error> {
-        let shard_id = chunk.shard_id;
+        let shard_id = chunk.shard_uid.shard_id();
         let _timer = metrics::APPLYING_CHUNKS_TIME
             .with_label_values(&[&apply_reason.to_string(), &shard_id.to_string()])
             .start_timer();
+
+        if storage_config.source.requires_memtrie_pin() {
+            chunk.memtrie_pin.assert_pinned(
+                &self.tries,
+                chunk.shard_uid,
+                &storage_config.state_root,
+            );
+        }
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => self.get_trie_for_shard(

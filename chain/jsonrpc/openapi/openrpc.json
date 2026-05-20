@@ -7895,12 +7895,6 @@
             "description": "Not clear old data, set `true` for archive nodes.",
             "type": "boolean"
           },
-          "block_fetch_horizon": {
-            "description": "Horizon at which instead of fetching block, fetch full state.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "block_header_fetch_horizon": {
             "description": "Behind this horizon header fetch kicks in.",
             "format": "uint64",
@@ -7908,15 +7902,12 @@
             "type": "integer"
           },
           "block_production_tracking_delay": {
-            "description": "Duration to check for producing / skipping block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Duration to check for producing / skipping block."
           },
           "catchup_step_period": {
             "description": "Time between check to perform catchup.",
@@ -7962,14 +7953,12 @@
             "type": "integer"
           },
           "chunk_wait_mult": {
-            "description": "Multiplier for the wait time for all chunks to be received.",
-            "items": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
             "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
@@ -7994,20 +7983,29 @@
               }
             ]
           },
+          "contract_cache_warming_max_item_count": {
+            "description": "Max warming submissions allowed in the pool's queue. Submissions\nover the cap bump `near_contract_cache_warming_dropped_total`. `0`\ndisables warming (same as setting\n`contract_cache_warming_pool_thread_count` to 0).",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "contract_cache_warming_pool_thread_count": {
+            "description": "Number of worker threads in the contract cache-warming pool. The\npool runs at the lowest realtime priority of any near pool, so the\nthreads yield to chunk application and witness work. Setting this\nto 0 disables warming (the pool is never instantiated). See\n[`contract_cache_warming_max_item_count`] for the other disable knob.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
           "disable_tx_routing": {
             "description": "If true, the node won't forward transactions to next the chunk producers.",
             "type": "boolean"
           },
           "doomslug_step_period": {
-            "description": "Time between running doomslug timer.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Time between running doomslug timer."
           },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
@@ -8109,26 +8107,20 @@
             "description": "Enable coloring of the logs"
           },
           "max_block_production_delay": {
-            "description": "Maximum wait for approvals before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum wait for approvals before producing block."
           },
           "max_block_wait_delay": {
-            "description": "Maximum duration before skipping given height.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum duration before skipping given height."
           },
           "max_gas_burnt_view": {
             "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain.",
@@ -8142,15 +8134,12 @@
             ]
           },
           "min_block_production_delay": {
-            "description": "Minimum duration before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Minimum duration before producing block."
           },
           "min_num_peers": {
             "description": "Minimum number of peers to start syncing.",
@@ -8264,10 +8253,6 @@
               }
             ],
             "description": "Options for syncing state."
-          },
-          "state_sync_enabled": {
-            "description": "Whether to use the State Sync mechanism.\nIf disabled, the node will do Block Sync instead of State Sync.",
-            "type": "boolean"
           },
           "state_sync_external_backoff": {
             "description": "Additional waiting period after a failed request to external storage",
@@ -11942,10 +11927,6 @@
       },
       "VMConfigView": {
         "properties": {
-          "deterministic_account_ids": {
-            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"

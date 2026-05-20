@@ -1,4 +1,4 @@
-use crate::spice_core::get_last_certified_block_header;
+use crate::spice::core::get_last_certified_block_header;
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
 use itertools::Itertools;
@@ -11,8 +11,8 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
+use near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_endorsements_key_prefix,
@@ -31,7 +31,6 @@ use std::sync::Arc;
 pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
-    StateSync { clear_block_info: bool },
 }
 
 impl fmt::Debug for GCMode {
@@ -39,29 +38,18 @@ impl fmt::Debug for GCMode {
         match self {
             GCMode::Fork(_) => write!(f, "GCMode::Fork"),
             GCMode::Canonical(_) => write!(f, "GCMode::Canonical"),
-            GCMode::StateSync { .. } => write!(f, "GCMode::StateSync"),
         }
     }
 }
 
-/// Both functions here are only used for testing as they create convenient
-/// wrappers that allow us to do correctness integration testing without having
-/// to fully spin up GCActor
-///
-/// TODO - the reset_data_pre_state_sync function seems to also be used in
-/// production code. It's used in update_sync_status <- handle_sync_needed <- run_sync_step
+/// A convenient wrapper that allows correctness integration testing without
+/// having to fully spin up GCActor.
 impl Chain {
     pub fn clear_data(&mut self, gc_config: &GCConfig) -> Result<(), Error> {
         let runtime_adapter = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
         let shard_tracker = self.shard_tracker.clone();
         self.mut_chain_store().clear_data(gc_config, runtime_adapter, epoch_manager, &shard_tracker)
-    }
-
-    pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
-        let runtime_adapter = self.runtime_adapter.clone();
-        let epoch_manager = self.epoch_manager.clone();
-        self.mut_chain_store().reset_data_pre_state_sync(sync_hash, runtime_adapter, epoch_manager)
     }
 }
 
@@ -100,7 +88,6 @@ impl ChainStore {
     //            to determine what shards we care about at the Head or in the next epoch after the Head.
     // 4. Before actual clearing is started, Block Reference Map should be built.
     // 5. `clear_old_blocks_data()` executes every time when block at new height is added.
-    // 6. In case of State Sync, State Sync Clearing happens.
     //
     // Forks Clearing:
     // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be completely deleted
@@ -137,16 +124,6 @@ impl ChainStore {
     //    to delete blocks G and F, then Fork Clearing will be executed for B to delete block E.
     //    Then Canonical Chain Clearing will delete blocks A and B as unlocked.
     //    Block C is the only block of height 103 remains on the Canonical Chain (invariant).
-    //
-    // State Sync Clearing:
-    // 1. Executing State Sync means that no data in the storage is useful for block processing
-    //    and should be removed completely.
-    // 2. The Tail should be set to the block preceding Sync Block if there are
-    //    no missing chunks or to a block before that such that all shards have
-    //    at least one new chunk in the blocks leading to the Sync Block.
-    // 3. All the data preceding new Tail is deleted in State Sync Clearing
-    //    and the Trie is updated with having only Genesis data.
-    // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
     pub fn clear_data(
         &mut self,
@@ -522,86 +499,6 @@ impl ChainStore {
 
         Ok(())
     }
-
-    pub fn reset_data_pre_state_sync(
-        &mut self,
-        sync_hash: CryptoHash,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-    ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
-        let head = self.head()?;
-        if head.prev_block_hash == CryptoHash::default() {
-            // This is genesis. It means we are state syncing right after epoch sync. Don't clear
-            // anything at genesis, or else the node will never boot up again.
-            return Ok(());
-        }
-        // Get header we were syncing into.
-        let header = self.get_block_header(&sync_hash)?;
-        let prev_hash = *header.prev_hash();
-        let prev_header = self.get_block_header(&prev_hash)?;
-        let sync_height = header.height();
-        let prev_height = prev_header.height();
-
-        // After state sync we may need a few additional blocks leading up to the sync prev block.
-        // For simplicity we'll GC them and allow state sync to re-download exactly what it needs.
-        let gc_height = std::cmp::min(head.height + 1, prev_height);
-
-        // GC all the data from current tail up to `gc_height`. In case tail points to a height where
-        // there is no block, we need to make sure that the last block before tail is cleaned.
-        let tail = self.chain_store().tail();
-        let mut tail_prev_block_cleaned = false;
-        for height in tail..gc_height {
-            let blocks_current_height = self
-                .chain_store()
-                .get_all_block_hashes_by_height(height)
-                .values()
-                .flatten()
-                .cloned()
-                .collect_vec();
-            for block_hash in blocks_current_height {
-                let epoch_manager = epoch_manager.clone();
-                let mut chain_store_update = self.store_update();
-                if !tail_prev_block_cleaned {
-                    let prev_block_hash =
-                        *chain_store_update.get_block_header(&block_hash)?.prev_hash();
-                    if chain_store_update.get_block(&prev_block_hash).is_ok() {
-                        chain_store_update.clear_block_data(
-                            epoch_manager.as_ref(),
-                            prev_block_hash,
-                            GCMode::StateSync { clear_block_info: true },
-                        )?;
-                    }
-                    tail_prev_block_cleaned = true;
-                }
-                chain_store_update.clear_block_data(
-                    epoch_manager.as_ref(),
-                    block_hash,
-                    GCMode::StateSync { clear_block_info: block_hash != prev_hash },
-                )?;
-                chain_store_update.commit()?;
-            }
-        }
-
-        // Clear Chunks data
-        let mut chain_store_update = self.store_update();
-        // The largest height of chunk we have in storage is head.height + 1
-        let chunk_height = std::cmp::min(head.height + 2, sync_height);
-        chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
-        chain_store_update.commit()?;
-
-        // clear all trie data
-        let tries = runtime_adapter.get_tries();
-        let mut chain_store_update = self.store_update();
-        let mut store_update = tries.store_update();
-        store_update.delete_all_state();
-        chain_store_update.merge(store_update.into());
-
-        // The reason to reset tail here is not to allow Tail be greater than Head
-        chain_store_update.reset_tail();
-        chain_store_update.commit()?;
-        Ok(())
-    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -814,10 +711,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
         self.gc_outcomes(&block);
-        match gc_mode {
-            GCMode::StateSync { clear_block_info: false } => {}
-            _ => self.gc_col(DBCol::BlockInfo, block_hash.as_bytes()),
-        }
+        self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
 
         self.gc_spice_core_data(&block_hash, &shard_layout);
@@ -840,10 +734,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
                 self.clear_chunk_data_and_headers(min_chunk_height)?;
-            }
-            GCMode::StateSync { .. } => {
-                // 7. State Sync clearing
-                // Chunks deleted separately
             }
         };
         self.merge(store_update.into());
@@ -930,9 +820,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 GCMode::Canonical(tries) => {
                     // If the block is on canonical chain, we delete the state that's before applying this block
                     tries.apply_deletions(&trie_changes, shard_uid, store_update);
-                }
-                GCMode::StateSync { .. } => {
-                    // Not apply the data from DBCol::TrieChanges
                 }
             }
 

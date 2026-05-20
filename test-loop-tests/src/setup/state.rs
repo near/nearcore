@@ -10,13 +10,13 @@ use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActor;
-use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
     ViewClientActor,
@@ -70,6 +70,11 @@ pub struct SharedState {
     /// Archive-wide config for cloud archival nodes. Defaults to
     /// `BucketConfig::canonical()`; tests may override.
     pub bucket_config: BucketConfig,
+    /// Optional per-`(account, task_name)` override of the spawner's
+    /// artificial virtual delay. `None` for a given pair falls back to the
+    /// test-loop default. Used by tests that need to slow specific tasks on
+    /// specific nodes.
+    pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
     /// Per-node installation state for the spice endorsement-delay handler.
     pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
 }

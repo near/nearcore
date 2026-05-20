@@ -40,7 +40,6 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
 use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce, ShardId, ShardIndex};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::trie::outgoing_metadata::{ReceiptGroupsConfig, ReceiptGroupsQueue};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -754,8 +753,7 @@ fn make_send_receipt_transaction(
             }))],
         }),
     });
-    let base_receipt_template =
-        action_receipt_v1_to_latest(&base_receipt_template, PROTOCOL_VERSION);
+    let base_receipt_template = action_receipt_v1_to_latest(&base_receipt_template);
     let base_receipt_size = borsh::object_length(&base_receipt_template).unwrap();
 
     // Choose the size of the arguments so that the total receipt size is `target_receipt_size`.

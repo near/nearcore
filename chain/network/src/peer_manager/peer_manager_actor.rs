@@ -19,7 +19,7 @@ use crate::peer_manager::peer_store;
 use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::routing::GraphSnapshot;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
-use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
+use crate::spice::data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
 use crate::store;

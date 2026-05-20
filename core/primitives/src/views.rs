@@ -543,8 +543,6 @@ pub enum SyncStatusView {
     },
     /// State sync, with different states of state sync for different shards.
     StateSync(StateSyncStatusView),
-    /// Sync state across all shards is done.
-    StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
         start_height: BlockHeight,

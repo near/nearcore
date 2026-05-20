@@ -21,7 +21,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
-use near_primitives::version::ProtocolVersion;
 use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -319,7 +318,6 @@ struct PartUploader {
     parts_missing: Arc<RwLock<HashSet<u64>>>,
     obtain_parts: Arc<Semaphore>,
     canceled: Arc<AtomicBool>,
-    protocol_version: ProtocolVersion,
 }
 
 impl PartUploader {
@@ -393,7 +391,7 @@ impl PartUploader {
             if self.canceled.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            let bytes = state_part.to_bytes(self.protocol_version);
+            let bytes = state_part.to_bytes();
             match self.external.put_file(file_type.clone(), &bytes, self.shard_id, &location).await
             {
                 Ok(()) => {
@@ -745,9 +743,6 @@ impl StateDumper {
             senders.keys().collect::<HashSet<_>>(),
             dump.dump_state.keys().collect::<HashSet<_>>()
         );
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&dump.epoch_id).unwrap();
-
         // cspell:words uploaders
         let mut uploaders = dump
             .dump_state
@@ -777,7 +772,6 @@ impl StateDumper {
                     parts_missing: shard_dump.parts_missing.clone(),
                     obtain_parts: self.obtain_parts.clone(),
                     canceled: dump.canceled.clone(),
-                    protocol_version,
                 });
                 let dump_shard = uploader.dump_shard_state(sender, self.future_spawner.clone());
                 Some(dump_shard.boxed())

@@ -5,7 +5,6 @@ use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
-use near_primitives::version::ProtocolVersion;
 use near_store::archive::cloud_storage::CloudStorage;
 use std::ops::Range;
 use std::path::PathBuf;
@@ -284,7 +283,6 @@ pub async fn download_and_apply_state_parts_sequentially(
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     sync_hash: CryptoHash,
-    protocol_version: ProtocolVersion,
     shard_id: ShardId,
     state_root: CryptoHash,
     part_ids: Range<u64>,
@@ -309,7 +307,7 @@ pub async fn download_and_apply_state_parts_sequentially(
             external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
         let bytes = external.get_file(shard_id, &location, &file_type).await?;
         let part_length = bytes.len();
-        let part = StatePart::from_bytes(bytes, protocol_version)?;
+        let part = StatePart::from_bytes(bytes)?;
 
         chain.state_sync_adapter.set_state_part(
             shard_id,

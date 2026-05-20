@@ -17,11 +17,13 @@ use crate::{
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
+use dashmap::DashMap;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Balance;
+use parking_lot::{Condvar, Mutex, MutexGuard, RwLock};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock, OnceLock};
@@ -35,6 +37,7 @@ use wasmtime::{
 mod logic;
 #[cfg(test)]
 pub(crate) mod test_logic;
+mod trap_classification;
 
 /// The maximum amount of concurrent calls this engine can handle.
 /// If this limit is reached, invocations will block until an execution slot is available.
@@ -71,19 +74,74 @@ struct VMKey {
     target: Option<String>,
 }
 
-static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
-    LazyLock::new(parking_lot::RwLock::default);
+static VMS: LazyLock<RwLock<HashMap<VMKey, WasmtimeVM>>> = LazyLock::new(RwLock::default);
 
-/// Per-contract-cache-key compilation lock. Prevents duplicate compilations
-/// when multiple threads (e.g. precompile_contracts and
-/// validate_chunk_state_witness) race to compile the same contract
-/// simultaneously. The lock entry is automatically removed when the guard is
-/// dropped.
-type CompilationLocks = parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>;
+// TODO(crt): consider splitting out the compile cache and locking logic to its own file
+/// One cache entry: the serialized wasmtime module bytes, or the cached
+/// [`CompilationError`] from a prior failed compile of the same code.
+type CachedArtifact = Result<Vec<u8>, CompilationError>;
 
-pub(crate) fn compilation_locks() -> &'static CompilationLocks {
-    static LOCKS: OnceLock<CompilationLocks> = OnceLock::new();
-    LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+/// Per-key compilation lock map. Prevents redundant concurrent compilations
+/// of the same contract by multiple threads (e.g. precompile_contracts and
+/// validate_chunk_state_witness).
+pub(crate) struct CompilationLockMap {
+    inner: DashMap<CryptoHash, Arc<Mutex<()>>>,
+}
+
+impl CompilationLockMap {
+    fn new() -> Self {
+        Self { inner: DashMap::new() }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn contains_key(&self, key: &CryptoHash) -> bool {
+        self.inner.contains_key(key)
+    }
+
+    fn entry(&self, key: CryptoHash) -> CompilationGuard<'_> {
+        let mutex = self.inner.entry(key).or_default().clone();
+        CompilationGuard { key, map: self, mutex }
+    }
+}
+
+/// RAII guard returned by [`CompilationLockMap::entry`]. On drop, removes the map entry.
+struct CompilationGuard<'a> {
+    key: CryptoHash,
+    map: &'a CompilationLockMap,
+    mutex: Arc<Mutex<()>>,
+}
+
+impl CompilationGuard<'_> {
+    fn lock(&self) -> MutexGuard<'_, ()> {
+        self.mutex.lock()
+    }
+
+    fn try_lock(&self) -> Option<MutexGuard<'_, ()>> {
+        self.mutex.try_lock()
+    }
+}
+
+impl Drop for CompilationGuard<'_> {
+    fn drop(&mut self) {
+        self.map.inner.remove(&self.key);
+    }
+}
+
+pub(crate) fn compilation_locks() -> &'static CompilationLockMap {
+    static LOCKS: OnceLock<CompilationLockMap> = OnceLock::new();
+    LOCKS.get_or_init(CompilationLockMap::new)
+}
+
+/// Cache read helper used by `compile_and_cache` and `try_compile_and_cache`.
+/// Returns `Ok(Some(_))` if the cache already has an entry for `key`.
+fn read_cache(
+    cache: &dyn ContractRuntimeCache,
+    key: &CryptoHash,
+) -> Result<Option<CachedArtifact>, CacheError> {
+    Ok(cache.get(key).map_err(CacheError::ReadError)?.map(|info| match info.compiled {
+        CompiledContract::Code(module) => Ok(module),
+        CompiledContract::CompileModuleError(err) => Err(err),
+    }))
 }
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
@@ -95,8 +153,8 @@ struct InstancePermit<'a> {
     instances: &'a AtomicU64,
     tables: &'a AtomicU64,
     num_tables: u32,
-    release_notify: &'a parking_lot::Condvar,
-    release_mutex: &'a parking_lot::Mutex<()>,
+    release_notify: &'a Condvar,
+    release_mutex: &'a Mutex<()>,
 }
 
 impl Drop for InstancePermit<'_> {
@@ -115,8 +173,8 @@ struct ConcurrencySemaphoreState {
     max_tables: u32,
     instances: AtomicU64,
     tables: AtomicU64,
-    release_notify: parking_lot::Condvar,
-    release_mutex: parking_lot::Mutex<()>,
+    release_notify: Condvar,
+    release_mutex: Mutex<()>,
 }
 
 /// A simple semaphore, which is not expected to be contended often.
@@ -132,8 +190,8 @@ impl ConcurrencySemaphore {
             max_tables,
             instances: AtomicU64::default(),
             tables: AtomicU64::default(),
-            release_notify: parking_lot::Condvar::default(),
-            release_mutex: parking_lot::Mutex::default(),
+            release_notify: Condvar::default(),
+            release_mutex: Mutex::default(),
         }))
     }
 }
@@ -321,23 +379,30 @@ impl IntoVMError for wasmtime::Error {
             };
         }
         if let Some(trap) = cause.downcast_ref::<wasmtime::Trap>() {
-            use wasmtime::Trap as T;
+            use trap_classification::TrapClassification as C;
+            let classification = C::from(*trap);
             let nondeterministic_message = 'nondet: {
-                return Ok(FunctionCallError::WasmTrap(match *trap {
-                    T::StackOverflow => WasmTrap::StackOverflow,
-                    T::MemoryOutOfBounds => WasmTrap::MemoryOutOfBounds,
-                    T::TableOutOfBounds => WasmTrap::MemoryOutOfBounds,
-                    T::IndirectCallToNull => WasmTrap::IndirectCallToNull,
-                    T::BadSignature => WasmTrap::IncorrectCallIndirectSignature,
-                    T::IntegerOverflow => WasmTrap::IllegalArithmetic,
-                    T::IntegerDivisionByZero => WasmTrap::IllegalArithmetic,
-                    T::BadConversionToInteger => WasmTrap::IllegalArithmetic,
-                    T::UnreachableCodeReached => WasmTrap::Unreachable,
-                    T::Interrupt => break 'nondet "interrupt",
-                    T::HeapMisaligned => break 'nondet "heap misaligned",
-                    t => {
+                return Ok(FunctionCallError::WasmTrap(match classification {
+                    C::StackOverflow => WasmTrap::StackOverflow,
+                    C::MemoryOutOfBounds => WasmTrap::MemoryOutOfBounds,
+                    C::TableOutOfBounds => WasmTrap::MemoryOutOfBounds,
+                    C::IndirectCallToNull => WasmTrap::IndirectCallToNull,
+                    C::BadSignature => WasmTrap::IncorrectCallIndirectSignature,
+                    C::IntegerOverflow => WasmTrap::IllegalArithmetic,
+                    C::IntegerDivisionByZero => WasmTrap::IllegalArithmetic,
+                    C::BadConversionToInteger => WasmTrap::IllegalArithmetic,
+                    C::UnreachableCodeReached => WasmTrap::Unreachable,
+                    C::Interrupt => break 'nondet "interrupt",
+                    C::HeapMisaligned => break 'nondet "heap misaligned",
+                    C::Unreachable { trap } => {
+                        panic!(
+                            "contract produced a trap that should be unreachable \
+                                under NEAR's engine configuration: {trap:?}"
+                        );
+                    }
+                    C::Unknown { trap } => {
                         return Err(VMRunnerError::WasmUnknownError {
-                            debug_message: format!("unhandled trap type: {:?}", t),
+                            debug_message: format!("unhandled trap type: {trap:?}"),
                         });
                     }
                 }));
@@ -497,10 +562,7 @@ impl WasmtimeVM {
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
-    pub(crate) fn compile_uncached(
-        &self,
-        code: &ContractCode,
-    ) -> Result<Vec<u8>, CompilationError> {
+    pub(crate) fn compile_uncached(&self, code: &ContractCode) -> CachedArtifact {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
@@ -535,39 +597,69 @@ impl WasmtimeVM {
         name = "Wasmtime::compile_and_cache",
         skip_all
     )]
-    /// Compile a contract and store the result in the cache. Uses a
-    /// per-contract-cache-key lock to prevent duplicate compilations when
-    /// multiple threads race on the same contract (e.g. precompile_contracts
-    /// vs validate_chunk_state_witness).
+    /// Compile a contract and store the result in the cache. Blocks on the
+    /// per-key compilation lock while another thread is compiling the same
+    /// contract — use when the caller needs the artifact (synchronous apply
+    /// path, foreground pipelining).
     fn compile_and_cache(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<Vec<u8>, CompilationError>, CacheError> {
+    ) -> Result<CachedArtifact, CacheError> {
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
 
-        // Acquire a per-key lock so only one thread compiles a given contract.
-        // Cleanup is declared before guard so that on drop, the per-key mutex
-        // is released first (_guard drops), then the map entry is removed
-        // (_cleanup drops). Locals drop in reverse declaration order.
-        let lock = compilation_locks().lock().entry(key).or_default().clone();
-        struct Cleanup(CryptoHash);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                compilation_locks().lock().remove(&self.0);
-            }
+        // Double-checked locking — outer step. An unlocked cache check before
+        // touching `compilation_locks` lets already-cached cases skip both
+        // mutex acquires entirely.
+        if let Some(compiled) = read_cache(cache, &key)? {
+            return Ok(compiled);
         }
-        let _cleanup = Cleanup(key);
-        let _guard = lock.lock();
+        let entry = compilation_locks().entry(key);
+        self.compile_and_persist(key, code, cache, entry.lock())
+    }
 
-        // Check the disk cache: another thread may have compiled while we waited.
-        if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
-            match info.compiled {
-                CompiledContract::Code(module) => return Ok(Ok(module)),
-                CompiledContract::CompileModuleError(err) => return Ok(Err(err)),
-            }
+    #[tracing::instrument(
+        level = "debug",
+        target = "vm",
+        name = "Wasmtime::try_compile_and_cache",
+        skip_all
+    )]
+    /// Like [`Self::compile_and_cache`], but returns `Ok(None)` when no
+    /// fresh compile happened (cache hit or another thread holds the
+    /// per-key lock).
+    fn try_compile_and_cache(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<Option<CachedArtifact>, CacheError> {
+        let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
+        if cache.has(&key).map_err(CacheError::ReadError)? {
+            return Ok(None);
         }
+        let entry = compilation_locks().entry(key);
+        let Some(guard) = entry.try_lock() else {
+            tracing::trace!(
+                target: "vm",
+                %key,
+                "deferring warming compile to in-flight compiler"
+            );
+            return Ok(None);
+        };
+        self.compile_and_persist(key, code, cache, guard).map(Some)
+    }
 
+    /// Inner Double-Checked-Lock: re-check + actual compile + cache write.
+    fn compile_and_persist(
+        &self,
+        key: CryptoHash,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+        _lock_guard: MutexGuard<'_, ()>,
+    ) -> Result<CachedArtifact, CacheError> {
+        // The cache may have been populated while we waited on the per-key lock.
+        if let Some(compiled) = read_cache(cache, &key)? {
+            return Ok(compiled);
+        }
         let serialized_or_error = self.compile_uncached(code);
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
@@ -723,6 +815,13 @@ impl WasmtimeVM {
 }
 
 impl crate::runner::VM for WasmtimeVM {
+    fn vm_hash(&self) -> u64 {
+        // Wrap the inherent helper of the same name; the body is here only
+        // for trait dispatch from `get_contract_cache_key` callers that
+        // hold a `&dyn VM`.
+        WasmtimeVM::vm_hash(self)
+    }
+
     fn contract_cached(
         &self,
         cache: &dyn ContractRuntimeCache,
@@ -747,6 +846,26 @@ impl crate::runner::VM for WasmtimeVM {
         Ok(self
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
+    }
+
+    fn try_precompile(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
+        if self.contract_cached(cache, *code.hash())? {
+            return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
+        }
+        match self.try_compile_and_cache(code, cache)? {
+            // Either the cache was populated between our outer `contract_cached`
+            // check and the inner one, or another thread holds the per-key lock
+            // and is compiling — both cases resolve to `ContractAlreadyInCache`.
+            None => Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
+            Some(result) => Ok(result.map(|_| ContractPrecompilatonResult::ContractCompiled)),
+        }
     }
 
     fn prepare(
@@ -975,7 +1094,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 /// `anyhow` does not really give any opportunity to grab causes by value and the VM Logic
 /// errors end up a couple layers deep in a causal chain.
 #[derive(Debug)]
-pub(crate) struct ErrorContainer(parking_lot::Mutex<Option<VMLogicError>>);
+pub(crate) struct ErrorContainer(Mutex<Option<VMLogicError>>);
 impl ErrorContainer {
     pub(crate) fn take(&self) -> Option<VMLogicError> {
         self.0.lock().take()
@@ -1015,13 +1134,13 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
                 });
                 let memory = match get_memory(&mut caller) {
                     Ok(m) => m,
-                    Err(err) => return Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into()),
+                    Err(err) => return Err(ErrorContainer(Mutex::new(Some(err))).into()),
                 };
                 let (memory, ctx) = memory.data_and_store_mut(&mut caller);
                 match logic::$func(ctx, memory, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
-                        Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
+                        Err(ErrorContainer(Mutex::new(Some(err))).into())
                     }
                 }
             }

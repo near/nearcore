@@ -11,7 +11,7 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::spice_data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
@@ -23,7 +23,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
-use near_primitives::spice_partial_data::SpicePartialData;
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::partial_data::SpicePartialData;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -32,7 +33,6 @@ use near_primitives::stateless_validation::contract_distribution::{
     SpiceContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};

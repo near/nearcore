@@ -913,6 +913,7 @@ impl<T: ChainAccess> TxMirror<T> {
             target_min_block_production_delay: target_config
                 .client_config
                 .min_block_production_delay
+                .get()
                 .unsigned_abs(),
             secret,
             default_extra_key,
