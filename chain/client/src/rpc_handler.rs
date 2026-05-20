@@ -97,7 +97,6 @@ pub struct RpcHandlerActor {
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
-    /// Lock order: never take this while `tx_pool` is held.
     transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
 
     chain_store: ChainStoreAdapter,
