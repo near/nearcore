@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.6"
+    "version": "1.2.7"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -16194,13 +16194,148 @@
               "info"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "OUTCOMES_NOT_STORED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "maximum": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "requested",
+                  "maximum"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "WINDOW_TOO_LARGE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "MALFORMED_HINT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "scanned": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "scanned",
+                  "limit"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "BUDGET_EXCEEDED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
           }
         ]
       },
       "RpcReceiptToTxRequest": {
         "properties": {
+          "block_height": {
+            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort historical fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk. `shard_id`\noptionally narrows the first scan; omitting it scans all tracked shards\nat the hinted height. `window` overrides the default scan range.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "receipt_id": {
             "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
+          "window": {
+            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [

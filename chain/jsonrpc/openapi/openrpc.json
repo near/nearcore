@@ -9092,8 +9092,36 @@
       },
       "RpcReceiptToTxRequest": {
         "properties": {
+          "block_height": {
+            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort historical fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk. `shard_id`\noptionally narrows the first scan; omitting it scans all tracked shards\nat the hinted height. `window` overrides the default scan range.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "receipt_id": {
             "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window": {
+            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
@@ -13059,10 +13087,50 @@
       "paramStructure": "by-name",
       "params": [
         {
+          "name": "block_height",
+          "required": false,
+          "schema": {
+            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort historical fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk. `shard_id`\noptionally narrows the first scan; omitting it scans all tracked shards\nat the hinted height. `window` overrides the default scan range.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        {
           "name": "receipt_id",
           "required": true,
           "schema": {
             "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "shard_id",
+          "required": false,
+          "schema": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "window",
+          "required": false,
+          "schema": {
+            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         }
       ],
