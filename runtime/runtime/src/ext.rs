@@ -9,7 +9,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
 };
 use near_primitives::utils::create_receipt_id_from_action_hash;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
@@ -350,18 +350,15 @@ impl<'a> External for RuntimeExt<'a> {
         let input_data_id = self.generate_data_id();
         let receipt_index =
             self.receipt_manager.create_promise_yield_receipt(input_data_id, receiver_id.clone());
-        let receipt_index = (receipt_index, input_data_id);
 
-        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
-            set_promise_yield_status(
-                &mut self.trie_update,
-                &receiver_id,
-                input_data_id,
-                PromiseYieldStatus::Yielded,
-            );
-        }
+        set_promise_yield_status(
+            &mut self.trie_update,
+            &receiver_id,
+            input_data_id,
+            PromiseYieldStatus::Yielded,
+        );
 
-        Ok(receipt_index)
+        Ok((receipt_index, input_data_id))
     }
 
     fn create_promise_yield_receipt_with_id(
@@ -386,18 +383,15 @@ impl<'a> External for RuntimeExt<'a> {
 
         let receipt_index =
             self.receipt_manager.create_promise_yield_receipt(input_data_id, receiver_id.clone());
-        let receipt_index = (receipt_index, input_data_id);
 
-        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
-            set_promise_yield_status(
-                &mut self.trie_update,
-                &receiver_id,
-                input_data_id,
-                PromiseYieldStatus::Yielded,
-            );
-        }
+        set_promise_yield_status(
+            &mut self.trie_update,
+            &receiver_id,
+            input_data_id,
+            PromiseYieldStatus::Yielded,
+        );
 
-        Ok(receipt_index)
+        Ok((receipt_index, input_data_id))
     }
 
     fn submit_promise_resume_data(
@@ -408,34 +402,22 @@ impl<'a> External for RuntimeExt<'a> {
         let has_yield_receipt_in_state =
             has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
                 .map_err(wrap_storage_error)?;
+        let has_yield_status_in_state =
+            has_promise_yield_status(self.trie_update, &self.account_id, data_id)
+                .map_err(wrap_storage_error)?;
 
-        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
-            let has_yield_status_in_state =
-                has_promise_yield_status(self.trie_update, &self.account_id, data_id)
-                    .map_err(wrap_storage_error)?;
-
-            if has_yield_receipt_in_state || has_yield_status_in_state {
-                self.receipt_manager.create_promise_resume_receipt(data_id, data);
-                set_promise_yield_status(
-                    &mut self.trie_update,
-                    &self.account_id,
-                    data_id,
-                    PromiseYieldStatus::ResumeInitiated,
-                );
-                return Ok(true);
-            }
-
-            Ok(false)
-        } else {
-            if has_yield_receipt_in_state {
-                self.receipt_manager.create_promise_resume_receipt(data_id, data);
-                return Ok(true);
-            }
-
-            // If the yielded promise was created by the current transaction, we'll find it in the
-            // receipt manager.
-            Ok(self.receipt_manager.checked_resolve_promise_yield(data_id, data))
+        if has_yield_receipt_in_state || has_yield_status_in_state {
+            self.receipt_manager.create_promise_resume_receipt(data_id, data);
+            set_promise_yield_status(
+                &mut self.trie_update,
+                &self.account_id,
+                data_id,
+                PromiseYieldStatus::ResumeInitiated,
+            );
+            return Ok(true);
         }
+
+        Ok(false)
     }
 
     fn submit_promise_resume_data_with_id(
