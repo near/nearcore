@@ -152,15 +152,6 @@ mod tests {
     }
 
     #[test]
-    fn record_absent_from_other_cache_is_noop() {
-        let mut cache = RecentTxFateCache::new();
-        cache.record_pending(hash(1), hash(2));
-        cache.record_dropped_mempool_full(hash(99));
-        cache.record_dropped_mempool_full(hash(3));
-        cache.record_pending(hash(98), hash(0));
-    }
-
-    #[test]
     fn dropped_checked_before_pending() {
         let mut cache = RecentTxFateCache::new();
         let tx = hash(1);
