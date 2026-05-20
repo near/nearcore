@@ -729,14 +729,13 @@ pub fn get_last_certified_block_header(
     if let Some(header) = oldest_uncertified {
         Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
+        // No uncertified-chunks tracking means the block has nothing to
+        // certify: genesis, or a pre-spice block at the activation
+        // boundary. Both are fully certified by definition.
         let header = chain_store.get_block_header(block_hash)?;
-        // TODO(spice): at the spice activation boundary `block_hash` can be
-        // a pre-spice block (not genesis, not a spice block), which also has
-        // no uncertified_chunks and would hit this assert. Either accept
-        // non-spice blocks here or push the check into callers.
         debug_assert!(
-            header.is_genesis(),
-            "spice blocks (except genesis) should always have uncertified chunks"
+            header.is_genesis() || !header.is_spice(),
+            "post-genesis spice blocks should always have uncertified chunks"
         );
         Ok(header)
     }

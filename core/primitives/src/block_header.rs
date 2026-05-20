@@ -1724,6 +1724,20 @@ impl BlockHeader {
             }
         }
     }
+
+    /// Returns true if the header is a spice-protocol header (V7 or later).
+    #[inline]
+    pub fn is_spice(&self) -> bool {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => false,
+            BlockHeader::BlockHeaderV7(_) => true,
+        }
+    }
 }
 
 pub fn compute_bp_hash_from_validator_stakes(

@@ -910,6 +910,9 @@ impl Chain {
             );
             return Err(Error::InvalidProtocolVersion);
         }
+        if ProtocolFeature::Spice.enabled(epoch_protocol_version) && !header.is_spice() {
+            return Err(Error::InvalidProtocolVersion);
+        }
 
         if header.epoch_id() == prev_header.epoch_id() {
             if header.next_bp_hash() != prev_header.next_bp_hash() {
