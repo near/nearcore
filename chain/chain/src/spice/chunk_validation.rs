@@ -1,6 +1,6 @@
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
+use crate::spice::chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::MaybePinnedMemtrieRoot;
 use crate::types::{RuntimeAdapter, StorageDataSource};
@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
@@ -405,9 +405,9 @@ mod tests {
     use near_primitives::sharding::{
         EncodedShardChunkBody, ShardChunkHeader, ShardChunkHeaderV3, TransactionReceipt,
     };
+    use near_primitives::spice::state_witness::SpiceChunkStateTransition;
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
-    use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, create_user_test_signer,
     };

@@ -494,7 +494,7 @@ impl<'a> NodeRunner<'a> {
             |node| {
                 let chain_store = &node.client().chain.chain_store;
                 let head_hash = chain_store.head().unwrap().last_block_hash;
-                near_chain::spice_core::get_last_certified_block_header(chain_store, &head_hash)
+                near_chain::spice::core::get_last_certified_block_header(chain_store, &head_hash)
                     .map_or(false, |h| h.height() >= height)
             },
             timeout,
@@ -654,6 +654,6 @@ impl<'a> NodeRunner<'a> {
     }
 
     fn calculate_block_distance_timeout(&self, num_blocks: usize) -> Duration {
-        self.client().config.max_block_production_delay * (num_blocks as u32 + 1)
+        self.client().config.max_block_production_delay.get() * (num_blocks as u32 + 1)
     }
 }

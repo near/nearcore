@@ -1,8 +1,6 @@
 //! Chain Client Configuration
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
-#[cfg(feature = "schemars")]
-use near_parameters::view::Rational32SchemarsProvider;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -709,20 +707,15 @@ pub struct ClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub block_production_tracking_delay: Duration,
+    pub block_production_tracking_delay: MutableConfigValue<Duration>,
     /// Minimum duration before producing block.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub min_block_production_delay: Duration,
+    pub min_block_production_delay: MutableConfigValue<Duration>,
     /// Maximum wait for approvals before producing block.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub max_block_production_delay: Duration,
+    pub max_block_production_delay: MutableConfigValue<Duration>,
     /// Maximum duration before skipping given height.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub max_block_wait_delay: Duration,
+    pub max_block_wait_delay: MutableConfigValue<Duration>,
     /// Multiplier for the wait time for all chunks to be received.
-    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
-    pub chunk_wait_mult: Rational32,
+    pub chunk_wait_mult: MutableConfigValue<Rational32>,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
     /// How often to check that we are not out of sync.
@@ -781,8 +774,7 @@ pub struct ClientConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub chunk_request_retry_period: Duration,
     /// Time between running doomslug timer.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub doomslug_step_period: Duration,
+    pub doomslug_step_period: MutableConfigValue<Duration>,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.

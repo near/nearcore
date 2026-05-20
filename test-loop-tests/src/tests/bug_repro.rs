@@ -191,9 +191,9 @@ fn slow_test_sync_from_archival_node() {
         .clients(clients.clone())
         .cold_storage_archival_clients(vec![clients[0].clone()])
         .config_modifier(move |config, idx| {
-            config.min_block_production_delay = block_prod_time;
-            config.max_block_production_delay = 3 * block_prod_time;
-            config.max_block_wait_delay = 3 * block_prod_time;
+            config.min_block_production_delay.update(block_prod_time);
+            config.max_block_production_delay.update(3 * block_prod_time);
+            config.max_block_wait_delay.update(3 * block_prod_time);
             // Archival node
             if idx == 0 {
                 config.tracked_shards_config = TrackedShardsConfig::AllShards;
@@ -311,9 +311,9 @@ fn slow_test_long_gap_between_blocks() {
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .config_modifier(move |config, _| {
-            config.min_block_production_delay = block_prod_time;
-            config.max_block_production_delay = 3 * block_prod_time;
-            config.max_block_wait_delay = 3 * block_prod_time;
+            config.min_block_production_delay.update(block_prod_time);
+            config.max_block_production_delay.update(3 * block_prod_time);
+            config.max_block_wait_delay.update(3 * block_prod_time);
         })
         .build();
 

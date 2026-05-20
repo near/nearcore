@@ -41,8 +41,8 @@ use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_chain::SpiceChainReader;
-use near_chain::spice_core_writer_actor::ProcessedBlock;
+use near_chain::spice::chain::SpiceChainReader;
+use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -791,7 +791,8 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
             if now > block_timestamp {
                 let elapsed = now - block_timestamp;
                 if elapsed
-                    > self.client.config.max_block_production_delay * STATUS_WAIT_TIME_MULTIPLIER
+                    > self.client.config.max_block_production_delay.get()
+                        * STATUS_WAIT_TIME_MULTIPLIER
                 {
                     return Err(StatusError::NoNewBlocks { elapsed });
                 }
@@ -858,6 +859,7 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
                     .client
                     .config
                     .min_block_production_delay
+                    .get()
                     .whole_milliseconds() as u64,
             })
         } else {
@@ -1337,7 +1339,7 @@ impl ClientActor {
             delay = std::cmp::min(delay, self.sync_timer_next_attempt - now);
 
             self.doomslug_timer_next_attempt = self.run_timer(
-                self.client.config.doomslug_step_period,
+                self.client.config.doomslug_step_period.get(),
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, _| act.try_doomslug_timer(),
@@ -1349,7 +1351,7 @@ impl ClientActor {
         let validator_signer = self.client.validator_signer.get();
         if validator_signer.is_some() {
             self.block_production_next_attempt = self.run_timer(
-                self.client.config.block_production_tracking_delay,
+                self.client.config.block_production_tracking_delay.get(),
                 self.block_production_next_attempt,
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
@@ -1357,7 +1359,7 @@ impl ClientActor {
             );
 
             let _ = self.client.check_head_progress_stalled(
-                self.client.config.max_block_production_delay * HEAD_STALL_MULTIPLIER,
+                self.client.config.max_block_production_delay.get() * HEAD_STALL_MULTIPLIER,
             );
 
             delay = core::cmp::min(delay, self.block_production_next_attempt - now)

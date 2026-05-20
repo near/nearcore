@@ -1,6 +1,7 @@
 use crate::doomslug::trackable::TrackableBlockHeightValue;
 use crate::metrics;
 use near_async::time::{Clock, Duration, Instant, Utc};
+use near_chain_configs::MutableConfigValue;
 use near_client_primitives::debug::{ApprovalAtHeightStatus, ApprovalHistoryEntry};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -58,11 +59,10 @@ struct DoomslugTimer {
     started: Instant,
     last_endorsement_sent: Instant,
     height: BlockHeight,
-    endorsement_delay: Duration,
-    min_delay: Duration,
-    delay_step: Duration,
-    max_delay: Duration,
-    chunk_wait_mult: Rational32,
+    endorsement_delay: MutableConfigValue<Duration>,
+    min_delay: MutableConfigValue<Duration>,
+    max_delay: MutableConfigValue<Duration>,
+    chunk_wait_mult: MutableConfigValue<Rational32>,
 }
 
 struct DoomslugTip {
@@ -175,7 +175,9 @@ impl DoomslugTimer {
     /// Duration to sleep
     pub fn get_delay(&self, n: BlockHeightDelta) -> Duration {
         let n32 = u32::try_from(n).unwrap_or(u32::MAX);
-        std::cmp::min(self.max_delay, self.min_delay + self.delay_step * n32.saturating_sub(2))
+        let min_delay = self.min_delay.get();
+        let delay_step = min_delay / 10;
+        std::cmp::min(self.max_delay.get(), min_delay + delay_step * n32.saturating_sub(2))
     }
 }
 
@@ -382,11 +384,10 @@ impl Doomslug {
     pub fn new(
         clock: Clock,
         largest_target_height: BlockHeight,
-        endorsement_delay: Duration,
-        min_delay: Duration,
-        delay_step: Duration,
-        max_delay: Duration,
-        chunk_wait_mult: Rational32,
+        endorsement_delay: MutableConfigValue<Duration>,
+        min_delay: MutableConfigValue<Duration>,
+        max_delay: MutableConfigValue<Duration>,
+        chunk_wait_mult: MutableConfigValue<Rational32>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         Doomslug {
@@ -414,7 +415,6 @@ impl Doomslug {
                 height: 0,
                 endorsement_delay,
                 min_delay,
-                delay_step,
                 max_delay,
                 chunk_wait_mult,
             },
@@ -497,12 +497,13 @@ impl Doomslug {
             // The `endorsement_delay` is time to send approval to the block producer at `timer.height`,
             // while the `skip_delay` is the time before sending the approval to BP of `timer_height + 1`,
             // so it makes sense for them to be at least 2x apart
-            debug_assert!(skip_delay >= 2 * self.timer.endorsement_delay);
+            let endorsement_delay = self.timer.endorsement_delay.get();
+            debug_assert!(skip_delay >= 2 * endorsement_delay);
 
             let tip_height = self.tip.height;
 
             if self.endorsement_pending
-                && now >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
+                && now >= self.timer.last_endorsement_sent + endorsement_delay
             {
                 if tip_height >= self.largest_target_height.get() {
                     self.largest_target_height.set(tip_height + 1);
@@ -519,8 +520,7 @@ impl Doomslug {
                             .signed_duration_since(self.timer.last_endorsement_sent))
                         .whole_milliseconds()
                         .max(0) as u64,
-                        expected_delay_millis: self.timer.endorsement_delay.whole_milliseconds()
-                            as u64,
+                        expected_delay_millis: endorsement_delay.whole_milliseconds() as u64,
                         approval_creation_time: self.clock.now_utc(),
                     });
                 }
@@ -773,10 +773,12 @@ impl Doomslug {
             return true;
         }
 
+        let chunk_wait_mult = self.timer.chunk_wait_mult.get();
+
         let chunk_wait_delay =
             self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()))
-                * *self.timer.chunk_wait_mult.numer()
-                / *self.timer.chunk_wait_mult.denom();
+                * *chunk_wait_mult.numer()
+                / *chunk_wait_mult.denom();
 
         let ready = now > when + chunk_wait_delay;
         span.record("need_to_wait", !ready);
@@ -804,6 +806,7 @@ mod tests {
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
     };
     use near_async::time::{Duration, FakeClock, Utc};
+    use near_chain_configs::MutableConfigValue;
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
@@ -820,11 +823,10 @@ mod tests {
         let mut ds = Doomslug::new(
             clock.clock(),
             0,
-            Duration::milliseconds(400),
-            Duration::milliseconds(1000),
-            Duration::milliseconds(100),
-            Duration::milliseconds(3000),
-            Rational32::new(1, 3),
+            MutableConfigValue::new(Duration::milliseconds(400), "endorsement_delay"),
+            MutableConfigValue::new(Duration::milliseconds(1000), "min_delay"),
+            MutableConfigValue::new(Duration::milliseconds(3000), "max_delay"),
+            MutableConfigValue::new(Rational32::new(1, 3), "chunk_wait_mult"),
             DoomslugThresholdMode::TwoThirds,
         );
 
@@ -954,6 +956,38 @@ mod tests {
     }
 
     #[test]
+    fn test_get_delay_reacts_to_config_updates() {
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
+        let min_delay = MutableConfigValue::new(Duration::milliseconds(1000), "min_delay");
+        let max_delay = MutableConfigValue::new(Duration::milliseconds(3000), "max_delay");
+        let ds = Doomslug::new(
+            clock.clock(),
+            0,
+            MutableConfigValue::new(Duration::milliseconds(400), "endorsement_delay"),
+            min_delay.clone(),
+            max_delay.clone(),
+            MutableConfigValue::new(Rational32::new(1, 3), "chunk_wait_mult"),
+            DoomslugThresholdMode::TwoThirds,
+        );
+
+        // delay_step = min_delay / 10 = 100ms.
+        // n = 5: 1000 + 100 * (5 - 2) = 1300ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(1300));
+        // Large n saturates at max_delay.
+        assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(3000));
+
+        // Update both values while the `Doomslug` is alive.
+        assert!(min_delay.update(Duration::milliseconds(2000)));
+        assert!(max_delay.update(Duration::milliseconds(5000)));
+
+        // delay_step is now 2000 / 10 = 200ms.
+        // n = 5: 2000 + 200 * (5 - 2) = 2600ms.
+        assert_eq!(ds.timer.get_delay(5), Duration::milliseconds(2600));
+        // The cap now follows the updated max_delay.
+        assert_eq!(ds.timer.get_delay(50), Duration::milliseconds(5000));
+    }
+
+    #[test]
     fn test_doomslug_approvals() {
         let accounts: Vec<(&str, Balance, Balance)> = vec![
             ("test1", Balance::from_yoctonear(2), Balance::ZERO),
@@ -979,11 +1013,10 @@ mod tests {
         let mut ds = Doomslug::new(
             clock.clock(),
             0,
-            Duration::milliseconds(400),
-            Duration::milliseconds(1000),
-            Duration::milliseconds(100),
-            Duration::milliseconds(3000),
-            Rational32::new(1, 3),
+            MutableConfigValue::new(Duration::milliseconds(400), "min_block_production_delay"),
+            MutableConfigValue::new(Duration::milliseconds(1000), "max_block_production_delay"),
+            MutableConfigValue::new(Duration::milliseconds(3000), "max_block_wait_delay"),
+            MutableConfigValue::new(Rational32::new(1, 3), "chunk_wait_mult"),
             DoomslugThresholdMode::TwoThirds,
         );
 

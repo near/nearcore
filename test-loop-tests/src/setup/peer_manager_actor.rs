@@ -7,7 +7,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
-use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
@@ -15,11 +15,11 @@ use near_network::client::{
     ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::spice_data_distribution::{
+use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage,
 };
-use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
+use near_network::spice::data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,

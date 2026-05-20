@@ -3,30 +3,30 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
-use near_chain::stateless_validation::spice_chunk_validation::{
+use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
+use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, Block, ChainGenesis, ChainStore, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::spice_data_distribution::{
+use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeResponseMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
+use near_primitives::spice::state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
     SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
-use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::AccountId;
 use near_primitives::types::validator_stake::ValidatorStake;
