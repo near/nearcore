@@ -15,7 +15,7 @@ pub const DEFAULT_DROPPED_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(10_000).u
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionStatus {
-    Pending(CryptoHash),
+    Pending { base_block_hash: CryptoHash },
     DroppedMempoolFull,
     Unknown,
 }
@@ -27,12 +27,10 @@ pub struct RecentTransactionTracker {
 }
 
 impl RecentTransactionTracker {
-    #[must_use]
     pub fn new() -> Self {
         Self::with_capacities(DEFAULT_PENDING_CACHE_SIZE, DEFAULT_DROPPED_CACHE_SIZE)
     }
 
-    #[must_use]
     pub fn with_capacities(pending_cap: NonZeroUsize, dropped_cap: NonZeroUsize) -> Self {
         Self { pending: LruCache::new(pending_cap), dropped: LruCache::new(dropped_cap) }
     }
@@ -53,7 +51,7 @@ impl RecentTransactionTracker {
             return TransactionStatus::DroppedMempoolFull;
         }
         if let Some(&base_block_hash) = self.pending.get(tx_hash) {
-            return TransactionStatus::Pending(base_block_hash);
+            return TransactionStatus::Pending { base_block_hash };
         }
         TransactionStatus::Unknown
     }
@@ -94,7 +92,7 @@ mod tests {
         let tx = hash(1);
         let base = hash(2);
         tracker.record_pending(tx, base);
-        assert_eq!(tracker.status(&tx), TransactionStatus::Pending(base));
+        assert_eq!(tracker.status(&tx), TransactionStatus::Pending { base_block_hash: base });
     }
 
     #[test]
@@ -120,7 +118,7 @@ mod tests {
             tracker.record_pending(hash(i), base);
         }
         assert_eq!(tracker.status(&hash(1)), TransactionStatus::Unknown);
-        assert_eq!(tracker.status(&hash(4)), TransactionStatus::Pending(base));
+        assert_eq!(tracker.status(&hash(4)), TransactionStatus::Pending { base_block_hash: base });
     }
 
     #[test]
@@ -151,7 +149,7 @@ mod tests {
         let base = hash(2);
         tracker.record_dropped_mempool_full(tx);
         tracker.record_pending(tx, base);
-        assert_eq!(tracker.status(&tx), TransactionStatus::Pending(base));
+        assert_eq!(tracker.status(&tx), TransactionStatus::Pending { base_block_hash: base });
     }
 
     #[test]

@@ -705,7 +705,7 @@ impl ViewClientActor {
                             TransactionStatus::DroppedMempoolFull => {
                                 Err(TxStatusError::DroppedMempoolFull)
                             }
-                            TransactionStatus::Pending(base_block_hash) => {
+                            TransactionStatus::Pending { base_block_hash } => {
                                 let head_block = self.chain.get_block(&head.last_block_hash)?;
                                 match self.chain.chain_store().check_transaction_validity_period(
                                     head_block.header(),

@@ -801,7 +801,7 @@ impl From<TxStatusError> for GetExecutionOutcomeError {
             | TxStatusError::Expired(_)
             | TxStatusError::InternalError(_)
             | TxStatusError::TimeoutError => {
-                Self::Unreachable { error_message: format!("{:?}", error) }
+                Self::Unreachable { error_message: format!("{error:?}") }
             }
         }
     }
