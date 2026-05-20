@@ -347,25 +347,25 @@ pub(crate) fn action_delete_account(
     config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    let account_mut = account.as_mut().unwrap();
+    let account_ref = account.as_ref().unwrap();
     let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
         .enabled(current_protocol_version)
     {
-        clear_account_contract_storage_usage(
+        let contract_storage = get_contract_storage_usage(
             state_update,
             account_id,
-            account_mut,
+            account_ref,
             current_protocol_version,
         )?;
-        account_mut.storage_usage()
+        account_ref.storage_usage().saturating_sub(contract_storage)
     } else {
         // Legacy behavior: only subtracts local contract code, misses the
         // global contract identifier overhead.
-        let account_storage_usage = account_mut.storage_usage();
+        let account_storage_usage = account_ref.storage_usage();
         let code_len = get_code_len_or_default(
             state_update,
             account_id.clone(),
-            account_mut.local_contract_hash().unwrap_or_default(),
+            account_ref.local_contract_hash().unwrap_or_default(),
             current_protocol_version,
         )?;
         debug_assert!(
@@ -393,7 +393,7 @@ pub(crate) fn action_delete_account(
         return Ok(());
     }
     // We use current amount as a pay out to beneficiary.
-    let account_balance = account_mut.amount();
+    let account_balance = account_ref.amount();
     if account_balance > Balance::ZERO {
         result
             .new_receipts
@@ -447,6 +447,26 @@ fn get_code_len_or_default(
     Ok(code_len.unwrap_or_default().try_into().unwrap())
 }
 
+fn get_contract_storage_usage(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+    account: &Account,
+    current_protocol_version: ProtocolVersion,
+) -> Result<StorageUsage, StorageError> {
+    Ok(match account.contract().as_ref() {
+        AccountContract::None => 0,
+        AccountContract::Local(code_hash) => get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            *code_hash,
+            current_protocol_version,
+        )?,
+        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
+            account.contract().identifier_storage_usage()
+        }
+    })
+}
+
 /// Clears the contract storage usage based on type for an account.
 pub(crate) fn clear_account_contract_storage_usage(
     state_update: &TrieUpdate,
@@ -454,25 +474,9 @@ pub(crate) fn clear_account_contract_storage_usage(
     account: &mut Account,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    match account.contract().as_ref() {
-        AccountContract::None => {}
-        AccountContract::Local(code_hash) => {
-            let prev_code_len = get_code_len_or_default(
-                state_update,
-                account_id.clone(),
-                *code_hash,
-                current_protocol_version,
-            )?;
-            account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
-        }
-        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
-            account.set_storage_usage(
-                account
-                    .storage_usage()
-                    .saturating_sub(account.contract().identifier_storage_usage()),
-            );
-        }
-    };
+    let contract_storage =
+        get_contract_storage_usage(state_update, account_id, account, current_protocol_version)?;
+    account.set_storage_usage(account.storage_usage().saturating_sub(contract_storage));
     Ok(())
 }
 
@@ -851,9 +855,7 @@ fn check_transfer_to_nonexisting_account(
 mod tests {
 
     use super::*;
-    use crate::actions_test_utils::{
-        setup_account, test_delete_account, test_delete_account_in_empty_trie,
-    };
+    use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::FunctionCallAction;
@@ -1042,6 +1044,24 @@ mod tests {
         );
     }
 
+    fn test_delete_account_in_empty_trie(
+        account_id: &AccountId,
+        contract: AccountContract,
+        storage_usage: u64,
+        protocol_version: ProtocolVersion,
+    ) -> ActionResult {
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        test_delete_account(
+            account_id,
+            contract,
+            storage_usage,
+            protocol_version,
+            &mut state_update,
+        )
+    }
+
     #[test]
     fn test_delete_account_with_contract_and_small_state() {
         let action_result = test_delete_account_with_contract(
@@ -1157,6 +1177,41 @@ mod tests {
             ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&over_limit);
+    }
+
+    #[test]
+    fn test_delete_account_over_limit_leaves_account_unchanged() {
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let account_id: AccountId = "alice".parse().unwrap();
+        let storage_usage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33;
+        let mut account = Some(Account::new(
+            Balance::from_yoctonear(100),
+            Balance::ZERO,
+            AccountContract::Global(CryptoHash::default()),
+            storage_usage,
+        ));
+        let mut actor_id = account_id.clone();
+        let mut action_result = ActionResult::default();
+        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+        let config = RuntimeConfig::test();
+
+        let res = action_delete_account(
+            &mut state_update,
+            &mut account,
+            &mut actor_id,
+            &receipt,
+            &mut action_result,
+            &account_id,
+            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
+            &config,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        assert!(res.is_ok());
+        expect_delete_account_too_large(&action_result);
+        let account_after = account.as_ref().expect("account must remain on failure");
+        assert_eq!(account_after.storage_usage(), storage_usage);
     }
 
     fn create_delegate_action_receipt() -> (ActionReceipt, SignedDelegateAction) {

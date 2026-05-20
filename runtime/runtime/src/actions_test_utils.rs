@@ -59,15 +59,3 @@ pub(crate) fn test_delete_account(
     assert!(res.is_ok());
     action_result
 }
-
-/// Like [`test_delete_account`] but with an empty trie: for `None`/`Global`/`GlobalByAccount` (no deployed code).
-pub(crate) fn test_delete_account_in_empty_trie(
-    account_id: &AccountId,
-    contract: AccountContract,
-    storage_usage: u64,
-    protocol_version: ProtocolVersion,
-) -> ActionResult {
-    let tries = TestTriesBuilder::new().build();
-    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-    test_delete_account(account_id, contract, storage_usage, protocol_version, &mut state_update)
-}
