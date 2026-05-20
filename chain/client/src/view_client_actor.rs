@@ -1409,6 +1409,9 @@ fn handle_receipt_to_tx(
                         current_shard = None;
                     }
                 } else {
+                    // No hint, or `save_tx_outcomes=false` so no scan possible.
+                    // Drop the shard hint; if the next column lookup also misses,
+                    // the column-miss branch will surface `OutcomesNotStored`.
                     current_shard = None;
                 }
                 current_receipt_id = parent_id;
@@ -1428,6 +1431,11 @@ fn handle_receipt_to_tx(
 /// which a misaligned hint on a deep chain can drive into the millions on
 /// an unauthenticated public endpoint. 100k is well above the legitimate
 /// usage envelope (depth ≤ 3, window ≤ 5, sparse outcomes) and still bounded.
+///
+/// Note: when `shard_id` is omitted, the budget is consumed across *all*
+/// shards in iteration order — a hit on the last-iterated shard charges every
+/// earlier shard's outcomes too. Callers that know the creating shard should
+/// supply it on hop 1 to avoid this multiplier.
 const MAX_OUTCOMES_PER_REQUEST: u64 = 100_000;
 
 fn scan_with_optional_shard_enumeration(
