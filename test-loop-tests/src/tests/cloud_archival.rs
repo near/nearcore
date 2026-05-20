@@ -927,7 +927,7 @@ fn test_cloud_archival_outcomes_and_receipts() {
             let ChunkApplyStats::V1(stats) =
                 writer_chunk_store.get_chunk_apply_stats(&block_hash, shard_id).unwrap()
             else {
-                panic!("expected ChunkApplyStats::V1 from a freshly written chunk");
+                unreachable!("freshly written chunks must be ChunkApplyStats::V1");
             };
             assert_eq!(
                 cloud_stored_from_tx_count, stats.transactions_num as usize,

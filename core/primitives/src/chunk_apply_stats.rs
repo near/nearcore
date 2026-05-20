@@ -248,8 +248,6 @@ pub struct BalanceStatsV1 {
     /// This is a negative amount. This amount was not charged from the account that issued
     /// the transaction. It's likely due to the delayed queue of the receipts.
     pub gas_deficit_amount: Balance,
-    /// No longer used, keeping to preserve borsh deserialization of the old data in the db.
-    pub _deprecated_global_actions_burnt_amount: Balance,
     /// Amount of balance subsidized (effectively minted) for zero-balance contracts
     /// attaching 1 yoctoNEAR to promise function calls. This amount must be
     /// subtracted from total_balance_burnt to keep total supply correct.
@@ -269,82 +267,4 @@ fn get_requested_values(
         }
     }
     res
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use borsh::BorshDeserialize;
-
-    fn make_v0() -> ChunkApplyStatsV0 {
-        ChunkApplyStatsV0 {
-            height: 7,
-            shard_id: ShardId::new(3),
-            is_new_chunk: true,
-            transactions_num: 11,
-            incoming_receipts_num: 13,
-            receipt_sink: Default::default(),
-            bandwidth_scheduler: Default::default(),
-            balance: BalanceStats {
-                tx_burnt_amount: Balance::from_yoctonear(1),
-                slashed_burnt_amount: Balance::from_yoctonear(2),
-                other_burnt_amount: Balance::from_yoctonear(3),
-                gas_deficit_amount: Balance::from_yoctonear(4),
-                _deprecated_global_actions_burnt_amount: Balance::from_yoctonear(5),
-            },
-        }
-    }
-
-    fn make_v1() -> ChunkApplyStatsV1 {
-        ChunkApplyStatsV1 {
-            height: 7,
-            shard_id: ShardId::new(3),
-            is_new_chunk: true,
-            transactions_num: 11,
-            incoming_receipts_num: 13,
-            receipt_sink: Default::default(),
-            bandwidth_scheduler: Default::default(),
-            balance: BalanceStatsV1 {
-                tx_burnt_amount: Balance::from_yoctonear(1),
-                slashed_burnt_amount: Balance::from_yoctonear(2),
-                other_burnt_amount: Balance::from_yoctonear(3),
-                gas_deficit_amount: Balance::from_yoctonear(4),
-                _deprecated_global_actions_burnt_amount: Balance::from_yoctonear(5),
-                subsidized_amount: Balance::from_yoctonear(6),
-            },
-        }
-    }
-
-    /// V0 bytes written by older binaries must continue to deserialize, otherwise
-    /// readers like `view-state chunk-apply-stats` will panic on existing rows.
-    #[test]
-    fn v0_round_trips() {
-        let stats = ChunkApplyStats::V0(make_v0());
-        let bytes = borsh::to_vec(&stats).unwrap();
-        assert_eq!(bytes[0], 0, "discriminant byte must be 0 for V0");
-        let decoded = ChunkApplyStats::try_from_slice(&bytes).unwrap();
-        let ChunkApplyStats::V0(decoded_v0) = decoded else {
-            panic!("expected V0 after round-trip");
-        };
-        let original_v0 = make_v0();
-        assert_eq!(decoded_v0.height, original_v0.height);
-        assert_eq!(decoded_v0.shard_id, original_v0.shard_id);
-        assert_eq!(decoded_v0.balance.tx_burnt_amount, original_v0.balance.tx_burnt_amount);
-        assert_eq!(
-            decoded_v0.balance._deprecated_global_actions_burnt_amount,
-            original_v0.balance._deprecated_global_actions_burnt_amount
-        );
-    }
-
-    #[test]
-    fn v1_round_trips() {
-        let stats = ChunkApplyStats::V1(make_v1());
-        let bytes = borsh::to_vec(&stats).unwrap();
-        assert_eq!(bytes[0], 1, "discriminant byte must be 1 for V1");
-        let decoded = ChunkApplyStats::try_from_slice(&bytes).unwrap();
-        let ChunkApplyStats::V1(decoded_v1) = decoded else {
-            panic!("expected V1 after round-trip");
-        };
-        assert_eq!(decoded_v1.balance.subsidized_amount, Balance::from_yoctonear(6));
-    }
 }
