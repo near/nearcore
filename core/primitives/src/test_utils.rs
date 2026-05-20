@@ -869,6 +869,7 @@ pub struct TestBlockBuilder {
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    timestamp_nanos: Option<u64>,
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
@@ -903,6 +904,7 @@ impl TestBlockBuilder {
             block_merkle_root: tree.root(),
             chunks: prev_chunks,
             chunk_endorsements: vec![vec![]; chunks_len],
+            timestamp_nanos: None,
             prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(crate::block_body::SpiceCoreStatements::new(vec![]))
@@ -975,8 +977,13 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
-        self.chunks = chunks;
+    pub fn block_merkle_root(mut self, block_merkle_root: CryptoHash) -> Self {
+        self.block_merkle_root = block_merkle_root;
+        self
+    }
+
+    pub fn chunks(mut self, chunks: impl IntoIterator<Item = ShardChunkHeader>) -> Self {
+        self.chunks = chunks.into_iter().collect();
         self
     }
 
@@ -1005,9 +1012,19 @@ impl TestBlockBuilder {
         self
     }
 
+    /// Override the produced block's timestamp and resign the header.
+    pub fn timestamp_nanos(mut self, timestamp_nanos: u64) -> Self {
+        self.timestamp_nanos = Some(timestamp_nanos);
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
+        Arc::new(self.build_owned())
+    }
+
+    pub fn build_owned(self) -> Block {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        Arc::new(Block::produce(
+        let mut block = Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             &self.prev_header,
@@ -1037,7 +1054,12 @@ impl TestBlockBuilder {
                         .newly_certified_block_execution_results,
                 }
             }),
-        ))
+        );
+        if let Some(ts) = self.timestamp_nanos {
+            block.mut_header().set_timestamp(ts);
+            block.mut_header().resign(self.signer.as_ref());
+        }
+        block
     }
 }
 
