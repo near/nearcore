@@ -299,8 +299,9 @@ pub(crate) fn execute_function_call(
 
     // There are many specific errors that the runtime can encounter.
     // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
+    // the error up to the caller. VM nondeterministic and unknown errors are logged
+    // with their exact details, but release builds return deterministic soft-fail
+    // outcomes instead of crashing the node.
     // Note that this does not include errors caused by user code / input, those are
     // stored in outcome.aborted.
     let mut outcome = match result {
