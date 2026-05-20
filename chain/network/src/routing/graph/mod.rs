@@ -17,6 +17,11 @@ mod tests;
 
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
+
+/// Clock-skew tolerance for accepting edges with nonces in the future. Edges with nonces
+/// further ahead than this are rejected to prevent attackers from setting far-future
+/// timestamps to bypass the past-only `PRUNE_EDGES_AFTER` window.
+const EDGE_NONCE_FUTURE_TOLERANCE: time::Duration = time::Duration::minutes(5);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 pub type DistanceTable = HashMap<PeerId, u32>;
 
@@ -213,6 +218,15 @@ impl Inner {
             if let Some(prune_edges_after) = self.config.prune_edges_after {
                 // Don't add edges that are older than the limit.
                 if e.is_edge_older_than(now - prune_edges_after) {
+                    return false;
+                }
+            }
+
+            // Reject edges with nonces too far in the future. Otherwise an attacker can set
+            // nonces years ahead to bypass the past-only prune window above.
+            if let Ok(nonce_time) = Edge::nonce_to_utc(e.nonce()) {
+                if nonce_time > now + EDGE_NONCE_FUTURE_TOLERANCE {
+                    metrics::EDGE_DROPPED.inc();
                     return false;
                 }
             }
