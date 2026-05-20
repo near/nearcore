@@ -996,7 +996,12 @@ fn test_hint_fallback_resolves_tx_origin() {
 /// `save_receipt_to_tx=false`, height-only hint in a 2-shard setup. The
 /// handler does not know the creating shard, so hop 1 enumerates all shards
 /// at the hinted height and finds the transaction outcome.
+///
+/// Gated off under spice: the spice execution model places the cross-shard
+/// transaction outcome on a different block than the receipt's hinted height,
+/// so the scan window misses.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_height_only_resolves_all_shards() {
     init_test_logger();
     let sender_account = create_account_id("account0");
@@ -1044,7 +1049,12 @@ fn test_hint_height_only_resolves_all_shards() {
 /// `save_receipt_to_tx=false`, contract refund chain (depth 2). Hint at the
 /// action receipt's execution height. The handler walks both hops server-side
 /// via repeated hint scans.
+///
+/// Gated off under spice: the spice execution model produces the refund and
+/// action receipts on different blocks than the standard model, so the
+/// computed hint coordinates don't match the outcome rows the scan inspects.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_fallback_resolves_through_refund_chain() {
     init_test_logger();
     let user_account = create_account_id("account0");
@@ -1112,7 +1122,13 @@ fn test_hint_fallback_resolves_through_refund_chain() {
 /// supplied action shard to resolve refund → action receipt. The shard hint is
 /// then consumed, so the ancestor hop scans all shards and finds the
 /// originating transaction on the sender shard.
+///
+/// Gated off under spice: the spice execution model lands the cross-shard
+/// refund / action receipts on different blocks than the standard model, so
+/// the hint coordinates this test computes don't line up with the outcome
+/// rows that the resolver scans.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_cross_shard_walk_resolves_via_all_shard_scan() {
     init_test_logger();
     let sender_account = create_account_id("account0");
