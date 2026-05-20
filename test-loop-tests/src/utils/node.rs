@@ -494,7 +494,7 @@ impl<'a> NodeRunner<'a> {
             |node| {
                 let chain_store = &node.client().chain.chain_store;
                 let head_hash = chain_store.head().unwrap().last_block_hash;
-                near_chain::spice_core::get_last_certified_block_header(chain_store, &head_hash)
+                near_chain::spice::core::get_last_certified_block_header(chain_store, &head_hash)
                     .map_or(false, |h| h.height() >= height)
             },
             timeout,

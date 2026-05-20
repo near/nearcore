@@ -1,5 +1,5 @@
-use crate::spice_core::SpiceCoreReader;
-use crate::spice_core_writer_actor::{
+use crate::spice::core::SpiceCoreReader;
+use crate::spice::core_writer_actor::{
     ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
 };
 use crate::test_utils::{
@@ -20,10 +20,8 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::spice_chunk_endorsement::testonly_create_chunk_endorsement;
-use near_primitives::stateless_validation::spice_chunk_endorsement::{
-    SpiceChunkEndorsement, SpiceVerifiedEndorsement,
-};
+use near_primitives::spice::chunk_endorsement::testonly_create_chunk_endorsement;
+use near_primitives::spice::chunk_endorsement::{SpiceChunkEndorsement, SpiceVerifiedEndorsement};
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ChunkExecutionResult, ShardId, SpiceChunkId};

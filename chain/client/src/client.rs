@@ -10,7 +10,7 @@ use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
-use crate::spice_timer::SpiceTimer;
+use crate::spice::timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
@@ -33,7 +33,7 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::find_newly_certified_block_hashes;
+use near_chain::spice::core::find_newly_certified_block_hashes;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};

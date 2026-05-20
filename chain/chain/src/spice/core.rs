@@ -8,7 +8,7 @@ use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::stateless_validation::spice_chunk_endorsement::{
+use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
