@@ -249,7 +249,6 @@ impl External for MockedExternal {
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
-        _yield_timeout_blocks: u64,
     ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
         // Check for duplicate yield_id
         for action in &self.action_log {

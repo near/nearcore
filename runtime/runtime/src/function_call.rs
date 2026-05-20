@@ -153,15 +153,13 @@ pub(crate) fn action_function_call(
             .map(|receipt| {
                 // If the newly created receipt is a PromiseYield, enqueue a timeout for it
                 if receipt.is_promise_yield {
-                    let timeout = receipt
-                        .yield_timeout_blocks
-                        .unwrap_or(config.wasm_config.limit_config.yield_timeout_length_in_blocks);
                     enqueue_promise_yield_timeout(
                         state_update,
                         &mut promise_yield_indices,
                         account_id.clone(),
                         receipt.input_data_ids[0],
-                        apply_state.block_height + timeout,
+                        apply_state.block_height
+                            + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
                     );
                 }
 

@@ -3774,8 +3774,7 @@ pub fn promise_yield_create(
     Ok(new_promise_idx)
 }
 
-/// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID
-/// and timeout.
+/// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
 pub fn promise_yield_create_with_id(
     ctx: &mut Ctx,
     memory: &mut [u8],
@@ -3787,7 +3786,6 @@ pub fn promise_yield_create_with_id(
     gas_weight: u64,
     yield_id_len: u64,
     yield_id_ptr: u64,
-    yield_timeout_blocks: u64,
 ) -> Result<u64> {
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3828,11 +3826,6 @@ pub fn promise_yield_create_with_id(
         yield_id_bytes.as_ref().try_into().map_err(|_| HostError::DataIdMalformed)?;
     let user_yield_id = CryptoHash(yield_id);
 
-    // Validate timeout — currently only 200 blocks is accepted
-    if yield_timeout_blocks != 200 {
-        return Err(HostError::InvalidYieldTimeout { timeout: yield_timeout_blocks }.into());
-    }
-
     let method_name = method_name.to_owned();
     let arguments = arguments.to_owned();
 
@@ -3846,7 +3839,6 @@ pub fn promise_yield_create_with_id(
     let (new_receipt_idx, _data_id) = ctx.ext.create_promise_yield_receipt_with_id(
         ctx.context.current_account_id.clone(),
         user_yield_id,
-        yield_timeout_blocks,
     )?;
 
     let new_promise_idx = checked_push_promise(ctx, Promise::Receipt(new_receipt_idx))?;

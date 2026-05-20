@@ -208,7 +208,6 @@ extern "C" {
         gas_weight: u64,
         yield_id_len: u64,
         yield_id_ptr: u64,
-        yield_timeout_blocks: u64,
     ) -> u64;
     fn promise_yield_resume(
         data_id_len: u64,
@@ -1326,7 +1325,6 @@ pub unsafe fn call_yield_create_with_id() {
     let method_name = "check_promise_result_write_status";
     let gas_fixed = 0;
     let gas_weight = 1;
-    let yield_timeout_blocks = 200u64;
     promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
@@ -1336,7 +1334,6 @@ pub unsafe fn call_yield_create_with_id() {
         gas_weight,
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
-        yield_timeout_blocks,
     );
 }
 
@@ -1356,8 +1353,6 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
     let method_name = "check_promise_result_return_value";
     let gas_fixed = 0;
     let gas_weight = 1;
-    let yield_timeout_blocks = 200u64;
-
     // First call should succeed
     promise_yield_create_with_id(
         method_name.len() as u64,
@@ -1368,7 +1363,6 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
         gas_weight,
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
-        yield_timeout_blocks,
     );
 
     // Second call with the same yield_id should abort with YieldIdAlreadyExists
@@ -1381,7 +1375,6 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
         gas_weight,
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
-        yield_timeout_blocks,
     );
 }
 
@@ -1424,7 +1417,6 @@ pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
     let method_name = "check_promise_result_return_value";
     let gas_fixed = 0;
     let gas_weight = 1;
-    let yield_timeout_blocks = 200u64;
     let promise_index = promise_yield_create_with_id(
         method_name.len() as u64,
         method_name.as_ptr() as u64,
@@ -1434,7 +1426,6 @@ pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
         gas_weight,
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
-        yield_timeout_blocks,
     );
 
     // Resume using the yield_id

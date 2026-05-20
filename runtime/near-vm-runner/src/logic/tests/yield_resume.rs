@@ -147,7 +147,6 @@ fn test_promise_yield_create_with_id() {
             1,
             yield_id_mem.len,
             yield_id_mem.ptr,
-            200,
         )
         .expect("yield_create_with_id should succeed");
 
@@ -186,49 +185,11 @@ fn test_promise_yield_create_with_id_invalid_yield_id_length() {
         1,
         yield_id_mem.len,
         yield_id_mem.ptr,
-        200,
     );
 
     assert!(
         matches!(result, Err(crate::logic::VMLogicError::HostError(HostError::DataIdMalformed))),
         "expected DataIdMalformed for short yield_id, got {result:?}"
-    );
-}
-
-#[test]
-fn test_promise_yield_create_with_id_invalid_timeout() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let mut logic_builder = VMLogicBuilder::free();
-    let mut logic = logic_builder.build();
-
-    let method_name = logic.internal_mem_write(b"callback");
-    let args = logic.internal_mem_write(b"args");
-    let yield_id = [1u8; 32];
-    let yield_id_mem = logic.internal_mem_write(&yield_id);
-
-    let result = logic.promise_yield_create_with_id(
-        method_name.len,
-        method_name.ptr,
-        args.len,
-        args.ptr,
-        0,
-        1,
-        yield_id_mem.len,
-        yield_id_mem.ptr,
-        100, // invalid — only 200 accepted
-    );
-
-    assert!(
-        matches!(
-            result,
-            Err(crate::logic::VMLogicError::HostError(HostError::InvalidYieldTimeout {
-                timeout: 100
-            }))
-        ),
-        "expected InvalidYieldTimeout for timeout=100, got {result:?}"
     );
 }
 
@@ -255,7 +216,6 @@ fn test_promise_yield_create_with_id_empty_method_name() {
         1,
         yield_id_mem.len,
         yield_id_mem.ptr,
-        200,
     );
 
     assert!(
@@ -288,7 +248,6 @@ fn test_promise_yield_create_with_id_view_prohibited() {
         1,
         yield_id_mem.len,
         yield_id_mem.ptr,
-        200,
     );
 
     assert!(
@@ -324,7 +283,6 @@ fn test_promise_yield_resume_with_id_after_create_with_id() {
             1,
             yield_id_mem.len,
             yield_id_mem.ptr,
-            200,
         )
         .expect("yield_create_with_id should succeed");
 
@@ -417,7 +375,6 @@ fn test_promise_yield_create_with_id_then_resume_with_yield_id_fails() {
             1,
             yield_id_mem.len,
             yield_id_mem.ptr,
-            200,
         )
         .expect("yield_create_with_id should succeed");
 
@@ -508,7 +465,6 @@ fn test_promise_yield_create_with_id_duplicate_in_same_call() {
             1,
             yield_id_mem.len,
             yield_id_mem.ptr,
-            200,
         )
         .expect("first yield_create_with_id should succeed");
 
@@ -523,7 +479,6 @@ fn test_promise_yield_create_with_id_duplicate_in_same_call() {
         1,
         yield_id_mem2.len,
         yield_id_mem2.ptr,
-        200,
     );
 
     assert!(

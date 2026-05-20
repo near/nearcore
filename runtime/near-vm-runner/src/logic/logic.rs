@@ -3435,8 +3435,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         Ok(new_promise_idx)
     }
 
-    /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID
-    /// and timeout. The yield ID must be exactly 32 bytes. The yield is resumed via
+    /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
+    /// The yield ID must be exactly 32 bytes. The yield is resumed via
     /// [`promise_yield_resume_with_id`] using the same yield ID.
     pub fn promise_yield_create_with_id(
         &mut self,
@@ -3448,7 +3448,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         gas_weight: u64,
         yield_id_len: u64,
         yield_id_ptr: u64,
-        yield_timeout_blocks: u64,
     ) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
@@ -3471,11 +3470,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             (&*yield_id_bytes).try_into().map_err(|_| HostError::DataIdMalformed)?;
         let user_yield_id = CryptoHash(yield_id);
 
-        // Validate timeout — currently only 200 blocks is accepted
-        if yield_timeout_blocks != 200 {
-            return Err(HostError::InvalidYieldTimeout { timeout: yield_timeout_blocks }.into());
-        }
-
         let method_name = method_name.into_owned();
         let arguments = arguments.into_owned();
 
@@ -3491,7 +3485,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let (new_receipt_idx, _data_id) = self.ext.create_promise_yield_receipt_with_id(
             self.context.current_account_id.clone(),
             user_yield_id,
-            yield_timeout_blocks,
         )?;
 
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;

@@ -306,12 +306,10 @@ pub trait External {
     ///
     /// * `receiver_id` - account id of the receiver of the receipt created
     /// * `user_yield_id` - user-provided 32-byte yield identifier
-    /// * `yield_timeout_blocks` - number of blocks before the yield times out
     fn create_promise_yield_receipt_with_id(
         &mut self,
         receiver_id: AccountId,
         user_yield_id: CryptoHash,
-        yield_timeout_blocks: u64,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
 
     /// Creates a receipt under the specified `data_id` containing given `data`.
