@@ -13,7 +13,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::congestion_info::ExtendedCongestionInfo;
@@ -136,7 +136,7 @@ pub struct ApplyChunkResult {
     /// Contracts accessed and deployed while applying the chunk.
     pub contract_updates: ContractUpdates,
     /// Extra information gathered during chunk application.
-    pub stats: ChunkApplyStatsV0,
+    pub stats: ChunkApplyStatsV1,
     /// Proposed split of this shard (dynamic resharding).
     pub proposed_split: Option<TrieSplit>,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
