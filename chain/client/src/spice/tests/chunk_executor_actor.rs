@@ -1,11 +1,11 @@
-use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::{
+use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::spice::chunk_executor_actor::{
     ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
 };
-use crate::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
-use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
-use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
+use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
+use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
@@ -14,12 +14,12 @@ use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
-use near_chain::spice_core_writer_actor::ProcessedBlock;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
-use near_chain::stateless_validation::spice_chunk_validation::spice_pre_validate_chunk_state_witness;
-use near_chain::stateless_validation::spice_chunk_validation::spice_validate_chunk_state_witness;
+use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
+use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
+use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::ExecutionResultEndorsed;
+use near_chain::spice::core_writer_actor::ProcessedBlock;
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -38,7 +38,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};

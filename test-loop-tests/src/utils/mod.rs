@@ -43,7 +43,7 @@ pub(crate) fn run_for_number_of_blocks(
     num_blocks: usize,
 ) {
     let max_block_production_delay =
-        get_node_client(env, client_account_id).config.max_block_production_delay;
+        get_node_client(env, client_account_id).config.max_block_production_delay.get();
     let initial_head_height = get_node_head_height(env, client_account_id);
     env.test_loop.run_until(
         |test_loop_data| {

@@ -56,8 +56,8 @@ async fn ultra_slow_test_sync_state_dump() {
     let mut near1 = load_test_config("test1", port1, genesis.clone());
     near1.client_config.min_num_peers = 0;
     // An epoch passes in about 9 seconds.
-    near1.client_config.min_block_production_delay = Duration::milliseconds(300);
-    near1.client_config.max_block_production_delay = Duration::milliseconds(600);
+    near1.client_config.min_block_production_delay.update(Duration::milliseconds(300));
+    near1.client_config.max_block_production_delay.update(Duration::milliseconds(600));
     near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
 
     near1.client_config.state_sync.dump = Some(DumpConfig {
@@ -91,10 +91,14 @@ async fn ultra_slow_test_sync_state_dump() {
                         near2.network_config.peer_store.boot_nodes =
                             convert_boot_nodes(vec![("test1", *port1)]);
                         near2.client_config.min_num_peers = 1;
-                        near2.client_config.min_block_production_delay =
-                            Duration::milliseconds(300);
-                        near2.client_config.max_block_production_delay =
-                            Duration::milliseconds(600);
+                        near2
+                            .client_config
+                            .min_block_production_delay
+                            .update(Duration::milliseconds(300));
+                        near2
+                            .client_config
+                            .max_block_production_delay
+                            .update(Duration::milliseconds(600));
                         near2.client_config.block_header_fetch_horizon = block_header_fetch_horizon;
                         near2.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
                         near2.client_config.state_sync_external_timeout = Duration::seconds(2);

@@ -11,7 +11,7 @@ use near_chain::receipt_to_tx::{
     DEFAULT_HINT_WINDOW, HintResolution, HintScanStats, MAX_HINT_WINDOW, ResolveHintError,
     resolve_receipt_via_hint,
 };
-use near_chain::spice_chain::SpiceChainReader;
+use near_chain::spice::chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,

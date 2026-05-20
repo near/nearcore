@@ -3,7 +3,7 @@ use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
-use crate::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
+use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;

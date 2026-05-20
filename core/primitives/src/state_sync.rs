@@ -6,8 +6,7 @@ use crate::sharding::{
 use crate::state_part::{StatePart, StatePartV0};
 use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::{EpochHeight, ProtocolVersion};
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::types::EpochHeight;
 use near_schema_checker_lib::ProtocolSchema;
 use std::sync::Arc;
 
@@ -291,36 +290,19 @@ pub enum ShardStateSyncResponse {
 }
 
 impl ShardStateSyncResponse {
-    pub fn new_from_header(
-        header: Option<ShardStateSyncResponseHeaderV2>,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        Self::new_from_header_or_part(header, None, protocol_version)
+    pub fn new_from_header(header: Option<ShardStateSyncResponseHeaderV2>) -> Self {
+        Self::new_from_header_or_part(header, None)
     }
 
-    pub fn new_from_part(
-        part: Option<(u64, StatePart)>,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        Self::new_from_header_or_part(None, part, protocol_version)
+    pub fn new_from_part(part: Option<(u64, StatePart)>) -> Self {
+        Self::new_from_header_or_part(None, part)
     }
 
     fn new_from_header_or_part(
         header: Option<ShardStateSyncResponseHeaderV2>,
         part: Option<(u64, StatePart)>,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
-            return Self::V4(ShardStateSyncResponseV4 { header, part });
-        }
-        let part = match part {
-            None => None,
-            Some((part_id, StatePart::V0(part))) => Some((part_id, part.0)),
-            // This should not happen, as it would mean we serve `StatePartV1`` or higher
-            // before `StatePartsCompression` is enabled.
-            _ => panic!("StatePartsCompression not supported and part={part:?}"),
-        };
-        Self::V3(ShardStateSyncResponseV3 { header, part, cached_parts: None, can_generate: false })
+        Self::V4(ShardStateSyncResponseV4 { header, part })
     }
 
     pub fn take_header(self) -> Option<ShardStateSyncResponseHeader> {

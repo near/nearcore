@@ -43,7 +43,7 @@ pub(crate) fn setup_mock_peer(
     };
     let secret_key = config.network_config.node_key;
     let chain_id = config.genesis.config.chain_id;
-    let block_production_delay = config.client_config.min_block_production_delay;
+    let block_production_delay = config.client_config.min_block_production_delay.get();
     let listen_addr = match config.network_config.node_addr {
         Some(a) => a,
         None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
