@@ -229,7 +229,7 @@ pub struct Config {
     pub p256_verify_host_fn: bool,
 
     /// Whether to enable the promise_yield_create_with_id and
-    /// promise_yield_resume_with_id host functions.
+    /// promise_yield_resume_with_yield_id host functions.
     pub yield_with_id_host_fns: bool,
 
     /// Describes limits for VM and Runtime.

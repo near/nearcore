@@ -386,7 +386,7 @@ pub enum ProtocolFeature {
     /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
     /// sync after resharding.
     StickyReshardingValidatorAssignment,
-    /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_id`
+    /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID and timeout for yield/resume.
     YieldWithId,
 }

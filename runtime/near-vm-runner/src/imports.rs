@@ -317,7 +317,7 @@ imports! {
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,
-    #[yield_with_id_host_fns] promise_yield_resume_with_id<[
+    #[yield_with_id_host_fns] promise_yield_resume_with_yield_id<[
         yield_id_len: u64,
         yield_id_ptr: u64,
         payload_len: u64,

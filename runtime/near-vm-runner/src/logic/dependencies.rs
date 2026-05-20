@@ -343,7 +343,7 @@ pub trait External {
     ///
     /// * `user_yield_id` - user-provided 32-byte yield identifier from `yield_create_with_id`
     /// * `data` - contents of the DataReceipt
-    fn submit_promise_resume_data_with_id(
+    fn submit_promise_resume_data_with_yield_id(
         &mut self,
         user_yield_id: YieldId,
         data: Vec<u8>,

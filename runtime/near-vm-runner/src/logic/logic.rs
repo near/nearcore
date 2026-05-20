@@ -3437,7 +3437,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
     /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
     /// The yield ID must be exactly 32 bytes. The yield is resumed via
-    /// [`promise_yield_resume_with_id`] using the same yield ID.
+    /// [`promise_yield_resume_with_yield_id`] using the same yield ID.
     ///
     /// Returns `u64::MAX` if a yield with the same `yield_id` is already pending for this
     /// account; otherwise returns the new promise index. Contracts can branch on this to
@@ -3577,7 +3577,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// up the corresponding `data_id` internally.
     ///
     /// Returns `1` if the yield was found and resume was submitted, `0` otherwise.
-    pub fn promise_yield_resume_with_id(
+    pub fn promise_yield_resume_with_yield_id(
         &mut self,
         yield_id_len: u64,
         yield_id_ptr: u64,
@@ -3587,7 +3587,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
-                method_name: "promise_yield_resume_with_id".to_string(),
+                method_name: "promise_yield_resume_with_yield_id".to_string(),
             }
             .into());
         }
@@ -3608,7 +3608,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             (&*yield_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
         let yield_id = YieldId::from_bytes(yield_id);
         let payload = payload.into_owned();
-        self.ext.submit_promise_resume_data_with_id(yield_id, payload).map(u32::from)
+        self.ext.submit_promise_resume_data_with_yield_id(yield_id, payload).map(u32::from)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the

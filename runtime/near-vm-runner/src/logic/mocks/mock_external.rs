@@ -288,7 +288,7 @@ impl External for MockedExternal {
         Ok(false)
     }
 
-    fn submit_promise_resume_data_with_id(
+    fn submit_promise_resume_data_with_yield_id(
         &mut self,
         user_yield_id: YieldId,
         data: Vec<u8>,

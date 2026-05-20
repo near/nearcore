@@ -216,7 +216,7 @@ extern "C" {
         payload_ptr: u64,
     ) -> u32;
     #[cfg(feature = "nightly")]
-    fn promise_yield_resume_with_id(
+    fn promise_yield_resume_with_yield_id(
         yield_id_len: u64,
         yield_id_ptr: u64,
         payload_len: u64,
@@ -1383,11 +1383,11 @@ pub unsafe fn call_yield_create_with_id_duplicate() {
     value_return(result.len() as u64, result.as_ptr() as u64);
 }
 
-/// Call promise_yield_resume_with_id with the user-provided yield_id.
+/// Call promise_yield_resume_with_yield_id with the user-provided yield_id.
 /// Input is a 32-byte yield_id followed by the payload.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_resume_with_id() {
+pub unsafe fn call_yield_resume_with_yield_id() {
     input(0);
     let data_len = register_len(0) as usize;
     let data = vec![0u8; data_len];
@@ -1396,7 +1396,7 @@ pub unsafe fn call_yield_resume_with_id() {
     let yield_id = &data[0..32];
     let payload = &data[32..];
 
-    let success = promise_yield_resume_with_id(
+    let success = promise_yield_resume_with_yield_id(
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         payload.len() as u64,
@@ -1407,10 +1407,10 @@ pub unsafe fn call_yield_resume_with_id() {
     value_return(result.len() as u64, result.as_ptr() as u64);
 }
 
-/// Call promise_yield_create_with_id and promise_yield_resume_with_id within the same function.
+/// Call promise_yield_create_with_id and promise_yield_resume_with_yield_id within the same function.
 #[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
-pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
+pub unsafe fn call_yield_create_with_id_and_resume_with_yield_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as *mut u8);
@@ -1434,7 +1434,7 @@ pub unsafe fn call_yield_create_with_id_and_resume_with_id() {
     );
 
     // Resume using the yield_id
-    let success = promise_yield_resume_with_id(
+    let success = promise_yield_resume_with_yield_id(
         yield_id.len() as u64,
         yield_id.as_ptr() as u64,
         payload.len() as u64,

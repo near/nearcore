@@ -260,7 +260,7 @@ fn test_promise_yield_create_with_id_view_prohibited() {
 }
 
 #[test]
-fn test_promise_yield_resume_with_id_after_create_with_id() {
+fn test_promise_yield_resume_with_yield_id_after_create_with_id() {
     if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -291,7 +291,7 @@ fn test_promise_yield_resume_with_id_after_create_with_id() {
     let payload = logic.internal_mem_write(b"resumed_via_yield_id");
 
     let result = logic
-        .promise_yield_resume_with_id(
+        .promise_yield_resume_with_yield_id(
             yield_id_for_resume.len,
             yield_id_for_resume.ptr,
             payload.len,
@@ -303,7 +303,7 @@ fn test_promise_yield_resume_with_id_after_create_with_id() {
 }
 
 #[test]
-fn test_promise_yield_resume_with_id_unknown_yield_id() {
+fn test_promise_yield_resume_with_yield_id_unknown_yield_id() {
     if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -317,14 +317,19 @@ fn test_promise_yield_resume_with_id_unknown_yield_id() {
     let payload = logic.internal_mem_write(b"payload");
 
     let result = logic
-        .promise_yield_resume_with_id(yield_id_mem.len, yield_id_mem.ptr, payload.len, payload.ptr)
+        .promise_yield_resume_with_yield_id(
+            yield_id_mem.len,
+            yield_id_mem.ptr,
+            payload.len,
+            payload.ptr,
+        )
         .expect("yield_resume_with_id should succeed (returning false)");
 
     assert_eq!(result, 0u32, "resume_with_id with unknown yield_id should return 0");
 }
 
 #[test]
-fn test_promise_yield_resume_with_id_malformed_yield_id() {
+fn test_promise_yield_resume_with_yield_id_malformed_yield_id() {
     if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -337,7 +342,7 @@ fn test_promise_yield_resume_with_id_malformed_yield_id() {
     let yield_id_mem = logic.internal_mem_write(&bad_yield_id);
     let payload = logic.internal_mem_write(b"payload");
 
-    let result = logic.promise_yield_resume_with_id(
+    let result = logic.promise_yield_resume_with_yield_id(
         yield_id_mem.len,
         yield_id_mem.ptr,
         payload.len,
@@ -399,7 +404,7 @@ fn test_promise_yield_create_with_id_then_resume_with_yield_id_fails() {
 }
 
 #[test]
-fn test_promise_yield_create_then_resume_with_id_fails() {
+fn test_promise_yield_create_then_resume_with_yield_id_fails() {
     if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -426,7 +431,7 @@ fn test_promise_yield_create_then_resume_with_id_fails() {
     let payload = logic.internal_mem_write(b"payload");
 
     let result = logic
-        .promise_yield_resume_with_id(
+        .promise_yield_resume_with_yield_id(
             data_id_as_yield_id.len,
             data_id_as_yield_id.ptr,
             payload.len,
@@ -487,7 +492,7 @@ fn test_promise_yield_create_with_id_duplicate_in_same_call() {
 }
 
 #[test]
-fn test_promise_yield_resume_with_id_view_prohibited() {
+fn test_promise_yield_resume_with_yield_id_view_prohibited() {
     if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -500,7 +505,7 @@ fn test_promise_yield_resume_with_id_view_prohibited() {
     let yield_id_mem = logic.internal_mem_write(&yield_id);
     let payload = logic.internal_mem_write(b"payload");
 
-    let result = logic.promise_yield_resume_with_id(
+    let result = logic.promise_yield_resume_with_yield_id(
         yield_id_mem.len,
         yield_id_mem.ptr,
         payload.len,

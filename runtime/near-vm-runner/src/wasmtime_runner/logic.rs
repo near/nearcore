@@ -3950,7 +3950,7 @@ pub fn promise_yield_resume(
 
 /// Like [`promise_yield_resume`], but accepts the user-provided `yield_id` (from
 /// [`promise_yield_create_with_id`]) instead of the runtime-generated `data_id`.
-pub fn promise_yield_resume_with_id(
+pub fn promise_yield_resume_with_yield_id(
     ctx: &mut Ctx,
     memory: &mut [u8],
     yield_id_len: u64,
@@ -3961,7 +3961,7 @@ pub fn promise_yield_resume_with_id(
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView {
-            method_name: "promise_yield_resume_with_id".to_string(),
+            method_name: "promise_yield_resume_with_yield_id".to_string(),
         }
         .into());
     }
@@ -3994,7 +3994,7 @@ pub fn promise_yield_resume_with_id(
         yield_id.as_ref().try_into().map_err(|_| HostError::DataIdMalformed)?;
     let yield_id = YieldId::from_bytes(yield_id);
     let payload = payload.into();
-    ctx.ext.submit_promise_resume_data_with_id(yield_id, payload).map(u32::from)
+    ctx.ext.submit_promise_resume_data_with_yield_id(yield_id, payload).map(u32::from)
 }
 
 /// If the current function is invoked by a callback we can access the execution results of the

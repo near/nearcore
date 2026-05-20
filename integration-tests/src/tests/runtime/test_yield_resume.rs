@@ -170,7 +170,7 @@ fn resume_without_yield() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create_with_id_then_resume_with_id() {
+fn create_with_id_then_resume_with_yield_id() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     // The test contract derives yield_id from the first 32 bytes of input
@@ -202,7 +202,7 @@ fn create_with_id_then_resume_with_id() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume_with_id",
+            "call_yield_resume_with_yield_id",
             args,
             MAX_GAS,
             Balance::ZERO,
@@ -235,7 +235,7 @@ fn create_with_id_then_resume_with_id() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create_with_id_and_resume_with_id_in_one_call() {
+fn create_with_id_and_resume_with_yield_id_in_one_call() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![23u8; 16];
@@ -245,7 +245,7 @@ fn create_with_id_and_resume_with_id_in_one_call() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_create_with_id_and_resume_with_id",
+            "call_yield_create_with_id_and_resume_with_yield_id",
             yield_payload,
             MAX_GAS,
             Balance::ZERO,
@@ -261,7 +261,7 @@ fn create_with_id_and_resume_with_id_in_one_call() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn resume_with_id_without_yield() {
+fn resume_with_yield_id_without_yield() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     // yield_id followed by payload
@@ -272,7 +272,7 @@ fn resume_with_id_without_yield() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume_with_id",
+            "call_yield_resume_with_yield_id",
             args,
             MAX_GAS,
             Balance::ZERO,
@@ -365,7 +365,7 @@ fn create_with_id_then_resume_with_yield_id_fails() {
 
 #[test]
 #[cfg(feature = "nightly")]
-fn create_then_resume_with_id_fails() {
+fn create_then_resume_with_yield_id_fails() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -395,7 +395,7 @@ fn create_then_resume_with_id_fails() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
-            "call_yield_resume_with_id",
+            "call_yield_resume_with_yield_id",
             args,
             MAX_GAS,
             Balance::ZERO,
