@@ -473,7 +473,7 @@ impl TransactionRunner {
                 panic!("Transaction submitted to a node that doesn't track the shard")
             }
             ProcessTxResponse::MempoolFull => {
-                panic!("transaction runner submits with is_forwarded=false; MempoolFull is only returned for forwarded transactions")
+                panic!("MempoolFull is only returned for forwarded transactions")
             }
         };
         Some(res)

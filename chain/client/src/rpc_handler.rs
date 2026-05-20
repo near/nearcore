@@ -1,5 +1,6 @@
 use crate::metrics;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::recent_transaction_tracker::RecentTransactionTracker;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -54,6 +55,7 @@ pub fn spawn_rpc_handler_actor(
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+    transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
@@ -64,6 +66,7 @@ pub fn spawn_rpc_handler_actor(
         config.clone(),
         tx_pool,
         pending_transaction_queue,
+        transaction_tracker,
         epoch_manager,
         shard_tracker,
         validator_signer,
@@ -92,6 +95,8 @@ pub struct RpcHandlerActor {
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+    /// Lock order: never take this while `tx_pool` is held.
+    transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -106,6 +111,7 @@ impl RpcHandlerActor {
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
         pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+        transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
@@ -118,6 +124,7 @@ impl RpcHandlerActor {
             config,
             tx_pool,
             pending_transaction_queue,
+            transaction_tracker,
             validator_signer,
             chain_store,
             epoch_manager,
@@ -194,6 +201,14 @@ impl RpcHandlerActor {
         let shard_uid = shard_layout.account_id_to_shard_uid(signed_tx.transaction.signer_id());
         let shard_id = shard_uid.shard_id();
 
+        // Record before any forwarding/inclusion decision so `tx_status` can distinguish
+        // "still waiting" from "never seen". Skip `check_only`: it doesn't handle the tx.
+        if !check_only {
+            self.transaction_tracker
+                .lock()
+                .record_pending(signed_tx.get_hash(), *signed_tx.transaction.block_hash());
+        }
+
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
             // TODO(spice): get_last_certified_block_header does multiple DB reads per
@@ -257,23 +272,32 @@ impl RpcHandlerActor {
             }
             // Transactions only need to be recorded if this node is a chunk producer for the transaction's shard.
             if self.is_chunk_producer_for_transaction(&head, signed_tx.transaction.signer_id())? {
-                let mut pool = self.tx_pool.lock();
-                match pool.insert_transaction(shard_uid, validated_tx) {
-                    InsertTransactionResult::Success => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
-                    }
-                    InsertTransactionResult::Duplicate => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
-                        return Ok(ProcessTxResponse::ValidTx);
-                    }
-                    InsertTransactionResult::NoSpaceLeft => {
-                        if is_forwarded {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
-                            return Ok(ProcessTxResponse::MempoolFull);
-                        } else {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
+                // Tracker lock must not be taken while the pool lock is held. Record the
+                // decision inside the block; write to the tracker after the pool guard drops.
+                let mut dropped = false;
+                {
+                    let mut pool = self.tx_pool.lock();
+                    match pool.insert_transaction(shard_uid, validated_tx) {
+                        InsertTransactionResult::Success => {
+                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
+                        }
+                        InsertTransactionResult::Duplicate => {
+                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
+                            return Ok(ProcessTxResponse::ValidTx);
+                        }
+                        InsertTransactionResult::NoSpaceLeft => {
+                            if is_forwarded {
+                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
+                                dropped = true;
+                            } else {
+                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
+                            }
                         }
                     }
+                }
+                if dropped {
+                    self.transaction_tracker.lock().record_dropped(signed_tx.get_hash());
+                    return Ok(ProcessTxResponse::MempoolFull);
                 }
             }
 

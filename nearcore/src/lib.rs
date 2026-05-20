@@ -32,9 +32,10 @@ use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
-    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
-    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
-    spawn_chunk_endorsement_handler_actor, spawn_rpc_handler_actor, start_client,
+    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor,
+    RecentTransactionTracker, RpcHandlerActor, RpcHandlerConfig, StartClientResult,
+    StateRequestActor, ViewClientActor, spawn_chunk_endorsement_handler_actor,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -51,7 +52,7 @@ use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -509,6 +510,9 @@ pub async fn start_with_config_and_synchronization_impl(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
+    // RPC handler writes, view client reads, both for `tx_status` feedback.
+    let transaction_tracker = Arc::new(Mutex::new(RecentTransactionTracker::new()));
+
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
@@ -520,6 +524,7 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.clone(),
         adv.clone(),
         config.validator_signer.clone(),
+        transaction_tracker.clone(),
     );
 
     // Use dedicated thread pool for StateRequestActor
@@ -698,6 +703,7 @@ pub async fn start_with_config_and_synchronization_impl(
         rpc_handler_config,
         tx_pool,
         pending_transaction_queue,
+        transaction_tracker,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),

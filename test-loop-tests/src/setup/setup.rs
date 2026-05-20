@@ -28,7 +28,8 @@ use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
-    RpcHandlerActor, RpcHandlerConfig, StateRequestActor, ViewClientActor,
+    RecentTransactionTracker, RpcHandlerActor, RpcHandlerConfig, StateRequestActor,
+    ViewClientActor,
 };
 use near_client::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
@@ -45,7 +46,7 @@ use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use tokio::sync::broadcast;
@@ -223,6 +224,7 @@ pub fn setup_client(
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
         };
+    let transaction_tracker = Arc::new(Mutex::new(RecentTransactionTracker::new()));
     let view_client_actor = ViewClientActor::new(
         test_loop.clock(),
         chain_genesis.clone(),
@@ -233,6 +235,7 @@ pub fn setup_client(
         client_config.clone(),
         near_client::adversarial::Controls::default(),
         validator_signer.clone(),
+        transaction_tracker.clone(),
     )
     .unwrap();
     let state_request_actor = StateRequestActor::new(
@@ -331,6 +334,7 @@ pub fn setup_client(
         rpc_handler_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
         client_actor.client.chunk_producer.pending_transaction_queue.clone(),
+        transaction_tracker,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),

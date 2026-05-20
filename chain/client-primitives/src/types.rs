@@ -634,6 +634,10 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
+    /// Rejected because the local mempool was full.
+    Dropped,
+    /// Validity window passed before inclusion; carries the tx hash.
+    Expired(CryptoHash),
     InternalError(String),
     TimeoutError,
 }
@@ -793,7 +797,14 @@ impl From<TxStatusError> for GetExecutionOutcomeError {
             TxStatusError::ChainError(err) => {
                 Self::InternalError { error_message: err.to_string() }
             }
-            _ => Self::Unreachable { error_message: format!("{:?}", error) },
+            // Enumerated so adding a `TxStatusError` variant forces a decision here.
+            TxStatusError::MissingTransaction(_)
+            | TxStatusError::Dropped
+            | TxStatusError::Expired(_)
+            | TxStatusError::InternalError(_)
+            | TxStatusError::TimeoutError => {
+                Self::Unreachable { error_message: format!("{:?}", error) }
+            }
         }
     }
 }

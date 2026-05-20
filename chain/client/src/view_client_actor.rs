@@ -1,6 +1,7 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use crate::recent_transaction_tracker::{RecentTransactionTracker, TransactionStatus};
 use crate::{
     GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
@@ -62,7 +63,7 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
@@ -94,6 +95,7 @@ pub struct ViewClientActor {
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
     spice_chain_reader: SpiceChainReader,
+    transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
 }
 
 impl ViewClientRequestManager {
@@ -119,6 +121,7 @@ impl ViewClientActor {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
+        transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
     ) -> MultithreadRuntimeHandle<ViewClientActor> {
         actor_system.spawn_multithread_actor(config.view_client_threads, move || {
             ViewClientActor::new(
@@ -131,6 +134,7 @@ impl ViewClientActor {
                 config.clone(),
                 adv.clone(),
                 validator_signer.clone(),
+                transaction_tracker.clone(),
             )
             .unwrap()
         })
@@ -146,6 +150,7 @@ impl ViewClientActor {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
+        transaction_tracker: Arc<Mutex<RecentTransactionTracker>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -174,6 +179,7 @@ impl ViewClientActor {
             config,
             request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
             spice_chain_reader,
+            transaction_tracker,
         })
     }
 
@@ -693,7 +699,28 @@ impl ViewClientActor {
                             })
                         }
                     } else {
-                        Err(TxStatusError::MissingTransaction(tx_hash))
+                        // Bind into a local so the MutexGuard drops here. The Pending arm
+                        // below does chain-store I/O and must not hold the tracker lock.
+                        let tracker_status = self.transaction_tracker.lock().status(&tx_hash);
+                        match tracker_status {
+                            TransactionStatus::Dropped => Err(TxStatusError::Dropped),
+                            TransactionStatus::Pending(base_block_hash) => {
+                                let head_block = self.chain.get_block(&head.last_block_hash)?;
+                                match self.chain.chain_store().check_transaction_validity_period(
+                                    head_block.header(),
+                                    &base_block_hash,
+                                ) {
+                                    Ok(()) => Ok(TxStatusView {
+                                        execution_outcome: None,
+                                        status: TxExecutionStatus::None,
+                                    }),
+                                    Err(_) => Err(TxStatusError::Expired(tx_hash)),
+                                }
+                            }
+                            TransactionStatus::Unknown => {
+                                Err(TxStatusError::MissingTransaction(tx_hash))
+                            }
+                        }
                     }
                 }
                 Err(err) => {

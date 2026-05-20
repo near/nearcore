@@ -17,7 +17,7 @@ use near_chain_configs::{
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::chunk_executor_actor::ChunkExecutorConfig;
 use near_client::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
-use near_client::{ChunkValidationActor, Client};
+use near_client::{ChunkValidationActor, Client, RecentTransactionTracker};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -31,6 +31,7 @@ use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::NightshadeRuntime;
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -596,6 +597,7 @@ impl TestEnvBuilder {
                 })
                 .unzip();
 
+        // TestEnv has no view client; each RPC handler gets its own unread tracker.
         let tx_request_handlers = (0..num_clients)
             .map(|i| {
                 setup_tx_request_handler(
@@ -605,6 +607,7 @@ impl TestEnvBuilder {
                     shard_trackers[i].clone(),
                     runtimes[i].clone(),
                     network_adapters[i].clone().as_multi_sender(),
+                    Arc::new(Mutex::new(RecentTransactionTracker::new())),
                 )
             })
             .collect();

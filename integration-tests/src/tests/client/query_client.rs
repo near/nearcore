@@ -3,7 +3,7 @@ use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
 use near_async::time::{Clock, Duration};
 use near_client::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus,
+    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus, TxStatusError,
 };
 use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
@@ -12,13 +12,16 @@ use near_network::types::PeerInfo;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::hash::hash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind, TxExecutionStatus};
 use num_rational::Ratio;
+use std::time::{Duration as StdDuration, Instant};
+use tokio::time::sleep;
 
 /// Query account from view client
 #[tokio::test]
@@ -184,5 +187,198 @@ async fn test_execution_outcome_for_chunk() {
     assert_eq!(execution_outcomes_in_block.len(), 1);
     let outcomes = execution_outcomes_in_block.remove(&ShardId::new(0)).unwrap();
     assert_eq!(outcomes[0].id, tx_hash);
+    actor_system.stop();
+}
+
+/// A dropped tx must surface as `Dropped`, not as a generic `MissingTransaction`.
+#[tokio::test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+async fn tx_status_reports_dropped_transaction() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        true,
+    );
+    let signer = InMemorySigner::test_signer(&"test".parse().unwrap());
+
+    let block_hash = actor_handles
+        .view_client_actor
+        .send_async(GetBlock::latest())
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .hash;
+
+    let transaction = SignedTransaction::send_money(
+        1,
+        "test".parse().unwrap(),
+        "near".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(10),
+        block_hash,
+    );
+    let tx_hash = transaction.get_hash();
+    actor_handles.transaction_tracker.lock().record_dropped(tx_hash);
+
+    let res = actor_handles
+        .view_client_actor
+        .send_async(TxStatus {
+            tx_hash,
+            signer_account_id: "test".parse().unwrap(),
+            fetch_receipt: false,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(res, Err(TxStatusError::Dropped)), "expected Dropped, got {res:?}");
+    actor_system.stop();
+}
+
+/// An accepted-but-not-yet-included tx returns `Ok` with `None` status, so callers keep waiting.
+#[tokio::test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+async fn tx_status_reports_pending_transaction() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        true,
+    );
+    let signer = InMemorySigner::test_signer(&"test".parse().unwrap());
+
+    let block_hash = actor_handles
+        .view_client_actor
+        .send_async(GetBlock::latest())
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .hash;
+
+    let transaction = SignedTransaction::send_money(
+        1,
+        "test".parse().unwrap(),
+        "near".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(10),
+        block_hash,
+    );
+    let tx_hash = transaction.get_hash();
+    // Record as pending but never submit, so the validity window stays open while we query.
+    actor_handles.transaction_tracker.lock().record_pending(tx_hash, block_hash);
+
+    let res = actor_handles
+        .view_client_actor
+        .send_async(TxStatus {
+            tx_hash,
+            signer_account_id: "test".parse().unwrap(),
+            fetch_receipt: false,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(res.execution_outcome.is_none());
+    assert_eq!(res.status, TxExecutionStatus::None);
+    actor_system.stop();
+}
+
+/// A hash the node has never heard of still reports `MissingTransaction`.
+#[tokio::test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+async fn tx_status_reports_unknown_transaction() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        true,
+    );
+
+    let tx_hash = hash(b"never submitted");
+    let res = actor_handles
+        .view_client_actor
+        .send_async(TxStatus {
+            tx_hash,
+            signer_account_id: "test".parse().unwrap(),
+            fetch_receipt: false,
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(res, Err(TxStatusError::MissingTransaction(h)) if h == tx_hash),
+        "expected MissingTransaction, got {res:?}"
+    );
+    actor_system.stop();
+}
+
+/// A pending tx past its validity window reports `Expired`, not `Ok` or `MissingTransaction`.
+#[tokio::test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+async fn tx_status_reports_expired_transaction() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        true,
+    );
+
+    // Validity period here is epoch_length * 2 = 20; past height 20 a genesis-based tx expires.
+    let genesis_hash = actor_handles
+        .view_client_actor
+        .send_async(GetBlock::latest())
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .hash;
+    let tx_hash = hash(b"expired tx");
+    actor_handles.transaction_tracker.lock().record_pending(tx_hash, genesis_hash);
+
+    let deadline = Instant::now() + StdDuration::from_secs(60);
+    loop {
+        let height = actor_handles
+            .view_client_actor
+            .send_async(GetBlock::latest())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .height;
+        if height > 25 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "chain did not reach height 25 in time");
+        sleep(StdDuration::from_millis(50)).await;
+    }
+
+    let res = actor_handles
+        .view_client_actor
+        .send_async(TxStatus {
+            tx_hash,
+            signer_account_id: "test".parse().unwrap(),
+            fetch_receipt: false,
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(res, Err(TxStatusError::Expired(h)) if h == tx_hash),
+        "expected Expired, got {res:?}"
+    );
     actor_system.stop();
 }

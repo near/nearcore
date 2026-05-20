@@ -7,7 +7,10 @@ use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
+use near_client::{
+    RecentTransactionTracker, RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor,
+    start_client,
+};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
@@ -23,7 +26,7 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
 use nearcore::NightshadeRuntime;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 
 pub const TEST_SEED: RngSeed = [3; 32];
@@ -130,6 +133,7 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
+    let transaction_tracker = Arc::new(Mutex::new(RecentTransactionTracker::new()));
     let view_client_actor = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
@@ -141,6 +145,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         client_config.clone(),
         adv.clone(),
         signer.clone(),
+        transaction_tracker.clone(),
     );
 
     // 7. Create ClientActor
@@ -189,6 +194,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         rpc_handler_config,
         client_result.tx_pool,
         client_result.pending_transaction_queue,
+        transaction_tracker,
         epoch_manager,
         shard_tracker.clone(),
         signer,

@@ -49,6 +49,8 @@ pub enum RpcTransactionError {
     RequestRouted { transaction_hash: near_primitives::hash::CryptoHash },
     #[error("Transaction {requested_transaction_hash} doesn't exist")]
     UnknownTransaction { requested_transaction_hash: near_primitives::hash::CryptoHash },
+    #[error("Transaction {requested_transaction_hash} expired before it could be included")]
+    TransactionExpired { requested_transaction_hash: near_primitives::hash::CryptoHash },
     #[error("The node reached its limits. Try again later. More details: {debug_info}")]
     InternalError { debug_info: String },
     #[error("Timeout")]

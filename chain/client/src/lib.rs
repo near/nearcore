@@ -6,6 +6,7 @@ pub use crate::client::{AsyncComputationMultiSpawner, Client};
 pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{StartClientResult, start_client};
 pub use crate::config_updater::ConfigUpdater;
+pub use crate::recent_transaction_tracker::{RecentTransactionTracker, TransactionStatus};
 pub use crate::rpc_handler::{RpcHandlerActor, RpcHandlerConfig, spawn_rpc_handler_actor};
 pub use crate::state_request_actor::StateRequestActor;
 pub use crate::stateless_validation::chunk_validation_actor::{
@@ -52,6 +53,7 @@ mod info;
 pub mod metrics;
 pub mod pending_transaction_queue;
 mod prepare_transactions;
+pub mod recent_transaction_tracker;
 mod rpc_handler;
 pub mod spice_chunk_validator_actor;
 pub mod spice_data_distributor_actor;
