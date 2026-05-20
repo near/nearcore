@@ -7,6 +7,8 @@ pub mod chunk_endorsement;
 pub mod chunk_endorsements_bitmap;
 pub mod contract_distribution;
 pub mod partial_witness;
+#[cfg(test)]
+mod partial_witness_tests;
 pub mod state_witness;
 pub mod stored_chunk_state_transition_data;
 pub mod validator_assignment;
