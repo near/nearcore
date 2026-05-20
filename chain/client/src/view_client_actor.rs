@@ -700,8 +700,8 @@ impl ViewClientActor {
                         }
                     } else {
                         // Drop the MutexGuard before chain-store I/O below.
-                        let fate = self.tx_fate_cache.lock().fate(&tx_hash);
-                        match fate {
+                        let tx_fate = self.tx_fate_cache.lock().fate(&tx_hash);
+                        match tx_fate {
                             TransactionFate::DroppedMempoolFull => {
                                 Err(TxStatusError::DroppedMempoolFull)
                             }
