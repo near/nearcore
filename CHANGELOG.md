@@ -7,7 +7,7 @@
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
 ### Non-protocol Changes
-* Extended `EXPERIMENTAL_receipt_to_tx` with optional `(block_height, shard_id, window)` hint parameters. When the local `ReceiptToTx` column is missing entries (e.g. for receipts produced before the column was populated), the handler falls back to a best-effort `±window` scan around the supplied hint. The wire response is unchanged; recursion is handled server-side.
+* Extended `EXPERIMENTAL_receipt_to_tx` with optional `(block_height, shard_id, window)` hint parameters. `block_height` enables a best-effort historical fallback scan when the local `ReceiptToTx` column misses an entry mid-walk. The `shard_id` field is an optional narrowing for the first scan only; ancestor scans iterate all tracked shards at the resolved height to follow cross-shard chains. The wire response is unchanged.
 
 ## [2.12.0]
 

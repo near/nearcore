@@ -13,6 +13,7 @@ use near_primitives::receipt::{
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, Gas, ShardId};
+use near_primitives::utils::get_block_shard_id;
 use near_store::DBCol;
 
 const EPOCH_LENGTH: u64 = 5;
@@ -941,6 +942,25 @@ fn handle(
     view_client.handle(msg)
 }
 
+fn shard_containing_outcome(
+    env: &crate::setup::env::TestLoopEnv,
+    height: u64,
+    outcome_id: CryptoHash,
+    shard_ids: &[ShardId],
+) -> ShardId {
+    let chain_store = env.validator().client().chain.chain_store();
+    let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+    shard_ids
+        .iter()
+        .copied()
+        .find(|shard_id| {
+            chain_store
+                .get_outcomes_by_block_hash_and_shard_id(&block_hash, *shard_id)
+                .contains(&outcome_id)
+        })
+        .expect("outcome should exist on one of the expected shards")
+}
+
 /// `save_receipt_to_tx=false`, hint pointed at the tx execution height →
 /// terminal tx returned. The single-hop column miss falls back to the scan
 /// and walks the same outcome locally.
@@ -971,6 +991,54 @@ fn test_hint_fallback_resolves_tx_origin() {
     .expect("hint should resolve to tx origin");
     assert_eq!(response.transaction_hash, tx_hash);
     assert_eq!(response.sender_account_id, user_account);
+}
+
+/// `save_receipt_to_tx=false`, height-only hint in a 2-shard setup. The
+/// handler does not know the creating shard, so hop 1 enumerates all shards
+/// at the hinted height and finds the transaction outcome.
+#[test]
+fn test_hint_height_only_resolves_all_shards() {
+    init_test_logger();
+    let sender_account = create_account_id("account0");
+    let receiver_account: AccountId = "test1".parse().unwrap();
+    let mut env = TestLoopBuilder::new()
+        .num_shards(2)
+        .add_user_account(&sender_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let signer = create_user_test_signer(&sender_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        sender_account.clone(),
+        receiver_account,
+        &signer,
+        Balance::from_yoctonear(100),
+        env.validator().head().last_block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
+    let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let tx_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&outcome.transaction_outcome.block_hash)
+        .unwrap()
+        .height();
+
+    let response = handle(
+        &mut env,
+        GetReceiptToTx { receipt_id, block_height: Some(tx_height), shard_id: None, window: None },
+    )
+    .expect("height-only hint should scan all shards and resolve to tx origin");
+    assert_eq!(response.transaction_hash, tx_hash);
+    assert_eq!(response.sender_account_id, sender_account);
 }
 
 /// `save_receipt_to_tx=false`, contract refund chain (depth 2). Hint at the
@@ -1038,6 +1106,84 @@ fn test_hint_fallback_resolves_through_refund_chain() {
     .expect("hint walk should resolve refund → action receipt → tx");
     assert_eq!(response.transaction_hash, call_tx_hash);
     assert_eq!(response.sender_account_id, user_account);
+}
+
+/// Cross-shard depth-2 walk with `save_receipt_to_tx=false`. Hop 1 uses the
+/// supplied action shard to resolve refund → action receipt. The shard hint is
+/// then consumed, so the ancestor hop scans all shards and finds the
+/// originating transaction on the sender shard.
+#[test]
+fn test_hint_cross_shard_walk_resolves_via_all_shard_scan() {
+    init_test_logger();
+    let sender_account = create_account_id("account0");
+    let receiver_account: AccountId = "test1".parse().unwrap();
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .num_shards(2)
+        .add_user_account(&sender_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .gas_prices(min_gas_price, min_gas_price)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let receiver_signer = create_user_test_signer(&receiver_account);
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &receiver_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &receiver_signer,
+        env.validator().head().last_block_hash,
+    );
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    let sender_signer = create_user_test_signer(&sender_account);
+    let call_tx = SignedTransaction::call(
+        1,
+        sender_account.clone(),
+        receiver_account,
+        &sender_signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.validator().head().last_block_hash,
+    );
+    let call_tx_hash = call_tx.get_hash();
+    let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome =
+        outcome.receipts_outcome.iter().find(|r| r.id == action_receipt_id).unwrap();
+    let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+    let action_shard = shard_containing_outcome(
+        &env,
+        action_height,
+        action_receipt_id,
+        &[ShardId::new(0), ShardId::new(1)],
+    );
+
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: refund_receipt_id,
+            block_height: Some(action_height),
+            shard_id: Some(action_shard),
+            window: None,
+        },
+    )
+    .expect("cross-shard refund chain should resolve via all-shards ancestor scan");
+    assert_eq!(response.transaction_hash, call_tx_hash);
+    assert_eq!(response.sender_account_id, sender_account);
 }
 
 /// `save_receipt_to_tx=true`, `save_tx_outcomes=false`, hint supplied but
@@ -1208,27 +1354,7 @@ fn test_hint_fallback_wrong_height() {
     }
 }
 
-/// Only one of (block_height, shard_id) supplied → `MalformedHint`.
-#[test]
-fn test_hint_malformed_only_block_height() {
-    init_test_logger();
-    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
-    let result = handle(
-        &mut env,
-        GetReceiptToTx {
-            receipt_id: CryptoHash::hash_bytes(b"any"),
-            block_height: Some(1),
-            shard_id: None,
-            window: None,
-        },
-    );
-    assert!(
-        matches!(result, Err(GetReceiptToTxError::MalformedHint(_))),
-        "expected MalformedHint, got {result:?}"
-    );
-}
-
-/// Symmetric: shard_id without block_height → `MalformedHint`.
+/// `shard_id` without `block_height` → `MalformedHint`.
 #[test]
 fn test_hint_malformed_only_shard_id() {
     init_test_logger();
@@ -1248,10 +1374,30 @@ fn test_hint_malformed_only_shard_id() {
     );
 }
 
+/// `window` without `block_height` → `MalformedHint`.
+#[test]
+fn test_hint_malformed_window_without_height() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"any"),
+            block_height: None,
+            shard_id: None,
+            window: Some(5),
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptToTxError::MalformedHint(_))),
+        "expected MalformedHint, got {result:?}"
+    );
+}
+
 /// Synthetic chain: column has child → FromReceipt(P), but the column entry
 /// for P is absent. Hint supplied. The boundary-refresh proactive scan should
 /// pick up P's coordinates, then the next iteration scans for P and resolves
-/// terminally. Regression guard for codex bug #4.
+/// terminally. Regression guard for mixed column-hit / hint-fallback walks.
 #[test]
 fn test_hint_column_then_fallback_boundary() {
     init_test_logger();
@@ -1366,6 +1512,48 @@ fn test_hint_classifier_skips_on_both_origin_rows_present() {
     );
 }
 
+/// Synthetic stress case: a single OutcomeIds row has more entries than the
+/// per-request hint-scan budget. The resolver should stop mid-scan and return
+/// `BudgetExceeded` instead of scanning the whole row.
+#[test]
+fn test_hint_budget_exceeded_in_scan() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let block_height = env.validator().head().height;
+    let block_hash = env.validator().head().last_block_hash;
+    let shard_id = ShardId::new(0);
+    let outcome_ids: Vec<CryptoHash> =
+        (0..=100_000u64).map(|i| CryptoHash::hash_bytes(&i.to_le_bytes())).collect();
+    let store = env.validator().store();
+    let mut update = store.store_update();
+    update.set_ser(DBCol::OutcomeIds, &get_block_shard_id(&block_hash, shard_id), &outcome_ids);
+    update.commit();
+
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"absent"),
+            block_height: Some(block_height),
+            shard_id: Some(shard_id),
+            window: Some(0),
+        },
+    );
+    match result {
+        Err(GetReceiptToTxError::BudgetExceeded { scanned, limit }) => {
+            assert_eq!(scanned, 100_000);
+            assert_eq!(limit, 100_000);
+        }
+        other => panic!("expected BudgetExceeded, got {other:?}"),
+    }
+}
+
 /// Regression: the column-only path with no hint must keep behaving exactly
 /// as it did before the hint extension landed.
 #[test]
@@ -1466,16 +1654,12 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
     // hardcode the layout — multi_shard(2) puts the boundary at "test1" but a
     // future layout change should still leave this test exercising the
     // cross-shard scenario.
-    let chain_store = env.validator().client().chain.chain_store();
-    let action_block_hash = chain_store.get_block_hash_by_height(action_height).unwrap();
-    let action_shard = [ShardId::new(0), ShardId::new(1)]
-        .into_iter()
-        .find(|sid| {
-            chain_store
-                .get_outcomes_by_block_hash_and_shard_id(&action_block_hash, *sid)
-                .contains(&action_receipt_id)
-        })
-        .expect("action receipt must execute on one of the two shards");
+    let action_shard = shard_containing_outcome(
+        &env,
+        action_height,
+        action_receipt_id,
+        &[ShardId::new(0), ShardId::new(1)],
+    );
 
     // Query the action receipt itself with the hint pointed at *its* execution
     // shard. The tx outcome that produced this receipt lives on the *other*

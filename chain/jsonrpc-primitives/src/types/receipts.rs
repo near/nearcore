@@ -51,11 +51,11 @@ impl From<RpcReceiptError> for crate::errors::RpcError {
 pub struct RpcReceiptToTxRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
-    /// Optional `(block_height, shard_id)` pair locating a block near where
-    /// the receipt was created. Together with `shard_id`, enables a
-    /// best-effort historical fallback scan when the local `ReceiptToTx`
-    /// column is missing the entry. Both fields must be supplied together;
-    /// supplying one without the other returns `MalformedHint`.
+    /// Optional block height near where the receipt was created. Supplying it
+    /// enables a best-effort historical fallback scan when the local
+    /// `ReceiptToTx` column is missing an entry mid-walk. `shard_id`
+    /// optionally narrows the first scan; omitting it scans all tracked shards
+    /// at the hinted height. `window` overrides the default scan range.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_height: Option<BlockHeight>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

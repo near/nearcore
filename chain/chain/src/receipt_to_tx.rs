@@ -70,18 +70,27 @@ pub struct HintScanStats {
     pub outcomes_scanned: u64,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ResolveHintError {
+    #[error(transparent)]
+    Chain(#[from] Error),
+    #[error("hint-scan outcome budget exceeded")]
+    BudgetExceeded,
+}
+
 /// Attempt to resolve the immediate parent of `receipt_id` by scanning
 /// `OutcomeIds` / `TransactionResultForBlock` rows in a `±window` block range
 /// around `block_height` on `shard_id`.
 ///
 /// `Ok(Some(_))` — parent located, info synthesized in-flight.
 /// `Ok(None)` — window exhausted without finding the receipt.
-/// `Err(_)` — genuine I/O error mid-scan; bubbles to the handler.
+/// `Err(_)` — genuine I/O error or budget exhaustion mid-scan; bubbles to the handler.
 ///
 /// `stats` is accumulated in-place so callers can emit metrics in every
 /// outcome — hit, miss, or error mid-scan. Missing-data inside the scan
 /// (no block at height, GC'd outcome row, deleted receipt row) is
-/// skip-and-continue.
+/// skip-and-continue. `remaining_budget` is decremented for every outcome row
+/// inspected so callers can enforce one budget across all shards and hops.
 pub fn resolve_receipt_via_hint(
     chain_store: &ChainStore,
     receipt_id: CryptoHash,
@@ -89,7 +98,8 @@ pub fn resolve_receipt_via_hint(
     shard_id: ShardId,
     window: BlockHeightDelta,
     stats: &mut HintScanStats,
-) -> Result<Option<HintResolution>, Error> {
+    remaining_budget: &mut u64,
+) -> Result<Option<HintResolution>, ResolveHintError> {
     let store = chain_store.store();
 
     for height in center_out_heights(block_height, window) {
@@ -97,12 +107,16 @@ pub fn resolve_receipt_via_hint(
         let block_hash = match chain_store.get_block_hash_by_height(height) {
             Ok(h) => h,
             Err(Error::DBNotFoundErr(_)) => continue,
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
 
         let outcome_ids =
             chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id);
         for outcome_id in outcome_ids {
+            if *remaining_budget == 0 {
+                return Err(ResolveHintError::BudgetExceeded);
+            }
+            *remaining_budget -= 1;
             stats.outcomes_scanned += 1;
             let owp = match chain_store.get_outcome_by_id_and_block_hash(&outcome_id, &block_hash) {
                 Some(o) => o,

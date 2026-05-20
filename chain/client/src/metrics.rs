@@ -483,10 +483,10 @@ pub(crate) static RECEIPT_TO_TX_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|
     .unwrap()
 });
 
-/// Total number of block heights inspected by hint-scan fallback across all
-/// requests. Combined with `receipt_to_tx_hint_outcomes_scanned_total`,
-/// this gives operators a sense of how expensive the scanner is on
-/// average per request.
+/// Total number of `(shard, block height)` pairs inspected by hint-scan
+/// fallback across all requests. Combined with
+/// `receipt_to_tx_hint_outcomes_scanned_total`, this gives operators a sense
+/// of how expensive the scanner is on average per request.
 pub(crate) static RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL: LazyLock<IntCounter> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -497,7 +497,7 @@ pub(crate) static RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL: LazyLock<IntCounter>
     });
 
 /// Total number of outcome rows read by hint-scan fallback across all
-/// requests.
+/// `(shard, block height)` visits and requests.
 pub(crate) static RECEIPT_TO_TX_HINT_OUTCOMES_SCANNED_TOTAL: LazyLock<IntCounter> =
     LazyLock::new(|| {
         try_create_int_counter(
