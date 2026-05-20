@@ -162,6 +162,57 @@ fn test_promise_yield_create_with_id() {
 }
 
 #[test]
+fn test_promise_yield_create_with_id_then_resume_with_data_id() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    let mut logic_builder = VMLogicBuilder::free();
+    let mut logic = logic_builder.build();
+
+    // Create the yield via yield_create_with_id
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    let yield_id = [7u8; 32];
+    let yield_id_mem = logic.internal_mem_write(&yield_id);
+
+    logic
+        .promise_yield_create_with_id(
+            method_name.len,
+            method_name.ptr,
+            args.len,
+            args.ptr,
+            0,
+            1,
+            yield_id_mem.len,
+            yield_id_mem.ptr,
+        )
+        .expect("yield_create_with_id should succeed");
+
+    // Extract the runtime-generated data_id from the mock action log
+    let data_id = logic_builder
+        .ext
+        .action_log
+        .iter()
+        .find_map(|action| match action {
+            MockAction::YieldCreate { data_id, .. } => Some(*data_id),
+            _ => None,
+        })
+        .expect("expected YieldCreate in action log");
+
+    // Resume using the data_id with the legacy promise_yield_resume
+    let mut logic = logic_builder.build();
+    let data_id_mem = logic.internal_mem_write(data_id.as_bytes());
+    let payload = logic.internal_mem_write(b"payload");
+
+    let result = logic
+        .promise_yield_resume(data_id_mem.len, data_id_mem.ptr, payload.len, payload.ptr)
+        .expect("yield_resume should succeed");
+
+    assert_eq!(result, 1u32, "resume with the runtime data_id should succeed");
+}
+
+#[test]
 fn test_promise_yield_create_with_id_invalid_yield_id_length() {
     if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
         return;
