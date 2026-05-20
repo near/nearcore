@@ -1,6 +1,6 @@
 use crate::challenge::Challenge;
 use crate::sharding::ShardChunkHeader;
-use crate::stateless_validation::spice_chunk_endorsement::SpiceEndorsementCoreStatement;
+use crate::spice::chunk_endorsement::SpiceEndorsementCoreStatement;
 use crate::types::{ChunkExecutionResult, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;

@@ -1,4 +1,4 @@
-use crate::spice_core::get_last_certified_block_header;
+use crate::spice::core::get_last_certified_block_header;
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
 use itertools::Itertools;
@@ -11,8 +11,8 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
+use near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_endorsements_key_prefix,

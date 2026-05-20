@@ -1,7 +1,7 @@
-use crate::spice_core::{
+use crate::spice::core::{
     SpiceCoreReader, find_newly_certified_block_hashes, record_uncertified_chunks_for_block,
 };
-use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -23,8 +23,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::spice_chunk_endorsement::testonly_create_endorsement_core_statement;
-use near_primitives::stateless_validation::spice_chunk_endorsement::{
+use near_primitives::spice::chunk_endorsement::testonly_create_endorsement_core_statement;
+use near_primitives::spice::chunk_endorsement::{
     SpiceChunkEndorsement, SpiceEndorsementSignedData, SpiceVerifiedEndorsement,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};

@@ -12,7 +12,7 @@ use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain::spice_core::get_last_certified_block_header;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
