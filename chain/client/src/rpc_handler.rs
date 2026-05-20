@@ -268,30 +268,26 @@ impl RpcHandlerActor {
             self.record_tx_pending(signed_tx.get_hash(), *signed_tx.transaction.block_hash());
             // Transactions only need to be recorded if this node is a chunk producer for the transaction's shard.
             if self.is_chunk_producer_for_transaction(&head, signed_tx.transaction.signer_id())? {
-                let mut dropped = false;
-                {
+                let insert_result = {
                     let mut pool = self.tx_pool.lock();
-                    match pool.insert_transaction(shard_uid, validated_tx) {
-                        InsertTransactionResult::Success => {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
-                        }
-                        InsertTransactionResult::Duplicate => {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
-                            return Ok(ProcessTxResponse::ValidTx);
-                        }
-                        InsertTransactionResult::NoSpaceLeft => {
-                            if is_forwarded {
-                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
-                                dropped = true;
-                            } else {
-                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
-                            }
-                        }
+                    pool.insert_transaction(shard_uid, validated_tx)
+                };
+                match insert_result {
+                    InsertTransactionResult::Success => {
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
                     }
-                }
-                if dropped {
-                    self.record_tx_dropped_mempool_full(signed_tx.get_hash());
-                    return Ok(ProcessTxResponse::MempoolFull);
+                    InsertTransactionResult::Duplicate => {
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
+                        return Ok(ProcessTxResponse::ValidTx);
+                    }
+                    InsertTransactionResult::NoSpaceLeft if is_forwarded => {
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
+                        self.record_tx_dropped_mempool_full(signed_tx.get_hash());
+                        return Ok(ProcessTxResponse::MempoolFull);
+                    }
+                    InsertTransactionResult::NoSpaceLeft => {
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
+                    }
                 }
             }
 
