@@ -154,6 +154,7 @@ pub enum Parameter {
     WasmAltBn128G1SumElement,
     WasmYieldCreateBase,
     WasmYieldCreateByte,
+    WasmYieldCreateWithIdBase,
     WasmYieldResumeBase,
     WasmYieldResumeByte,
     WasmBls12381P1SumBase,

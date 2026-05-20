@@ -212,6 +212,7 @@ impl ExtCostsConfig {
             // TODO(yield/resume): replicate fees here after estimation
             ExtCosts::yield_create_base => 300_000_000_000_000,
             ExtCosts::yield_create_byte => 300_000_000_000_000,
+            ExtCosts::yield_create_with_id_base => 300_000_000_000_000,
             ExtCosts::yield_resume_base => 300_000_000_000_000,
             ExtCosts::yield_resume_byte => 300_000_000_000_000,
         }
@@ -332,6 +333,7 @@ pub enum ExtCosts {
     storage_large_read_overhead_byte = 84,
     p256_verify_base = 85,
     p256_verify_byte = 86,
+    yield_create_with_id_base = 87,
 }
 
 // Type of an action, used in fees logic.
@@ -461,6 +463,7 @@ impl ExtCosts {
             ExtCosts::alt_bn128_g1_sum_element => Parameter::WasmAltBn128G1SumElement,
             ExtCosts::yield_create_base => Parameter::WasmYieldCreateBase,
             ExtCosts::yield_create_byte => Parameter::WasmYieldCreateByte,
+            ExtCosts::yield_create_with_id_base => Parameter::WasmYieldCreateWithIdBase,
             ExtCosts::yield_resume_base => Parameter::WasmYieldResumeBase,
             ExtCosts::yield_resume_byte => Parameter::WasmYieldResumeByte,
             ExtCosts::bls12381_p1_sum_base => Parameter::WasmBls12381P1SumBase,

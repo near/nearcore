@@ -6655,6 +6655,14 @@
             ],
             "description": "Per byte cost of arguments and method name."
           },
+          "yield_create_with_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for creating a yield promise with a user-provided yield ID\n(covers the additional trie writes for the yield_id<->data_id mapping)."
+          },
           "yield_resume_base": {
             "allOf": [
               {

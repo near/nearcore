@@ -3460,7 +3460,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        self.result_state.gas_counter.pay_base(yield_create_base)?;
+        self.result_state.gas_counter.pay_base(yield_create_with_id_base)?;
 
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {

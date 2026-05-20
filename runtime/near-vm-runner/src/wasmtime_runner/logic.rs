@@ -3794,7 +3794,7 @@ pub fn promise_yield_create_with_id(
         }
         .into());
     }
-    ctx.result_state.gas_counter.pay_base(yield_create_base)?;
+    ctx.result_state.gas_counter.pay_base(yield_create_with_id_base)?;
 
     let method_name = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
