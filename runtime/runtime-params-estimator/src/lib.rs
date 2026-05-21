@@ -318,6 +318,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     #[cfg(feature = "nightly")]
     (Cost::YieldCreateByte, yield_create_byte),
     #[cfg(feature = "nightly")]
+    (Cost::YieldCreateWithIdBase, yield_create_with_id_base),
+    #[cfg(feature = "nightly")]
     (Cost::YieldResumeBase, yield_resume_base),
     #[cfg(feature = "nightly")]
     (Cost::YieldResumeByte, yield_resume_byte),
@@ -1556,6 +1558,25 @@ fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
         it.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes
     };
     std::cmp::max(compute(method_cost, 100), compute(argument_cost, 1001))
+}
+
+#[cfg(feature = "nightly")]
+fn yield_create_with_id_base(ctx: &mut EstimatorContext) -> GasCost {
+    let base_cost = noop_function_call_cost(ctx);
+    let result = if let Some(cost) = &ctx.cached.yield_create_with_id_base {
+        cost.clone()
+    } else {
+        let (result, count) = fn_cost_count(
+            ctx,
+            "yield_create_with_id_base",
+            ExtCosts::yield_create_with_id_base,
+            0,
+        );
+        assert_eq!(count, 1000);
+        let result = result / count;
+        ctx.cached.yield_create_with_id_base.insert(result).clone()
+    };
+    result.saturating_sub(&(base_cost / 1000), &NonNegativeTolerance::PER_MILLE)
 }
 
 #[cfg(feature = "nightly")]

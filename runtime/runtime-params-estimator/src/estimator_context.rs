@@ -60,6 +60,8 @@ pub(crate) struct CachedCosts {
     pub(crate) function_call_base: Option<GasCost>,
     #[cfg(feature = "nightly")]
     pub(crate) yield_create_base: Option<GasCost>,
+    #[cfg(feature = "nightly")]
+    pub(crate) yield_create_with_id_base: Option<GasCost>,
     pub(crate) action_deterministic_state_init_base_per_entry_per_byte:
         Option<(GasCost, GasCost, GasCost)>,
 }
