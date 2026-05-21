@@ -54,7 +54,8 @@ impl TestLoopEnv {
 
         let client_handle = self.node_datas[0].client_sender.actor_handle();
         let client_actor = self.test_loop.data.get(&client_handle);
-        let max_block_production_delay = client_actor.client.config.max_block_production_delay;
+        let max_block_production_delay =
+            client_actor.client.config.max_block_production_delay.get();
         let genesis_height = client_actor.client.chain.genesis().height();
         self.test_loop.run_until(
             |test_loop_data| {

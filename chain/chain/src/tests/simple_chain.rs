@@ -1,15 +1,12 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
-use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
+use crate::{BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::{
-    hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance, version::PROTOCOL_VERSION,
-};
-use num_rational::Ratio;
+use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance};
 use std::sync::Arc;
 
 #[test]
@@ -78,31 +75,11 @@ fn build_chain_with_orphans() {
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
-    let block = Arc::new(Block::produce(
-        PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
-        last_block.header(),
-        10,
-        last_block.header().block_ordinal() + 1,
-        last_block.chunks().iter_raw().cloned().collect(),
-        vec![vec![]; last_block.chunks().len()],
-        *last_block.header().epoch_id(),
-        *last_block.header().next_epoch_id(),
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        Some(Balance::ZERO),
-        &*signer,
-        *last_block.header().next_bp_hash(),
-        CryptoHash::default(),
-        clock,
-        None,
-        None,
-        None,
-        None,
-    ));
+    let block = TestBlockBuilder::from_prev_block(clock, last_block, signer)
+        .height(10)
+        .max_gas_price(Balance::from_yoctonear(100))
+        .block_merkle_root(CryptoHash::default())
+        .build();
     assert_matches!(chain.process_block_test(block).unwrap_err(), Error::Orphan);
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);

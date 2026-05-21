@@ -201,6 +201,7 @@ impl RuntimeUser {
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -305,7 +306,7 @@ impl User for RuntimeUser {
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_state(&state_update, account_id, prefix, false)
+            .view_state(&state_update, account_id, prefix, None, None, false)
             .map_err(|err| err.to_string())
     }
 

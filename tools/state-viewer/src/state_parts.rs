@@ -350,7 +350,6 @@ async fn load_state_parts(
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
-    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
 
     let num_parts =
         list_state_parts(external, chain_id, &epoch_id, epoch_height, shard_id).await.unwrap();
@@ -365,7 +364,6 @@ async fn load_state_parts(
                 &epoch_id,
                 epoch_height,
                 sync_hash,
-                protocol_version,
                 shard_id,
                 state_root,
                 part_ids,
@@ -389,7 +387,7 @@ async fn load_state_parts(
                 );
                 let bytes = external.get_file(shard_id, &location, &file_type).await.unwrap();
                 let part_length = bytes.len();
-                let part = StatePart::from_bytes(bytes, protocol_version).unwrap();
+                let part = StatePart::from_bytes(bytes).unwrap();
 
                 match action {
                     LoadAction::Validate => {
@@ -443,7 +441,6 @@ async fn dump_state_parts(
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
         Some(h) => h,
@@ -514,7 +511,7 @@ async fn dump_state_parts(
             shard_id,
             &file_type,
         );
-        let bytes = state_part.to_bytes(protocol_version);
+        let bytes = state_part.to_bytes();
         external.put_file(file_type, &bytes, shard_id, &location).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();

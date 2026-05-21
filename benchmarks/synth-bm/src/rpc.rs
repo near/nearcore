@@ -1,4 +1,3 @@
-use std::time::Instant;
 use near_crypto::{InMemorySigner, PublicKey, Signer};
 use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_client::errors::JsonRpcError;
@@ -15,6 +14,7 @@ use near_primitives::{
         TxExecutionStatus,
     },
 };
+use std::time::Instant;
 use tokio::sync::mpsc::Receiver;
 
 pub fn new_request(

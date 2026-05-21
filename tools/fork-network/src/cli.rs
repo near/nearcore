@@ -998,13 +998,19 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        let replacement = map_key(&public_key, None);
+                        // fork-network does not support ML-DSA-65 yet —
+                        // skip hash-form entries since we lack the full
+                        // pubkey needed for key_mapping.
+                        let Some(full_pk) = public_key.full_pubkey() else {
+                            continue;
+                        };
+                        let replacement = map_key(&full_pk, None);
                         let new_shard_id =
                             target_shard_layout.account_id_to_shard_id(&new_account_id);
                         let new_shard_idx =
                             target_shard_layout.get_shard_index(new_shard_id).unwrap();
 
-                        storage_mutator.remove_access_key(shard_uid, account_id, public_key)?;
+                        storage_mutator.remove_access_key(shard_uid, account_id, full_pk)?;
                         storage_mutator.set_access_key(
                             new_shard_idx,
                             new_account_id,
@@ -1018,14 +1024,17 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        let replacement = map_key(&public_key, None);
+                        let Some(full_pk) = public_key.full_pubkey() else {
+                            continue;
+                        };
+                        let replacement = map_key(&full_pk, None);
                         let new_shard_id =
                             target_shard_layout.account_id_to_shard_id(&new_account_id);
                         let new_shard_idx =
                             target_shard_layout.get_shard_index(new_shard_id).unwrap();
 
                         storage_mutator
-                            .remove_gas_key_nonce(shard_uid, account_id, public_key, index)?;
+                            .remove_gas_key_nonce(shard_uid, account_id, full_pk, index)?;
                         storage_mutator.set_gas_key_nonce(
                             new_shard_idx,
                             new_account_id,

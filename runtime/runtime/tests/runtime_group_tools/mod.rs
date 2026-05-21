@@ -114,6 +114,7 @@ impl StandaloneRuntime {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -270,11 +271,11 @@ impl RuntimeGroup {
                         0,
                     ),
                 });
-                state_records.push(StateRecord::AccessKey {
-                    account_id: account_id.clone(),
-                    public_key: signer.public_key(),
-                    access_key: AccessKey::full_access(),
-                });
+                state_records.push(StateRecord::access_key(
+                    account_id.clone(),
+                    &signer.public_key(),
+                    AccessKey::full_access(),
+                ));
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
                 validators.push(AccountInfo {

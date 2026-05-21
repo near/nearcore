@@ -16,7 +16,6 @@ use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::SyncStatus;
-use near_client::sync::SYNC_V2_ENABLED;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{Balance, ShardId};
 
@@ -37,9 +36,6 @@ use near_primitives::types::{Balance, ShardId};
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_block_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -85,9 +81,6 @@ fn test_near_horizon_block_sync() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_epoch_sync_boundary() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -129,9 +122,6 @@ fn test_near_horizon_epoch_sync_boundary() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_restart_during_block_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -259,9 +249,6 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_sync_beyond_gc_window() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;

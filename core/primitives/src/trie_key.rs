@@ -4,6 +4,8 @@ use crate::{
     hash::{CryptoHash, YieldId},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::KeyHandle;
+#[cfg(test)]
 use near_crypto::PublicKey;
 use near_primitives_core::trie_key::access_key_key_len;
 use near_primitives_core::types::{NonceIndex, ShardId};
@@ -73,6 +75,10 @@ pub mod col {
     pub const GLOBAL_CONTRACT_NONCE: u8 = 19;
     /// Status of a yielded receipt. Values are of type `PromiseYieldStatus`.
     pub const PROMISE_YIELD_STATUS: u8 = 20;
+    // Reserved: byte 21 is the `TrieKey::GasKeyNonce` enum discriminant.
+    // GasKeyNonce rows live on disk under `ACCESS_KEY` (extending the access-key
+    // trie key with a `NonceIndex` suffix), so no `col` constant exists for byte
+    // 21. Do not introduce one without coordinating with the `TrieKey` repr.
     /// Mapping from user-provided yield ID to runtime data ID.
     pub const YIELD_ID_TO_DATA_ID: u8 = 22;
     /// Reverse mapping from runtime data ID to user-provided yield ID.
@@ -172,10 +178,12 @@ pub enum TrieKey {
         account_id: AccountId,
     } = col::CONTRACT_CODE,
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
-    /// a given `public_key` of the `AccessKey`.
+    /// a given key handle (the on-trie identifier of the access key — for
+    /// ed25519/secp256k1 this is the full public key; for ML-DSA-65 it is
+    /// a SHA3-384 hash of the public key).
     AccessKey {
         account_id: AccountId,
-        public_key: PublicKey,
+        key_handle: KeyHandle,
     } = col::ACCESS_KEY,
     /// Used to store `primitives::receipt::ReceivedData` struct for a given receiver's `AccountId`
     /// of `DataReceipt` and a given `data_id` (the unique identifier for the data).
@@ -285,7 +293,7 @@ pub enum TrieKey {
     /// `NonceIndex` suffix.
     GasKeyNonce {
         account_id: AccountId,
-        public_key: PublicKey,
+        key_handle: KeyHandle,
         index: NonceIndex,
     } = 21,
 }
@@ -309,17 +317,45 @@ impl Byte for u8 {
 pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
 
 /// Returns the length of the trie key for a gas key nonce.
-pub fn gas_key_nonce_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
-    access_key_key_len(account_id.len(), public_key.len()) + size_of::<NonceIndex>()
+pub fn gas_key_nonce_key_len(account_id: &AccountId, key_handle: &KeyHandle) -> usize {
+    access_key_key_len(account_id.len(), key_handle.trie_id_len()) + size_of::<NonceIndex>()
+}
+
+/// Append the on-trie identifier of `key_handle` into the given buffer.
+/// The on-trie bytes are exactly `KeyHandle`'s borsh encoding, so we
+/// delegate to `BorshSerialize` rather than duplicating the layout here.
+fn append_key_handle_trie_id(
+    buf: &mut impl trie_key_buffer::TrieKeyBuffer,
+    key_handle: &KeyHandle,
+) {
+    borsh::to_writer(buf.borsh_writer(), key_handle).unwrap()
 }
 
 impl TrieKey {
+    /// Constructor for [`TrieKey::AccessKey`] that accepts anything
+    /// convertible into [`KeyHandle`] (notably a `PublicKey` or `&PublicKey`).
+    /// Encapsulates the pubkey → trie-storage-handle conversion so call
+    /// sites don't have to remember the `.into()`.
+    pub fn access_key(account_id: AccountId, key_handle: impl Into<KeyHandle>) -> Self {
+        Self::AccessKey { account_id, key_handle: key_handle.into() }
+    }
+
+    /// Constructor for [`TrieKey::GasKeyNonce`] that accepts anything
+    /// convertible into [`KeyHandle`].
+    pub fn gas_key_nonce(
+        account_id: AccountId,
+        key_handle: impl Into<KeyHandle>,
+        index: NonceIndex,
+    ) -> Self {
+        Self::GasKeyNonce { account_id, key_handle: key_handle.into(), index }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
             TrieKey::ContractCode { account_id } => col::CONTRACT_CODE.len() + account_id.len(),
-            TrieKey::AccessKey { account_id, public_key } => {
-                access_key_key_len(account_id.len(), public_key.len())
+            TrieKey::AccessKey { account_id, key_handle } => {
+                access_key_key_len(account_id.len(), key_handle.trie_id_len())
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 col::RECEIVED_DATA.len()
@@ -383,8 +419,8 @@ impl TrieKey {
             TrieKey::GlobalContractCode { identifier } => {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
-            TrieKey::GasKeyNonce { account_id, public_key, index: _index } => {
-                gas_key_nonce_key_len(account_id, public_key)
+            TrieKey::GasKeyNonce { account_id, key_handle, index: _index } => {
+                gas_key_nonce_key_len(account_id, key_handle)
             }
             TrieKey::GlobalContractNonce { identifier } => {
                 col::GLOBAL_CONTRACT_NONCE.len() + identifier.len()
@@ -423,11 +459,11 @@ impl TrieKey {
                 buf.push(col::CONTRACT_CODE);
                 buf.extend(account_id.as_bytes());
             }
-            TrieKey::AccessKey { account_id, public_key } => {
+            TrieKey::AccessKey { account_id, key_handle } => {
                 buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_bytes());
                 buf.push(ACCESS_KEY_SEPARATOR);
-                borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
+                append_key_handle_trie_id(buf, key_handle);
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 buf.push(col::RECEIVED_DATA);
@@ -504,11 +540,11 @@ impl TrieKey {
                 buf.push(col::GLOBAL_CONTRACT_CODE);
                 identifier.append_into(buf);
             }
-            TrieKey::GasKeyNonce { account_id, public_key, index: nonce_index } => {
+            TrieKey::GasKeyNonce { account_id, key_handle, index: nonce_index } => {
                 buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_bytes());
                 buf.push(ACCESS_KEY_SEPARATOR);
-                borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
+                append_key_handle_trie_id(buf, key_handle);
                 buf.extend(&nonce_index.to_le_bytes());
             }
             TrieKey::GlobalContractNonce { identifier } => {
@@ -636,10 +672,12 @@ mod trie_key_buffer {
 pub mod trie_key_parsers {
     use super::*;
 
-    pub fn parse_public_key_from_access_key_key(
+    /// Parse the on-trie identifier of an access-key entry out of the raw
+    /// key bytes.
+    pub fn parse_key_handle_from_access_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
-    ) -> Result<PublicKey, std::io::Error> {
+    ) -> Result<KeyHandle, std::io::Error> {
         let prefix_len = col::ACCESS_KEY.len() * 2 + account_id.len();
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
@@ -647,8 +685,11 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::AccessKey",
             ));
         }
+        // `KeyHandle`'s borsh tag layout matches the on-trie encoding
+        // produced by `append_key_handle_trie_id`, so we can delegate to
+        // its borsh deserializer.
         let mut buf = &raw_key[prefix_len..];
-        PublicKey::deserialize(&mut buf)
+        KeyHandle::deserialize(&mut buf)
     }
 
     /// Parses the nonce index from a gas key raw key. Note that each nonce gas key
@@ -656,9 +697,9 @@ pub mod trie_key_parsers {
     pub fn parse_nonce_index_from_gas_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
-        public_key: &PublicKey,
+        key_handle: &KeyHandle,
     ) -> Result<Option<NonceIndex>, std::io::Error> {
-        let prefix_len = access_key_key_len(account_id.len(), public_key.len());
+        let prefix_len = access_key_key_len(account_id.len(), key_handle.trie_id_len());
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -920,11 +961,9 @@ mod tests {
     #[test]
     fn test_key_for_access_key_consistency() {
         let public_key = PublicKey::empty(KeyType::ED25519);
+        let key_handle: KeyHandle = (&public_key).into();
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
-            let key = TrieKey::AccessKey {
-                account_id: account_id.clone(),
-                public_key: public_key.clone(),
-            };
+            let key = TrieKey::access_key(account_id.clone(), key_handle.clone());
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());
             assert_eq!(
@@ -932,9 +971,9 @@ mod tests {
                 account_id
             );
             assert_eq!(
-                trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, &account_id)
+                trie_key_parsers::parse_key_handle_from_access_key_key(&raw_key, &account_id)
                     .unwrap(),
-                public_key
+                key_handle
             );
             assert_eq!(
                 trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
@@ -1104,11 +1143,8 @@ mod tests {
                 Some(account_id.clone())
             );
             assert_eq!(
-                TrieKey::AccessKey {
-                    account_id: account_id.clone(),
-                    public_key: PublicKey::empty(KeyType::ED25519)
-                }
-                .get_account_id(),
+                TrieKey::access_key(account_id.clone(), &PublicKey::empty(KeyType::ED25519))
+                    .get_account_id(),
                 Some(account_id.clone())
             );
             assert_eq!(
@@ -1172,17 +1208,12 @@ mod tests {
     #[test]
     fn test_key_for_gas_key_nonce_consistency() {
         let public_key = PublicKey::empty(KeyType::ED25519);
+        let key_handle: KeyHandle = (&public_key).into();
         let nonce_index: NonceIndex = 2; // Arbitrary nonce index for testing.
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
-            let access_key = TrieKey::AccessKey {
-                account_id: account_id.clone(),
-                public_key: public_key.clone(),
-            };
-            let gas_key_nonce = TrieKey::GasKeyNonce {
-                account_id: account_id.clone(),
-                public_key: public_key.clone(),
-                index: nonce_index,
-            };
+            let access_key = TrieKey::access_key(account_id.clone(), key_handle.clone());
+            let gas_key_nonce =
+                TrieKey::gas_key_nonce(account_id.clone(), key_handle.clone(), nonce_index);
             let raw_key = gas_key_nonce.to_vec();
             assert_eq!(raw_key.len(), gas_key_nonce.len());
 
@@ -1197,13 +1228,13 @@ mod tests {
                 account_id
             );
 
-            // Parsing the public key from a gas key nonce raw key should work.
+            // Parsing the key handle from a gas key nonce raw key should work.
             // This is important: the raw key has extra bytes (the nonce index)
-            // after the public key.
+            // after the key handle.
             assert_eq!(
-                trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, &account_id)
+                trie_key_parsers::parse_key_handle_from_access_key_key(&raw_key, &account_id)
                     .unwrap(),
-                public_key
+                key_handle
             );
 
             // Parsing the nonce index from a gas key nonce raw key should work.
@@ -1211,7 +1242,7 @@ mod tests {
                 trie_key_parsers::parse_nonce_index_from_gas_key_key(
                     &raw_key,
                     &account_id,
-                    &public_key
+                    &key_handle
                 )
                 .unwrap(),
                 Some(nonce_index)
@@ -1222,7 +1253,7 @@ mod tests {
                 trie_key_parsers::parse_nonce_index_from_gas_key_key(
                     &access_key_raw,
                     &account_id,
-                    &public_key
+                    &key_handle
                 )
                 .unwrap(),
                 None
@@ -1240,15 +1271,13 @@ mod tests {
     fn test_access_key_key_len_matches_trie_key() {
         for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let public_key = PublicKey::empty(key_type);
+            let key_handle: KeyHandle = (&public_key).into();
             for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
-                let key = TrieKey::AccessKey {
-                    account_id: account_id.clone(),
-                    public_key: public_key.clone(),
-                };
+                let key = TrieKey::access_key(account_id.clone(), key_handle.clone());
                 let raw_key = key.to_vec();
                 assert_eq!(
                     raw_key.len(),
-                    access_key_key_len(account_id.len(), public_key.len()),
+                    access_key_key_len(account_id.len(), key_handle.trie_id_len()),
                     "access_key_key_len mismatch for account_id={account_id}, key_type={key_type:?}"
                 );
             }

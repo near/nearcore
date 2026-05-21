@@ -43,6 +43,7 @@ mod prepare_error {
                 From::TooManyTypes => Self::TooManyTypes,
                 From::TooManyParamsPerFunction => Self::TooManyParamsPerFunction,
                 From::TooManyParamsPerContract => Self::TooManyParamsPerContract,
+                From::OperandStackTooLarge => Self::OperandStackTooLarge,
             }
         }
     }
@@ -79,6 +80,9 @@ mod function_call_error {
                 // on specific types in Rust code.
                 From::HostError(ref _e) => Self::ExecutionError(outer_err.to_string()),
                 From::LinkError { msg } => Self::ExecutionError(format!("Link Error: {}", msg)),
+                From::LoadingError { msg } => {
+                    Self::ExecutionError(format!("Loading Error: {}", msg))
+                }
                 From::WasmTrap(ref _e) => Self::ExecutionError(outer_err.to_string()),
             }
         }

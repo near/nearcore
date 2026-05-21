@@ -127,6 +127,11 @@ pub struct LimitConfig {
     pub max_params_per_contract: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_params_per_function: Option<u64>,
+    /// If present, stores the max operand stack size (in bytes) at any point
+    /// during the execution of a single function. Per-function: not summed
+    /// across recursion. Computed by `finite_wasm::max_stack`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_operand_stack_bytes_per_function: Option<u64>,
     /// If present, stores max number of tables declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tables_per_contract: Option<u32>,
@@ -213,9 +218,6 @@ pub struct Config {
 
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
-
-    /// Whether to host functions introduced with deterministic account ids.
-    pub deterministic_account_ids: bool,
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,

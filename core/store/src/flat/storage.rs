@@ -411,16 +411,10 @@ impl FlatStorage {
             // interrupted in the middle.
             // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk.
             // Consider avoid iterating over all blocks and make removals lazy.
-            let hashes_to_remove: Vec<_> = guard
+            guard
                 .deltas
-                .iter()
-                .filter(|(_, delta)| delta.metadata.block.height <= metadata.block.height)
-                .map(|(block_hash, _)| *block_hash)
-                .collect();
-            for hash in hashes_to_remove {
-                store_update.remove_delta(shard_uid, hash);
-                guard.deltas.remove(&hash);
-            }
+                .extract_if(|_, delta| delta.metadata.block.height <= metadata.block.height)
+                .for_each(|(hash, _)| store_update.remove_delta(shard_uid, hash));
 
             store_update.commit();
             tracing::debug!(target: "store", %shard_id, %block_hash, %block_height, "moved flat storage head");

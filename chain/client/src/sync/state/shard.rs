@@ -18,7 +18,6 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
-use near_primitives::version::ProtocolVersion;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
@@ -83,7 +82,6 @@ pub(super) async fn run_state_sync_for_shard(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
     metrics::STATE_SYNC_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string()])
@@ -116,7 +114,6 @@ pub(super) async fn run_state_sync_for_shard(
                     part_id,
                     attempt_count,
                     cancel.clone(),
-                    protocol_version,
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
@@ -217,7 +214,6 @@ pub(super) async fn run_state_sync_for_shard(
                 num_parts,
                 state_root,
                 epoch_id,
-                protocol_version,
             );
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
@@ -330,7 +326,6 @@ async fn apply_state_part(
     num_parts: u64,
     state_root: CryptoHash,
     epoch_id: EpochId,
-    protocol_version: ProtocolVersion,
 ) -> Result<StatePartApplyResult, near_chain::Error> {
     let key = StatePartKey(sync_hash, shard_id, part_id);
     let key_bytes = borsh::to_vec(&key).unwrap();
@@ -353,7 +348,7 @@ async fn apply_state_part(
             ))
         })?
         .to_vec();
-    let state_part = StatePart::from_bytes(bytes, protocol_version)?;
+    let state_part = StatePart::from_bytes(bytes)?;
     handle.set_status("Applying part data to runtime");
     runtime.apply_state_part(
         shard_id,
@@ -381,7 +376,6 @@ mod tests {
     use near_primitives::state::PartialState;
     use near_primitives::state_sync::StatePartKey;
     use near_primitives::types::EpochId;
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -392,7 +386,7 @@ mod tests {
         let dummy_trie_values =
             vec![Arc::from("test_value_1".as_bytes()), Arc::from("test_value_2".as_bytes())];
         let partial_state = PartialState::TrieValues(dummy_trie_values);
-        StatePart::from_partial_state(partial_state, PROTOCOL_VERSION, 1)
+        StatePart::from_partial_state(partial_state, 1)
     }
 
     fn create_test_runtime_and_store() -> (Arc<dyn RuntimeAdapter>, Store, TempDir) {
@@ -430,7 +424,7 @@ mod tests {
         let state_part = create_dummy_state_part();
         let key = StatePartKey(sync_hash, shard_id, part_id);
         let key_bytes = borsh::to_vec(&key).unwrap();
-        let part_bytes = state_part.to_bytes(PROTOCOL_VERSION);
+        let part_bytes = state_part.to_bytes();
 
         let mut store_update = store.store_update();
         store_update.set(DBCol::StateParts, &key_bytes, &part_bytes);
@@ -448,7 +442,6 @@ mod tests {
             num_parts,
             state_root,
             epoch_id,
-            PROTOCOL_VERSION,
         )
         .await
         .unwrap();
@@ -471,7 +464,6 @@ mod tests {
             num_parts,
             state_root,
             epoch_id,
-            PROTOCOL_VERSION,
         )
         .await
         .unwrap();

@@ -426,6 +426,10 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     global_contract_storage_amount_per_byte: params
                         .get(Parameter::GlobalContractStorageAmountPerByte)?,
                 },
+                deploy_global_contract_execution_base: params
+                    .get(Parameter::DeployGlobalContractExecutionBase)?,
+                deploy_global_contract_execution_per_byte: params
+                    .get(Parameter::DeployGlobalContractExecutionPerByte)?,
             }),
             wasm_config: Arc::new(Config {
                 ext_costs: ExtCostsConfig {
@@ -450,7 +454,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 eth_implicit_global_contract: params.get(Parameter::EthImplicitGlobalContract)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
-                deterministic_account_ids: params.get(Parameter::DeterministicAccountIds)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
                 p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,

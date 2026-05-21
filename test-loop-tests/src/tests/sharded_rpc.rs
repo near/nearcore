@@ -244,6 +244,8 @@ fn test_rpc_query_view_state_forwarding() {
                     request: QueryRequest::ViewState {
                         account_id: account.clone(),
                         prefix: StoreKey::from(vec![]),
+                        after_key: None,
+                        limit: None,
                         include_proof: false,
                     },
                 },
@@ -591,6 +593,8 @@ fn test_rpc_experimental_view_state_forwarding() {
                     block_reference: BlockReference::Finality(Finality::None),
                     account_id: account.clone(),
                     prefix: StoreKey::from(vec![]),
+                    after_key: None,
+                    limit: None,
                     include_proof: false,
                 })
             },

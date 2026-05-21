@@ -104,11 +104,15 @@ pub(crate) fn apply_block(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
-                    shard_id,
+                    shard_uid,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     on_post_state_ready: None,
+                    memtrie_pin: runtime
+                        .get_tries()
+                        .maybe_pin_memtrie_root(shard_uid, *chunk_inner.prev_state_root())
+                        .expect("failed to pin memtrie root"),
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -130,11 +134,15 @@ pub(crate) fn apply_block(
                 storage.create_runtime_storage(*chunk_extra.state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
-                    shard_id,
+                    shard_uid,
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     on_post_state_ready: None,
+                    memtrie_pin: runtime
+                        .get_tries()
+                        .maybe_pin_memtrie_root(shard_uid, *chunk_extra.state_root())
+                        .expect("failed to pin memtrie root"),
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
