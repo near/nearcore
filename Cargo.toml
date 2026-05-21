@@ -398,7 +398,7 @@ wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in
 wasmparser-236 = { package = "wasmparser", version = "0.236" }
 wasmprinter = "0.236"
 wasm-smith = "0.236"
-wasmtime = { version= "45.0.0", default-features = false, features = [
+wasmtime = { version = "45.0.0", default-features = false, features = [
     "cranelift",
     "winch",
 ] }
