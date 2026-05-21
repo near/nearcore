@@ -351,6 +351,10 @@ impl SpiceCoreReader {
                 }
             }
         }
+        // Canonical form: an all-zero Vec is collapsed to empty.
+        if current_validators.iter().all(|s| *s == SpiceChunkEndorsementStats::default()) {
+            current_validators.clear();
+        }
 
         Ok(EndorsementContribution { current_validators, departed_validators })
     }
