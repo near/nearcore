@@ -7,7 +7,7 @@
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
 ### Non-protocol Changes
-* Extended `EXPERIMENTAL_receipt_to_tx` with optional `(block_height, shard_id, window)` hint parameters. `block_height` enables a best-effort historical fallback scan when the local `ReceiptToTx` column misses an entry mid-walk. The `shard_id` field is an optional narrowing for the first scan only; ancestor scans iterate all tracked shards at the resolved height to follow cross-shard chains. The wire response is unchanged.
+* Extended `EXPERIMENTAL_receipt_to_tx` with optional `(block_height, shard_id, window)` hint parameters. `block_height` enables a best-effort hinted fallback scan for callers that supply an approximate execution or creation height; receipt-id-only queries against periods where `save_receipt_to_tx=false` remain unsupported. `shard_id` is an optional narrowing for the first scan; ancestor hops land directly on the producer's shard via predecessor-account derivation, falling back to all-shards enumeration only when shard derivation fails. The wire response is unchanged.
 * Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `after_key_base64` and `limit`, and the response returns `last_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
 
 ## [2.12.0]
