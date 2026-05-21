@@ -63,13 +63,13 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
-        "description": "Describes information about an access key including the public key.",
+        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest\n(the full pubkey is not stored on-chain).",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
           },
           "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "$ref": "#/components/schemas/KeyHandle"
           }
         },
         "required": [
@@ -6325,6 +6325,10 @@
         ],
         "title": "InvalidTxError"
       },
+      "KeyHandle": {
+        "title": "KeyHandle",
+        "type": "string"
+      },
       "KnownProducerView": {
         "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
         "properties": {
@@ -10074,12 +10078,32 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "block_id": {
                 "$ref": "#/components/schemas/BlockId"
               },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10098,12 +10122,32 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "finality": {
                 "$ref": "#/components/schemas/Finality"
               },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10122,9 +10166,29 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10155,6 +10219,16 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "last_key": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "proof": {
             "items": {
@@ -11056,7 +11130,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -11090,7 +11164,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -11134,7 +11208,7 @@
                     "type": "integer"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -13557,6 +13631,21 @@
           }
         },
         {
+          "name": "after_key_base64",
+          "required": false,
+          "schema": {
+            "default": null,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "block_id",
           "required": false,
           "schema": {
@@ -13576,6 +13665,19 @@
           "schema": {
             "default": false,
             "type": "boolean"
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         {

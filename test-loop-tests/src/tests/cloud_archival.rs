@@ -924,8 +924,11 @@ fn test_cloud_archival_outcomes_and_receipts() {
                     matches!(v1.origin, ReceiptOrigin::FromTransaction(_))
                 })
                 .count();
-            let ChunkApplyStats::V0(stats) =
-                writer_chunk_store.get_chunk_apply_stats(&block_hash, shard_id).unwrap();
+            let ChunkApplyStats::V1(stats) =
+                writer_chunk_store.get_chunk_apply_stats(&block_hash, shard_id).unwrap()
+            else {
+                unreachable!("freshly written chunks must be ChunkApplyStats::V1");
+            };
             assert_eq!(
                 cloud_stored_from_tx_count, stats.transactions_num as usize,
                 "FromTransaction count mismatch at h={height} shard={shard_id}: cloud has {cloud_stored_from_tx_count}, chunk apply processed {} transactions",

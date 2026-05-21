@@ -309,16 +309,6 @@ fn test_process_chunk_endorsement_fails_with_unknown_block_and_wrong_shard_id() 
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_handle_processed_block_for_non_spice_block() {
-    let (mut chain, core_writer_actor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
-    process_block(&mut chain, block.clone());
-    assert!(core_writer_actor.handle_processed_block(*block.hash()).is_ok());
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_handle_processed_block_for_block_without_endorsements() {
     let (mut chain, core_writer_actor) = setup();
     let genesis = chain.genesis_block();
@@ -663,10 +653,6 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
-}
-
-fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
-    block_builder(chain, prev_block).non_spice_block().build()
 }
 
 fn build_block(

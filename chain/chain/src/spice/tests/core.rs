@@ -206,16 +206,6 @@ fn test_core_statements_for_next_block_for_genesis() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statements_for_next_block_for_non_spice_block() {
-    let (mut chain, core_reader) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
-    process_block(&mut chain, block.clone());
-    assert_eq!(core_reader.core_statements_for_next_block(block.header()).unwrap(), vec![]);
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statements_for_next_block_when_block_is_not_recorded() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
@@ -477,15 +467,6 @@ fn run_record_uncertified_chunks_for_block(chain: &mut Chain, block: &Block) {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_test_record_block_for_non_spice_block_for_non_spice_block() {
-    let (mut chain, _core_reader) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
-    run_record_uncertified_chunks_for_block(&mut chain, &block);
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_record_block_for_block_without_endorsements() {
     let (mut chain, _core_reader) = setup();
     let genesis = chain.genesis_block();
@@ -568,15 +549,6 @@ fn test_endorsements_from_forks_can_be_used_in_other_forks() {
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![core_endorsement]);
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_validate_core_statements_in_block_valid_with_non_spice_block() {
-    let (mut chain, core_reader) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
-    assert!(core_reader.validate_core_statements_in_block(&block).is_ok());
 }
 
 #[test]
@@ -1342,10 +1314,6 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
-}
-
-fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
-    block_builder(chain, prev_block).non_spice_block().build()
 }
 
 fn build_block(
