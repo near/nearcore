@@ -4,6 +4,7 @@ This script is used to run a forknet scenario.
 
 from argparse import ArgumentParser, ArgumentTypeError, FileType
 import json
+import math
 import sys
 import pathlib
 import subprocess
@@ -90,13 +91,18 @@ def handle_destroy(test_setup, dump_workflow_params=None):
     bucket_path = f"{MOCKNET_STORE_PATH}/{mocknet_id}"
     logger.info(f"Removing mocknet bucket folder: {bucket_path}")
 
-    cmd = ['gsutil', 'rm', '-r', bucket_path]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        logger.warning(
-            f"Failed to remove bucket directory {bucket_path}: {result.stderr}")
+    cmd = ['gcloud', 'storage', 'rm', '--recursive', bucket_path]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError as e:
+        logger.warning(f"Failed to remove bucket directory {bucket_path}: {e}")
     else:
-        logger.info(f"Successfully removed bucket directory {bucket_path}")
+        if result.returncode != 0:
+            logger.warning(
+                f"Failed to remove bucket directory {bucket_path}: {result.stderr}"
+            )
+        else:
+            logger.info(f"Successfully removed bucket directory {bucket_path}")
 
     workflow_params = {
         "action": Action.DESTROY.value,
@@ -140,6 +146,23 @@ def validate_unique_id(value):
             f"'{value}' is not a valid unique ID. Must match pattern: {pattern}"
         )
     return value
+
+
+def positive_float(value):
+    """argparse type for --tps. Matches LoadTestRunner's float --tps but
+    requires a positive value: the forknet scenarios sweep block delays under
+    a known throughput, so LoadTestRunner's `0 = no throttle` mode doesn't
+    fit. Rejects nan/inf so downstream arithmetic (concurrency sizing, sleep
+    intervals) doesn't blow up."""
+    try:
+        parsed = float(value)
+    except ValueError:
+        raise ArgumentTypeError(f"'{value}' is not a number")
+    if not math.isfinite(parsed):
+        raise ArgumentTypeError(f"--tps must be finite, got {parsed}")
+    if parsed <= 0:
+        raise ArgumentTypeError(f"--tps must be > 0, got {parsed}")
+    return parsed
 
 
 def main():
@@ -215,6 +238,22 @@ def main():
         type=int,
         help=
         'Genesis protocol version to use. Used as default if test case class does not set it.',
+        required=False,
+    )
+
+    start_parser.add_argument(
+        '--contract',
+        help=
+        'WASM source spec forwarded to the stress-test script (alias / http(s) URL / local path). Overrides the test case default when set.',
+        required=False,
+    )
+
+    start_parser.add_argument(
+        '--tps',
+        type=positive_float,
+        default=1.0,
+        help=
+        'Per-signer deploys-per-second for the stress-test script (positive float).',
         required=False,
     )
 

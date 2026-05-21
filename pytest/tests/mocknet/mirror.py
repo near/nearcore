@@ -3,6 +3,7 @@
 Cli tool for managing the mocknet instances.
 """
 from argparse import ArgumentParser, Action
+import copy
 import datetime
 import pathlib
 import json
@@ -673,6 +674,25 @@ def run_remote_upload_file(ctx: CommandContext):
         node, node.upload_file(ctx.args.src, ctx.args.dst)),
          targeted,
          on_exception="")
+
+
+def upload_local_neard(args, local_path: str, remote_dir: str) -> str:
+    """Upload a local neard binary to remote_dir on every targeted node.
+
+    `scp` does not create destination directories, so this first runs
+    `mkdir -p remote_dir` on every target, then uploads the file. Returns the
+    absolute path on the remote where the binary now lives.
+    """
+    mkdir_args = copy.deepcopy(args)
+    mkdir_args.cmd = f'mkdir -p {remote_dir}'
+    run_remote_cmd(CommandContext(mkdir_args))
+
+    upload_args = copy.deepcopy(args)
+    upload_args.src = local_path
+    upload_args.dst = remote_dir
+    run_remote_upload_file(CommandContext(upload_args))
+
+    return os.path.join(remote_dir, os.path.basename(local_path))
 
 
 def add_node_name_to_path(node, path: str, prefix_if_path_is_dir: str) -> str:

@@ -9,6 +9,7 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::ViewStateResult;
 use near_vm_runner::ContractCode;
+use std::num::NonZeroU32;
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
@@ -73,6 +74,8 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
+        after_key: Option<&[u8]>,
+        limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, crate::state_viewer::errors::ViewStateError>;
 

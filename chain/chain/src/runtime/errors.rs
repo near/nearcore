@@ -84,6 +84,10 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewStateError::AccountStateTooLarge {
                 requested_account_id,
             } => Self::TooLargeContractState { requested_account_id, block_height, block_hash },
+            err @ (node_runtime::state_viewer::errors::ViewStateError::ProofUnsupportedWithPagination
+            | node_runtime::state_viewer::errors::ViewStateError::AfterKeyOutsidePrefix) => {
+                Self::InternalError { error_message: err.to_string(), block_height, block_hash }
+            }
         }
     }
 

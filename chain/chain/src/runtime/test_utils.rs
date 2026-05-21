@@ -1,4 +1,4 @@
-use super::NightshadeRuntime;
+use super::{NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, GenesisConfig,
 };
@@ -30,8 +30,7 @@ impl NightshadeRuntime {
             Default::default(),
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
-            false,
-            true,
+            RuntimeOptions::default(),
         )
     }
 
@@ -63,8 +62,11 @@ impl NightshadeRuntime {
                 snapshot_every_n_epochs,
             ),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
-            is_cloud_archival_writer,
-            save_receipt_to_tx,
+            RuntimeOptions {
+                is_cloud_archival_writer,
+                save_receipt_to_tx,
+                ..RuntimeOptions::default()
+            },
         )
     }
 

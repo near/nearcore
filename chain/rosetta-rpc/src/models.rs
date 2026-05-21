@@ -648,7 +648,6 @@ pub(crate) enum SyncStage {
     NoSync,
     HeaderSync,
     StateSync,
-    StateSyncDone,
     BlockSync,
     // DEPRECATED. Keeping for backwards compatibility.
     // TODO: Delete in 1.38.

@@ -5,7 +5,7 @@ pub use latest_witnesses::LatestWitnessesInfo;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
-use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
+use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -1804,9 +1804,9 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         block_hash: CryptoHash,
         shard_id: ShardId,
-        stats: ChunkApplyStatsV0,
+        stats: ChunkApplyStatsV1,
     ) {
-        self.chunk_apply_stats.insert((block_hash, shard_id), ChunkApplyStats::V0(stats));
+        self.chunk_apply_stats.insert((block_hash, shard_id), ChunkApplyStats::V1(stats));
     }
 
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {

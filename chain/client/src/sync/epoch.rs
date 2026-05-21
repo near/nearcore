@@ -1,5 +1,4 @@
 use crate::client_actor::{ClientActor, ShutdownReason};
-use crate::sync::SYNC_V2_ENABLED;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -55,13 +54,9 @@ pub struct EpochSync {
     genesis: BlockHeader,
     async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     config: EpochSyncConfig,
-    /// Whether this node is archival. Archival nodes must not do epoch sync.
-    archive: bool,
     /// The last epoch sync proof and the epoch ID it was computed for.
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
-    // See `my_own_epoch_sync_boundary_block_header()`.
-    my_own_epoch_sync_boundary_block_header: Option<Arc<BlockHeader>>,
 }
 
 impl EpochSync {
@@ -71,32 +66,15 @@ impl EpochSync {
         genesis: BlockHeader,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
-        archive: bool,
-        store: &Store,
     ) -> Self {
-        let my_own_epoch_sync_boundary_block_header = store
-            .epoch_store()
-            .get_epoch_sync_proof()
-            .expect("IO error querying epoch sync proof")
-            .map(|proof| proof.current_epoch.first_block_header_in_epoch);
-
         Self {
             clock,
             network_adapter,
             genesis,
             async_computation_spawner,
             config,
-            archive,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
-            my_own_epoch_sync_boundary_block_header,
         }
-    }
-
-    /// Returns the block hash of the first block of the epoch that this node was initially
-    /// bootstrapped to using epoch sync, or None if this node was not bootstrapped using
-    /// epoch sync.
-    pub fn my_own_epoch_sync_boundary_block_header(&self) -> Option<&BlockHeader> {
-        self.my_own_epoch_sync_boundary_block_header.as_deref()
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
@@ -144,43 +122,10 @@ impl EpochSync {
         Ok(proof)
     }
 
-    /// Performs the V1 epoch sync logic if applicable in the current state of the blockchain.
-    /// This is periodically called by the client actor.
-    pub fn run(
-        &self,
-        status: &mut SyncStatus,
-        chain: &Chain,
-        highest_height: BlockHeight,
-        highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<(), Error> {
-        // Archival nodes must process every block; epoch sync would skip them.
-        if self.archive {
-            return Ok(());
-        }
-        // Within the epoch sync horizon — header/block sync is sufficient.
-        let tip_height = chain.chain_store().header_head()?.height;
-        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
-        if tip_height + horizon >= highest_height {
-            return Ok(());
-        }
-        // V1: only fresh (genesis) nodes may epoch sync.
-        if tip_height != chain.genesis().height() {
-            return Ok(());
-        }
-        // Ensure we're in the EpochSync status, creating it if needed.
-        if !matches!(status, SyncStatus::EpochSync(_)) {
-            *status = SyncStatus::EpochSync(EpochSyncStatus::NotStarted);
-        }
-        let SyncStatus::EpochSync(epoch_sync_status) = status else {
-            unreachable!();
-        };
-        self.run_v2(epoch_sync_status, highest_height_peers)
-    }
-
     /// Sends an epoch sync request to a random peer, or waits if a previous
     /// request is still in flight. Handles both initial send (NotStarted) and
     /// retry on timeout (InProgress).
-    pub fn run_v2(
+    pub fn run(
         &self,
         status: &mut EpochSyncStatus,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -685,7 +630,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             }
         };
         let genesis_height = self.client.chain.genesis().height();
-        if SYNC_V2_ENABLED && tip_height != genesis_height {
+        if tip_height != genesis_height {
             tracing::info!(target: "sync", "stale node validated epoch sync proof, requesting data reset");
             if let Some(tx) = self.shutdown_signal.take() {
                 let _ = tx.send(ShutdownReason::EpochSyncDataReset);

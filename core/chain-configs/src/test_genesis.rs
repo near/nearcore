@@ -9,8 +9,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    ProtocolVersion,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, NonceIndex,
+    NumBlocks, NumSeats, ProtocolVersion,
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -106,6 +106,13 @@ struct UserAccount {
     account_id: AccountId,
     balance: Balance,
     access_keys: Vec<PublicKey>,
+    gas_keys: Vec<GasKey>,
+}
+
+#[derive(Debug, Clone)]
+struct GasKey {
+    public_key: PublicKey,
+    nonces: Vec<Nonce>,
 }
 
 impl Default for TestEpochConfigBuilder {
@@ -409,6 +416,7 @@ impl TestGenesisBuilder {
         self.user_accounts.push(UserAccount {
             balance: initial_balance,
             access_keys: vec![create_user_test_signer(&account_id).public_key()],
+            gas_keys: vec![],
             account_id,
         });
         self
@@ -423,8 +431,26 @@ impl TestGenesisBuilder {
             self.user_accounts.push(UserAccount {
                 balance: initial_balance,
                 access_keys: vec![create_user_test_signer(account_id).public_key()],
+                gas_keys: vec![],
                 account_id: account_id.clone(),
             });
+        }
+        self
+    }
+
+    /// Plant gas keys on accounts directly in genesis. For each
+    /// `(account_id, public_key, nonces)`, slot `i` is initialized to
+    /// `nonces[i]`. Each account must already be added.
+    pub fn add_gas_keys(mut self, gas_keys: &[(AccountId, PublicKey, Vec<Nonce>)]) -> Self {
+        for (account_id, public_key, nonces) in gas_keys {
+            let account = self
+                .user_accounts
+                .iter_mut()
+                .find(|a| &a.account_id == account_id)
+                .unwrap_or_else(|| panic!("add_gas_keys: unknown account {account_id}"));
+            account
+                .gas_keys
+                .push(GasKey { public_key: public_key.clone(), nonces: nonces.clone() });
         }
         self
     }
@@ -458,6 +484,7 @@ impl TestGenesisBuilder {
                 account_id: protocol_treasury_account.clone(),
                 balance: Balance::ZERO,
                 access_keys: vec![],
+                gas_keys: vec![],
             });
         }
 
@@ -495,6 +522,23 @@ impl TestGenesisBuilder {
                         permission: near_primitives::account::AccessKeyPermission::FullAccess,
                     },
                 ));
+            }
+            for gas_key in &user_account.gas_keys {
+                let num_nonces =
+                    u16::try_from(gas_key.nonces.len()).expect("too many gas-key nonces");
+                records.push(StateRecord::access_key(
+                    user_account.account_id.clone(),
+                    &gas_key.public_key,
+                    AccessKey::gas_key_full_access(num_nonces),
+                ));
+                for (slot, nonce) in gas_key.nonces.iter().enumerate() {
+                    records.push(StateRecord::gas_key_nonce(
+                        user_account.account_id.clone(),
+                        &gas_key.public_key,
+                        slot as NonceIndex,
+                        *nonce,
+                    ));
+                }
             }
         }
         for (account_id, balance) in validator_stake {

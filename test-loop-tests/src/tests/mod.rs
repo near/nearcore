@@ -3,6 +3,7 @@ mod bandwidth_scheduler;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
 mod bug_repro;
+mod cache_warming;
 mod catching_up;
 mod chunk_producers;
 mod chunk_validator_failover;
@@ -21,8 +22,6 @@ mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
 mod early_prepare_transactions;
-#[cfg(feature = "test_features")]
-mod eth_implicit_global_contract;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
 mod garbage_collection;
@@ -30,7 +29,6 @@ mod gas_keys;
 mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
-mod increase_max_congestion_missing_chunks;
 #[cfg(feature = "test_features")]
 mod indexer;
 mod jsonrpc;
@@ -55,12 +53,10 @@ mod sharded_rpc_resharding;
 mod shutdown_signal;
 mod single_shard_tracking;
 mod spice;
-mod spice_malicious_chunk_producer;
-mod spice_resharding;
-mod spice_utils;
 mod split_storage;
 mod stake_nodes;
 mod sync;
+mod tx_inclusion_with_missed_chunks;
 mod validator_key_check;
 mod view_requests;
 mod view_requests_to_archival_node;

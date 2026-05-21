@@ -13,7 +13,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::congestion_info::ExtendedCongestionInfo;
@@ -43,6 +43,7 @@ use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
+pub use near_store::trie::mem::memtries::MaybePinnedMemtrieRoot;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -135,7 +136,7 @@ pub struct ApplyChunkResult {
     /// Contracts accessed and deployed while applying the chunk.
     pub contract_updates: ContractUpdates,
     /// Extra information gathered during chunk application.
-    pub stats: ChunkApplyStatsV0,
+    pub stats: ChunkApplyStatsV1,
     /// Proposed split of this shard (dynamic resharding).
     pub proposed_split: Option<TrieSplit>,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
@@ -311,6 +312,17 @@ pub enum StorageDataSource {
     Recorded(PartialStorage),
 }
 
+impl StorageDataSource {
+    /// True when the apply may touch the shard's loaded memtrie and therefore
+    /// requires a pin on the prev-state root for the duration of the apply.
+    pub fn requires_memtrie_pin(&self) -> bool {
+        match self {
+            StorageDataSource::Db => true,
+            StorageDataSource::DbTrieOnly | StorageDataSource::Recorded(_) => false,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RuntimeStorageConfig {
     pub state_root: StateRoot,
@@ -391,11 +403,20 @@ impl ApplyChunkBlockContext {
 }
 
 pub struct ApplyChunkShardContext<'a> {
-    pub shard_id: ShardId,
+    /// `ShardUId` (layout-version + shard_id) the chunk is being applied to.
+    /// Carried explicitly so that runtime and chain agree on the same
+    /// `(version, shard_id)` pair across resharding boundaries instead of
+    /// re-deriving it from `prev_block_hash`.
+    pub shard_uid: ShardUId,
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
     pub on_post_state_ready: Option<PostStateReadyCallback>,
+    /// Pins the memtrie root for `storage.state_root` for the duration of
+    /// `apply_chunk`. Acquire via [`ShardTries::maybe_pin_memtrie_root`]
+    /// before scheduling, or use [`MaybePinnedMemtrieRoot::no_memtries`]
+    /// when the path doesn't go through memtrie.
+    pub memtrie_pin: MaybePinnedMemtrieRoot,
 }
 
 /// Contains transactions that were fetched from the transaction pool

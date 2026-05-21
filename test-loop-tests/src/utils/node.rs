@@ -160,6 +160,21 @@ impl<'a> TestLoopNode<'a> {
         Ok(access_key_view)
     }
 
+    pub fn view_gas_key_nonces_query(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Vec<Nonce>, QueryError> {
+        let response = self.runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+        })?;
+        let QueryResponseKind::GasKeyNonces(view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(view.nonces)
+    }
+
     pub fn query_balance(&self, account_id: &AccountId) -> Balance {
         self.view_account_query(account_id).unwrap().amount
     }
@@ -331,11 +346,6 @@ impl<'a> TestLoopNode<'a> {
         )
     }
 
-    #[cfg(feature = "test_features")]
-    pub fn clear_compiled_contract_cache(&self) {
-        self.client().runtime_adapter.compiled_contract_cache().test_only_clear().unwrap();
-    }
-
     /// Returns the next nonce for `account_id`, suitable for submitting
     /// multiple transactions in the same block before on-chain nonces update.
     ///
@@ -499,7 +509,7 @@ impl<'a> NodeRunner<'a> {
             |node| {
                 let chain_store = &node.client().chain.chain_store;
                 let head_hash = chain_store.head().unwrap().last_block_hash;
-                near_chain::spice_core::get_last_certified_block_header(chain_store, &head_hash)
+                near_chain::spice::core::get_last_certified_block_header(chain_store, &head_hash)
                     .map_or(false, |h| h.height() >= height)
             },
             timeout,
@@ -659,6 +669,6 @@ impl<'a> NodeRunner<'a> {
     }
 
     fn calculate_block_distance_timeout(&self, num_blocks: usize) -> Duration {
-        self.client().config.max_block_production_delay * (num_blocks as u32 + 1)
+        self.client().config.max_block_production_delay.get() * (num_blocks as u32 + 1)
     }
 }

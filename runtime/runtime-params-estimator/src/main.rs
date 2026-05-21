@@ -286,7 +286,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
     rocksdb_test_config.debug_rocksdb = cli_args.debug;
     rocksdb_test_config.drop_os_cache = cli_args.drop_os_cache;
     let iter_per_block = cli_args.iters;
-    let active_accounts = cli_args.accounts_num;
+    let active_accounts = cli_args.accounts_num.min(cli_args.additional_accounts_num as usize);
     let metric = match cli_args.metric.as_str() {
         "icount" => GasMetric::ICount,
         "time" => GasMetric::Time,

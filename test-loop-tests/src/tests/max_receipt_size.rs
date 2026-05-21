@@ -16,7 +16,6 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
@@ -175,8 +174,7 @@ fn test_max_receipt_size_promise_return() {
             }))],
         }),
     });
-    let base_receipt_template =
-        action_receipt_v1_to_latest(&base_receipt_template, PROTOCOL_VERSION);
+    let base_receipt_template = action_receipt_v1_to_latest(&base_receipt_template);
     let base_receipt_size = borsh::object_length(&base_receipt_template).unwrap();
     let max_receipt_size = 4_194_304;
     let args_size = max_receipt_size - base_receipt_size;
@@ -314,11 +312,7 @@ fn test_max_receipt_size_yield_resume() {
     let yield_receipt_res =
         env.rpc_runner().execute_tx(yield_receipt_tx, Duration::seconds(10)).unwrap();
 
-    let expected_size = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        4194504
-    } else {
-        4194503
-    };
+    let expected_size = 4194504;
     let expected_yield_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
             index: Some(0),

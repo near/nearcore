@@ -30,7 +30,6 @@ use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
 };
-use near_vm_runner::logic::ProtocolVersion;
 use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
@@ -345,7 +344,6 @@ pub fn bootstrap_reader(
     let epoch_id = target_block_data.block().header().epoch_id();
     let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
     let epoch_height = epoch_data.epoch_info().epoch_height();
-    let protocol_version = epoch_data.epoch_info().protocol_version();
 
     // Sync block is in the new epoch, after the prefix of blocks needed to
     // reach two chunks per shard, and saved only once final - so present.
@@ -382,7 +380,6 @@ pub fn bootstrap_reader(
             epoch_id,
             epoch_height,
             *sync_hash,
-            &protocol_version,
             shard_id,
             state_sync_state_root,
         ));
@@ -419,7 +416,6 @@ async fn load_state_snapshot(
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     sync_hash: CryptoHash,
-    protocol_version: &ProtocolVersion,
     shard_id: ShardId,
     state_root: CryptoHash,
 ) {
@@ -432,7 +428,6 @@ async fn load_state_snapshot(
         epoch_id,
         epoch_height,
         sync_hash,
-        *protocol_version,
         shard_id,
         state_root,
         0..num_parts,

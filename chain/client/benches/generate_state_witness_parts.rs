@@ -13,6 +13,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::state_witness::EncodedChunkStateWitness;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::version::PROTOCOL_VERSION;
 use std::hint::black_box;
 use testlib::state_witness_test_data;
 
@@ -58,6 +59,7 @@ fn bench_generate_state_witness_parts(c: &mut Criterion) {
                 witness_bytes.clone(),
                 &chunk_validators,
                 &signer,
+                PROTOCOL_VERSION,
             ));
         });
     });

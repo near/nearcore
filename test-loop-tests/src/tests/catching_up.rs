@@ -319,9 +319,9 @@ fn slow_test_catchup_sanity_blocks_produced() {
         .epoch_config_store(epoch_config_store)
         .config_modifier(move |config, _| {
             let block_prod_time = Duration::milliseconds(2000);
-            config.min_block_production_delay = block_prod_time;
-            config.max_block_production_delay = 3 * block_prod_time;
-            config.max_block_wait_delay = 3 * block_prod_time;
+            config.min_block_production_delay.update(block_prod_time);
+            config.max_block_production_delay.update(3 * block_prod_time);
+            config.max_block_wait_delay.update(3 * block_prod_time);
         })
         .build();
 

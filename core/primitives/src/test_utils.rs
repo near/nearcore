@@ -3,9 +3,11 @@ use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
     GlobalContractIdentifier, UseGlobalContractAction,
 };
+use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
+use crate::congestion_info::CongestionInfo;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
@@ -867,6 +869,7 @@ pub struct TestBlockBuilder {
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    timestamp_nanos: Option<u64>,
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
@@ -901,6 +904,7 @@ impl TestBlockBuilder {
             block_merkle_root: tree.root(),
             chunks: prev_chunks,
             chunk_endorsements: vec![vec![]; chunks_len],
+            timestamp_nanos: None,
             prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(crate::block_body::SpiceCoreStatements::new(vec![]))
@@ -973,13 +977,13 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
-        self.chunks = chunks;
+    pub fn block_merkle_root(mut self, block_merkle_root: CryptoHash) -> Self {
+        self.block_merkle_root = block_merkle_root;
         self
     }
 
-    pub fn non_spice_block(mut self) -> Self {
-        self.spice_core_statements = None;
+    pub fn chunks(mut self, chunks: impl IntoIterator<Item = ShardChunkHeader>) -> Self {
+        self.chunks = chunks.into_iter().collect();
         self
     }
 
@@ -1008,9 +1012,19 @@ impl TestBlockBuilder {
         self
     }
 
+    /// Override the produced block's timestamp and resign the header.
+    pub fn timestamp_nanos(mut self, timestamp_nanos: u64) -> Self {
+        self.timestamp_nanos = Some(timestamp_nanos);
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
+        Arc::new(self.build_owned())
+    }
+
+    pub fn build_owned(self) -> Block {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        Arc::new(Block::produce(
+        let mut block = Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             &self.prev_header,
@@ -1040,7 +1054,12 @@ impl TestBlockBuilder {
                         .newly_certified_block_execution_results,
                 }
             }),
-        ))
+        );
+        if let Some(ts) = self.timestamp_nanos {
+            block.mut_header().set_timestamp(ts);
+            block.mut_header().resign(self.signer.as_ref());
+        }
+        block
     }
 }
 
@@ -1206,6 +1225,38 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
         near_crypto::KeyType::ED25519,
         account_name,
     )
+}
+
+/// Build a minimal `ShardChunkHeaderV3` for use in tests that only need
+/// an object with a valid signature, `prev_block_hash`, and `shard_id`
+/// (everything else is zeroed). Mirrors the implicit defaults of
+/// `ShardChunkHeaderV3::new_dummy` but takes an explicit `protocol_version`
+/// so callers can pin the header inner variant.
+pub fn test_chunk_header(
+    prev_block_hash: CryptoHash,
+    signer: &ValidatorSigner,
+    protocol_version: ProtocolVersion,
+) -> ShardChunkHeader {
+    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        prev_block_hash,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        0,
+        1,
+        ShardId::new(0),
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        CongestionInfo::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer,
+        protocol_version,
+    ))
 }
 
 /// Helper function that creates a new signer for a given account, that uses the account name as seed.

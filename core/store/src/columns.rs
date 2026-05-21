@@ -349,9 +349,9 @@ pub enum DBCol {
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
-    /// Stores produces witnesses by spice executor.
+    /// Stores witnesses produced by the SPICE executor.
     /// - *Rows*: (BlockHash || ShardId)
-    /// - *Content type*: [near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness]
+    /// - *Content type*: [near_primitives::spice::state_witness::SpiceChunkStateWitness]
     #[cfg(feature = "protocol_feature_spice")]
     Witnesses,
     /// All known processed next block hashes regardless of canonical chain.
@@ -361,7 +361,7 @@ pub enum DBCol {
     AllNextBlockHashes,
     /// For spice contains execution results endorsements.
     /// - *Rows*: SpiceEndorsementKey (BlockHash || ShardId || AccountId)
-    /// - *Content type*: [near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement]
+    /// - *Content type*: [near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement]
     #[cfg(feature = "protocol_feature_spice")]
     Endorsements,
     /// For spice contains execution results of applying the chunk.
