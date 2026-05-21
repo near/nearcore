@@ -159,6 +159,7 @@ impl<'c> EstimatorContext<'c> {
             max_number_logs: u64::MAX,
 
             max_actions_per_receipt: u64::MAX,
+            max_deploy_actions_per_receipt: u64::MAX,
             max_promises_per_function_call_action: u64::MAX,
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,

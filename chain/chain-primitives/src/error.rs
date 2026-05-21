@@ -276,6 +276,10 @@ pub enum Error {
     /// Invalid spice core statements in block.
     #[error("Invalid spice core statements in block: {0}")]
     InvalidSpiceCoreStatements(#[from] Box<InvalidSpiceCoreStatementsError>),
+    /// `prev_last_certified_block_epoch_id` on a spice block header doesn't
+    /// match the epoch id of the last fully certified block as of prev.
+    #[error("Invalid prev_last_certified_block_epoch_id: {0}")]
+    InvalidPrevLastCertifiedBlockEpochId(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -368,7 +372,8 @@ impl Error {
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
             | Error::BadHeaderForProtocolVersion(_)
-            | Error::InvalidSpiceCoreStatements(_) => true,
+            | Error::InvalidSpiceCoreStatements(_)
+            | Error::InvalidPrevLastCertifiedBlockEpochId(_) => true,
         }
     }
 
@@ -456,6 +461,9 @@ impl Error {
             Error::ReshardingError(_) => "resharding_error",
             Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
             Error::InvalidSpiceCoreStatements(_) => "invalid_spice_core_statements",
+            Error::InvalidPrevLastCertifiedBlockEpochId(_) => {
+                "invalid_prev_last_certified_block_epoch_id"
+            }
         }
     }
 }
