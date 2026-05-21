@@ -51,9 +51,10 @@ fn center_out_heights(
 /// Successful resolution of a parent outcome via the hint scan. Carries the
 /// synthesized `ReceiptToTxInfo` plus the execution block height of the outcome
 /// itself, which the caller uses to refresh `block_height` for the next hop.
-/// The outcome's shard is *not* propagated: the parent of a cross-shard receipt
-/// executes on a different shard, so the next hop must enumerate shards
-/// regardless of where this outcome landed.
+/// The outcome's shard is *not* propagated: the next hop's scan target lives
+/// on a different shard (the producer of the parent receipt). The handler
+/// derives that shard from `ReceiptOriginReceipt.parent_predecessor_id` at
+/// the resolved height.
 pub struct HintResolution {
     pub info: ReceiptToTxInfo,
     /// Block height at which the parent outcome (transaction or receipt) executed.

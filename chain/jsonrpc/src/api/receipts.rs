@@ -56,12 +56,9 @@ impl RpcFrom<AsyncSendError> for RpcReceiptToTxError {
 
 impl RpcFrom<GetReceiptToTxError> for RpcReceiptToTxError {
     fn rpc_from(error: GetReceiptToTxError) -> Self {
-        // Every known variant is explicitly handled. The trailing wildcard
-        // only catches future variants on the `#[non_exhaustive]` source
-        // enum, degrading them to InternalError. When adding a variant to
-        // `GetReceiptToTxError`, add an explicit arm here so it surfaces to
-        // the wire instead of degrading silently — the `non_exhaustive_omitted_patterns`
-        // lint that would compile-enforce this is still unstable.
+        // No wildcard arm: adding a variant to the `#[non_exhaustive]` source
+        // enum must surface on the wire, not silently degrade to InternalError.
+        // Adding a variant here is a compile error until an explicit arm exists.
         match error {
             GetReceiptToTxError::UnknownReceipt(receipt_id) => Self::UnknownReceipt { receipt_id },
             GetReceiptToTxError::DepthExceeded { receipt_id, limit } => {
@@ -81,7 +78,6 @@ impl RpcFrom<GetReceiptToTxError> for RpcReceiptToTxError {
             GetReceiptToTxError::InternalError(error_message) => {
                 Self::InternalError { error_message }
             }
-            other => Self::InternalError { error_message: other.to_string() },
         }
     }
 }

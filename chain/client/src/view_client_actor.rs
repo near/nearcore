@@ -1330,35 +1330,46 @@ fn handle_receipt_to_tx(
     let mut current_height = msg.block_height;
     let mut current_shard = msg.shard_id;
     let mut remaining_budget = MAX_OUTCOMES_PER_REQUEST;
+    // P1A: tracks whether the previous hop was satisfied by the hint
+    // scanner. Boundary refresh only runs after a scan hop, because that's
+    // the situation in which the next iteration's column lookup is also
+    // expected to miss. Set on every iteration's column/scan branch — no
+    // initial value is observable.
+    let mut last_was_miss;
 
     for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
         let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
         let info = match column_info {
-            Some(info) => info,
+            Some(info) => {
+                last_was_miss = false;
+                info
+            }
             None => {
-                if let Some(height) = current_height {
-                    if !actor.config.save_tx_outcomes {
-                        return Err(GetReceiptToTxError::OutcomesNotStored);
-                    }
-                    match scan_with_optional_shard_enumeration(
-                        actor,
-                        current_receipt_id,
-                        height,
-                        current_shard,
-                        effective_window,
-                        &mut remaining_budget,
-                    )? {
-                        Some(res) => {
-                            current_height = Some(res.outcome_block_height);
-                            current_shard = None;
-                            res.info
-                        }
-                        None => {
-                            return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
-                        }
-                    }
-                } else {
+                let Some(height) = current_height else {
                     return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
+                };
+                if !actor.config.save_tx_outcomes {
+                    return Err(GetReceiptToTxError::OutcomesNotStored);
+                }
+                match scan_with_optional_shard_enumeration(
+                    actor,
+                    current_receipt_id,
+                    height,
+                    current_shard,
+                    effective_window,
+                    &mut remaining_budget,
+                )? {
+                    Some(res) => {
+                        last_was_miss = true;
+                        current_height = Some(res.outcome_block_height);
+                        // No `current_shard = None` here: the FromReceipt arm
+                        // recomputes it from the parent's predecessor account,
+                        // and the FromTransaction arm doesn't read it.
+                        res.info
+                    }
+                    None => {
+                        return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
+                    }
                 }
             }
         };
@@ -1373,46 +1384,53 @@ fn handle_receipt_to_tx(
             }
             ReceiptOrigin::FromReceipt(origin) => {
                 let parent_id = origin.parent_receipt_id;
-                // Boundary refresh: a column hit returning FromReceipt does not
-                // tell us the parent's creation coordinates. If the next column
-                // lookup misses, we'd reuse a stale hint. Proactively scan for
-                // the parent so the next hop's hint is fresh. The scan is
-                // wasted work if the column also has the parent — acceptable
-                // for at most a couple of FromReceipt hops per request.
-                if hint_provided && actor.config.save_tx_outcomes {
-                    if let Some(height) = current_height {
-                        match scan_with_optional_shard_enumeration(
-                            actor,
-                            parent_id,
-                            height,
-                            current_shard,
-                            effective_window,
-                            &mut remaining_budget,
-                        )? {
-                            Some(res) => {
-                                current_height = Some(res.outcome_block_height);
-                                current_shard = None;
-                            }
-                            None => {
-                                current_shard = None;
-                                // Boundary refresh missed. Keep the existing
-                                // hint; the next iteration's column lookup may
-                                // still hit. If it also misses, the next scan
-                                // runs with this stale hint and may itself
-                                // miss — terminating in UnknownReceipt rather
-                                // than fabricating a result. This is the
-                                // documented best-effort failure mode for
-                                // long-gap or cross-shard ancestry hints.
-                            }
+                // A1A: derive next-hop shard from the parent receipt's
+                // predecessor account. The parent receipt P executed on the
+                // shard of P.receiver_id; P.receiver_id = R.predecessor_id
+                // (where R is the receipt we just resolved). We don't have R
+                // loaded here but we do have `parent_predecessor_id` which is
+                // P.predecessor_id, useful for finding *P's* parent (the
+                // grandparent G executed on shard(G.receiver_id) =
+                // shard(P.predecessor_id)). That's the shard we want the next
+                // hop to scan, so the column-miss branch lands on the right
+                // shard without enumerating.
+                current_shard = current_height.and_then(|h| {
+                    shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
+                });
+                // P1A: only proactively refresh the hint when the previous hop
+                // was already a scan. After a column hit, the column is the
+                // authoritative source; refreshing eagerly burns budget on
+                // every FromReceipt step of a column-only walk.
+                if hint_provided
+                    && actor.config.save_tx_outcomes
+                    && last_was_miss
+                    && let Some(height) = current_height
+                {
+                    match scan_with_optional_shard_enumeration(
+                        actor,
+                        parent_id,
+                        height,
+                        current_shard,
+                        effective_window,
+                        &mut remaining_budget,
+                    )? {
+                        Some(res) => {
+                            current_height = Some(res.outcome_block_height);
+                            // Keep `current_shard` from the A1A derivation
+                            // above. The refresh just confirmed that's the
+                            // shard where the parent's producing outcome
+                            // lives, which is exactly the shard the next
+                            // iteration's column-miss scan needs to hit.
                         }
-                    } else {
-                        current_shard = None;
+                        None => {
+                            // Boundary refresh missed. Keep the existing
+                            // hint; the next iteration's column lookup may
+                            // still hit. If it also misses, the next scan
+                            // runs with this hint and may itself miss —
+                            // terminating in UnknownReceipt rather than
+                            // fabricating a result.
+                        }
                     }
-                } else {
-                    // No hint, or `save_tx_outcomes=false` so no scan possible.
-                    // Drop the shard hint; if the next column lookup also misses,
-                    // the column-miss branch will surface `OutcomesNotStored`.
-                    current_shard = None;
                 }
                 current_receipt_id = parent_id;
             }
@@ -1450,7 +1468,10 @@ fn scan_with_optional_shard_enumeration(
         return run_hint_scan(actor, receipt_id, block_height, shard_id, window, remaining_budget);
     }
 
-    for shard_id in shard_ids_for_hint_height(actor, block_height)? {
+    let Some(shard_ids) = shard_ids_for_hint_height(actor, block_height)? else {
+        return Err(GetReceiptToTxError::UnknownReceipt(receipt_id));
+    };
+    for shard_id in shard_ids {
         if let Some(resolution) =
             run_hint_scan(actor, receipt_id, block_height, shard_id, window, remaining_budget)?
         {
@@ -1460,16 +1481,19 @@ fn scan_with_optional_shard_enumeration(
     Ok(None)
 }
 
+/// A2A: shard layout at the hinted height. `Ok(None)` means the height isn't
+/// locally resolvable (typically GC'd at the archival horizon); the caller
+/// maps that to `UnknownReceipt`. Falling back to the head epoch's shard
+/// layout would be wrong across a resharding boundary — wrong shards scanned,
+/// wrong result. Other chain/epoch errors propagate as `InternalError`, not
+/// `Ok(None)`, so corruption can't masquerade as a missing receipt.
 fn shard_ids_for_hint_height(
     actor: &ViewClientActor,
     block_height: BlockHeight,
-) -> Result<Vec<ShardId>, GetReceiptToTxError> {
+) -> Result<Option<Vec<ShardId>>, GetReceiptToTxError> {
     let header = match actor.chain.get_block_header_by_height(block_height) {
         Ok(header) => header,
-        Err(near_chain::Error::DBNotFoundErr(_)) => actor
-            .chain
-            .head_header()
-            .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?,
+        Err(near_chain::Error::DBNotFoundErr(_)) => return Ok(None),
         Err(e) => return Err(GetReceiptToTxError::InternalError(e.to_string())),
     };
     let shard_layout = actor
@@ -1478,7 +1502,22 @@ fn shard_ids_for_hint_height(
         .get_shard_layout(header.epoch_id())
         .into_chain_error()
         .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?;
-    Ok(shard_layout.shard_ids().collect())
+    Ok(Some(shard_layout.shard_ids().collect()))
+}
+
+/// Resolve `account_id` to its shard at the height the hint just walked to.
+/// Returns `None` when the height is locally unresolvable; callers fall back
+/// to `current_shard = None` which triggers all-shards enumeration on the
+/// next hop's scan (and any all-shards scan with an unresolvable height
+/// surfaces `UnknownReceipt` upstream).
+fn shard_for_account_at_height(
+    actor: &ViewClientActor,
+    account_id: &AccountId,
+    block_height: BlockHeight,
+) -> Option<ShardId> {
+    let header = actor.chain.get_block_header_by_height(block_height).ok()?;
+    let epoch_id = header.epoch_id();
+    account_id_to_shard_id(actor.chain.epoch_manager.as_ref(), account_id, epoch_id).ok()
 }
 
 /// Run one hint-fallback scan and unconditionally record its stats. Used by
@@ -1519,10 +1558,6 @@ fn record_hint_scan_stats(stats: HintScanStats) {
 
 fn record_receipt_to_tx_outcome(result: &Result<GetReceiptToTxResponse, GetReceiptToTxError>) {
     let outcome = match result {
-        // The handler can't distinguish a column hit from a hint hit at this
-        // layer (the loop interleaves them). Buckets reflect *terminal*
-        // outcome: "ok" covers both paths; specific error variants get their
-        // own buckets.
         Ok(_) => "ok",
         Err(GetReceiptToTxError::UnknownReceipt(_)) => "unknown_receipt",
         Err(GetReceiptToTxError::DepthExceeded { .. }) => "depth_exceeded",
@@ -1532,9 +1567,6 @@ fn record_receipt_to_tx_outcome(result: &Result<GetReceiptToTxResponse, GetRecei
         Err(GetReceiptToTxError::MalformedHint(_)) => "malformed_hint",
         Err(GetReceiptToTxError::BudgetExceeded { .. }) => "budget_exceeded",
         Err(GetReceiptToTxError::InternalError(_)) => "internal_error",
-        // Future-proof against new variants added to the non_exhaustive enum:
-        // metrics keep working, bucketed as "other" until this match is updated.
-        Err(_) => "other",
     };
     metrics::RECEIPT_TO_TX_TOTAL.with_label_values(&[outcome]).inc();
 }

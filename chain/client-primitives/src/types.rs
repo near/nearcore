@@ -946,7 +946,6 @@ pub struct GetReceiptToTxResponse {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
 pub enum GetReceiptToTxError {
     #[error("Receipt with id {0} has never been observed on this node")]
     UnknownReceipt(CryptoHash),

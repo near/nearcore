@@ -1119,9 +1119,11 @@ fn test_hint_fallback_resolves_through_refund_chain() {
 }
 
 /// Cross-shard depth-2 walk with `save_receipt_to_tx=false`. Hop 1 uses the
-/// supplied action shard to resolve refund → action receipt. The shard hint is
-/// then consumed, so the ancestor hop scans all shards and finds the
-/// originating transaction on the sender shard.
+/// supplied action shard to resolve refund → action receipt. The hop-2 scan
+/// is shard-narrowed via the handler's predecessor-account derivation
+/// (A1A): the action receipt's `parent_predecessor_id` resolves to the
+/// sender shard, so the ancestor scan goes straight to shard 0 and finds
+/// the originating transaction without enumerating all shards.
 ///
 /// Gated off under spice: the spice execution model lands the cross-shard
 /// refund / action receipts on different blocks than the standard model, so
@@ -1129,7 +1131,7 @@ fn test_hint_fallback_resolves_through_refund_chain() {
 /// rows that the resolver scans.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_hint_cross_shard_walk_resolves_via_all_shard_scan() {
+fn test_hint_cross_shard_walk_resolves_via_predecessor_shard() {
     init_test_logger();
     let sender_account = create_account_id("account0");
     let receiver_account: AccountId = "test1".parse().unwrap();
@@ -1700,5 +1702,120 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
             "expected UnknownReceipt at the cross-shard hop; got {other:?}. \
              If a future change adds shard-aware hint advancement, update this test."
         ),
+    }
+}
+
+/// T3A — stale-hint fall-through, V2 variant: the boundary refresh misses AND
+/// the next-hop column also misses, so the walk falls through to
+/// `UnknownReceipt` rather than fabricating a result.
+///
+/// The V1 variant (refresh misses, column hits, terminal Ok) is already
+/// covered by `test_hint_column_then_fallback_boundary`.
+#[test]
+fn test_hint_stale_then_column_miss_returns_unknown() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .gas_prices(min_gas_price, min_gas_price)
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &user_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &signer,
+        env.validator().head().last_block_hash,
+    );
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    let call_tx = SignedTransaction::call(
+        2,
+        user_account.clone(),
+        user_account,
+        &signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.validator().head().last_block_hash,
+    );
+    let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome =
+        outcome.receipts_outcome.iter().find(|r| r.id == action_receipt_id).unwrap();
+    let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+
+    // Delete the column entry for action_receipt_id (the parent the walk
+    // recurses on). With save_receipt_to_tx still on, hop 1 column-hits for
+    // refund_receipt_id and returns FromReceipt(action_receipt_id). Hop 2
+    // column-misses for the parent; with a wildly stale hint, the scan also
+    // misses and the walk surfaces UnknownReceipt.
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+    store_update.delete(DBCol::ReceiptToTx, action_receipt_id.as_ref());
+    store_update.commit();
+
+    let stale_height = action_height + 10 * EPOCH_LENGTH;
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: refund_receipt_id,
+            block_height: Some(stale_height),
+            shard_id: Some(ShardId::new(0)),
+            window: Some(2),
+        },
+    );
+    match result {
+        Err(GetReceiptToTxError::UnknownReceipt(id)) => {
+            assert_eq!(id, action_receipt_id);
+        }
+        other => {
+            panic!("expected UnknownReceipt at the stale-hint cross-hop miss, got {other:?}")
+        }
+    }
+}
+
+/// A2A — hint height past the chain head (not locally resolvable) must surface
+/// as `UnknownReceipt`. The handler must not fall back to the head epoch's
+/// shard layout, which could scan the wrong shards on a post-resharding node.
+#[test]
+fn test_hint_height_unresolvable_returns_unknown_receipt() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let head_height = env.validator().head().height;
+    // Height that doesn't exist locally (well past the head). The handler
+    // should not silently fall back to head_header.
+    let bogus_height = head_height + 1_000_000;
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"any"),
+            block_height: Some(bogus_height),
+            shard_id: None,
+            window: Some(0),
+        },
+    );
+    match result {
+        Err(GetReceiptToTxError::UnknownReceipt(_)) => {}
+        other => panic!("expected UnknownReceipt for unresolvable hint height, got {other:?}"),
     }
 }
