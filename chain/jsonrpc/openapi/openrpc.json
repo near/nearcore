@@ -9097,7 +9097,7 @@
       "RpcReceiptToTxRequest": {
         "properties": {
           "block_height": {
-            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort historical fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk. `shard_id`\noptionally narrows the first scan; omitting it scans all tracked shards\nat the hinted height. `window` overrides the default scan range.",
+            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort hinted fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk.\n\nCold-storage usage: this endpoint primarily serves historical queries,\nso the scan typically reads from cold storage where per-row latency is\norders of magnitude higher than hot. To keep request cost bounded,\ncallers should:\n  - Supply `block_height` within the parent outcome's `±window` range\n    (default 5 blocks).\n  - Supply `shard_id` when the producing shard is known; omitting it\n    forces all-shards enumeration on the first hop, multiplying the\n    cold-read cost by the number of tracked shards.\n  - Avoid increasing `window` beyond what the indexer's height\n    estimate actually requires; the scan budget is shared across the\n    full ancestry walk.\n\nReceipt-id-only queries against periods where `save_receipt_to_tx`\nwas disabled at processing time remain unsupported — the column was\nnever written and this endpoint provides no self-locating mechanism.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -9109,6 +9109,7 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "shard_id": {
+            "description": "Optional shard hint for the first scan only. Ancestor hops compute\ntheir own shard from the parent receipt's predecessor account, so\nthis field does not narrow the entire walk.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/ShardId"
@@ -9119,7 +9120,7 @@
             ]
           },
           "window": {
-            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`.",
+            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`. On cold storage, every extra\nblock in the window translates directly into additional remote\nreads — keep this tight.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -13164,7 +13165,7 @@
           "name": "block_height",
           "required": false,
           "schema": {
-            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort historical fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk. `shard_id`\noptionally narrows the first scan; omitting it scans all tracked shards\nat the hinted height. `window` overrides the default scan range.",
+            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort hinted fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk.\n\nCold-storage usage: this endpoint primarily serves historical queries,\nso the scan typically reads from cold storage where per-row latency is\norders of magnitude higher than hot. To keep request cost bounded,\ncallers should:\n  - Supply `block_height` within the parent outcome's `±window` range\n    (default 5 blocks).\n  - Supply `shard_id` when the producing shard is known; omitting it\n    forces all-shards enumeration on the first hop, multiplying the\n    cold-read cost by the number of tracked shards.\n  - Avoid increasing `window` beyond what the indexer's height\n    estimate actually requires; the scan budget is shared across the\n    full ancestry walk.\n\nReceipt-id-only queries against periods where `save_receipt_to_tx`\nwas disabled at processing time remain unsupported — the column was\nnever written and this endpoint provides no self-locating mechanism.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -13184,6 +13185,7 @@
           "name": "shard_id",
           "required": false,
           "schema": {
+            "description": "Optional shard hint for the first scan only. Ancestor hops compute\ntheir own shard from the parent receipt's predecessor account, so\nthis field does not narrow the entire walk.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/ShardId"
@@ -13198,7 +13200,7 @@
           "name": "window",
           "required": false,
           "schema": {
-            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`.",
+            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`. On cold storage, every extra\nblock in the window translates directly into additional remote\nreads — keep this tight.",
             "format": "uint64",
             "minimum": 0,
             "type": [
