@@ -14,12 +14,14 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::hash;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind, TxExecutionStatus};
 use num_rational::Ratio;
+use near_primitives::views::{QueryRequest, QueryResponseKind};
+use std::sync::Arc;
 
 /// Query account from view client
 #[tokio::test]
@@ -62,48 +64,26 @@ async fn query_status_not_crash() {
         true,
         false,
     );
-    let signer = create_test_signer("test");
+    let signer = Arc::new(create_test_signer("test"));
     let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
     let (block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-    let header: BlockHeader = block.header.clone().into();
-    block_merkle_tree.insert(*header.hash());
-    let mut next_block = Block::produce(
-        PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
-        &header,
-        block.header.height + 1,
-        header.block_ordinal() + 1,
-        block.chunks.iter().cloned().map(|c| c.into()).collect(),
-        vec![vec![]; block.chunks.len()],
-        EpochId(block.header.next_epoch_id),
-        EpochId(block.header.hash),
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        None,
-        &signer,
-        block.header.next_bp_hash,
-        block_merkle_tree.root(),
-        Clock::real(),
-        None,
-        None,
-        None,
-        None,
-    );
-    let timestamp = next_block.header().timestamp();
-    next_block
-        .mut_header()
-        .set_timestamp((timestamp + Duration::seconds(60)).unix_timestamp_nanos() as u64);
-    next_block.mut_header().resign(&signer);
+    let future_timestamp_nanos =
+        (Clock::real().now_utc() + Duration::seconds(60)).unix_timestamp_nanos() as u64;
+    let next_block = TestBlockBuilder::from_prev_block_view(Clock::real(), &block, signer)
+        .epoch_id(EpochId(block.header.next_epoch_id))
+        .next_epoch_id(EpochId(block.header.hash))
+        .next_bp_hash(block.header.next_bp_hash)
+        .block_merkle_tree(&mut block_merkle_tree)
+        .max_gas_price(Balance::from_yoctonear(100))
+        .timestamp_nanos(future_timestamp_nanos)
+        .build();
 
     let _ = actor_handles
         .client_actor
         .send_async(
             BlockResponse {
-                block: next_block.into(),
+                block: next_block,
                 peer_id: PeerInfo::random().id,
                 was_requested: false,
             }
