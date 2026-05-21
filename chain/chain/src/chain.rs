@@ -70,7 +70,7 @@ use near_primitives::optimistic_block::{
 };
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::{SandboxPatchTracker, SandboxStatePatch};
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
@@ -93,6 +93,7 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::flat::{FlatStorageReshardingStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
@@ -536,6 +537,7 @@ impl Chain {
                 Self::save_genesis_block_and_chunks(
                     epoch_manager.as_ref(),
                     runtime_adapter.as_ref(),
+                    &shard_tracker,
                     &mut chain_store,
                     &genesis,
                     &genesis_chunks,
@@ -554,14 +556,17 @@ impl Chain {
         // of resharding. We need to revisit this.
         let tip = chain_store.head()?;
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
-        let shard_uids = shard_layout.shard_uids().collect_vec();
-        let tracked_shards: Vec<_> = shard_uids
-            .iter()
-            .filter(|shard_uid| {
-                shard_tracker.cares_about_shard(&tip.prev_block_hash, shard_uid.shard_id())
-            })
-            .cloned()
-            .collect();
+        let mut tracked_shards = Vec::new();
+        for shard_uid in shard_layout.shard_uids() {
+            if should_load_memtrie_at_startup(
+                shard_uid,
+                &tip.prev_block_hash,
+                &shard_tracker,
+                runtime_adapter.as_ref(),
+            ) {
+                tracked_shards.push(shard_uid);
+            }
+        }
 
         let shard_uid_pending_resharding =
             epoch_manager.get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash)?;
@@ -3752,6 +3757,53 @@ impl Chain {
         } else {
             // Not yet processed this block, we can proceed.
             BlockKnowledge::Unknown
+        }
+    }
+}
+
+/// True if memtries should be loaded for `shard_uid` at startup.
+///
+/// Self-heals stale `Ready` flags from pre-#15404 DBs by downgrading
+/// them to `Empty` when the implied `ChunkExtra` is missing.
+fn should_load_memtrie_at_startup(
+    shard_uid: ShardUId,
+    parent_hash: &CryptoHash,
+    shard_tracker: &ShardTracker,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> bool {
+    if !shard_tracker.cares_about_shard(parent_hash, shard_uid.shard_id()) {
+        return false;
+    }
+    let flat_store = runtime_adapter.store().flat_store();
+    let status = flat_store.get_flat_storage_status(shard_uid);
+    match &status {
+        FlatStorageStatus::Ready(ready) => {
+            let key = get_block_shard_uid(&ready.flat_head.hash, &shard_uid);
+            let has_extra =
+                runtime_adapter.store().get_ser::<ChunkExtra>(DBCol::ChunkExtra, &key).is_some();
+            if has_extra {
+                return true;
+            }
+            tracing::warn!(
+                target: "memtrie",
+                %shard_uid,
+                flat_head = %ready.flat_head.hash,
+                "Ready flag with no ChunkExtra; downgrading to Empty for state-sync",
+            );
+            let mut su = flat_store.store_update();
+            su.set_flat_storage_status(shard_uid, FlatStorageStatus::Empty);
+            su.commit();
+            false
+        }
+        FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(_)) => true,
+        _ => {
+            tracing::info!(
+                target: "memtrie",
+                %shard_uid,
+                ?status,
+                "flat storage not ready; skipping memtrie load",
+            );
+            false
         }
     }
 }

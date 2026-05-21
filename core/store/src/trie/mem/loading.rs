@@ -85,20 +85,10 @@ fn load_memtrie_single_thread(
     Ok((arena, root_id))
 }
 
-fn get_state_root(
-    store: &Store,
-    block_hash: CryptoHash,
-    shard_uid: ShardUId,
-) -> Result<StateRoot, StorageError> {
-    let chunk_extra = store
+fn get_state_root(store: &Store, block_hash: CryptoHash, shard_uid: ShardUId) -> Option<StateRoot> {
+    store
         .get_ser::<ChunkExtra>(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid))
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "No ChunkExtra for block {} in shard {}",
-                block_hash, shard_uid
-            ))
-        })?;
-    Ok(*chunk_extra.state_root())
+        .map(|chunk_extra| *chunk_extra.state_root())
 }
 
 /// Constructs in-memory tries for the given shard, so that they represent the
@@ -135,7 +125,12 @@ pub fn load_trie_from_flat_state_and_delta(
 
     let state_root = match state_root {
         Some(state_root) => state_root,
-        None => get_state_root(store, flat_head.hash, shard_uid)?,
+        None => get_state_root(store, flat_head.hash, shard_uid).ok_or_else(|| {
+            StorageError::MemTrieLoadingError(format!(
+                "shard {} Ready at {} but no ChunkExtra; needs state-sync",
+                shard_uid, flat_head.hash,
+            ))
+        })?,
     };
 
     let mut memtries =
@@ -175,11 +170,22 @@ pub fn apply_deltas_to_memtries(
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
     let max_height = sorted_deltas.last().map(|(height, _, _)| *height).unwrap_or(base_height);
+
+    let require_state_root =
+        |h: CryptoHash, role: &'static str| -> Result<StateRoot, StorageError> {
+            get_state_root(store, h, shard_uid).ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "missing ChunkExtra for block {} in shard {} ({})",
+                    h, shard_uid, role,
+                ))
+            })
+        };
+
     for (height, hash, prev_hash) in sorted_deltas {
         let Some(changes) = flat_store.get_delta(shard_uid, hash) else { continue };
 
-        let new_state_root = get_state_root(store, hash, shard_uid)?;
-        let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
+        let new_state_root = require_state_root(hash, "delta target")?;
+        let old_state_root = require_state_root(prev_hash, "delta parent")?;
 
         let mut trie_update = memtries.update(old_state_root, TrackingMode::None)?;
         for (key, value) in changes.0 {
