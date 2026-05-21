@@ -1600,12 +1600,8 @@ fn yield_create_with_id_base(ctx: &mut EstimatorContext) -> GasCost {
     let result = if let Some(cost) = &ctx.cached.yield_create_with_id_base {
         cost.clone()
     } else {
-        let (result, count) = fn_cost_count(
-            ctx,
-            "yield_create_with_id_base",
-            ExtCosts::yield_create_with_id_base,
-            0,
-        );
+        let (result, count) =
+            fn_cost_count(ctx, "yield_create_with_id_base", ExtCosts::yield_create_with_id_base, 0);
         assert_eq!(count, 1000);
         let result = result / count;
         ctx.cached.yield_create_with_id_base.insert(result).clone()
