@@ -147,8 +147,8 @@ fn test_v2_signature_differentiator_prevents_cross_version_replay() {
 #[test]
 fn test_v1_signature_differentiator_prevents_cross_version_replay() {
     let signer = test_signer();
-    let v1 = make_v1_witness(&signer);
-    let v2 = make_v2_witness(&signer);
+    let v1 = make_witness(&signer, pre_kickout_version());
+    let v2 = make_witness(&signer, post_kickout_version());
 
     let v2_sig = match &v2 {
         VersionedPartialEncodedStateWitness::V2(w) => w.signature.clone(),
