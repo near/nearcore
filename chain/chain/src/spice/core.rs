@@ -11,11 +11,12 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
 };
+use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
-    EpochId, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    EpochId, ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -23,6 +24,13 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+/// One block's contribution to per-validator chunk endorsement stats.
+#[derive(Default, Debug)]
+pub struct EndorsementContribution {
+    pub current_validators: Vec<SpiceChunkEndorsementStats>,
+    pub departed_validators: HashMap<AccountId, SpiceChunkEndorsementStats>,
+}
 
 #[derive(Clone)]
 pub struct SpiceCoreReader {
@@ -284,6 +292,93 @@ impl SpiceCoreReader {
             return Err(Error::InvalidPrevLastCertifiedBlockEpochId(format!(
                 "expected {expected:?}, got {actual:?}"
             )));
+        }
+        Ok(())
+    }
+
+    fn chunk_validator_assignments_for(
+        &self,
+        chunk_id: &SpiceChunkId,
+    ) -> Result<Arc<ChunkValidatorAssignments>, Error> {
+        let chunk_block = self.epoch_manager.get_block_info(&chunk_id.block_hash)?;
+        Ok(self.epoch_manager.get_chunk_validator_assignments(
+            chunk_block.epoch_id(),
+            chunk_id.shard_id,
+            chunk_block.height(),
+        )?)
+    }
+
+    /// Computes the header field from the previous block's body and uncertified
+    /// chunks from store.
+    pub fn prev_spice_chunk_endorsement_stats(
+        &self,
+        epoch_id: &EpochId,
+        prev_hash: &CryptoHash,
+    ) -> Result<EndorsementContribution, Error> {
+        let prev_block = self.chain_store.get_block(prev_hash)?;
+        if prev_block.header().is_genesis() || !prev_block.is_spice_block() {
+            return Ok(EndorsementContribution::default());
+        }
+
+        let cur_epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+        let prev_prev_uncertified =
+            get_uncertified_chunks(&self.chain_store, prev_block.header().prev_hash())?;
+        let prev_statements = prev_block.spice_core_statements();
+        // Union of endorsements accumulated in prior blocks (via uncertified
+        // chunks at prev_prev) and new endorsement statements in prev's body.
+        let endorsers: HashSet<(&SpiceChunkId, &AccountId)> = prev_prev_uncertified
+            .iter()
+            .flat_map(|info| info.present_endorsements.iter().map(|(a, _)| (&info.chunk_id, a)))
+            .chain(prev_statements.iter_endorsements().map(|e| (e.chunk_id(), e.account_id())))
+            .collect();
+
+        let mut current_validators =
+            vec![SpiceChunkEndorsementStats::default(); cur_epoch_info.validators_iter().len()];
+        let mut departed_validators: HashMap<AccountId, SpiceChunkEndorsementStats> =
+            HashMap::new();
+        for (chunk_id, _) in prev_statements.iter_execution_results() {
+            let assignments = self.chunk_validator_assignments_for(chunk_id)?;
+            for (account_id, _stake) in assignments.assignments() {
+                let stats = match cur_epoch_info.get_validator_id(account_id) {
+                    Some(&validator_id) => &mut current_validators[validator_id as usize],
+                    None => departed_validators.entry(account_id.clone()).or_default(),
+                };
+                // TODO(spice): limit number of core statements in block for the checked_adds
+                // to be safe. (#14970)
+                stats.expected = stats.expected.checked_add(1).unwrap();
+                if endorsers.contains(&(chunk_id, account_id)) {
+                    stats.produced = stats.produced.checked_add(1).unwrap();
+                }
+            }
+        }
+
+        Ok(EndorsementContribution { current_validators, departed_validators })
+    }
+
+    pub fn validate_prev_spice_chunk_endorsement_stats(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        let actual = header.prev_spice_chunk_endorsement_stats().ok_or_else(|| {
+            Error::InvalidSpiceChunkEndorsementStats(
+                "missing field on spice block header".to_string(),
+            )
+        })?;
+        let expected =
+            self.prev_spice_chunk_endorsement_stats(header.epoch_id(), header.prev_hash())?;
+        if actual != expected.current_validators.as_slice() {
+            return Err(Error::InvalidSpiceChunkEndorsementStats(format!(
+                "expected {:?}, got {:?}",
+                expected.current_validators, actual,
+            )));
+        }
+        if !expected.departed_validators.is_empty() {
+            tracing::debug!(
+                target: "spice",
+                block_hash = ?header.hash(),
+                departed = ?expected.departed_validators,
+                "received endorsements for validators no longer participating in current epoch",
+            );
         }
         Ok(())
     }
