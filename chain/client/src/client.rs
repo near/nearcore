@@ -1179,6 +1179,8 @@ impl Client {
                 core_statements,
                 newly_certified_block_execution_results,
                 prev_last_certified_block_epoch_id,
+                // TODO(spice): fill in real stats here once we have them.
+                prev_spice_chunk_endorsement_stats: Vec::new(),
             })
         } else {
             None

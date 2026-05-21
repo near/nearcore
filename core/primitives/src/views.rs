@@ -39,9 +39,9 @@ use crate::transaction::{
 use crate::trie_split::TrieSplit;
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
-    Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
-    StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue,
-    ValidatorKickoutReason,
+    Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats, StateChangeCause, StateChangeKind,
+    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
+    StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -925,6 +925,8 @@ pub struct BlockHeaderView {
     pub shard_split: Option<(ShardId, AccountId)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_last_certified_block_epoch_id: Option<EpochId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -972,6 +974,9 @@ impl From<&BlockHeader> for BlockHeaderView {
             prev_last_certified_block_epoch_id: header
                 .prev_last_certified_block_epoch_id()
                 .cloned(),
+            prev_spice_chunk_endorsement_stats: header
+                .prev_spice_chunk_endorsement_stats()
+                .map(<[SpiceChunkEndorsementStats]>::to_vec),
         }
     }
 }
@@ -1009,6 +1014,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
             view.shard_split,
             view.prev_last_certified_block_epoch_id,
+            view.prev_spice_chunk_endorsement_stats,
         )
     }
 }

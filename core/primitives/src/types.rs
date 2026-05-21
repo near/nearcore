@@ -1155,6 +1155,26 @@ impl ValidatorStats {
     }
 }
 
+/// Per-validator chunk endorsement delta for a single block under spice.
+#[derive(
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct SpiceChunkEndorsementStats {
+    pub produced: u16,
+    pub expected: u16,
+}
+
 #[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,

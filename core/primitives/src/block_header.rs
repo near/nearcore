@@ -4,7 +4,10 @@ use crate::merkle::combine_hash;
 use crate::network::PeerId;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ShardId};
+use crate::types::{
+    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ShardId,
+    SpiceChunkEndorsementStats,
+};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -407,6 +410,12 @@ pub struct BlockHeaderInnerRestV7 {
 
     /// Epoch ID of the last block whose spice execution results are certified.
     pub prev_last_certified_block_epoch_id: EpochId,
+
+    /// Per-validator endorsement deltas derived from the previous block's
+    /// body of spice core statements. Indexed by ValidatorId in this block's
+    /// epoch. Length is either 0 (treated as all-zero, no-op for the
+    /// aggregator) or exactly `epoch_info(epoch_id).validators.len()`.
+    pub prev_spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
 
 /// The part of the block approval that is different for endorsements and skips
@@ -814,6 +823,7 @@ impl BlockHeader {
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
+        prev_spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
     ) -> Self {
         Self::new_impl(
             current_protocol_version,
@@ -846,6 +856,7 @@ impl BlockHeader {
             chunk_endorsements,
             shard_split,
             prev_last_certified_block_epoch_id,
+            prev_spice_chunk_endorsement_stats,
         )
     }
 
@@ -881,6 +892,7 @@ impl BlockHeader {
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
+        prev_spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
     ) -> Self {
         let header = Self::new_impl(
             epoch_protocol_version,
@@ -913,6 +925,7 @@ impl BlockHeader {
             chunk_endorsements,
             shard_split,
             prev_last_certified_block_epoch_id,
+            prev_spice_chunk_endorsement_stats,
         );
         // Note: We do not panic but only log if the hash of the created header does not match the expected hash (From the view)
         // because there are tests that check if we can downgrade a BlockHeader's view a previous version, in which case the hash
@@ -955,6 +968,7 @@ impl BlockHeader {
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
+        prev_spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -977,6 +991,9 @@ impl BlockHeader {
             let prev_last_certified_block_epoch_id = prev_last_certified_block_epoch_id.expect(
                 "BlockHeaderV7 requires prev_last_certified_block_epoch_id when Spice is enabled",
             );
+            let prev_spice_chunk_endorsement_stats = prev_spice_chunk_endorsement_stats.expect(
+                "BlockHeaderV7 requires prev_spice_chunk_endorsement_stats when Spice is enabled",
+            );
             let inner_rest = BlockHeaderInnerRestV7 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -997,6 +1014,7 @@ impl BlockHeader {
                 chunk_endorsements,
                 shard_split,
                 prev_last_certified_block_epoch_id,
+                prev_spice_chunk_endorsement_stats,
             };
             let (hash, signature) =
                 Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
@@ -1117,6 +1135,12 @@ impl BlockHeader {
             } else {
                 None
             };
+        let genesis_prev_spice_chunk_endorsement_stats =
+            if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+                Some(Vec::new())
+            } else {
+                None
+            };
         Self::new_impl(
             genesis_protocol_version,
             genesis_protocol_version,
@@ -1148,6 +1172,7 @@ impl BlockHeader {
             Some(ChunkEndorsementsBitmap::genesis()),
             None, // shard_split
             genesis_prev_last_certified_block_epoch_id,
+            genesis_prev_spice_chunk_endorsement_stats,
         )
     }
 
@@ -1721,6 +1746,24 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV6(_) => None,
             BlockHeader::BlockHeaderV7(header) => {
                 Some(&header.inner_rest.prev_last_certified_block_epoch_id)
+            }
+        }
+    }
+
+    /// Per-validator endorsement deltas attributed to this block's epoch,
+    /// derived from the previous block's spice core statements.
+    /// Returns `None` for header versions prior to V7.
+    #[inline]
+    pub fn prev_spice_chunk_endorsement_stats(&self) -> Option<&[SpiceChunkEndorsementStats]> {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => None,
+            BlockHeader::BlockHeaderV7(header) => {
+                Some(&header.inner_rest.prev_spice_chunk_endorsement_stats)
             }
         }
     }

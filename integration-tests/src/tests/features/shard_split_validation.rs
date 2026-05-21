@@ -218,6 +218,7 @@ fn block_header_shard_split_validation() {
         header.chunk_endorsements().cloned(),
         forged_shard_split.clone(), // FORGED shard_split
         header.prev_last_certified_block_epoch_id().cloned(),
+        header.prev_spice_chunk_endorsement_stats().map(<[_]>::to_vec),
     );
 
     // Sanity: the forged header is V6 and carries the forged shard_split.
