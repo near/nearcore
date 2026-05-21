@@ -686,8 +686,9 @@ fn test_fork_far_away_from_epoch_end() {
 /// collected while the blocks that are ahead of it should not.
 #[test]
 fn test_clear_old_data() {
+    let epoch_length: u64 = 2;
     let max_height = 14usize;
-    let mut chain = get_chain_with_epoch_length(Clock::real(), 1);
+    let mut chain = get_chain_with_epoch_length(Clock::real(), epoch_length);
     let epoch_manager = chain.epoch_manager.clone();
     let genesis = chain.get_block_by_height(0).unwrap();
     let signer = Arc::new(create_test_signer("test1"));
@@ -708,7 +709,8 @@ fn test_clear_old_data() {
 
     for i in 0..=max_height {
         println!("height = {} hash = {}", i, blocks[i].hash());
-        let expected_removed = i < max_height - DEFAULT_GC_NUM_EPOCHS_TO_KEEP as usize;
+        let expected_removed =
+            (i as u64) < max_height as u64 - DEFAULT_GC_NUM_EPOCHS_TO_KEEP * epoch_length;
         let get_block_result = chain.get_block(blocks[i].hash());
         let blocks_by_heigh =
             chain.mut_chain_store().get_all_block_hashes_by_height(i as BlockHeight);
