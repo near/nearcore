@@ -15,7 +15,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
-    ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    EpochId, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -258,6 +258,34 @@ impl SpiceCoreReader {
             });
         }
         Ok(core_statements)
+    }
+
+    /// Epoch id of the last fully certified block as of `prev_hash`.
+    /// Used by the block producer to populate `prev_last_certified_block_epoch_id`
+    /// and by the validator to check it.
+    pub fn prev_last_certified_block_epoch_id(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        Ok(*get_last_certified_block_header(&self.chain_store, prev_hash)?.epoch_id())
+    }
+
+    pub fn validate_prev_last_certified_block_epoch_id(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        let actual = header.prev_last_certified_block_epoch_id().ok_or_else(|| {
+            Error::InvalidPrevLastCertifiedBlockEpochId(
+                "missing field on spice block header".to_string(),
+            )
+        })?;
+        let expected = self.prev_last_certified_block_epoch_id(header.prev_hash())?;
+        if &expected != actual {
+            return Err(Error::InvalidPrevLastCertifiedBlockEpochId(format!(
+                "expected {expected:?}, got {actual:?}"
+            )));
+        }
+        Ok(())
     }
 
     pub fn validate_core_statements_in_block(
@@ -701,14 +729,13 @@ pub fn get_last_certified_block_header(
     if let Some(header) = oldest_uncertified {
         Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
+        // No uncertified-chunks tracking means the block has nothing to
+        // certify: genesis, or a pre-spice block at the activation
+        // boundary. Both are fully certified by definition.
         let header = chain_store.get_block_header(block_hash)?;
-        // TODO(spice): at the spice activation boundary `block_hash` can be
-        // a pre-spice block (not genesis, not a spice block), which also has
-        // no uncertified_chunks and would hit this assert. Either accept
-        // non-spice blocks here or push the check into callers.
         debug_assert!(
-            header.is_genesis(),
-            "spice blocks (except genesis) should always have uncertified chunks"
+            header.is_genesis() || !header.is_spice(),
+            "post-genesis spice blocks should always have uncertified chunks"
         );
         Ok(header)
     }

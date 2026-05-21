@@ -2313,6 +2313,16 @@
               "null"
             ]
           },
+          "prev_last_certified_block_epoch_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EpochId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
           },
