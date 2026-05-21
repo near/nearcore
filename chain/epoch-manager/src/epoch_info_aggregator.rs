@@ -21,6 +21,10 @@ pub struct EpochInfoAggregator {
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    /// Per-validator endorsement deltas summed across the epoch, populated
+    /// from the block header's `prev_spice_chunk_endorsement_stats` field.
+    /// Empty on non-spice epochs.
+    pub spice_endorsement_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
@@ -36,6 +40,7 @@ impl EpochInfoAggregator {
         Self {
             block_tracker: Default::default(),
             shard_tracker: Default::default(),
+            spice_endorsement_tracker: Default::default(),
             version_tracker: Default::default(),
             all_proposals: BTreeMap::default(),
             epoch_id,
@@ -184,6 +189,23 @@ impl EpochInfoAggregator {
             }
         }
 
+        // Step 2b: apply spice flat endorsement deltas. Empty Vec is a no-op.
+        if let Some(deltas) = block_info.prev_spice_chunk_endorsement_stats() {
+            let num_validators = epoch_info.validators_iter().len();
+            assert!(
+                deltas.is_empty() || deltas.len() == num_validators,
+                "prev_spice_chunk_endorsement_stats length {} must be 0 or {}",
+                deltas.len(),
+                num_validators,
+            );
+            for (validator_id, delta) in deltas.iter().enumerate() {
+                let entry =
+                    self.spice_endorsement_tracker.entry(validator_id as ValidatorId).or_default();
+                entry.produced += u64::from(delta.produced);
+                entry.expected += u64::from(delta.expected);
+            }
+        }
+
         // Step 3: update version tracker
         let block_producer_id = epoch_info.sample_block_producer(block_info_height);
         self.version_tracker
@@ -297,6 +319,16 @@ impl EpochInfoAggregator {
                             })
                             .or_insert_with(|| stat.clone());
                     }
+                })
+                .or_insert_with(|| stats.clone());
+        }
+        // merge spice endorsement tracker
+        for (validator_id, stats) in &other.spice_endorsement_tracker {
+            self.spice_endorsement_tracker
+                .entry(*validator_id)
+                .and_modify(|e| {
+                    e.expected += stats.expected;
+                    e.produced += stats.produced;
                 })
                 .or_insert_with(|| stats.clone());
         }

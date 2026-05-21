@@ -2496,12 +2496,14 @@ fn test_validator_kickout_determinism() {
         &block_validator_tracker,
         &chunk_stats_tracker1,
         &HashMap::new(),
+        &HashMap::new(),
     );
     let (_validator_stats, kickouts2) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker2,
+        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(kickouts1, kickouts2);
@@ -2556,6 +2558,7 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
+        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2617,6 +2620,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
         &block_validator_tracker,
         &chunk_stats_tracker,
         &HashMap::new(),
+        &HashMap::new(),
     );
     assert_eq!(
         kickouts,
@@ -2677,6 +2681,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
         &block_validator_tracker,
         &chunk_stats_tracker,
         &HashMap::new(),
+        &HashMap::new(),
     );
     assert_eq!(
         kickouts,
@@ -2685,6 +2690,60 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
             NotEnoughChunkEndorsements { produced: 65, expected: 100 }
         ),])
     );
+}
+
+#[test]
+fn test_spice_endorsement_tracker_drives_kickout() {
+    let num_shards = 2;
+    let epoch_config = epoch_config(5, num_shards, 2, 2, 90, 90, 90, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
+    let accounts = vec![
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(500)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(500)),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+        ShardLayout::multi_shard(num_shards, 0),
+    );
+    let block_validator_tracker = HashMap::from([
+        (0, ValidatorStats { produced: 100, expected: 100 }),
+        (1, ValidatorStats { produced: 100, expected: 100 }),
+    ]);
+    // Per-shard endorsement stats stay zero on spice; production stats
+    // for test0/test1 are tracked in block_validator_tracker above.
+    let chunk_stats_tracker = HashMap::new();
+    let spice_endorsement_tracker = HashMap::from([
+        (2, ValidatorStats { produced: 65, expected: 100 }),
+        (3, ValidatorStats { produced: 95, expected: 100 }),
+    ]);
+    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_validator_tracker,
+        &chunk_stats_tracker,
+        &spice_endorsement_tracker,
+        &HashMap::new(),
+    );
+    assert_eq!(
+        kickouts,
+        HashMap::from([(
+            "test2".parse().unwrap(),
+            NotEnoughChunkEndorsements { produced: 65, expected: 100 },
+        )])
+    );
+    // Spice deltas must flow to the per-account stats for reward computation.
+    let test2_stats = &validator_stats[&"test2".parse::<AccountId>().unwrap()];
+    assert_eq!(test2_stats.chunk_stats.endorsement_stats().produced, 65);
+    assert_eq!(test2_stats.chunk_stats.endorsement_stats().expected, 100);
+    let test3_stats = &validator_stats[&"test3".parse::<AccountId>().unwrap()];
+    assert_eq!(test3_stats.chunk_stats.endorsement_stats().produced, 95);
+    assert_eq!(test3_stats.chunk_stats.endorsement_stats().expected, 100);
 }
 
 /// A sanity test for the compute_validators_to_reward_and_kickout function,
@@ -2757,6 +2816,7 @@ fn test_validator_kickout_sanity() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
+        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2877,6 +2937,7 @@ fn test_chunk_endorsement_stats() {
             ),
         ]),
         &HashMap::new(),
+        &HashMap::new(),
     );
     assert_eq!(kickouts, HashMap::new(),);
     assert_eq!(
@@ -2967,6 +3028,7 @@ fn test_max_kickout_stake_ratio() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
+        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(
@@ -3026,6 +3088,7 @@ fn test_max_kickout_stake_ratio() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
+        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(
@@ -3100,6 +3163,7 @@ fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorK
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
+        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(kickouts, expected_kickouts);
@@ -3165,6 +3229,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
+        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(kickouts, HashMap::new());

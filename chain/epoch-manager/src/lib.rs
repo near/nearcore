@@ -371,6 +371,7 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+        spice_endorsement_tracker: &HashMap<ValidatorId, ValidatorStats>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
@@ -398,6 +399,12 @@ impl EpochManager {
                     chunk_stats.endorsement_stats_mut().expected +=
                         stat.endorsement_stats().expected;
                 }
+            }
+            // Empty on non-spice epochs (per-shard bitmap is used instead);
+            // sole endorsement contribution on spice epochs.
+            if let Some(stat) = spice_endorsement_tracker.get(&(i as u64)) {
+                chunk_stats.endorsement_stats_mut().produced += stat.produced;
+                chunk_stats.endorsement_stats_mut().expected += stat.expected;
             }
             total_stake = total_stake.checked_add(v.stake()).unwrap();
             let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
@@ -514,6 +521,7 @@ impl EpochManager {
         let EpochInfoAggregator {
             block_tracker: block_validator_tracker,
             shard_tracker: chunk_validator_tracker,
+            spice_endorsement_tracker,
             all_proposals,
             version_tracker,
             ..
@@ -613,6 +621,7 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
+            &spice_endorsement_tracker,
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);
