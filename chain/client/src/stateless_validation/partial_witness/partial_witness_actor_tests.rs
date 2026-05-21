@@ -1,5 +1,5 @@
 use super::partial_witness_actor::{
-    DeferOrigin, PENDING_V2_WITNESS_CACHE_SIZE, PendingV2WitnessCache,
+    DeferOrigin, KickoutGate, PENDING_V2_WITNESS_CACHE_SIZE, PendingV2WitnessCache, kickout_gate,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
@@ -167,4 +167,43 @@ fn drain_all_returns_every_entry_and_empties_cache() {
 
     // Draining an already-empty cache is safe and returns nothing.
     assert!(cache.drain_all().is_empty());
+}
+
+// Kickout gate symmetry tests. The gate is a pure function so the
+// security boundary (which witness variants are dropped at which
+// kickout state) is directly testable without standing up an actor.
+
+fn v1_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
+    make_witness(signer, CryptoHash::hash_bytes(b"v1_block"), pre_kickout_version())
+}
+
+fn v2_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
+    make_witness(signer, CryptoHash::hash_bytes(b"v2_block"), post_kickout_version())
+}
+
+#[test]
+fn kickout_gate_pre_kickout_drops_v2_proceeds_v1() {
+    let signer = create_test_signer("test_account");
+    assert_eq!(kickout_gate(Some(false), &v1_witness(&signer)), KickoutGate::Proceed);
+    assert_eq!(kickout_gate(Some(false), &v2_witness(&signer)), KickoutGate::Drop);
+}
+
+#[test]
+fn kickout_gate_post_kickout_drops_v1_proceeds_v2() {
+    let signer = create_test_signer("test_account");
+    assert_eq!(kickout_gate(Some(true), &v1_witness(&signer)), KickoutGate::Drop);
+    assert_eq!(kickout_gate(Some(true), &v2_witness(&signer)), KickoutGate::Proceed);
+}
+
+/// Unknown epoch (header-sync lag at epoch boundary) must NOT drop
+/// either variant. Dropping V2 here would discard legitimate
+/// post-kickout traffic whose epoch info hasn't landed yet — there is
+/// no part-retransmission loop, so the loss is permanent. The
+/// downstream producer lookup will return `MissingBlock` and defer
+/// V2 into the pending cache.
+#[test]
+fn kickout_gate_unknown_epoch_proceeds_both_variants() {
+    let signer = create_test_signer("test_account");
+    assert_eq!(kickout_gate(None, &v1_witness(&signer)), KickoutGate::Proceed);
+    assert_eq!(kickout_gate(None, &v2_witness(&signer)), KickoutGate::Proceed);
 }

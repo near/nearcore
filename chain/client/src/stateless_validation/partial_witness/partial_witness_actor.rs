@@ -183,9 +183,13 @@ impl PendingV2WitnessCache {
         origin: DeferOrigin,
     ) -> bool {
         let Some(prev_block_hash) = witness.prev_block_hash().copied() else {
-            tracing::warn!(
+            // V1 witnesses can legitimately hit DBNotFoundErr from the
+            // epoch-based producer lookup (e.g. across epoch transitions).
+            // The defer mechanism is V2-only because it keys on
+            // `prev_block_hash`; V1 has no equivalent, so just drop.
+            tracing::debug!(
                 target: "client",
-                "DBNotFoundErr on V1 witness, unexpected",
+                "V1 witness with DBNotFoundErr cannot be deferred (no prev_block_hash); dropping",
             );
             return false;
         };
@@ -211,6 +215,42 @@ enum ReplayDisposition {
     /// Permanently irrelevant (past final head, not a chunk validator for
     /// this chunk, malformed data). Drop the witness.
     Retire,
+}
+
+/// Result of the kickout gate, applied to every incoming partial-witness
+/// message at both init-emit and forward handlers. Three-valued to
+/// distinguish "wrong side of the boundary, drop" from "epoch unknown,
+/// fall through and let the producer lookup defer".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum KickoutGate {
+    /// Witness is on the right side of the kickout boundary (or epoch
+    /// status is unknown). Continue to producer lookup / validation.
+    Proceed,
+    /// Witness is definitively on the wrong side of the kickout
+    /// boundary. Drop silently.
+    Drop,
+}
+
+/// Pure decision function for the kickout gate. Extracted from the
+/// handlers to make the symmetry contract directly unit-testable
+/// without standing up an actor.
+///
+/// Contract:
+/// - `Some(false)` + V2 → Drop (pre-kickout, V2 not yet valid)
+/// - `Some(true)`  + V1 → Drop (post-kickout, V1 no longer valid)
+/// - `None` (epoch unknown) → Proceed for both variants — header-sync
+///   lag must not poison legitimate post-kickout V2 traffic; the
+///   producer lookup downstream will defer V2 with `MissingBlock`.
+/// - Any other (Some(true)+V2, Some(false)+V1) → Proceed.
+pub(super) fn kickout_gate(
+    early_kickout: Option<bool>,
+    witness: &VersionedPartialEncodedStateWitness,
+) -> KickoutGate {
+    match (early_kickout, witness) {
+        (Some(false), VersionedPartialEncodedStateWitness::V2(_)) => KickoutGate::Drop,
+        (Some(true), VersionedPartialEncodedStateWitness::V1(_)) => KickoutGate::Drop,
+        _ => KickoutGate::Proceed,
+    }
 }
 
 pub struct PartialWitnessActor {
@@ -573,16 +613,30 @@ impl PartialWitnessActor {
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        let shard_id_label = partial_witness.chunk_production_key().shard_id.to_string();
+        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
+            .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
+            .inc();
+        self.dispatch_partial_encoded_state_witness(partial_witness)
+    }
+
+    /// Init-emit dispatch shared by the public handler and the
+    /// scan-on-notification replay. Excludes the receive counter
+    /// increment — replay must not double-count.
+    fn dispatch_partial_encoded_state_witness(
+        &self,
+        partial_witness: VersionedPartialEncodedStateWitness,
+    ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
-            "handle_partial_encoded_state_witness",
+            "dispatch_partial_encoded_state_witness",
             height = partial_witness.chunk_production_key().height_created,
             shard_id = %partial_witness.chunk_production_key().shard_id,
             part_ord = partial_witness.part_ord(),
             tag_witness_distribution = true,
         )
         .entered();
-        tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness message");
+        tracing::debug!(target: "client", ?partial_witness, "dispatching partial encoded state witness");
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
         let epoch_manager = self.epoch_manager.clone();
@@ -591,29 +645,16 @@ impl PartialWitnessActor {
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             partial_witness.chunk_production_key();
 
-        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
-            .with_label_values(&[shard_id.to_string().as_str(), partial_witness.version_label()])
-            .inc();
-
-        let early_kickout = self.is_early_kickout_enabled(&epoch_id);
-        match &partial_witness {
-            VersionedPartialEncodedStateWitness::V2(_) if !early_kickout => {
-                tracing::debug!(
-                    target: "client",
-                    ?epoch_id,
-                    "dropping V2 partial witness: EarlyKickout not enabled",
-                );
-                return Ok(());
-            }
-            VersionedPartialEncodedStateWitness::V1(_) if early_kickout => {
-                tracing::debug!(
-                    target: "client",
-                    ?epoch_id,
-                    "dropping V1 partial witness: EarlyKickout enabled, V1 no longer accepted",
-                );
-                return Ok(());
-            }
-            _ => {}
+        if let KickoutGate::Drop =
+            kickout_gate(self.early_kickout_status(&epoch_id), &partial_witness)
+        {
+            tracing::debug!(
+                target: "client",
+                ?epoch_id,
+                version = partial_witness.version_label(),
+                "dropping partial witness: kickout gate",
+            );
+            return Ok(());
         }
 
         // V1 witnesses resolve the chunk producer via the epoch-based sampler;
@@ -841,7 +882,9 @@ impl PartialWitnessActor {
                     match origin {
                         DeferOrigin::Forwarded => self.replay_forwarded_partial_witness(witness),
                         DeferOrigin::InitEmit => {
-                            if let Err(err) = self.handle_partial_encoded_state_witness(witness) {
+                            // Skip counter — the witness was already counted on
+                            // initial receive; replay should not double-count.
+                            if let Err(err) = self.dispatch_partial_encoded_state_witness(witness) {
                                 tracing::warn!(
                                     target: "client",
                                     ?err,
@@ -897,6 +940,7 @@ impl PartialWitnessActor {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
         let partial_witness_tracker = self.partial_witness_tracker.clone();
+        let pending_v2_witnesses = self.pending_v2_witnesses.clone();
 
         self.partial_witness_spawner.spawn("replay_forwarded_partial_witness", move || {
             match validate_partial_encoded_state_witness(
@@ -922,6 +966,14 @@ impl PartialWitnessActor {
                         chunk_production_key = ?partial_witness.chunk_production_key(),
                         "replayed forwarded partial witness now irrelevant",
                     );
+                }
+                // Race with `pre_check_replay`: classification ran Ready
+                // on the actor thread, then the spawner-side lookup
+                // saw `MissingBlock` / `ChunkProducerNotInDB`. Re-defer
+                // rather than dropping — the producer doesn't
+                // retransmit forward parts.
+                Err(Error::DBNotFoundErr(_)) => {
+                    pending_v2_witnesses.lock().try_defer(partial_witness, DeferOrigin::Forwarded);
                 }
                 Err(err) => {
                     tracing::warn!(
@@ -958,25 +1010,16 @@ impl PartialWitnessActor {
 
         {
             let epoch_id = partial_witness.chunk_production_key().epoch_id;
-            let early_kickout = self.is_early_kickout_enabled(&epoch_id);
-            match &partial_witness {
-                VersionedPartialEncodedStateWitness::V2(_) if !early_kickout => {
-                    tracing::debug!(
-                        target: "client",
-                        ?epoch_id,
-                        "dropping forwarded V2 partial witness: EarlyKickout not enabled",
-                    );
-                    return Ok(());
-                }
-                VersionedPartialEncodedStateWitness::V1(_) if early_kickout => {
-                    tracing::debug!(
-                        target: "client",
-                        ?epoch_id,
-                        "dropping forwarded V1 partial witness: EarlyKickout enabled, V1 no longer accepted",
-                    );
-                    return Ok(());
-                }
-                _ => {}
+            if let KickoutGate::Drop =
+                kickout_gate(self.early_kickout_status(&epoch_id), &partial_witness)
+            {
+                tracing::debug!(
+                    target: "client",
+                    ?epoch_id,
+                    version = partial_witness.version_label(),
+                    "dropping forwarded partial witness: kickout gate",
+                );
+                return Ok(());
             }
         }
 
@@ -1342,10 +1385,17 @@ impl PartialWitnessActor {
         self.my_signer.get().ok_or_else(|| Error::NotAValidator("not a validator".to_owned()))
     }
 
-    fn is_early_kickout_enabled(&self, epoch_id: &EpochId) -> bool {
+    /// Returns `Some(true)` if EarlyKickout is enabled in this epoch,
+    /// `Some(false)` if not, and `None` if the epoch's protocol version
+    /// cannot be resolved (header-sync lag at epoch boundary). Callers
+    /// must distinguish `None` from `Some(false)`: dropping V2 on
+    /// `None` would discard legitimate post-kickout traffic whose
+    /// epoch info hasn't landed yet; fall through to the producer
+    /// lookup, which will return `MissingBlock` and defer.
+    fn early_kickout_status(&self, epoch_id: &EpochId) -> Option<bool> {
         match self.epoch_manager.get_epoch_protocol_version(epoch_id) {
-            Ok(version) => ProtocolFeature::EarlyKickout.enabled(version),
-            Err(_) => false,
+            Ok(version) => Some(ProtocolFeature::EarlyKickout.enabled(version)),
+            Err(_) => None,
         }
     }
 
