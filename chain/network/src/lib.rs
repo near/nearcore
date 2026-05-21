@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
 pub use crate::peer_manager::tcp_transport::TcpTransport;
 pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOverrideConfig;
@@ -26,7 +24,7 @@ pub mod debug;
 pub mod raw;
 pub mod routing;
 pub mod shards_manager;
-pub mod spice_data_distribution;
+pub mod spice;
 pub mod state_sync;
 pub mod state_witness;
 pub mod tcp;

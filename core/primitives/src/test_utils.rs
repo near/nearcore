@@ -3,9 +3,11 @@ use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
     GlobalContractIdentifier, UseGlobalContractAction,
 };
+use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
+use crate::congestion_info::CongestionInfo;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
@@ -16,12 +18,8 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
     Transaction, TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
-#[cfg(feature = "clock")]
-use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, ShardId};
-#[cfg(feature = "clock")]
-use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use itertools::Itertools;
@@ -871,9 +869,11 @@ pub struct TestBlockBuilder {
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    timestamp_nanos: Option<u64>,
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
+    newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
 }
 
 #[cfg(feature = "clock")]
@@ -904,12 +904,14 @@ impl TestBlockBuilder {
             block_merkle_root: tree.root(),
             chunks: prev_chunks,
             chunk_endorsements: vec![vec![]; chunks_len],
+            timestamp_nanos: None,
             prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(crate::block_body::SpiceCoreStatements::new(vec![]))
             } else {
                 None
             },
+            newly_certified_block_execution_results: vec![],
         }
     }
 
@@ -975,13 +977,13 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
-        self.chunks = chunks;
+    pub fn block_merkle_root(mut self, block_merkle_root: CryptoHash) -> Self {
+        self.block_merkle_root = block_merkle_root;
         self
     }
 
-    pub fn non_spice_block(mut self) -> Self {
-        self.spice_core_statements = None;
+    pub fn chunks(mut self, chunks: impl IntoIterator<Item = ShardChunkHeader>) -> Self {
+        self.chunks = chunks.into_iter().collect();
         self
     }
 
@@ -994,6 +996,14 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn newly_certified_block_execution_results(
+        mut self,
+        results: Vec<crate::types::BlockExecutionResults>,
+    ) -> Self {
+        self.newly_certified_block_execution_results = results;
+        self
+    }
+
     pub fn chunk_endorsements(
         mut self,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
@@ -1002,23 +1012,19 @@ impl TestBlockBuilder {
         self
     }
 
+    /// Override the produced block's timestamp and resign the header.
+    pub fn timestamp_nanos(mut self, timestamp_nanos: u64) -> Self {
+        self.timestamp_nanos = Some(timestamp_nanos);
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
+        Arc::new(self.build_owned())
+    }
+
+    pub fn build_owned(self) -> Block {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        let last_certified_block_execution_results = BlockExecutionResults(
-            self.chunks
-                .iter()
-                .map(|chunk| {
-                    (
-                        chunk.shard_id(),
-                        Arc::new(ChunkExecutionResult {
-                            chunk_extra: ChunkExtra::new_with_only_state_root(&StateRoot::new()),
-                            outgoing_receipts_root: CryptoHash::default(),
-                        }),
-                    )
-                })
-                .collect(),
-        );
-        Arc::new(Block::produce(
+        let mut block = Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             &self.prev_header,
@@ -1044,10 +1050,16 @@ impl TestBlockBuilder {
             self.spice_core_statements.map(|core_statements| {
                 crate::block::SpiceNewBlockProductionInfo {
                     core_statements,
-                    last_certified_block_execution_results,
+                    newly_certified_block_execution_results: self
+                        .newly_certified_block_execution_results,
                 }
             }),
-        ))
+        );
+        if let Some(ts) = self.timestamp_nanos {
+            block.mut_header().set_timestamp(ts);
+            block.mut_header().resign(self.signer.as_ref());
+        }
+        block
     }
 }
 
@@ -1213,6 +1225,38 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
         near_crypto::KeyType::ED25519,
         account_name,
     )
+}
+
+/// Build a minimal `ShardChunkHeaderV3` for use in tests that only need
+/// an object with a valid signature, `prev_block_hash`, and `shard_id`
+/// (everything else is zeroed). Mirrors the implicit defaults of
+/// `ShardChunkHeaderV3::new_dummy` but takes an explicit `protocol_version`
+/// so callers can pin the header inner variant.
+pub fn test_chunk_header(
+    prev_block_hash: CryptoHash,
+    signer: &ValidatorSigner,
+    protocol_version: ProtocolVersion,
+) -> ShardChunkHeader {
+    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        prev_block_hash,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        0,
+        1,
+        ShardId::new(0),
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        CongestionInfo::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer,
+        protocol_version,
+    ))
 }
 
 /// Helper function that creates a new signer for a given account, that uses the account name as seed.

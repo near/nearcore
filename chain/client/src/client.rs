@@ -10,7 +10,7 @@ use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
-use crate::spice_timer::SpiceTimer;
+use crate::spice::timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
@@ -33,7 +33,7 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::find_newly_certified_block_hashes;
+use near_chain::spice::core::find_newly_certified_block_hashes;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -209,6 +209,23 @@ impl Client {
             .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated |= self
+            .config
+            .block_production_tracking_delay
+            .update(update_client_config.block_production_tracking_delay);
+        is_updated |= self
+            .config
+            .min_block_production_delay
+            .update(update_client_config.min_block_production_delay);
+        is_updated |= self
+            .config
+            .max_block_production_delay
+            .update(update_client_config.max_block_production_delay);
+        is_updated |=
+            self.config.max_block_wait_delay.update(update_client_config.max_block_wait_delay);
+        is_updated |= self.config.chunk_wait_mult.update(update_client_config.chunk_wait_mult);
+        is_updated |=
+            self.config.doomslug_step_period.update(update_client_config.doomslug_step_period);
         is_updated
     }
 
@@ -366,8 +383,6 @@ impl Client {
             chain.genesis().clone(),
             multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
-            config.archive,
-            &chain.chain_store.store(),
         );
         let header_sync = HeaderSync::new(
             clock.clone(),
@@ -381,9 +396,7 @@ impl Client {
         let block_sync = BlockSync::new(
             clock.clone(),
             network_adapter.clone(),
-            config.block_fetch_horizon,
             config.archive,
-            config.state_sync_enabled,
             config.sync_max_block_requests,
         );
 
@@ -408,18 +421,16 @@ impl Client {
         let doomslug = Doomslug::new(
             clock.clone(),
             chain.chain_store().largest_target_height(),
-            config.min_block_production_delay,
-            config.max_block_production_delay,
-            config.max_block_production_delay / 10,
-            config.max_block_wait_delay,
-            config.chunk_wait_mult,
+            config.min_block_production_delay.clone(),
+            config.max_block_production_delay.clone(),
+            config.max_block_wait_delay.clone(),
+            config.chunk_wait_mult.clone(),
             doomslug_threshold_mode,
         );
         let spice_timer = SpiceTimer::new(
             clock.clone(),
-            config.min_block_production_delay,
-            config.max_block_production_delay,
-            (config.max_block_production_delay - config.min_block_production_delay) / 10,
+            config.min_block_production_delay.clone(),
+            config.max_block_production_delay.clone(),
         );
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
@@ -434,6 +445,7 @@ impl Client {
             rng_seed,
             config.transaction_pool_size_limit,
             multi_spawner.prepare_transactions,
+            config.spice_pending_transaction_queue_enabled(),
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
@@ -447,6 +459,7 @@ impl Client {
                 runtime_adapter.as_ref(),
                 &shard_tracker,
                 &head.last_block_hash,
+                config.spice_pending_transaction_queue_enabled(),
             ) {
                 tracing::error!(
                     target: "client",
@@ -613,6 +626,9 @@ impl Client {
         if !block.is_spice_block() {
             return Ok(());
         }
+        if !self.config.spice_pending_transaction_queue_enabled() {
+            return Ok(());
+        }
 
         // Remove newly certified blocks from the pending transaction queue.
         let prev_uncertified =
@@ -662,7 +678,11 @@ impl Client {
         runtime_adapter: &dyn RuntimeAdapter,
         shard_tracker: &ShardTracker,
         head_hash: &CryptoHash,
+        spice_pending_transaction_queue_enabled: bool,
     ) -> Result<(), Error> {
+        if !spice_pending_transaction_queue_enabled {
+            return Ok(());
+        }
         let head_block = chain.get_block(head_hash)?;
         if !head_block.is_spice_block() {
             return Ok(());
@@ -1144,14 +1164,16 @@ impl Client {
             let core_statements = SpiceCoreStatements::new(
                 self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?,
             );
-            let last_certified_block_execution_results =
-                self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
+            let newly_certified_block_execution_results = self
+                .chain
+                .spice_core_reader
+                .get_newly_certified_block_execution_results_for_next_block(
                     prev_header,
                     &core_statements,
                 )?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
-                last_certified_block_execution_results,
+                newly_certified_block_execution_results,
             })
         } else {
             None
@@ -1723,9 +1745,10 @@ impl Client {
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
     pub fn sandbox_delta_time(&self) -> Duration {
-        let avg_block_prod_time = (self.config.min_block_production_delay.whole_nanoseconds()
-            + self.config.max_block_production_delay.whole_nanoseconds())
-            / 2;
+        let avg_block_prod_time =
+            (self.config.min_block_production_delay.get().whole_nanoseconds()
+                + self.config.max_block_production_delay.get().whole_nanoseconds())
+                / 2;
 
         let ns = (self.accrued_fastforward_delta as i128 * avg_block_prod_time)
             .try_into()
@@ -2037,6 +2060,7 @@ impl Client {
                     self.runtime_adapter.as_ref(),
                     &self.shard_tracker,
                     block.hash(),
+                    self.config.spice_pending_transaction_queue_enabled(),
                 ) {
                     tracing::error!(
                         target: "client",

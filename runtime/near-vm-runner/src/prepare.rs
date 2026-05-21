@@ -379,4 +379,125 @@ mod tests {
             assert_matches!(r, Ok(_));
         });
     }
+
+    #[test]
+    fn too_many_function_params() {
+        // Hard-coding config parameters in this test.
+        // If the config changes and you have to update these numbers, it most
+        // likely means you are about to make a breaking change to WASM
+        // contracts, so be careful if that's why you are reading this.
+        let max_per_fn = 64;
+        let max_per_contract = 50_000;
+
+        // num_params, num_functions, expected preparation Result
+        check(1, 1000, Ok(()));
+        check(max_per_fn, max_per_contract / max_per_fn, Ok(()));
+        check(
+            max_per_fn,
+            (max_per_contract + max_per_fn) / max_per_fn,
+            Err(PrepareError::TooManyParamsPerContract),
+        );
+
+        // check that TooManyParamsPerFunction hits before TooManyParamsPerContract
+        check(
+            max_per_fn + 1,
+            (max_per_contract + max_per_fn) / max_per_fn,
+            Err(PrepareError::TooManyParamsPerFunction),
+        );
+
+        // check that TooManyFunctions hits before TooManyParamsPerFunction
+        check(max_per_fn + 1, 1, Err(PrepareError::TooManyParamsPerFunction));
+        check(max_per_fn + 1, 10_001, Err(PrepareError::TooManyFunctions));
+
+        // check that TooManyFunctions hits before TooManyParamsPerContract
+        check(
+            (max_per_contract + 10_000) / 10_000,
+            10_000,
+            Err(PrepareError::TooManyParamsPerContract),
+        );
+        check((max_per_contract + 10_000) / 10_000, 10_001, Err(PrepareError::TooManyFunctions));
+
+        #[track_caller]
+        fn check(num_params: usize, num_functions: usize, expect: Result<(), PrepareError>) {
+            with_vm_variants(|kind| {
+                let config = test_vm_config(Some(kind));
+                let params =
+                    std::iter::repeat("i32").take(num_params).collect::<Vec<_>>().join(" ");
+                // anonymous function with N parameters and no body
+                let function_def = format!("(func (param {params}))\n");
+                let all_function_defs = function_def.repeat(num_functions);
+                let test_result = parse_and_prepare_wat(
+                    &config,
+                    kind,
+                    &format!(
+                        r#"(module
+                            {all_function_defs}
+                        )"#
+                    ),
+                );
+
+                // NearVM does not have params limit, these are added for Wasmtime
+                if kind == VMKind::NearVm {
+                    match expect {
+                        Ok(_)
+                        | Err(PrepareError::TooManyParamsPerContract)
+                        | Err(PrepareError::TooManyParamsPerFunction) => {
+                            assert!(
+                                test_result.is_ok(),
+                                "got error when expecting ok, {test_result:?}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
+                            );
+                            return;
+                        }
+                        Err(_) => { /* Handle the same as Wasmtime */ }
+                    }
+                }
+
+                if let Err(expected_err) = &expect {
+                    let Err(err) = test_result else {
+                        panic!(
+                            "got Ok expecting error {expected_err}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
+                        );
+                    };
+                    assert_eq!(
+                        err, *expected_err,
+                        "got the wrong error, got {err} but was expecting {expected_err}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
+                    );
+                } else {
+                    assert!(
+                        test_result.is_ok(),
+                        "got error when expecting ok, {test_result:?}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
+                    );
+                }
+            })
+        }
+    }
+
+    /// Reject contracts whose static operand-stack size (bytes) in any single
+    /// function exceeds `max_operand_stack_bytes_per_function`. NearVm doesn't run
+    /// the instrumentation pass and so doesn't enforce this cap.
+    #[test]
+    fn operand_stack_too_large() {
+        with_vm_variants(|kind| {
+            if kind == VMKind::NearVm {
+                return;
+            }
+            // 16 i64 pushes leave 128 bytes on the operand stack at peak.
+            // Cap of 127 should reject; cap of 128 should accept.
+            let push_then_drop = "(i64.const 0) ".repeat(16) + &"(drop) ".repeat(16);
+            let wat = format!(
+                r#"(module
+                    (func (export "main") {push_then_drop})
+                )"#
+            );
+
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_operand_stack_bytes_per_function = Some(127);
+            let r = parse_and_prepare_wat(&config, kind, &wat);
+            assert_matches!(r, Err(PrepareError::OperandStackTooLarge));
+
+            config.limit_config.max_operand_stack_bytes_per_function = Some(128);
+            let r = parse_and_prepare_wat(&config, kind, &wat);
+            assert_matches!(r, Ok(_));
+        })
+    }
 }

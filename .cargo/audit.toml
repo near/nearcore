@@ -18,18 +18,13 @@ ignore = [
     "RUSTSEC-2024-0384",
 
     # The derivative package is unmaintained, but hard to replace right now
-    # because ark-poly depends on it.
+    # because ark-ec depends on it.
     "RUSTSEC-2024-0388",
 
     # burntsushi says the crate is feature complete and needs no maintenance, nagisa also doesn't
     # see any security risk whatsoever to keeping this crate, so we'll be letting it to upgrade out
     # of existence naturally.
     "RUSTSEC-2024-0436",
-
-    # rustls-pemfile is no longer maintained, but it's indirectly required by rust-s3,
-    # which cannot be updated without moving to Rust 1.88
-    # TODO(#14768): Remove this and updated necessary crates to get rid of rustls-pemfile
-    "RUSTSEC-2025-0134",
 
     # libsecp256k1 is unmaintained, but every version of aurora-engine-transactions pulls it in
     # (via aurora-engine-precompiles in 1.1, or aurora-engine-sdk in 1.2+). In the main workspace

@@ -513,6 +513,13 @@ pub struct RuntimeFeesConfig {
     ///
     /// Added with [NEP-536](https://github.com/near/NEPs/pull/536)
     pub min_gas_refund_penalty: Gas,
+
+    /// Compute cost charged when applying a `GlobalContractDistribution`
+    /// receipt on the receiver shard (covers precompilation overhead).
+    pub deploy_global_contract_execution_base: Compute,
+    /// Per-byte compute cost charged when applying a
+    /// `GlobalContractDistribution` receipt, scaled by deployed code size.
+    pub deploy_global_contract_execution_per_byte: Compute,
 }
 
 /// Describes cost of storage per block
@@ -572,6 +579,8 @@ impl RuntimeFeesConfig {
                 ActionCosts::gas_key_byte => Fee::new(59_357_464, 59_357_464, 101_435_400),
                 ActionCosts::gas_key_nonce_write_base => Fee::new(0, 0, 64_196_736_000),
             },
+            deploy_global_contract_execution_base: 0,
+            deploy_global_contract_execution_per_byte: 0,
         }
     }
 
@@ -590,6 +599,8 @@ impl RuntimeFeesConfig {
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
             gas_refund_penalty: Rational32::from_integer(0),
             min_gas_refund_penalty: Gas::ZERO,
+            deploy_global_contract_execution_base: 0,
+            deploy_global_contract_execution_per_byte: 0,
         }
     }
 

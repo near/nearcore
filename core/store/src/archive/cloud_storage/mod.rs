@@ -3,11 +3,11 @@ pub use crate::archive::cloud_storage::batch::{BatchId, BatchRange, compute_next
 pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData};
 pub use crate::archive::cloud_storage::bucket_config::BucketConfig;
 pub use crate::archive::cloud_storage::epoch_data::EpochData;
+pub use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 pub use crate::archive::cloud_storage::shards::{ShardBatch, ShardData};
 use near_external_storage::ExternalConnection;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
-use std::io::{Error, Result};
 
 pub mod config;
 pub mod opener;
@@ -58,10 +58,9 @@ impl CloudStorage {
         epoch_height: EpochHeight,
         epoch_id: EpochId,
         shard_id: ShardId,
-    ) -> Result<ShardStateSyncResponseHeader> {
+    ) -> Result<ShardStateSyncResponseHeader, CloudRetrievalError> {
         let fut = self.retrieve_state_header(epoch_height, epoch_id, shard_id);
-        let state_header = block_on_future(fut).map_err(Error::other)?;
-        Ok(state_header)
+        block_on_future(fut)
     }
 
     pub fn is_state_header_stored(
@@ -69,23 +68,29 @@ impl CloudStorage {
         epoch_height: EpochHeight,
         epoch_id: EpochId,
         shard_id: ShardId,
-    ) -> Result<bool> {
+    ) -> Result<bool, CloudRetrievalError> {
         let dir = ListableCloudDir::StateHeader { epoch_height, epoch_id, shard_id };
-        block_on_future(self.dir_contains(&dir, "header")).map_err(Error::other)
+        block_on_future(self.dir_contains(&dir, "header"))
     }
 
-    pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData> {
-        let epoch_data =
-            block_on_future(self.retrieve_epoch_data(epoch_id)).map_err(Error::other)?;
-        Ok(epoch_data)
+    pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData, CloudRetrievalError> {
+        block_on_future(self.retrieve_epoch_data(epoch_id))
     }
 
     /// Fetches the full block batch containing `block_height`. There is no
     /// single-block fetch on purpose, so callers cannot accidentally call one
     /// in a loop over consecutive heights.
-    pub fn get_block_batch_for_height(&self, block_height: BlockHeight) -> Result<BlockBatch> {
+    pub fn get_block_batch_for_height(
+        &self,
+        block_height: BlockHeight,
+    ) -> Result<BlockBatch, CloudRetrievalError> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
-        block_on_future(self.retrieve_block_batch(batch_id)).map_err(Error::other)
+        let batch = block_on_future(self.retrieve_block_batch(batch_id))?;
+        if block_height < batch.start_height() || block_height > batch.end_height() {
+            // Batch is partial and doesn't cover the requested height (e.g. pre-writer-init).
+            return Err(CloudRetrievalError::NoBlockData { height: block_height });
+        }
+        Ok(batch)
     }
 
     /// Fetches the full shard batch containing `block_height`. See
@@ -94,29 +99,40 @@ impl CloudStorage {
         &self,
         block_height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<ShardBatch> {
+    ) -> Result<ShardBatch, CloudRetrievalError> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
-        block_on_future(self.retrieve_shard_batch(shard_id, batch_id)).map_err(Error::other)
+        let batch = block_on_future(self.retrieve_shard_batch(shard_id, batch_id))?;
+        if block_height < batch.start_height() || block_height > batch.end_height() {
+            // Batch is partial and doesn't cover the requested height (e.g. pre-resharding child).
+            return Err(CloudRetrievalError::NoShardData { height: block_height, shard_id });
+        }
+        Ok(batch)
     }
 
     /// Test-only: fetch a single block's data. Production callers must go
     /// through `get_block_batch_for_height` so consecutive-height loops
-    /// reuse the batch. Tests don't care about that cost.
+    /// reuse the batch. Tests don't care about that cost. Returns `Ok(None)`
+    /// when the height has no block (skipped slot).
     #[cfg(feature = "test_features")]
-    pub fn get_block_data(&self, block_height: BlockHeight) -> Result<BlockData> {
+    pub fn get_block_data(
+        &self,
+        block_height: BlockHeight,
+    ) -> Result<Option<BlockData>, CloudRetrievalError> {
         let batch = self.get_block_batch_for_height(block_height)?;
-        Ok(batch.get_block_at_height(block_height).clone())
+        Ok(batch.get_block_at_height(block_height).cloned())
     }
 
-    /// Test-only: fetch a single shard's data. See `get_block_data`.
+    /// Test-only: fetch a single shard's data. See `get_block_data`. Returns
+    /// `Ok(None)` when the height has no block or this shard's chunk is not
+    /// new at that height.
     #[cfg(feature = "test_features")]
     pub fn get_shard_data(
         &self,
         block_height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<ShardData> {
+    ) -> Result<Option<ShardData>, CloudRetrievalError> {
         let batch = self.get_shard_batch_for_height(block_height, shard_id)?;
-        Ok(batch.get_shard_at_height(block_height).clone())
+        Ok(batch.get_shard_at_height(block_height).cloned())
     }
 }
 
@@ -131,8 +147,69 @@ mod tests {
     use super::CloudStorage;
     use super::batch::BatchId;
     use super::file_id::CloudStorageFileID;
+    use crate::DBCol;
     use crate::archive::cloud_storage::bucket_config::BucketConfig;
     use near_external_storage::ExternalConnection;
+    use strum::IntoEnumIterator;
+
+    /// Cold columns whose data is carried by per-block-height batch blobs in cloud
+    /// archive, either as a direct field of `BlockData` / `ShardData` or extracted
+    /// from one of those at read time.
+    const CLOUD_BATCH_COLUMNS: &[DBCol] = &[
+        // Carried by BlockData (one entry per block).
+        DBCol::Block,
+        DBCol::BlockHeader,
+        DBCol::BlockInfo,
+        DBCol::NextBlockHashes,
+        // Carried by ShardData (one entry per (block, shard)).
+        DBCol::Chunks,
+        DBCol::Transactions,
+        DBCol::Receipts,
+        DBCol::OutcomeIds,
+        DBCol::TransactionResultForBlock,
+        DBCol::ReceiptToTx,
+        DBCol::IncomingReceipts,
+        DBCol::OutgoingReceipts,
+        DBCol::ChunkExtra,
+        DBCol::ChunkApplyStats,
+        DBCol::StateChanges,
+    ];
+
+    /// Cold columns intentionally not carried by batch blobs.
+    const CLOUD_NON_BATCH_COLUMNS: &[DBCol] = &[
+        // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
+        DBCol::BlockPerHeight,
+        // TODO(cloud_archival): reconstruct from Block in the reader.
+        DBCol::ChunkHashesByHeight,
+        // Per-epoch state snapshots cover state, not per-block deltas.
+        DBCol::State,
+        // Per-epoch state snapshots cover the shard-layout mapping that keys state.
+        DBCol::StateShardUIdMapping,
+        // Uploaded as a separate StateHeader file per (epoch_height, shard_id).
+        DBCol::StateHeaders,
+        // Not GC-ed; cloud archive only handles GC-ed data.
+        DBCol::StateChangesForSplitStates,
+        // Spice cold columns - cloud-archive integration is a separate task.
+        #[cfg(feature = "protocol_feature_spice")]
+        DBCol::ReceiptProofs,
+    ];
+
+    /// Every cold column must be classified as either batch-carried or
+    /// intentionally non-batch. A new cold column fails this test until
+    /// classified with a rationale.
+    #[test]
+    fn every_cold_column_is_classified_for_cloud_archive() {
+        for col in DBCol::iter() {
+            if !col.is_cold() {
+                continue;
+            }
+            assert!(
+                CLOUD_BATCH_COLUMNS.contains(&col) ^ CLOUD_NON_BATCH_COLUMNS.contains(&col),
+                "cold column {col:?} must be classified as batch or non-batch \
+                 (with a rationale)"
+            );
+        }
+    }
 
     pub fn test_cloud_storage(tmp_dir: &tempfile::TempDir) -> CloudStorage {
         CloudStorage::new(

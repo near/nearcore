@@ -158,3 +158,36 @@ A feature stabilization request must be approved by at least **two**
 Unless it is a security-related fix, a protocol feature cannot be included in
 any release until at least **one** week after its stabilization. This is to ensure
 that feature implementation and stabilization are not rushed.
+
+### Release tracker issue
+
+Every published release opens or updates a "release tracker" GitHub issue that
+lists the commits present on the release tag but not on `master`. This closes
+the gap where cherry-picked vulnerability fixes go into a release branch first
+and never make it back to `master`, causing regressions on the next release.
+
+The tracker is maintained by `.github/workflows/neard_release.yml` via
+`scripts/track_release_commits.py`. It runs on every `release: published`
+event:
+
+- **Scope by master base.** All patch releases cut from the same point on
+  master (e.g. 2.10.0, 2.10.1, 2.10.2, …) share a single tracker issue,
+  keyed by `git merge-base origin/master <tag>`. A new minor release cut
+  from a later master opens a new issue. Local invocations against a
+  fork can override the master ref with `--master-ref upstream/master`.
+- **Auto-checking.** Commits whose patch is already on master (as detected
+  by `git cherry -v`, which uses patch-ids) are pre-checked `[x]`. Only the
+  `[ ]` entries need release-owner attention.
+- **Reopen on new release.** A closed tracker is automatically reopened
+  when a new release is cut from the same master base, in case there are
+  new commits to review.
+
+**What release owners should do.** For each unchecked item, either:
+
+- merge the corresponding change into `master` via a PR and tick the box
+  once the PR lands, or
+- tick the box and briefly note *why* the commit doesn't belong on master
+  (e.g. "version bump", "voting date", "release-only workaround").
+
+Once every box is ticked, close the issue. If another patch release is cut
+from the same base afterwards, the workflow will reopen it automatically.

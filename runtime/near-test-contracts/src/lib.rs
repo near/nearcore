@@ -2,7 +2,14 @@
 
 use arbitrary::Arbitrary;
 use rand::{Fill, SeedableRng};
+use std::borrow::Cow;
 use std::sync::OnceLock;
+use wasm_encoder::{
+    BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
+    ExportKind, ExportSection, Function, FunctionSection, GlobalSection, GlobalType, Ieee64,
+    ImportSection, Instruction, MemorySection, MemoryType, Module, RefType, TableSection,
+    TableType, TypeSection, ValType,
+};
 
 /// Parse a WASM contract from WAT representation.
 pub fn wat_contract(wat: &str) -> Vec<u8> {
@@ -178,11 +185,6 @@ impl LargeContract {
     ///
     /// Exports a function called `main` that does nothing.
     pub fn make(&self) -> Vec<u8> {
-        use wasm_encoder::{
-            CodeSection, EntityType, ExportKind, ExportSection, Function, FunctionSection,
-            ImportSection, Instruction, Module, TypeSection, ValType,
-        };
-
         // Won't generate a valid WASM without functions.
         assert!(self.functions >= 1, "must specify at least 1 function to be generated");
         let mut module = Module::new();
@@ -224,10 +226,6 @@ impl LargeContract {
 ///
 /// This is particularly useful for testing how gas instrumentation works and its corner cases.
 pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
-    use wasm_encoder::{
-        CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
-        TypeSection,
-    };
     let mut module = Module::new();
     let mut type_section = TypeSection::new();
     type_section.ty().function([], []);
@@ -246,6 +244,219 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
     f.instruction(&Instruction::End);
     code_section.function(&f);
     module.section(&code_section);
+    module.finish()
+}
+
+/// Many zero-initialized globals.
+pub fn contract_with_num_globals(num_globals: u32) -> Vec<u8> {
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    module.section(&funcs);
+    let mut globals = GlobalSection::new();
+    for _ in 0..num_globals {
+        globals.global(
+            GlobalType { val_type: ValType::I32, mutable: false, shared: false },
+            &ConstExpr::i32_const(0),
+        );
+    }
+    module.section(&globals);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut code = CodeSection::new();
+    let mut f = Function::new([]);
+    f.instruction(&Instruction::End);
+    code.function(&f);
+    module.section(&code);
+    module.finish()
+}
+
+/// Many tiny active data segments, each writing 1 byte to memory offset 0.
+pub fn many_data_segments_contract(num_segments: u32) -> Vec<u8> {
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    module.section(&funcs);
+    let mut memories = MemorySection::new();
+    memories.memory(MemoryType {
+        minimum: 1,
+        maximum: None,
+        memory64: false,
+        shared: false,
+        page_size_log2: None,
+    });
+    module.section(&memories);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut data = DataSection::new();
+    for i in 0..num_segments {
+        data.active(0, &ConstExpr::i32_const(0), [i as u8]);
+    }
+    module.section(&data);
+    let mut code = CodeSection::new();
+    let mut f = Function::new([]);
+    f.instruction(&Instruction::End);
+    code.function(&f);
+    module.section(&code);
+    module.finish()
+}
+
+/// Many active element segments, each writing function 0 into table slot 0.
+pub fn many_element_segments_contract(num_segments: u32) -> Vec<u8> {
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    module.section(&funcs);
+    let mut tables = TableSection::new();
+    tables.table(TableType {
+        element_type: RefType::FUNCREF,
+        minimum: 1,
+        maximum: Some(1),
+        table64: false,
+        shared: false,
+    });
+    module.section(&tables);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut elements = ElementSection::new();
+    for _ in 0..num_segments {
+        elements.active(
+            Some(0),
+            &ConstExpr::i32_const(0),
+            Elements::Functions(Cow::Borrowed(&[0u32])),
+        );
+    }
+    module.section(&elements);
+    let mut code = CodeSection::new();
+    let mut f = Function::new([]);
+    f.instruction(&Instruction::End);
+    code.function(&f);
+    module.section(&code);
+    module.finish()
+}
+
+/// A contract with many nested blocks approaching protocol limits, maximizing
+/// gas-instrumentation overhead and Winch compilation work.
+pub fn max_blocks_contract(num_functions: u32, blocks_per_function: u32) -> Vec<u8> {
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    for _ in 0..num_functions {
+        funcs.function(0);
+    }
+    module.section(&funcs);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut code = CodeSection::new();
+    for _ in 0..num_functions {
+        let mut f = Function::new([]);
+        for _ in 0..blocks_per_function {
+            f.instruction(&Instruction::Block(BlockType::Empty));
+            f.instruction(&Instruction::End);
+        }
+        f.instruction(&Instruction::End);
+        code.function(&f);
+    }
+    module.section(&code);
+    module.finish()
+}
+
+/// Tight f64.add infinite loop for NaN-canonicalization measurement.
+pub fn float_nan_loop_contract() -> Vec<u8> {
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    module.section(&funcs);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut code = CodeSection::new();
+    let mut f = Function::new([(1, ValType::F64)]);
+    f.instruction(&Instruction::Loop(BlockType::Empty));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::F64Const(Ieee64::from(1.5_f64)));
+    f.instruction(&Instruction::F64Add);
+    f.instruction(&Instruction::LocalSet(0));
+    f.instruction(&Instruction::Br(0));
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::End);
+    code.function(&f);
+    module.section(&code);
+    module.finish()
+}
+
+/// Tight i64.div_u infinite loop for wide-arithmetic calibration measurement.
+pub fn wide_arithmetic_loop_contract() -> Vec<u8> {
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    module.section(&funcs);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut code = CodeSection::new();
+    let mut f = Function::new([(1, ValType::I64)]);
+    f.instruction(&Instruction::Loop(BlockType::Empty));
+    // local += 7, then divide by 3; the value cycles and stays non-zero (never div-by-zero)
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I64Const(7));
+    f.instruction(&Instruction::I64Add);
+    f.instruction(&Instruction::I64Const(3));
+    f.instruction(&Instruction::I64DivU);
+    f.instruction(&Instruction::LocalSet(0));
+    f.instruction(&Instruction::Br(0));
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::End);
+    code.function(&f);
+    module.section(&code);
+    module.finish()
+}
+
+/// Tight i64.add infinite loop — baseline for NaN-canonicalization comparison.
+pub fn int_baseline_loop_contract() -> Vec<u8> {
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([], []);
+    module.section(&types);
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    module.section(&funcs);
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
+    let mut code = CodeSection::new();
+    let mut f = Function::new([(1, ValType::I64)]);
+    f.instruction(&Instruction::Loop(BlockType::Empty));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I64Const(1));
+    f.instruction(&Instruction::I64Add);
+    f.instruction(&Instruction::LocalSet(0));
+    f.instruction(&Instruction::Br(0));
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::End);
+    code.function(&f);
+    module.section(&code);
     module.finish()
 }
 

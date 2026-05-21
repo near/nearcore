@@ -22,9 +22,7 @@ pub(crate) struct AccountBalanceRequest {
 /// an account has a balance for each AccountIdentifier describing it (ex: an
 /// ERC-20 token balance on a few smart contracts), an account balance request
 /// must be made with each AccountIdentifier.
-/// cspell:words frunk
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
-#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub(crate) struct AccountBalanceResponse {
     pub block_identifier: BlockIdentifier,
 
@@ -650,7 +648,6 @@ pub(crate) enum SyncStage {
     NoSync,
     HeaderSync,
     StateSync,
-    StateSyncDone,
     BlockSync,
     // DEPRECATED. Keeping for backwards compatibility.
     // TODO: Delete in 1.38.

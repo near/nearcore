@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use near_primitives_core::account;
 pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;
@@ -38,7 +36,7 @@ pub mod sandbox;
 pub mod shard_layout;
 pub mod sharding;
 pub mod signable_message;
-pub mod spice_partial_data;
+pub mod spice;
 pub mod state;
 pub mod state_part;
 pub mod state_record;

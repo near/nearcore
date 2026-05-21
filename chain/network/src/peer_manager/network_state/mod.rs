@@ -26,7 +26,7 @@ use crate::private_messages::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
-use crate::spice_data_distribution::{
+use crate::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage, SpiceDataDistributorSenderForNetwork,
     SpiceIncomingPartialData,
@@ -888,10 +888,20 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitness(witness) => {
-                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessMessage(witness.into()));
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessForwardMessage(witness.into()));
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitness(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(witness) => {
                     self.partial_witness_adapter
                         .send(PartialEncodedStateWitnessForwardMessage(witness));
                     None

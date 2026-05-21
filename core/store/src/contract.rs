@@ -109,10 +109,10 @@ impl ContractStorage {
             // Note that this does not cause any correctness issue, because the pipeline stops processing when
             // it hits a new deployment, so the contract requested by the pipeline will not be in the committed or
             // uncommitted deployment list.
-            if let Some(tracker) = guard.as_ref() {
-                if let Some(contract) = tracker.get(code_hash.into()) {
-                    return Some(ContractCode::new(contract.code().to_vec(), Some(code_hash)));
-                }
+            if let Some(tracker) = guard.as_ref()
+                && let Some(contract) = tracker.get(code_hash.into())
+            {
+                return Some(ContractCode::new(contract.code().to_vec(), Some(code_hash)));
             }
         }
 

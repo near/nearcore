@@ -5,7 +5,7 @@ use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use itertools::Itertools;
-use near_crypto::{KeyType, PublicKey};
+use near_crypto::{KeyHandle, KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
@@ -17,7 +17,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers::{
-    self, parse_nonce_index_from_gas_key_key, parse_public_key_from_access_key_key,
+    self, parse_key_handle_from_access_key_key, parse_nonce_index_from_gas_key_key,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
@@ -29,6 +29,8 @@ use near_store::trie::AccessOptions;
 use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use std::num::NonZeroU32;
+use std::ops::Bound;
 use std::{str, sync::Arc, time::Instant};
 
 pub mod errors;
@@ -155,20 +157,20 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
+    ) -> Result<Vec<(KeyHandle, AccessKey)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let access_keys =
             state_update
                 .iter(&prefix)?
                 .map(|key| {
                     let key = key?;
-                    let public_key = parse_public_key_from_access_key_key(&key, account_id)
+                    let key_handle = parse_key_handle_from_access_key_key(&key, account_id)
                         .map_err(|_| errors::ViewAccessKeyError::InternalError {
                             error_message: "Unexpected invalid access key from iterator"
                                 .to_string(),
                         })?;
                     if let Some(_index) =
-                        parse_nonce_index_from_gas_key_key(&key, account_id, &public_key).map_err(
+                        parse_nonce_index_from_gas_key_key(&key, account_id, &key_handle).map_err(
                             |_| errors::ViewAccessKeyError::InternalError {
                                 error_message: "could not parse nonce index".to_string(),
                             },
@@ -177,12 +179,18 @@ impl TrieViewer {
                         // This is a gas key nonce, skip it.
                         return Ok(None);
                     }
-                    let access_key = get_access_key(state_update, account_id, &public_key)?
-                        .ok_or_else(|| errors::ViewAccessKeyError::AccessKeyDoesNotExist {
-                            public_key: public_key.clone(),
-                        })?;
+                    let access_key = near_store::get_access_key_by_handle(
+                        state_update,
+                        account_id,
+                        &key_handle,
+                    )?
+                    .ok_or_else(|| {
+                        near_primitives::errors::StorageError::StorageInconsistentState(format!(
+                            "iterator yielded an access-key trie key with no value: {key_handle}"
+                        ))
+                    })?;
 
-                    Ok(Some((public_key, access_key)))
+                    Ok(Some((key_handle, access_key)))
                 })
                 .filter_map_ok(|x| x)
                 .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
@@ -224,43 +232,97 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
+        after_key: Option<&[u8]>,
+        limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
-        match get_account(state_update, account_id)? {
-            Some(account) => {
-                let code_len = state_update
-                    .get_code_len(
-                        account_id.clone(),
-                        account.local_contract_hash().unwrap_or_default(),
-                    )?
-                    .unwrap_or_default() as u64;
-                if let Some(limit) = self.state_size_limit {
-                    if account.storage_usage().saturating_sub(code_len) > limit {
-                        return Err(errors::ViewStateError::AccountStateTooLarge {
-                            requested_account_id: account_id.clone(),
-                        });
-                    }
-                }
+        let paginated = limit.is_some() || after_key.is_some();
+        if paginated && include_proof {
+            return Err(errors::ViewStateError::ProofUnsupportedWithPagination);
+        }
+        if let Some(after_key) = after_key {
+            if !after_key.starts_with(prefix) {
+                return Err(errors::ViewStateError::AfterKeyOutsidePrefix);
             }
-            None => {
-                return Err(errors::ViewStateError::AccountDoesNotExist {
-                    requested_account_id: account_id.clone(),
-                });
-            }
+        }
+
+        let Some(account) = get_account(state_update, account_id)? else {
+            return Err(errors::ViewStateError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
         };
 
-        let mut values = vec![];
+        // Legacy per-account gate — paginated callers opt out of it.
+        if !paginated {
+            let code_len = state_update
+                .get_code_len(
+                    account_id.clone(),
+                    account.local_contract_hash().unwrap_or_default(),
+                )?
+                .unwrap_or_default() as u64;
+            if let Some(limit) = self.state_size_limit {
+                if account.storage_usage().saturating_sub(code_len) > limit {
+                    return Err(errors::ViewStateError::AccountStateTooLarge {
+                        requested_account_id: account_id.clone(),
+                    });
+                }
+            }
+        }
+
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie().disk_iter()?;
         iter.remember_visited_nodes(include_proof);
-        iter.seek_prefix(&query)?;
+
+        match after_key {
+            None => iter.seek_prefix(&query)?,
+            Some(after_key) => {
+                let mut full = query[..acc_sep_len].to_vec();
+                full.extend_from_slice(after_key);
+                iter.seek(Bound::Excluded(full))?;
+            }
+        }
+
+        // Per-page caps, separate from the `trie_viewer_state_size_limit` that pagination skips.
+        // The byte cap is soft: it's checked before each append, so a page can run one item over.
+        const MAX_VIEW_STATE_PAGE_ITEMS: u32 = 10_000;
+        const MAX_VIEW_STATE_PAGE_BYTES: u64 = 50_000;
+
+        let (item_cap, byte_cap) = if paginated {
+            let items = limit
+                .map_or(MAX_VIEW_STATE_PAGE_ITEMS, NonZeroU32::get)
+                .min(MAX_VIEW_STATE_PAGE_ITEMS);
+            (Some(items), Some(MAX_VIEW_STATE_PAGE_BYTES))
+        } else {
+            (None, None)
+        };
+
+        // Pre-allocate only for an explicit `limit`; the default page size is too big to assume.
+        let mut values = match (limit, item_cap) {
+            (Some(_), Some(cap)) => Vec::with_capacity(cap as usize),
+            _ => Vec::new(),
+        };
+        let mut used_bytes: u64 = 0;
+        let mut last_key = None;
+
         for item in &mut iter {
             let (key, value) = item?;
+            // `seek` (resumed pages) is not prefix-bounded — stop at the account edge.
+            if !key.starts_with(&query) {
+                break;
+            }
+            let hit_items = item_cap.is_some_and(|cap| values.len() as u64 >= u64::from(cap));
+            let hit_bytes = byte_cap.is_some_and(|cap| used_bytes >= cap);
+            if hit_items || hit_bytes {
+                // At least one more item exists; resume after the last we kept.
+                last_key = values.last().map(|it: &StateItem| it.key.clone());
+                break;
+            }
+            used_bytes += (key.len() + value.len()) as u64;
             values.push(StateItem { key: key[acc_sep_len..].to_vec().into(), value: value.into() });
         }
         let proof = iter.into_visited_nodes();
-        Ok(ViewStateResult { values, proof })
+        Ok(ViewStateResult { values, proof, last_key })
     }
 
     pub fn call_function(
@@ -301,6 +363,7 @@ impl TrieViewer {
             random_seed: root,
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
+            next_wasm_config: None,
             cache: view_state.cache,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -331,6 +394,7 @@ impl TrieViewer {
         });
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
+            apply_state.next_wasm_config.clone(),
             apply_state.cache.as_ref().map(|v| v.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),

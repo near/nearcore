@@ -1,4 +1,5 @@
 use crate::access_keys::initial_nonce_value;
+use crate::cache_warming::precompile_contract_with_warming;
 use crate::config::{
     safe_add_compute, storage_removes_compute, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
@@ -6,6 +7,7 @@ use crate::config::{
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
+use near_parameters::vm::Config as VmConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
 };
@@ -32,7 +34,6 @@ use near_store::{
     StorageError, TrieAccess, TrieUpdate, compute_gas_key_balance_sum, get_access_key,
     remove_account, set_access_key,
 };
-use near_vm_runner::precompile_contract;
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::{
     eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
@@ -218,7 +219,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 Balance::ZERO,
                 AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
-                    + public_key.len() as u64
+                    + public_key.trie_id_len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
             ));
@@ -265,13 +266,15 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
-                // is a no-op if the contract was already compiled.
-                precompile_contract(
+                // is a no-op if the contract was already compiled. If a protocol upgrade with a
+                // different `wasm_config` is scheduled for the next epoch, also warm the new
+                // cache key in the background.
+                precompile_contract_with_warming(
                     &wallet_contract(contract_hash).expect("should definitely exist"),
                     Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
-                )
-                .ok();
+                );
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
         }
@@ -292,7 +295,8 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
-    config: Arc<near_parameters::vm::Config>,
+    config: Arc<VmConfig>,
+    next_config: Option<Arc<VmConfig>>,
     cache: Option<&dyn ContractRuntimeCache>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
@@ -319,11 +323,12 @@ pub(crate) fn action_deploy_contract(
     // contracts into the storage as part of the commit routine, however no code should be relying
     // that the contracts are written to The State.
     state_update.set_code(account_id.clone(), &code);
-    // Precompile the contract and store result (compiled code or error) in the contract runtime
-    // cache.
-    // Note, that contract compilation costs are already accounted in deploy cost using special
-    // logic in estimator (see get_runtime_config() function).
-    precompile_contract(&code, config, cache).ok();
+    // Precompile the contract under the current `wasm_config`. If a protocol upgrade with a
+    // different `wasm_config` is scheduled for the next epoch, also schedule a fire-and-forget
+    // warming compile under the new config so the on-disk cache is hot at the boundary.
+    // Note: contract compilation costs are already accounted in deploy cost using special logic
+    // in estimator (see get_runtime_config() function).
+    precompile_contract_with_warming(&code, config, next_config, cache);
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)
@@ -989,6 +994,7 @@ mod tests {
             &deploy_action,
             Arc::clone(&apply_state.config.wasm_config),
             None,
+            None,
             apply_state.current_protocol_version,
         );
         assert!(res.is_ok());
@@ -1072,6 +1078,7 @@ mod tests {
             random_seed: CryptoHash::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,

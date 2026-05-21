@@ -136,10 +136,6 @@ unnecessary_join = "deny"
 unnecessary_lazy_evaluations = "deny"
 unused_async = "deny"
 
-[workspace.lints.rust]
-# Will take effect since Rust 1.80, produces unused warning before it: https://github.com/rust-lang/cargo/pull/13913
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
-
 [workspace.dependencies]
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
@@ -339,7 +335,7 @@ regex = "1.7.1"
 region = "3.0"
 reqwest = { version = "0.13", features = ["blocking", "native-tls-vendored", "form", "query"] }
 ripemd = "0.1.1"
-rkyv = "0.8.13"
+rkyv = "0.8.16"
 rlimit = "0.7"
 rlp = "0.5.2"
 rocksdb = { version = "0.21.0", default-features = false }
