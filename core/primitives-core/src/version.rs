@@ -506,6 +506,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::ContinuousEpochSync => 85,
+
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
