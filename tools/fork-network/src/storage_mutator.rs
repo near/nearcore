@@ -228,7 +228,7 @@ impl StorageMutator {
         if self.target_shards.contains(&source_shard_uid) {
             let shard_idx =
                 self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
-            self.remove(shard_idx, TrieKey::AccessKey { account_id, public_key })?;
+            self.remove(shard_idx, TrieKey::access_key(account_id, public_key))?;
         }
         Ok(())
     }
@@ -242,7 +242,7 @@ impl StorageMutator {
     ) -> anyhow::Result<()> {
         self.set(
             shard_idx,
-            TrieKey::AccessKey { account_id, public_key },
+            TrieKey::access_key(account_id, public_key),
             borsh::to_vec(&access_key).unwrap(),
         )
     }
@@ -257,7 +257,7 @@ impl StorageMutator {
         if self.target_shards.contains(&source_shard_uid) {
             let shard_idx =
                 self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
-            self.remove(shard_idx, TrieKey::GasKeyNonce { account_id, public_key, index })?;
+            self.remove(shard_idx, TrieKey::gas_key_nonce(account_id, public_key, index))?;
         }
         Ok(())
     }
@@ -272,7 +272,7 @@ impl StorageMutator {
     ) -> anyhow::Result<()> {
         self.set(
             shard_idx,
-            TrieKey::GasKeyNonce { account_id, public_key, index },
+            TrieKey::gas_key_nonce(account_id, public_key, index),
             borsh::to_vec(&nonce).unwrap(),
         )
     }

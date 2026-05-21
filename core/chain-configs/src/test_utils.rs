@@ -217,11 +217,7 @@ pub fn add_account_with_key(
         account_id: account_id.clone(),
         account: Account::new(amount, staked, AccountContract::from_local_code_hash(code_hash), 0),
     });
-    records.push(StateRecord::AccessKey {
-        account_id,
-        public_key: public_key.clone(),
-        access_key: AccessKey::full_access(),
-    });
+    records.push(StateRecord::access_key(account_id, public_key, AccessKey::full_access()));
 }
 
 pub fn random_chain_id() -> String {
