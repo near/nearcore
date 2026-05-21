@@ -99,10 +99,16 @@ pub(crate) fn keys_from_source_db(
         QueryResponseKind::AccessKeyList(l) => Ok(l
             .keys
             .into_iter()
-            .map(|k| SecretAccessKey {
-                mapped_key: crate::key_mapping::map_key(&k.public_key, secret),
-                original_key: Some(k.public_key),
-                permission: Some(k.access_key.permission),
+            .filter_map(|k| {
+                // Mirror does not support ML-DSA-65 today; hash-form
+                // entries can't be mapped because the full pubkey is not
+                // recoverable. See key_mapping.rs for the matching panic.
+                let full_pk = k.public_key.full_pubkey()?;
+                Some(SecretAccessKey {
+                    mapped_key: crate::key_mapping::map_key(&full_pk, secret),
+                    original_key: Some(full_pk),
+                    permission: Some(k.access_key.permission),
+                })
             })
             .collect()),
         _ => unreachable!(),
@@ -137,10 +143,16 @@ pub(crate) async fn keys_from_rpc(
         RpcQueryResponseKind::AccessKeyList(l) => Ok(l
             .keys
             .into_iter()
-            .map(|k| SecretAccessKey {
-                mapped_key: crate::key_mapping::map_key(&k.public_key, secret),
-                original_key: Some(k.public_key),
-                permission: Some(k.access_key.permission),
+            .filter_map(|k| {
+                // Mirror does not support ML-DSA-65 today; hash-form
+                // entries can't be mapped because the full pubkey is not
+                // recoverable. See key_mapping.rs for the matching panic.
+                let full_pk = k.public_key.full_pubkey()?;
+                Some(SecretAccessKey {
+                    mapped_key: crate::key_mapping::map_key(&full_pk, secret),
+                    original_key: Some(full_pk),
+                    permission: Some(k.access_key.permission),
+                })
             })
             .collect()),
         k => {

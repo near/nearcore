@@ -1132,13 +1132,13 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
-        "description": "Describes information about an access key including the public key.",
+        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest\n(the full pubkey is not stored on-chain).",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
           },
           "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "$ref": "#/components/schemas/KeyHandle"
           }
         },
         "required": [
@@ -11051,6 +11051,9 @@
         "title": "JsonRpcResponse_for_RpcViewStateResponse_and_RpcViewStateError",
         "type": "object"
       },
+      "KeyHandle": {
+        "type": "string"
+      },
       "KnownProducerView": {
         "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
         "properties": {
@@ -15040,8 +15043,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -15369,8 +15391,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -15698,8 +15739,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -18861,9 +18921,30 @@
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
           },
+          "after_key_base64": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "default": null
+          },
           "include_proof": {
             "default": false,
             "type": "boolean"
+          },
+          "limit": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
           },
           "prefix_base64": {
             "$ref": "#/components/schemas/StoreKey"
@@ -18886,6 +18967,19 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
           },
           "proof": {
             "items": {
@@ -19770,7 +19864,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -19801,7 +19895,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -19842,7 +19936,7 @@
                     "type": "integer"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -20937,6 +21031,19 @@
       "ViewStateResult": {
         "description": "Resulting state values for a view state query request",
         "properties": {
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
           "proof": {
             "items": {
               "type": "string"

@@ -219,7 +219,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 Balance::ZERO,
                 AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
-                    + public_key.len() as u64
+                    + public_key.trie_id_len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
             ));

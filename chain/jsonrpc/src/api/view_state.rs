@@ -8,7 +8,14 @@ use serde_json::Value;
 
 impl RpcRequest for RpcViewStateRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Params::parse(value)
+        let request: Self = Params::parse(value)?;
+        super::validate_view_state_pagination(
+            request.prefix.as_slice(),
+            request.after_key.as_ref().map(|k| k.as_slice()),
+            request.limit,
+            request.include_proof,
+        )?;
+        Ok(request)
     }
 }
 

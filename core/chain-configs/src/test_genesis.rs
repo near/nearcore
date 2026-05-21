@@ -514,30 +514,30 @@ impl TestGenesisBuilder {
                 ),
             });
             for access_key in &user_account.access_keys {
-                records.push(StateRecord::AccessKey {
-                    account_id: user_account.account_id.clone(),
-                    public_key: access_key.clone(),
-                    access_key: AccessKey {
+                records.push(StateRecord::access_key(
+                    user_account.account_id.clone(),
+                    access_key,
+                    AccessKey {
                         nonce: 0,
                         permission: near_primitives::account::AccessKeyPermission::FullAccess,
                     },
-                });
+                ));
             }
             for gas_key in &user_account.gas_keys {
                 let num_nonces =
                     u16::try_from(gas_key.nonces.len()).expect("too many gas-key nonces");
-                records.push(StateRecord::AccessKey {
-                    account_id: user_account.account_id.clone(),
-                    public_key: gas_key.public_key.clone(),
-                    access_key: AccessKey::gas_key_full_access(num_nonces),
-                });
+                records.push(StateRecord::access_key(
+                    user_account.account_id.clone(),
+                    &gas_key.public_key,
+                    AccessKey::gas_key_full_access(num_nonces),
+                ));
                 for (slot, nonce) in gas_key.nonces.iter().enumerate() {
-                    records.push(StateRecord::GasKeyNonce {
-                        account_id: user_account.account_id.clone(),
-                        public_key: gas_key.public_key.clone(),
-                        index: slot as NonceIndex,
-                        nonce: *nonce,
-                    });
+                    records.push(StateRecord::gas_key_nonce(
+                        user_account.account_id.clone(),
+                        &gas_key.public_key,
+                        slot as NonceIndex,
+                        *nonce,
+                    ));
                 }
             }
         }

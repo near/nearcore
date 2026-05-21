@@ -171,6 +171,14 @@ impl PublicKey {
             Self::ED25519(_) => panic!(),
         }
     }
+
+    /// Length, in bytes, of the on-trie identifier for an access-key
+    /// entry owned by this public key. Equivalent to
+    /// `KeyHandle::from(self).trie_id_len()` — kept as a shortcut for
+    /// storage-fee calculations on the runtime side.
+    pub fn trie_id_len(&self) -> usize {
+        KeyHandle::from(self).trie_id_len()
+    }
 }
 
 // This `Hash` implementation is safe since it retains the property
@@ -192,11 +200,10 @@ impl Hash for PublicKey {
 
 impl Display for PublicKey {
     fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
-        let (key_type, key_data) = match self {
-            PublicKey::ED25519(public_key) => (KeyType::ED25519, &public_key.0[..]),
-            PublicKey::SECP256K1(public_key) => (KeyType::SECP256K1, &public_key.0[..]),
-        };
-        write!(fmt, "{}:{}", key_type, Bs58(key_data))
+        match self {
+            PublicKey::ED25519(pk) => write!(fmt, "{}:{}", KeyType::ED25519, Bs58(&pk.0[..])),
+            PublicKey::SECP256K1(pk) => write!(fmt, "{}:{}", KeyType::SECP256K1, Bs58(&pk.0[..])),
+        }
     }
 }
 
@@ -224,15 +231,17 @@ impl BorshSerialize for PublicKey {
 
 impl BorshDeserialize for PublicKey {
     fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
-        let key_type = KeyType::try_from(u8::deserialize_reader(rd)?)
-            .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
-        match key_type {
-            KeyType::ED25519 => {
+        let tag = u8::deserialize_reader(rd)?;
+        match tag {
+            0 => {
                 Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
-            KeyType::SECP256K1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
+            1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
                 BorshDeserialize::deserialize_reader(rd)?,
             ))),
+            other => {
+                Err(Error::new(ErrorKind::InvalidData, format!("unknown PublicKey tag {other}")))
+            }
         }
     }
 }
@@ -292,6 +301,179 @@ impl From<ED25519PublicKey> for PublicKey {
 impl From<Secp256K1PublicKey> for PublicKey {
     fn from(secp256k1: Secp256K1PublicKey) -> Self {
         Self::SECP256K1(secp256k1)
+    }
+}
+
+/// How an access-key entry is referred to in the trie.
+///
+/// `KeyHandle` is the type the trie-key layer reads and writes, and the
+/// type used by view-API responses that list an account's keys. For
+/// ed25519 and secp256k1 it is just the full public key, encoded
+/// exactly as `PublicKey` is. It exists as a separate type so a future
+/// post-quantum scheme can store a *hash* of its (very large) full
+/// public key in the trie without bloating the `PublicKey` enum with a
+/// "phantom" hash variant that can't be used for verification.
+///
+/// TODO(post-quantum): add an `MlDsa65Hash(MlDsa65PublicKeyHash)`
+/// variant alongside the existing ones when ML-DSA-65 lands. The
+/// SHA3-384 of the 1952-byte pubkey is what will live in the trie; the
+/// full pubkey will only travel on the wire.
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, ProtocolSchema)]
+pub enum KeyHandle {
+    /// Full ed25519 public key, as stored in the trie.
+    ED25519(ED25519PublicKey),
+    /// Full secp256k1 public key, as stored in the trie.
+    SECP256K1(Secp256K1PublicKey),
+}
+
+// `Hash` is implemented manually because `ED25519PublicKey` and
+// `Secp256K1PublicKey` don't derive `Hash` (they predate the need).
+// The encoding mirrors `PublicKey`'s manual `Hash` impl so an
+// ed25519/secp256k1 `KeyHandle` hashes to the same bytes as the
+// corresponding `PublicKey` would.
+impl Hash for KeyHandle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Self::ED25519(k) => {
+                state.write_u8(0u8);
+                state.write(&k.0);
+            }
+            Self::SECP256K1(k) => {
+                state.write_u8(1u8);
+                state.write(&k.0);
+            }
+        }
+    }
+}
+
+impl KeyHandle {
+    /// Length, in bytes, of this handle's on-trie encoding.
+    pub fn trie_id_len(&self) -> usize {
+        match self {
+            Self::ED25519(_) => 1 + ed25519_dalek::PUBLIC_KEY_LENGTH,
+            Self::SECP256K1(_) => 1 + 64,
+        }
+    }
+
+    /// Key-type tag for this handle.
+    pub fn key_type(&self) -> KeyType {
+        match self {
+            Self::ED25519(_) => KeyType::ED25519,
+            Self::SECP256K1(_) => KeyType::SECP256K1,
+        }
+    }
+
+    /// Returns the underlying full public key. Always `Some` today; will
+    /// return `None` for the future `MlDsa65Hash` variant where the trie
+    /// holds only a digest and the full pubkey is not recoverable.
+    pub fn full_pubkey(&self) -> Option<PublicKey> {
+        match self {
+            Self::ED25519(k) => Some(PublicKey::ED25519(k.clone())),
+            Self::SECP256K1(k) => Some(PublicKey::SECP256K1(k.clone())),
+        }
+    }
+}
+
+impl From<PublicKey> for KeyHandle {
+    fn from(pk: PublicKey) -> Self {
+        match pk {
+            PublicKey::ED25519(k) => Self::ED25519(k),
+            PublicKey::SECP256K1(k) => Self::SECP256K1(k),
+        }
+    }
+}
+
+impl From<&PublicKey> for KeyHandle {
+    fn from(pk: &PublicKey) -> Self {
+        match pk {
+            PublicKey::ED25519(k) => Self::ED25519(k.clone()),
+            PublicKey::SECP256K1(k) => Self::SECP256K1(k.clone()),
+        }
+    }
+}
+
+impl Display for KeyHandle {
+    fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
+        match self {
+            Self::ED25519(k) => write!(fmt, "{}:{}", KeyType::ED25519, Bs58(&k.0[..])),
+            Self::SECP256K1(k) => write!(fmt, "{}:{}", KeyType::SECP256K1, Bs58(&k.0[..])),
+        }
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for KeyHandle {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "KeyHandle".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(generator)
+    }
+}
+
+impl Debug for KeyHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        Display::fmt(self, f)
+    }
+}
+
+impl FromStr for KeyHandle {
+    type Err = crate::errors::ParseKeyError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (key_type, key_data) = split_key_type_data(value)?;
+        match key_type {
+            KeyType::ED25519 => Ok(Self::ED25519(ED25519PublicKey(decode_bs58(key_data)?))),
+            KeyType::SECP256K1 => {
+                Ok(Self::SECP256K1(Secp256K1PublicKey::from(decode_bs58::<64>(key_data)?)))
+            }
+        }
+    }
+}
+
+impl serde::Serialize for KeyHandle {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for KeyHandle {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = <String as serde::Deserialize>::deserialize(d)?;
+        s.parse()
+            .map_err(|err: crate::errors::ParseKeyError| serde::de::Error::custom(err.to_string()))
+    }
+}
+
+impl BorshSerialize for KeyHandle {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            Self::ED25519(k) => {
+                BorshSerialize::serialize(&0u8, writer)?;
+                writer.write_all(&k.0)?;
+            }
+            Self::SECP256K1(k) => {
+                BorshSerialize::serialize(&1u8, writer)?;
+                writer.write_all(k.as_ref())?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for KeyHandle {
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let tag = u8::deserialize_reader(rd)?;
+        match tag {
+            0 => Ok(Self::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?))),
+            1 => Ok(Self::SECP256K1(Secp256K1PublicKey::from(
+                <[u8; 64] as BorshDeserialize>::deserialize_reader(rd)?,
+            ))),
+            other => {
+                Err(Error::new(ErrorKind::InvalidData, format!("unknown KeyHandle tag {other}")))
+            }
+        }
     }
 }
 
@@ -497,10 +679,10 @@ impl TryFrom<&[u8]> for Secp256K1Signature {
     type Error = crate::errors::ParseSignatureError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(data.try_into().map_err(|_| Self::Error::InvalidLength {
-            expected_length: 65,
+        data.try_into().map(Self).map_err(|_| Self::Error::InvalidLength {
+            expected_length: SECP256K1_SIGNATURE_LENGTH,
             received_length: data.len(),
-        })?))
+        })
     }
 }
 
@@ -731,11 +913,11 @@ struct Bs58<'a>(&'a [u8]);
 
 impl<'a> core::fmt::Display for Bs58<'a> {
     fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        debug_assert!(self.0.len() <= 65);
-        // The largest buffer we’re ever encoding is 65-byte long.  Base58
-        // increases size of the value by less than 40%.  96-byte buffer is
-        // therefore enough to fit the largest value we’re ever encoding.
-        let mut buf = [0u8; 96];
+        // Base58 inflates input by less than 40%; round up generously and add
+        // a small fixed overhead for short inputs.  This avoids stack-buffer
+        // assumptions that broke for ML-DSA-65 keys/signatures (>1 KiB).
+        let buf_len = self.0.len().saturating_mul(2).saturating_add(8);
+        let mut buf = vec![0u8; buf_len];
         let len = bs58::encode(self.0).into(&mut buf[..]).unwrap();
         let output = &buf[..len];
         // SAFETY: we know that alphabet can only include ASCII characters
@@ -775,10 +957,7 @@ impl std::convert::From<DecodeBs58Error> for crate::errors::ParseKeyError {
     fn from(err: DecodeBs58Error) -> Self {
         match err {
             DecodeBs58Error::BadLength { expected, received } => {
-                crate::errors::ParseKeyError::InvalidLength {
-                    expected_length: expected,
-                    received_length: received,
-                }
+                Self::InvalidLength { expected_length: expected, received_length: received }
             }
             DecodeBs58Error::BadData(error_message) => Self::InvalidData { error_message },
         }
@@ -921,5 +1100,38 @@ mod tests {
         assert!(serde_json::from_str::<PublicKey>(invalid).is_err());
         assert!(serde_json::from_str::<SecretKey>(invalid).is_err());
         assert!(serde_json::from_str::<Signature>(invalid).is_err());
+    }
+
+    /// `KeyHandle::trie_id_len` matches the borsh length for ed25519 and
+    /// secp256k1 schemes.
+    #[cfg(feature = "rand")]
+    #[test]
+    fn test_key_handle_trie_id_len_per_scheme() {
+        use super::KeyHandle;
+        let ed: KeyHandle = SecretKey::from_seed(KeyType::ED25519, "x").public_key().into();
+        let sk: KeyHandle = SecretKey::from_seed(KeyType::SECP256K1, "x").public_key().into();
+        assert_eq!(ed.trie_id_len(), 33);
+        assert_eq!(sk.trie_id_len(), 65);
+    }
+
+    /// Backwards-compat: borsh-encoded `KeyHandle::ED25519`/`SECP256K1`
+    /// matches the borsh encoding of the corresponding `PublicKey`. This
+    /// guarantees that switching `TrieKey::AccessKey` from `PublicKey` to
+    /// `KeyHandle` does NOT change the bytes written to the trie for
+    /// existing ed25519/secp256k1 access keys.
+    #[cfg(feature = "rand")]
+    #[test]
+    fn test_key_handle_backwards_compat_ed25519_secp256k1_bytes() {
+        use super::KeyHandle;
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
+            let pk = SecretKey::from_seed(key_type, "bc").public_key();
+            let pk_bytes = borsh::to_vec(&pk).unwrap();
+            let kh: KeyHandle = (&pk).into();
+            let kh_bytes = borsh::to_vec(&kh).unwrap();
+            assert_eq!(
+                pk_bytes, kh_bytes,
+                "KeyHandle full-key encoding must match PublicKey encoding for {key_type:?}"
+            );
+        }
     }
 }
