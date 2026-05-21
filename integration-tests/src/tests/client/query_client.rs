@@ -18,9 +18,9 @@ use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_primitives::views::{QueryRequest, QueryResponseKind, TxExecutionStatus};
 use num_rational::Ratio;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
 use std::sync::Arc;
 
 /// Query account from view client
