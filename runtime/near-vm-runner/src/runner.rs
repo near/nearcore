@@ -1,13 +1,11 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::{External, VMContext, VMOutcome};
-use crate::metrics::record_execution_duration;
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{Config, VMKind};
 use near_primitives_core::hash::CryptoHash;
 use std::sync::Arc;
-use std::time::Instant;
 
 /// Returned by VM::run method.
 ///
@@ -95,9 +93,11 @@ pub fn run(
     fees_config: Arc<RuntimeFeesConfig>,
 ) -> VMResult {
     let span = tracing::Span::current();
-    let start = Instant::now();
+    #[cfg(feature = "metrics")]
+    let start = std::time::Instant::now();
     let outcome = prepared.run(ext, context, fees_config);
-    record_execution_duration(start.elapsed());
+    #[cfg(feature = "metrics")]
+    crate::metrics::record_execution_duration(start.elapsed());
     let outcome = match outcome {
         Ok(o) => o,
         e @ Err(_) => return e,
