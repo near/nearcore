@@ -379,7 +379,7 @@ impl IntoVMError for wasmtime::Error {
         }
         if let Some(trap) = cause.downcast_ref::<wasmtime::Trap>() {
             use wasmtime::Trap as T;
-            let nondeterministic_message = 'nondet: {
+            let nondeterministic_trap = 'nondet: {
                 return Ok(FunctionCallError::WasmTrap(match *trap {
                     T::StackOverflow => WasmTrap::StackOverflow,
                     T::MemoryOutOfBounds => WasmTrap::MemoryOutOfBounds,
@@ -399,7 +399,9 @@ impl IntoVMError for wasmtime::Error {
                     }
                 }));
             };
-            return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
+            return Err(VMRunnerError::WasmUnknownError {
+                debug_message: format!("nondeterministic trap: {}", nondeterministic_trap),
+            });
         }
         let description = if cause.is::<wasmtime::UnknownImportError>() {
             "unknown or invalid import".to_string()
