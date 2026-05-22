@@ -794,16 +794,19 @@ pub struct ClientConfig {
     pub save_tx_outcomes: bool,
     /// Whether to persist receipt-to-tx origin mappings to disk or not.
     pub save_receipt_to_tx: bool,
-    /// Maximum ±window width accepted for `EXPERIMENTAL_receipt_to_tx`
-    /// hint mode (hop 0 caller-supplied window). Requests with `window`
-    /// larger than this are rejected with `WindowTooLarge`.
+    /// Maximum ±window width accepted on `EXPERIMENTAL_receipt_to_tx`
+    /// requests. Caps the caller-supplied `window` field, which applies
+    /// to any `CenterOut` scan (loop-entry hop or scan following a
+    /// column-hit hop). Requests with `window` larger than this are
+    /// rejected with `WindowTooLarge`.
     pub receipt_to_tx_max_hint_window: BlockHeightDelta,
-    /// Maximum block-distance the ancestor scan walks per hop after hop 0.
-    /// The iterator visits `h, h-1, h-2, ..., h-max_hop_distance` where `h`
-    /// is the previously resolved parent's execution height. The anchor is
-    /// included because same-shard local receipts can execute in the same
-    /// block as their producing outcome. Raise this if cold archival
-    /// traffic shows ancestor misses under heavier congestion.
+    /// Maximum block-distance the ancestor scan walks per scan-resolved
+    /// hop. When a column-miss scan immediately follows a scan-resolved
+    /// hop, the iterator visits `h, h-1, h-2, ..., h-max_hop_distance`
+    /// where `h` is the resolved parent's exact execution height. The
+    /// anchor is included because same-shard local receipts can execute
+    /// in the same block as their producing outcome. Raise this if cold
+    /// archival traffic shows ancestor misses under heavier congestion.
     pub receipt_to_tx_max_hop_distance: BlockHeightDelta,
     /// Number of worker threads in the contract cache-warming pool. The
     /// pool runs at the lowest realtime priority of any near pool, so the

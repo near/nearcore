@@ -1520,10 +1520,12 @@ fn shard_for_account_at_height(
     account_id_to_shard_id(actor.chain.epoch_manager.as_ref(), account_id, epoch_id).ok()
 }
 
-/// Run one hint-fallback scan and unconditionally record its stats. Used by
-/// the column-miss branch in both CenterOut (hop 0 / post-column-hit) and
-/// Ancestor (post-scan-resolved hop) directions, so neither path can drop
-/// metric accounting on an error return.
+/// Run one hint-fallback scan and unconditionally record its stats.
+/// Used by the column-miss branch in both `ScanDirection::CenterOut`
+/// (anchor is caller's hint or a stale height after a column hit) and
+/// `ScanDirection::Ancestor` (anchor refreshed by an immediately
+/// preceding scan), so neither path can drop metric accounting on an
+/// error return.
 fn run_hint_scan(
     actor: &ViewClientActor,
     receipt_id: CryptoHash,

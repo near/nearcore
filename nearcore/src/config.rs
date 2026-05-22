@@ -296,12 +296,16 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_receipt_to_tx: Option<bool>,
     /// Maximum ±window width accepted on `EXPERIMENTAL_receipt_to_tx`
-    /// requests (hop 0 caller-supplied window). Requests larger than this
-    /// are rejected with `WindowTooLarge`. If `None`, defaults to 20.
+    /// requests. Caps the caller-supplied `window` field, which applies
+    /// to any `CenterOut` scan (loop-entry hop or scan following a
+    /// column-hit hop). Requests larger than this are rejected with
+    /// `WindowTooLarge`. If `None`, defaults to 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_hint_window: Option<BlockHeightDelta>,
-    /// Maximum block-distance the ancestor scan walks per hop after hop 0
-    /// of an `EXPERIMENTAL_receipt_to_tx` walk. If `None`, defaults to 10.
+    /// Maximum block-distance the ancestor scan walks per scan-resolved
+    /// hop of an `EXPERIMENTAL_receipt_to_tx` walk. The iterator visits
+    /// `h, h-1, ..., h-max_hop_distance` where `h` is the resolved
+    /// parent's exact execution height. If `None`, defaults to 10.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_hop_distance: Option<BlockHeightDelta>,
     /// Number of worker threads in the contract-cache-warming pool. `0` disables warming.

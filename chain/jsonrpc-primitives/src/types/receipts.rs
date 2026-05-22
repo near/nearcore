@@ -51,11 +51,16 @@ impl From<RpcReceiptError> for crate::errors::RpcError {
 pub struct RpcReceiptToTxRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
-    /// Optional block height near where the receipt was created. Supplying it
-    /// enables a best-effort hinted fallback scan when the local
-    /// `ReceiptToTx` column is missing an entry mid-walk. The caller-supplied
-    /// height anchors **hop 0** only; ancestor hops anchor on the previously
-    /// resolved parent outcome's exact execution height.
+    /// Optional block height near where the receipt was created. Supplying
+    /// it enables a best-effort hinted fallback scan when the local
+    /// `ReceiptToTx` column is missing an entry mid-walk. The handler uses
+    /// this height as the anchor for the first hint scan. Each scan that
+    /// resolves a hop refreshes the anchor to that resolved parent's exact
+    /// execution height; the next column-miss scan (if it immediately
+    /// follows the scan-resolved hop) anchors on that exact height. Column
+    /// hits do not refresh the anchor, so a column-miss scan that follows a
+    /// column hit re-uses whatever height the prior scan wrote (or the
+    /// caller's hint, if no scan has run).
     ///
     /// Cold-storage usage: this endpoint primarily serves historical queries,
     /// so the scan typically reads from cold storage where per-row latency is
@@ -64,8 +69,8 @@ pub struct RpcReceiptToTxRequest {
     ///   - Supply `block_height` within the parent outcome's `±window` range
     ///     (default 5 blocks).
     ///   - Supply `shard_id` when the producing shard is known; omitting it
-    ///     forces all-shards enumeration on the first hop, multiplying the
-    ///     cold-read cost by the number of tracked shards.
+    ///     forces all-shards enumeration on the first applicable scan,
+    ///     multiplying the cold-read cost by the number of tracked shards.
     ///   - Avoid increasing `window` beyond what the indexer's height
     ///     estimate actually requires; the scan budget is shared across the
     ///     full ancestry walk.
@@ -75,22 +80,30 @@ pub struct RpcReceiptToTxRequest {
     /// never written and this endpoint provides no self-locating mechanism.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_height: Option<BlockHeight>,
-    /// Optional shard hint for the first scan only. Ancestor hops compute
-    /// their own shard from the parent receipt's predecessor account, so
-    /// this field does not narrow the entire walk.
+    /// Optional shard hint consumed by the first hint scan that runs before
+    /// any `FromReceipt` walker hop has executed. Once a `FromReceipt` arm
+    /// fires, the handler overwrites `current_shard` via predecessor-account
+    /// derivation (`shard_for_account_at_height(parent_predecessor_id,
+    /// current_height)`), so this field does not narrow the rest of the
+    /// walk. A hop-0 column hit that returns `FromReceipt` discards the
+    /// caller's shard hint without using it. Omitting `shard_id` makes the
+    /// first applicable scan enumerate all shards at the hint height,
+    /// multiplying the scan budget by the number of tracked shards.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shard_id: Option<ShardId>,
-    /// Optional override for the `±window` scan range on **hop 0** only.
-    /// Defaults to `DEFAULT_HINT_WINDOW` when omitted; rejected with
-    /// `WindowTooLarge` when greater than the node's
+    /// Optional override for the `±window` scan range used whenever the
+    /// handler scans against a caller-supplied or stale anchor (i.e.
+    /// against `current_height` that was not refreshed by an immediately
+    /// preceding scan). Defaults to `DEFAULT_HINT_WINDOW` when omitted;
+    /// rejected with `WindowTooLarge` when greater than the node's
     /// `receipt_to_tx_max_hint_window` setting (default 20). On cold
     /// storage, every extra block in the window translates directly into
     /// additional remote reads — keep this tight.
     ///
-    /// Hops past the first scan around the resolved parent's execution
-    /// height, not around this field. Ancestor scan width is set by the
-    /// node's `receipt_to_tx_max_hop_distance` config (default 10) and is
-    /// not request-controlled.
+    /// This field does not control scan width after a scan-resolved hop.
+    /// Scans that immediately follow a scan-resolved hop use a backward
+    /// iterator capped by the node's `receipt_to_tx_max_hop_distance`
+    /// config (default 10) and are not request-controlled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<BlockHeightDelta>,
 }
