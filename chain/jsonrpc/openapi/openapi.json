@@ -4498,6 +4498,14 @@
         ],
         "description": "Epoch identifier -- wrapped hash, to make it easier to distinguish.\nEpochId of epoch T is the hash of last block in T-2\nEpochId of first two epochs is 0"
       },
+      "EpochRef": {
+        "description": "Selects which epoch's validator assignment to consult for a spice\nChunkExecutionResult. `Previous` only occurs at the epoch boundary, when\ncertification lag carries chunks from the prior epoch.",
+        "enum": [
+          "Current",
+          "Previous"
+        ],
+        "type": "string"
+      },
       "EpochSyncConfig": {
         "properties": {
           "epoch_sync_horizon_num_epochs": {
@@ -19486,24 +19494,36 @@
         "type": "object"
       },
       "SpiceChunkEndorsementStats": {
-        "description": "Per-validator chunk endorsement delta for a single block under spice.",
+        "description": "Per-ChunkExecutionResult endorsement bitmap carried on a spice block header.\nOne entry per ChunkExecutionResult in the previous block's body, ordered 1:1\nwith `iter_execution_results`. `bits` packs one bit per validator slot in\nthis ChunkExecutionResult's assignment, in assignment order.",
         "properties": {
-          "expected": {
-            "format": "uint16",
-            "maximum": 65535,
+          "bits": {
+            "description": "Endorsement bits, LSB-first within bytes; padding bits at the tail\nare zero. Mirrors `ChunkEndorsementsBitmap`.",
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "chunk_epoch": {
+            "$ref": "#/components/schemas/EpochRef"
+          },
+          "chunk_height": {
+            "description": "Height of the chunk's parent block, used together with `shard_id` and\nthe selected epoch_id to look up the validator assignment.",
+            "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
-          "produced": {
-            "format": "uint16",
-            "maximum": 65535,
-            "minimum": 0,
-            "type": "integer"
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
           }
         },
         "required": [
-          "produced",
-          "expected"
+          "chunk_epoch",
+          "shard_id",
+          "chunk_height",
+          "bits"
         ],
         "type": "object"
       },
