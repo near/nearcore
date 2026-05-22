@@ -1,12 +1,15 @@
+use crate::EpochManager;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
+    AccountId, Balance, BlockHeight, ChunkStats, EpochId, EpochRef, ShardId,
+    SpiceChunkEndorsementStats, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
@@ -21,6 +24,11 @@ pub struct EpochInfoAggregator {
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    /// Per-validator endorsement stats summed across the epoch, derived from
+    /// the block header's `prev_spice_chunk_endorsement_stats` field by
+    /// resolving each ChunkExecutionResult's assignment and walking its bitmap.
+    /// Empty on non-spice epochs.
+    pub spice_endorsement_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
@@ -36,6 +44,7 @@ impl EpochInfoAggregator {
         Self {
             block_tracker: Default::default(),
             shard_tracker: Default::default(),
+            spice_endorsement_tracker: Default::default(),
             version_tracker: Default::default(),
             all_proposals: BTreeMap::default(),
             epoch_id,
@@ -122,7 +131,8 @@ impl EpochInfoAggregator {
                 })
                 .or_insert_with(|| ChunkStats::new_with_production(u64::from(*mask), 1));
 
-            // With spice we have no chunk endorsements for chunks by design.
+            // Spice chunk endorsement aggregation is handled separately by the caller
+            // via `aggregate_spice_endorsement_stats`.
             if ProtocolFeature::Spice.enabled(epoch_info.protocol_version()) {
                 continue;
             }
@@ -194,6 +204,72 @@ impl EpochInfoAggregator {
         for proposal in block_info.proposals_iter() {
             self.all_proposals.entry(proposal.account_id().clone()).or_insert(proposal);
         }
+    }
+
+    fn aggregate_spice_endorsement_stats(
+        &mut self,
+        current_epoch_info: &EpochInfo,
+        bits: &SpiceChunkEndorsementStats,
+        assignment: &[AccountId],
+    ) {
+        debug_assert!(
+            bits.len_bits() >= assignment.len(),
+            "bitmap shorter than assignment: {} bits, {} slots",
+            bits.len_bits(),
+            assignment.len(),
+        );
+        for (account_id, endorsed) in assignment.iter().zip(bits.iter()) {
+            let Some(&validator_id) = current_epoch_info.get_validator_id(account_id) else {
+                continue;
+            };
+            let entry = self.spice_endorsement_tracker.entry(validator_id).or_default();
+            entry.expected += 1;
+            if endorsed {
+                entry.produced += 1;
+            }
+        }
+    }
+
+    /// Walks the block's per-ChunkExecutionResult endorsement bitmaps and folds
+    /// them into `spice_endorsement_tracker`. Resolves the validator assignment
+    /// for each ChunkExecutionResult via epoch_manager, picking the current or
+    /// prior epoch per `bits.chunk_epoch`.
+    pub(crate) fn apply_block_spice_endorsement_stats(
+        &mut self,
+        epoch_manager: &EpochManager,
+        block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
+        epoch_id: EpochId,
+        prev_epoch_id: Option<EpochId>,
+    ) -> Result<(), EpochError> {
+        let Some(bits_vec) = block_info.prev_spice_chunk_endorsement_stats() else {
+            return Ok(());
+        };
+        for bits in bits_vec {
+            let lookup_epoch_id = match (bits.chunk_epoch, prev_epoch_id) {
+                (EpochRef::Current, _) => epoch_id,
+                (EpochRef::Previous, Some(id)) => id,
+                (EpochRef::Previous, None) => {
+                    tracing::error!(
+                        target: "epoch_tracker",
+                        block_height = block_info.height(),
+                        shard_id = %bits.shard_id,
+                        chunk_height = bits.chunk_height,
+                        "spice ChunkExecutionResult marked chunk_epoch=Previous but no prev epoch is available; skipping",
+                    );
+                    continue;
+                }
+            };
+            let assignments = epoch_manager.get_chunk_validator_assignments(
+                &lookup_epoch_id,
+                bits.shard_id,
+                bits.chunk_height,
+            )?;
+            let accounts: Vec<AccountId> =
+                assignments.assignments().iter().map(|(a, _)| a.clone()).collect();
+            self.aggregate_spice_endorsement_stats(epoch_info, bits, &accounts);
+        }
+        Ok(())
     }
 
     /// Merges information from `other` aggregator into `self`.
@@ -297,6 +373,16 @@ impl EpochInfoAggregator {
                             })
                             .or_insert_with(|| stat.clone());
                     }
+                })
+                .or_insert_with(|| stats.clone());
+        }
+        // merge spice endorsement tracker
+        for (validator_id, stats) in &other.spice_endorsement_tracker {
+            self.spice_endorsement_tracker
+                .entry(*validator_id)
+                .and_modify(|e| {
+                    e.expected += stats.expected;
+                    e.produced += stats.produced;
                 })
                 .or_insert_with(|| stats.clone());
         }

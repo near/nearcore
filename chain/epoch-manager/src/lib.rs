@@ -371,6 +371,7 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+        spice_endorsement_tracker: &HashMap<ValidatorId, ValidatorStats>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
@@ -398,6 +399,12 @@ impl EpochManager {
                     chunk_stats.endorsement_stats_mut().expected +=
                         stat.endorsement_stats().expected;
                 }
+            }
+            // Empty on non-spice epochs (per-shard bitmap is used instead);
+            // sole endorsement contribution on spice epochs.
+            if let Some(stat) = spice_endorsement_tracker.get(&(i as u64)) {
+                chunk_stats.endorsement_stats_mut().produced += stat.produced;
+                chunk_stats.endorsement_stats_mut().expected += stat.expected;
             }
             total_stake = total_stake.checked_add(v.stake()).unwrap();
             let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
@@ -514,6 +521,7 @@ impl EpochManager {
         let EpochInfoAggregator {
             block_tracker: block_validator_tracker,
             shard_tracker: chunk_validator_tracker,
+            spice_endorsement_tracker,
             all_proposals,
             version_tracker,
             ..
@@ -613,6 +621,7 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
+            &spice_endorsement_tracker,
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);
@@ -1803,6 +1812,20 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
 
+        // Spice ChunkExecutionResults may reference chunks from the prior epoch (epoch boundary
+        // case). Resolve the prev epoch id once upfront so we can look up
+        // those assignments without an extra walk per block. None means the
+        // current epoch has no predecessor (genesis-adjacent aggregation).
+        let prev_epoch_id = {
+            let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
+            let first_block_prev_hash = *self.get_block_info(&epoch_first_block)?.prev_hash();
+            if first_block_prev_hash == CryptoHash::default() {
+                None
+            } else {
+                Some(*self.get_block_info(&first_block_prev_hash)?.epoch_id())
+            }
+        };
+
         let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
         let mut cur_hash = *block_hash;
         Ok(Some(loop {
@@ -1851,6 +1874,13 @@ impl EpochManager {
 
             let block_info = self.get_block_info(&cur_hash)?;
             aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
+            aggregator.apply_block_spice_endorsement_stats(
+                self,
+                &block_info,
+                &epoch_info,
+                epoch_id,
+                prev_epoch_id,
+            )?;
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
