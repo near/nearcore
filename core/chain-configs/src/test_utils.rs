@@ -217,11 +217,7 @@ pub fn add_account_with_key(
         account_id: account_id.clone(),
         account: Account::new(amount, staked, AccountContract::from_local_code_hash(code_hash), 0),
     });
-    records.push(StateRecord::AccessKey {
-        account_id,
-        public_key: public_key.clone(),
-        access_key: AccessKey::full_access(),
-    });
+    records.push(StateRecord::access_key(account_id, public_key, AccessKey::full_access()));
 }
 
 pub fn random_chain_id() -> String {
@@ -266,14 +262,23 @@ impl ClientConfig {
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
             expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
-            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
-                10,
-                min_block_prod_time / 5,
-            ) as i64),
-            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
-            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
-            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
-            chunk_wait_mult: Rational32::new(1, 6),
+            block_production_tracking_delay: MutableConfigValue::new(
+                Duration::milliseconds(std::cmp::max(10, min_block_prod_time / 5) as i64),
+                "block_production_tracking_delay",
+            ),
+            min_block_production_delay: MutableConfigValue::new(
+                Duration::milliseconds(min_block_prod_time as i64),
+                "min_block_production_delay",
+            ),
+            max_block_production_delay: MutableConfigValue::new(
+                Duration::milliseconds(max_block_prod_time as i64),
+                "max_block_production_delay",
+            ),
+            max_block_wait_delay: MutableConfigValue::new(
+                Duration::milliseconds(3 * min_block_prod_time as i64),
+                "max_block_wait_delay",
+            ),
+            chunk_wait_mult: MutableConfigValue::new(Rational32::new(1, 6), "chunk_wait_mult"),
             skip_sync_wait,
             sync_check_period: Duration::milliseconds(100),
             sync_step_period: Duration::milliseconds(10),
@@ -298,7 +303,10 @@ impl ClientConfig {
                 Duration::milliseconds(100),
                 Duration::milliseconds(min_block_prod_time as i64 / 5),
             ),
-            doomslug_step_period: Duration::milliseconds(100),
+            doomslug_step_period: MutableConfigValue::new(
+                Duration::milliseconds(100),
+                "doomslug_step_period",
+            ),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_shards_config: TrackedShardsConfig::NoShards,
@@ -347,6 +355,8 @@ impl ClientConfig {
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
             chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
             disable_tx_routing: false,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transaction_queue_enabled: false,
         }
     }
 }

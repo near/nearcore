@@ -435,6 +435,12 @@ pub struct Config {
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
     /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
+    /// If true, SPICE nodes track uncertified transactions in a pending
+    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
+    /// constraints during chunk production and RPC validation. Disabled by
+    /// default; only meaningful when SPICE is active.
+    #[cfg(feature = "protocol_feature_spice")]
+    pub spice_pending_transaction_queue_enabled: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -510,6 +516,8 @@ impl Default for Config {
             protocol_version_check_config_override: None,
             enable_early_prepare_transactions: None,
             chunks_cache_height_horizon: None,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transaction_queue_enabled: false,
         }
     }
 }
@@ -707,11 +715,26 @@ impl NearConfig {
                     config.expected_shutdown,
                     "expected_shutdown",
                 ),
-                block_production_tracking_delay: config.consensus.block_production_tracking_delay,
-                min_block_production_delay: config.consensus.min_block_production_delay,
-                max_block_production_delay: config.consensus.max_block_production_delay,
-                max_block_wait_delay: config.consensus.max_block_wait_delay,
-                chunk_wait_mult: config.consensus.chunk_wait_mult,
+                block_production_tracking_delay: MutableConfigValue::new(
+                    config.consensus.block_production_tracking_delay,
+                    "block_production_tracking_delay",
+                ),
+                min_block_production_delay: MutableConfigValue::new(
+                    config.consensus.min_block_production_delay,
+                    "min_block_production_delay",
+                ),
+                max_block_production_delay: MutableConfigValue::new(
+                    config.consensus.max_block_production_delay,
+                    "max_block_production_delay",
+                ),
+                max_block_wait_delay: MutableConfigValue::new(
+                    config.consensus.max_block_wait_delay,
+                    "max_block_wait_delay",
+                ),
+                chunk_wait_mult: MutableConfigValue::new(
+                    config.consensus.chunk_wait_mult,
+                    "chunk_wait_mult",
+                ),
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
@@ -736,7 +759,10 @@ impl NearConfig {
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
-                doomslug_step_period: config.consensus.doomslug_step_period,
+                doomslug_step_period: MutableConfigValue::new(
+                    config.consensus.doomslug_step_period,
+                    "doomslug_step_period",
+                ),
                 tracked_shards_config: config.tracked_shards_config(),
                 state_sync: config.state_sync_config(),
                 archive: config.archive,
@@ -797,6 +823,9 @@ impl NearConfig {
                 chunks_cache_height_horizon: config
                     .chunks_cache_height_horizon
                     .unwrap_or_else(default_chunks_cache_height_horizon),
+                #[cfg(feature = "protocol_feature_spice")]
+                spice_pending_transaction_queue_enabled: config
+                    .spice_pending_transaction_queue_enabled,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,

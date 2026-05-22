@@ -52,7 +52,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{AccountView, ExecutionStatusView};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_vm_runner::ContractCode;
@@ -112,9 +112,6 @@ fn check_deterministic_state_init(
     data: BTreeMap<Vec<u8>, Vec<u8>>,
     balance: Balance,
 ) {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
 
     env.deploy_global_contract(global_deploy_mode.clone());
@@ -138,9 +135,6 @@ fn check_deterministic_state_init(
 /// This test also checks that the signer is charged the balance correctly.
 #[test]
 fn test_repeated_deterministic_state_init() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -185,9 +179,6 @@ fn test_repeated_deterministic_state_init() {
 /// Try using non-existing global contract
 #[test]
 fn test_deterministic_state_init_missing_global_contract() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
 
     let data = Default::default();
@@ -207,9 +198,6 @@ fn test_deterministic_state_init_missing_global_contract() {
 /// Try creating an account above ZBA limit without attached balance
 #[test]
 fn test_deterministic_state_init_above_zba() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -230,9 +218,6 @@ fn test_deterministic_state_init_above_zba() {
 /// Try creating adding larger-than-allowed KEY to state
 #[test]
 fn test_deterministic_state_init_key_too_large() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -251,9 +236,6 @@ fn test_deterministic_state_init_key_too_large() {
 /// Try creating adding larger-than-allowed VALUE to state
 #[test]
 fn test_deterministic_state_init_value_too_large() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -273,9 +255,6 @@ fn test_deterministic_state_init_value_too_large() {
 /// Try sending the action to an invalid receiver: wrong derived id
 #[test]
 fn test_deterministic_state_init_invalid_derived_id() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -302,9 +281,6 @@ fn test_deterministic_state_init_invalid_derived_id() {
 /// Try sending the action to an invalid receiver: named account
 #[test]
 fn test_deterministic_state_init_named_receiver() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -335,9 +311,6 @@ fn test_deterministic_state_init_named_receiver() {
 /// even if more storage than the ZBA limit is used.
 #[test]
 fn test_deterministic_state_init_prepay_for_storage() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -611,9 +584,6 @@ fn test_contract_transfer_and_state_init_to_deterministic_account() {
 /// check as intended by NEP-616.
 #[test]
 fn test_sharded_contract_owner_check() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -659,9 +629,6 @@ fn test_sharded_contract_owner_check() {
 /// check as intended by NEP-616.
 #[test]
 fn test_sharded_contract_owner_check_fails() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     let user_account = env.user_account();
     let sharded_account = env.setup_sharded_account(user_account);
@@ -683,9 +650,6 @@ fn test_sharded_contract_owner_check_fails() {
 /// code as myself" check as intended by NEP-616.
 #[test]
 fn test_sharded_contract_peer_check() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     let user_account1 = env.user_account();
     let user_account2 = env.independent_account();
@@ -712,9 +676,6 @@ fn test_sharded_contract_peer_check() {
 /// code as myself" check as intended by NEP-616.
 #[test]
 fn test_sharded_contract_peer_check_fails() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     let user_account = env.user_account();
     let sharded_account = env.setup_sharded_account(user_account.clone());
@@ -741,9 +702,6 @@ fn test_sharded_contract_peer_check_fails() {
 /// Deploy a sharded toy-contract and check it can spread itself to another account.
 #[test]
 fn test_sharded_contract_spread() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     let user_account = env.user_account();
     let sharded_account = env.setup_sharded_account(user_account.clone());
@@ -783,9 +741,6 @@ fn test_sharded_contract_spread() {
 /// account and provide funding on the initial call.
 #[test]
 fn test_sharded_contract_spread_funded() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     let user_account = env.user_account();
     let sharded_account = env.setup_sharded_account(user_account.clone());

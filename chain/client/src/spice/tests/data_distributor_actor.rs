@@ -1,8 +1,8 @@
-use crate::chunk_executor_actor::{
+use crate::spice::chunk_executor_actor::{
     ExecutorIncomingUnverifiedReceipts, save_receipt_proof, save_witness_and_contract_accesses,
 };
-use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
-use crate::spice_data_distributor_actor::{
+use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
+use crate::spice::data_distributor_actor::{
     Error, ReceiveDataError, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
     SpiceDistributorStateWitness,
 };
@@ -14,8 +14,8 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::Block;
 use near_chain::ChainStoreAccess;
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -27,7 +27,7 @@ use near_crypto::{KeyType, Signature};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::spice_data_distribution::{
+use near_network::spice::data_distribution::{
     SpiceContractCodeRequestMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
@@ -41,17 +41,15 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
-use near_primitives::spice_partial_data::{
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::partial_data::{
     SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
     SpiceVerifiedPartialData, testonly_create_spice_partial_data,
 };
+use near_primitives::spice::state_witness::{SpiceChunkStateTransition, SpiceChunkStateWitness};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeHash, SpiceContractCodeRequest,
-};
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::stateless_validation::spice_state_witness::{
-    SpiceChunkStateTransition, SpiceChunkStateWitness,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;

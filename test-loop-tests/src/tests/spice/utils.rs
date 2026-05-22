@@ -7,7 +7,7 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::types::{AccountId, BlockHeight};
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, VecDeque};

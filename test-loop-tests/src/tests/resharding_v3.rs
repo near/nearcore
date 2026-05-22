@@ -9,10 +9,10 @@ use crate::utils::receipts::{
 #[cfg(feature = "test_features")]
 use crate::utils::resharding::fork_before_resharding_block;
 use crate::utils::resharding::{
-    TrackedShardSchedule, call_burn_gas_contract, call_promise_yield, check_state_cleanup,
-    delayed_receipts_repro_missing_trie_value, execute_money_transfers, execute_storage_operations,
-    promise_yield_repro_missing_trie_value, send_large_cross_shard_receipts,
-    temporary_account_during_resharding,
+    TrackedShardSchedule, assert_after_resharding, call_burn_gas_contract, call_promise_yield,
+    check_state_cleanup, delayed_receipts_repro_missing_trie_value, execute_money_transfers,
+    execute_storage_operations, gas_key_signer_for_account, promise_yield_repro_missing_trie_value,
+    send_large_cross_shard_receipts, temporary_account_during_resharding,
 };
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
 use crate::utils::sharding::{
@@ -26,7 +26,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_crypto::Signer;
+use near_crypto::{PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -38,7 +38,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeightDelta, Gas, Nonce, ShardId, ShardIndex,
+};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::cell::Cell;
@@ -148,6 +150,10 @@ struct TestReshardingParameters {
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
     #[builder(setter(custom))]
     use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
+    /// Gas keys to plant directly in genesis. Each tuple is
+    /// `(account, gas-key public key, initial nonce per slot)`.
+    #[builder(setter(custom))]
+    gas_key_accounts: Vec<(AccountId, PublicKey, Vec<Nonce>)>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
     limit_outgoing_gas: bool,
     /// If non zero, split parent shard for flat state resharding will be delayed by an additional
@@ -294,6 +300,7 @@ impl TestReshardingParametersBuilder {
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
             deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
             use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
+            gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
@@ -331,6 +338,16 @@ impl TestReshardingParametersBuilder {
         identifier: GlobalContractIdentifier,
     ) -> Self {
         self.use_test_global_contract.get_or_insert_default().push((account_id, identifier));
+        self
+    }
+
+    fn gas_key_account(mut self, account_id: &AccountId, target_nonces: &[Nonce]) -> Self {
+        let public_key = gas_key_signer_for_account(account_id).public_key();
+        self.gas_key_accounts.get_or_insert_default().push((
+            account_id.clone(),
+            public_key,
+            target_nonces.to_vec(),
+        ));
         self
     }
 
@@ -638,6 +655,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &params.validators.iter().map(|account_id| account_id.as_str()).collect_vec(),
         ))
         .add_user_accounts_simple(&params.accounts, params.initial_balance)
+        .add_gas_keys(&params.gas_key_accounts)
         .build();
 
     let (epoch_config_store, expected_num_shards, voting_schedule) = build_epoch_config_store(
@@ -1459,6 +1477,58 @@ fn slow_test_resharding_v3_storage_operations() {
         .all_chunks_expected(true)
         .delay_flat_state_resharding(2)
         .epoch_length(13)
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+// Gas keys gate on `ProtocolFeature::GasKeys`, which only ships in nightly.
+#[cfg_attr(not(feature = "nightly"), ignore)]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_resharding_v3_gas_key() {
+    let left_account: AccountId = "account4".parse().unwrap();
+    let right_account: AccountId = "account7".parse().unwrap();
+    let left_nonces: Vec<Nonce> = vec![1, 2];
+    let right_nonces: Vec<Nonce> = vec![3, 4];
+    let num_blocks_after_resharding_to_check = 3;
+
+    let params = TestReshardingParametersBuilder::default()
+        .gas_key_account(&left_account, &left_nonces)
+        .gas_key_account(&right_account, &right_nonces)
+        .add_loop_action(assert_after_resharding(
+            num_blocks_after_resharding_to_check,
+            move |node| {
+                let base_layout = get_base_shard_layout();
+                let new_layout =
+                    node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
+                assert_eq!(
+                    base_layout.account_id_to_shard_id(&left_account),
+                    base_layout.account_id_to_shard_id(&right_account),
+                    "left/right accounts must share the pre-split parent shard",
+                );
+                assert_ne!(
+                    new_layout.account_id_to_shard_id(&left_account),
+                    new_layout.account_id_to_shard_id(&right_account),
+                    "left/right accounts must land on different child shards after the split",
+                );
+
+                for (account, expected) in
+                    [(&left_account, &left_nonces), (&right_account, &right_nonces)]
+                {
+                    let gas_key = gas_key_signer_for_account(account);
+                    let nonces = node
+                        .view_gas_key_nonces_query(account, &gas_key.public_key())
+                        .unwrap_or_else(|err| {
+                            panic!("gas-key row missing after resharding for {account}: {err:?}")
+                        });
+                    assert_eq!(
+                        &nonces, expected,
+                        "gas-key nonces for {account} changed across resharding",
+                    );
+                }
+            },
+        ))
         .build();
     test_resharding_v3_base(params);
 }

@@ -2,7 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
-use near_chain::spice_core::get_last_certified_block_header;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;

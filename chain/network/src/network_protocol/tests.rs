@@ -263,3 +263,176 @@ fn test_body_variant_granularity() {
     let message_v3 = make_chunk_request_message();
     assert_eq!(message_v3.body_variant(), "PartialEncodedChunkRequest");
 }
+
+mod versioned_witness_tests {
+    use super::*;
+    use near_primitives::stateless_validation::partial_witness::{
+        PartialEncodedStateWitness, PartialEncodedStateWitnessV2,
+        VersionedPartialEncodedStateWitness,
+    };
+    use near_primitives::test_utils::{create_test_signer, test_chunk_header};
+    use near_primitives::types::EpochId;
+
+    fn make_test_v1_witness() -> PartialEncodedStateWitness {
+        let signer = create_test_signer("test_account");
+        let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
+        let chunk_header = test_chunk_header(prev_block_hash, &signer, 0);
+        PartialEncodedStateWitness::new(
+            EpochId(CryptoHash::default()),
+            chunk_header,
+            0,
+            b"data".to_vec(),
+            4,
+            &signer,
+        )
+    }
+
+    fn make_test_v2_witness() -> PartialEncodedStateWitnessV2 {
+        let signer = create_test_signer("test_account");
+        let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
+        let chunk_header = test_chunk_header(prev_block_hash, &signer, 0);
+        PartialEncodedStateWitnessV2::new(
+            EpochId(CryptoHash::default()),
+            chunk_header,
+            0,
+            b"data".to_vec(),
+            4,
+            &signer,
+        )
+    }
+
+    #[test]
+    fn t1_versioned_witness_discriminants() {
+        let v1 = make_test_v1_witness();
+        let versioned = VersionedPartialEncodedStateWitness::V1(v1);
+        let t1 = T1MessageBody::VersionedPartialEncodedStateWitness(versioned);
+        let bytes = borsh::to_vec(&t1).unwrap();
+        assert_eq!(bytes[0], 15, "T1 VersionedPartialEncodedStateWitness discriminant must be 15");
+
+        let v2 = make_test_v2_witness();
+        let versioned = VersionedPartialEncodedStateWitness::V2(v2);
+        let t1 = T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned);
+        let bytes = borsh::to_vec(&t1).unwrap();
+        assert_eq!(
+            bytes[0], 16,
+            "T1 VersionedPartialEncodedStateWitnessForward discriminant must be 16"
+        );
+    }
+
+    #[test]
+    fn routed_versioned_witness_discriminants() {
+        let v1 = make_test_v1_witness();
+        let versioned = VersionedPartialEncodedStateWitness::V1(v1);
+        let routed = RoutedMessageBody::VersionedPartialEncodedStateWitness(versioned);
+        let bytes = borsh::to_vec(&routed).unwrap();
+        assert_eq!(
+            bytes[0], 40,
+            "RoutedMessageBody VersionedPartialEncodedStateWitness discriminant must be 40"
+        );
+
+        let v2 = make_test_v2_witness();
+        let versioned = VersionedPartialEncodedStateWitness::V2(v2);
+        let routed = RoutedMessageBody::VersionedPartialEncodedStateWitnessForward(versioned);
+        let bytes = borsh::to_vec(&routed).unwrap();
+        assert_eq!(
+            bytes[0], 41,
+            "RoutedMessageBody VersionedPartialEncodedStateWitnessForward discriminant must be 41"
+        );
+    }
+
+    #[test]
+    fn legacy_witness_tiered_routed_roundtrip() {
+        let v1 = make_test_v1_witness();
+        let routed = RoutedMessageBody::PartialEncodedStateWitness(v1);
+        let tiered = TieredMessageBody::from_routed(routed.clone());
+        assert!(matches!(tiered, TieredMessageBody::T1(_)));
+        let routed2: RoutedMessageBody = tiered.into();
+        assert_eq!(routed, routed2);
+    }
+
+    #[test]
+    fn versioned_witness_tiered_routed_roundtrip() {
+        let v2 = make_test_v2_witness();
+        let versioned = VersionedPartialEncodedStateWitness::V2(v2);
+        let routed = RoutedMessageBody::VersionedPartialEncodedStateWitness(versioned.clone());
+        let tiered = TieredMessageBody::from_routed(routed.clone());
+        assert!(matches!(tiered, TieredMessageBody::T1(_)));
+        let routed2: RoutedMessageBody = tiered.into();
+        assert_eq!(routed, routed2);
+
+        let routed_fwd = RoutedMessageBody::VersionedPartialEncodedStateWitnessForward(versioned);
+        let tiered_fwd = TieredMessageBody::from_routed(routed_fwd.clone());
+        assert!(matches!(tiered_fwd, TieredMessageBody::T1(_)));
+        let routed_fwd2: RoutedMessageBody = tiered_fwd.into();
+        assert_eq!(routed_fwd, routed_fwd2);
+    }
+
+    #[test]
+    fn v1_routes_to_legacy_wire_v2_routes_to_versioned_wire() {
+        let v1 = make_test_v1_witness();
+        let versioned_v1 = VersionedPartialEncodedStateWitness::V1(v1);
+        let t1 = match versioned_v1 {
+            VersionedPartialEncodedStateWitness::V1(w) => {
+                T1MessageBody::PartialEncodedStateWitness(w)
+            }
+            v @ VersionedPartialEncodedStateWitness::V2(_) => {
+                T1MessageBody::VersionedPartialEncodedStateWitness(v)
+            }
+        };
+        assert!(matches!(t1, T1MessageBody::PartialEncodedStateWitness(_)));
+
+        let v2 = make_test_v2_witness();
+        let versioned_v2 = VersionedPartialEncodedStateWitness::V2(v2);
+        let t1 = match versioned_v2 {
+            VersionedPartialEncodedStateWitness::V1(w) => {
+                T1MessageBody::PartialEncodedStateWitness(w)
+            }
+            v @ VersionedPartialEncodedStateWitness::V2(_) => {
+                T1MessageBody::VersionedPartialEncodedStateWitness(v)
+            }
+        };
+        assert!(matches!(t1, T1MessageBody::VersionedPartialEncodedStateWitness(_)));
+    }
+
+    #[test]
+    fn allow_sending_to_self_includes_versioned() {
+        let v2 = make_test_v2_witness();
+        let versioned = VersionedPartialEncodedStateWitness::V2(v2);
+        let t1 = T1MessageBody::VersionedPartialEncodedStateWitness(versioned.clone());
+        assert!(t1.allow_sending_to_self());
+        let t1_fwd = T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned);
+        assert!(t1_fwd.allow_sending_to_self());
+    }
+
+    /// Legacy and versioned witness wire variants report distinct metric
+    /// labels so that operators can tell V1-wire and V2-wire traffic apart
+    /// during the rollout. Dashboards keying off the old name need to add
+    /// the new `VersionedPartialEncodedStateWitness*` series.
+    #[test]
+    fn test_body_variant_reports_distinct_witness_labels() {
+        let v1 = make_test_v1_witness();
+        let v2 = make_test_v2_witness();
+        let versioned_v1 = VersionedPartialEncodedStateWitness::V1(v1.clone());
+        let versioned_v2 = VersionedPartialEncodedStateWitness::V2(v2);
+
+        let legacy = TieredMessageBody::T1(Box::new(T1MessageBody::PartialEncodedStateWitness(v1)));
+        let wrapped_v1 = TieredMessageBody::T1(Box::new(
+            T1MessageBody::VersionedPartialEncodedStateWitness(versioned_v1),
+        ));
+        let wrapped_v2 = TieredMessageBody::T1(Box::new(
+            T1MessageBody::VersionedPartialEncodedStateWitness(versioned_v2.clone()),
+        ));
+        assert_eq!(legacy.variant(), "PartialEncodedStateWitness");
+        assert_eq!(wrapped_v1.variant(), "VersionedPartialEncodedStateWitness");
+        assert_eq!(wrapped_v2.variant(), "VersionedPartialEncodedStateWitness");
+
+        let legacy_fwd = TieredMessageBody::T1(Box::new(
+            T1MessageBody::PartialEncodedStateWitnessForward(make_test_v1_witness()),
+        ));
+        let wrapped_fwd_v2 = TieredMessageBody::T1(Box::new(
+            T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned_v2),
+        ));
+        assert_eq!(legacy_fwd.variant(), "PartialEncodedStateWitnessForward");
+        assert_eq!(wrapped_fwd_v2.variant(), "VersionedPartialEncodedStateWitnessForward");
+    }
+}

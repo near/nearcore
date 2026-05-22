@@ -1,10 +1,12 @@
-use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor};
+use crate::spice::chunk_validator_actor::{
+    SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor,
+};
 use assert_matches::assert_matches;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::{
+use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::{
     ExecutionResultEndorsed, ProcessedBlock, SpiceCoreWriterActor,
 };
 use near_chain::test_utils::{
@@ -21,7 +23,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
+use near_network::spice::data_distribution::SpiceChunkContractAccessesMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_o11y::testonly::init_test_logger;
@@ -34,12 +36,10 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ReceiptProof;
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::state_witness::compute_contract_accesses_hash;
+use near_primitives::spice::state_witness::{SpiceChunkStateTransition, SpiceChunkStateWitness};
 use near_primitives::stateless_validation::contract_distribution::MAX_CONTRACTS_PER_REQUEST;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
-use near_primitives::stateless_validation::spice_state_witness::{
-    SpiceChunkStateTransition, SpiceChunkStateWitness,
-};
 use near_primitives::stateless_validation::{
     ChunkProductionKey,
     contract_distribution::{CodeHash, SpiceChunkContractAccesses},

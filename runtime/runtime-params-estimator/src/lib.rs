@@ -107,7 +107,7 @@ use near_primitives::transaction::{
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
@@ -250,6 +250,9 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     ),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
+    (Cost::OpFloat, adversarial_float_nan_canonicalization),
+    (Cost::OpInt, op_int),
+    (Cost::OpWideArithmetic, op_wide_arithmetic),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
     (Cost::DataReceiptCreationPerByte, data_receipt_creation_per_byte),
     (Cost::ReadMemoryBase, read_memory_base),
@@ -306,8 +309,12 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ContractCompileBaseV2, contract_compile_base_v2),
     (Cost::ContractCompileBytesV2, contract_compile_bytes_v2),
     (Cost::DeployBytes, pure_deploy_bytes),
+    (Cost::AdversarialCompileMaxBlocks, adversarial_compile_max_blocks),
     (Cost::ContractLoadingBase, contract_loading_base),
     (Cost::ContractLoadingPerByte, contract_loading_per_byte),
+    (Cost::AdversarialLoadManyGlobals, adversarial_load_many_globals),
+    (Cost::AdversarialLoadManyDataSegments, adversarial_load_many_data_segments),
+    (Cost::AdversarialLoadManyElementSegments, adversarial_load_many_element_segments),
     (Cost::FunctionCallPerStorageByte, function_call_per_storage_byte),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
@@ -729,6 +736,35 @@ fn contract_compile_base(ctx: &mut EstimatorContext) -> GasCost {
 fn contract_compile_bytes(ctx: &mut EstimatorContext) -> GasCost {
     compilation_cost_base_per_byte(ctx).1
 }
+
+fn adversarial_compile_max_blocks(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_compile_max_blocks(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_load_many_globals(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_load_many_globals(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_load_many_data_segments(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_load_many_data_segments(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_load_many_element_segments(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_load_many_element_segments(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_float_nan_canonicalization(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::op_float_nan_canonicalization(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn op_int(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::op_int_baseline(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn op_wide_arithmetic(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::op_wide_arithmetic(ctx.config.metric, ctx.config.vm_kind)
+}
+
 fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
     if let Some(base_byte_cost) = ctx.cached.compile_cost_base_per_byte.clone() {
         return base_byte_cost;
@@ -945,9 +981,6 @@ fn action_deterministic_state_init_per_entry(ctx: &mut EstimatorContext) -> GasC
 fn action_deterministic_state_init_base_per_entry_per_byte(
     ctx: &mut EstimatorContext,
 ) -> (GasCost, GasCost, GasCost) {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return (GasCost::zero(), GasCost::zero(), GasCost::zero());
-    }
     if let Some(base_byte_cost) =
         ctx.cached.action_deterministic_state_init_base_per_entry_per_byte.clone()
     {
@@ -1026,6 +1059,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let config_store = RuntimeConfigStore::new(None);
     let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
+    config.vm_kind = vm_kind;
     // The soak test contract is a finite loop that must exhaust gas to abort.
     // Cap max_gas_burnt so it reliably runs out of gas.
     config.limit_config.max_gas_burnt = Gas::from_teragas(300);

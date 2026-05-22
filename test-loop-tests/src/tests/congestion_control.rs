@@ -97,7 +97,7 @@ fn slow_test_one_shard_congested() {
     assert!(missed_chunks >= max_missed_chunks);
 
     // Send transfer from shard 1 to shard 1 – should succeed
-    let block_time = client_actor.client.config.max_block_production_delay;
+    let block_time = client_actor.client.config.max_block_production_delay.get();
     let tx = env.node_for_account(&rpc_id).tx_send_money(
         &shard1_acc1,
         &shard1_acc2,

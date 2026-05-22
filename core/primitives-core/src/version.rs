@@ -325,16 +325,19 @@ pub enum ProtocolFeature {
     ///
     /// It improves UX during long ranges of missing chunks, as transactions
     /// are much less likely to get rejected with ShardStuck error.
-    IncreaseMaxCongestionMissedChunks,
+    #[deprecated]
+    _DeprecatedIncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
     #[deprecated]
     _DeprecatedSaturatingFloatToInt,
     #[deprecated]
     _DeprecatedChunkPartChecks,
-    StatePartsCompression,
+    #[deprecated]
+    _DeprecatedStatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
-    DeterministicAccountIds,
+    #[deprecated]
+    _DeprecatedDeterministicAccountIds,
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
@@ -349,6 +352,11 @@ pub enum ProtocolFeature {
     FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
+    /// Fix `action_delete_account` not subtracting the global contract
+    /// identifier storage usage. Previously only local contract code was
+    /// subtracted, overstating storage usage for accounts with global
+    /// contracts and making them marginally harder to delete.
+    FixDeleteAccountGlobalContractStorageUsage,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
@@ -482,8 +490,9 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedChunkPartChecks
             | ProtocolFeature::_DeprecatedSaturatingFloatToInt
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
-            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
+            ProtocolFeature::_DeprecatedIncreaseMaxCongestionMissedChunks => 79,
+            ProtocolFeature::_DeprecatedStatePartsCompression
+            | ProtocolFeature::_DeprecatedDeterministicAccountIds => 82,
             ProtocolFeature::InvalidTxGenerateOutcomes
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::FixAccessKeyAllowanceCharging
@@ -495,6 +504,7 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
@@ -524,7 +534,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 83;
 
 /// Returns the effective protocol version to use for processing a request.
 ///

@@ -131,7 +131,7 @@ fn validate_action_with_mode(
             validate_delegate_action(limit_config, a, receiver, current_protocol_version, mode)
         }
         Action::DeterministicStateInit(a) => {
-            validate_deterministic_state_init(limit_config, a, receiver, current_protocol_version)
+            validate_deterministic_state_init(limit_config, a, receiver)
         }
         Action::TransferToGasKey(_) => {
             validate_transfer_to_gas_key_action(current_protocol_version)
@@ -355,14 +355,7 @@ fn validate_deterministic_state_init(
     limit_config: &LimitConfig,
     action: &DeterministicStateInitAction,
     receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(
-        ProtocolFeature::DeterministicAccountIds,
-        "DeterministicAccountIds",
-        current_protocol_version,
-    )?;
-
     validate_global_contract_identifier(action.state_init.code())?;
 
     let derived_id = derive_near_deterministic_account_id(&action.state_init);
@@ -1009,7 +1002,7 @@ mod tests {
         // correct receiver
         check_validate_state_init(
             "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Ok(
                     (),
@@ -1020,7 +1013,7 @@ mod tests {
         // deterministic id but incorrect receiver
         check_validate_state_init(
             "0s1234567890123456789012345678901234567890",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Err(
                     InvalidDeterministicStateInitReceiver {
@@ -1038,7 +1031,7 @@ mod tests {
         // named receiver (invalid)
         check_validate_state_init(
             "alice.near",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Err(
                     InvalidDeterministicStateInitReceiver {
@@ -1055,7 +1048,7 @@ mod tests {
         // NEAR implicit receiver (invalid)
         check_validate_state_init(
             "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Err(
                     InvalidDeterministicStateInitReceiver {
@@ -1069,27 +1062,6 @@ mod tests {
                 )
             "#]],
         );
-
-        // Without protocol features enabled, again with all receiver variations
-        for receiver in [
-            "alice.near",
-            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
-            "0s1234567890123456789012345678901234567890",
-            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
-        ] {
-            check_validate_state_init(
-                receiver,
-                ProtocolFeature::DeterministicAccountIds.protocol_version() - 1,
-                expect![[r#"
-                Err(
-                    UnsupportedProtocolFeature {
-                        protocol_feature: "DeterministicAccountIds",
-                        version: 81,
-                    },
-                )
-            "#]],
-            );
-        }
     }
 
     #[test]
@@ -1127,7 +1099,7 @@ mod tests {
         // small payload
         check_validate_state_init(
             make_payload(10, 20),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Ok(
                     (),
@@ -1138,7 +1110,7 @@ mod tests {
         // key and value exactly at limit
         check_validate_state_init(
             make_payload(2_048, 4_194_304),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Ok(
                     (),
@@ -1149,7 +1121,7 @@ mod tests {
         // key above limit
         check_validate_state_init(
             make_payload(2_049, 4_194_304),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Err(
                     DeterministicStateInitKeyLengthExceeded {
@@ -1163,7 +1135,7 @@ mod tests {
         // value above limit
         check_validate_state_init(
             make_payload(2_048, 4_194_305),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            PROTOCOL_VERSION,
             expect![[r#"
                 Err(
                     DeterministicStateInitValueLengthExceeded {

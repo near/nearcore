@@ -1132,13 +1132,13 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
-        "description": "Describes information about an access key including the public key.",
+        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest\n(the full pubkey is not stored on-chain).",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
           },
           "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "$ref": "#/components/schemas/KeyHandle"
           }
         },
         "required": [
@@ -3400,6 +3400,19 @@
             "minimum": 0,
             "nullable": true,
             "type": "integer"
+          },
+          "prev_last_certified_block_epoch_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpochId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
           },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -11051,6 +11064,9 @@
         "title": "JsonRpcResponse_for_RpcViewStateResponse_and_RpcViewStateError",
         "type": "object"
       },
+      "KeyHandle": {
+        "type": "string"
+      },
       "KnownProducerView": {
         "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
         "properties": {
@@ -12992,15 +13008,12 @@
             "type": "integer"
           },
           "block_production_tracking_delay": {
-            "description": "Duration to check for producing / skipping block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Duration to check for producing / skipping block."
           },
           "catchup_step_period": {
             "description": "Time between check to perform catchup.",
@@ -13049,14 +13062,12 @@
             "type": "integer"
           },
           "chunk_wait_mult": {
-            "description": "Multiplier for the wait time for all chunks to be received.",
-            "items": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
             "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
@@ -13101,15 +13112,12 @@
             "type": "boolean"
           },
           "doomslug_step_period": {
-            "description": "Time between running doomslug timer.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Time between running doomslug timer."
           },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
@@ -13211,26 +13219,20 @@
             "description": "Enable coloring of the logs"
           },
           "max_block_production_delay": {
-            "description": "Maximum wait for approvals before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum wait for approvals before producing block."
           },
           "max_block_wait_delay": {
-            "description": "Maximum duration before skipping given height.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum duration before skipping given height."
           },
           "max_gas_burnt_view": {
             "anyOf": [
@@ -13247,15 +13249,12 @@
             "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain."
           },
           "min_block_production_delay": {
-            "description": "Minimum duration before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Minimum duration before producing block."
           },
           "min_num_peers": {
             "description": "Minimum number of peers to start syncing.",
@@ -15057,8 +15056,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -15386,8 +15404,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -15715,8 +15752,27 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key_base64": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/StoreKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "include_proof": {
                     "type": "boolean"
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "prefix_base64": {
                     "$ref": "#/components/schemas/StoreKey"
@@ -18878,9 +18934,30 @@
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
           },
+          "after_key_base64": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "default": null
+          },
           "include_proof": {
             "default": false,
             "type": "boolean"
+          },
+          "limit": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
           },
           "prefix_base64": {
             "$ref": "#/components/schemas/StoreKey"
@@ -18903,6 +18980,19 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
           },
           "proof": {
             "items": {
@@ -19787,7 +19877,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -19818,7 +19908,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -19859,7 +19949,7 @@
                     "type": "integer"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/KeyHandle"
                   }
                 },
                 "required": [
@@ -20561,10 +20651,6 @@
       },
       "VMConfigView": {
         "properties": {
-          "deterministic_account_ids": {
-            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"
@@ -20958,6 +21044,19 @@
       "ViewStateResult": {
         "description": "Resulting state values for a view state query request",
         "properties": {
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
           "proof": {
             "items": {
               "type": "string"

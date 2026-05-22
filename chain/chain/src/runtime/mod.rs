@@ -14,7 +14,7 @@ use near_chain_configs::{
     default_contract_cache_warming_max_item_count,
     default_contract_cache_warming_pool_thread_count,
 };
-use near_crypto::PublicKey;
+use near_crypto::{KeyHandle, PublicKey};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -66,6 +66,7 @@ use node_runtime::{
     verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -536,12 +537,8 @@ impl NightshadeRuntime {
                 return Err(err.into());
             }
         };
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let state_part = StatePart::from_partial_state(
-            partial_state,
-            protocol_version,
-            self.state_parts_compression_lvl,
-        );
+        let state_part =
+            StatePart::from_partial_state(partial_state, self.state_parts_compression_lvl);
         Ok(state_part)
     }
 
@@ -1367,13 +1364,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewState { account_id, prefix, include_proof } => {
+            QueryRequest::ViewState { account_id, prefix, after_key, limit, include_proof } => {
                 let view_state_result = self
                     .view_state(
                         &shard_uid,
                         *state_root,
                         account_id,
                         prefix.as_ref(),
+                        after_key.as_ref().map(|k| k.as_ref()),
+                        *limit,
                         *include_proof,
                     )
                     .map_err(|err| {
@@ -1402,9 +1401,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     kind: QueryResponseKind::AccessKeyList(
                         access_key_list
                             .into_iter()
-                            .map(|(public_key, access_key)| AccessKeyInfoView {
-                                public_key,
-                                access_key: access_key.into(),
+                            .map(|(public_key, access_key)| {
+                                AccessKeyInfoView::new(public_key, access_key.into())
                             })
                             .collect(),
                     ),
@@ -1846,7 +1844,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
+    ) -> Result<Vec<(KeyHandle, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
@@ -1869,10 +1867,19 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
+        after_key: Option<&[u8]>,
+        limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_state(&state_update, account_id, prefix, include_proof)
+        self.trie_viewer.view_state(
+            &state_update,
+            account_id,
+            prefix,
+            after_key,
+            limit,
+            include_proof,
+        )
     }
 
     fn view_global_contract_code(

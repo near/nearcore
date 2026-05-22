@@ -242,6 +242,7 @@ fn setup(
         epoch_length: config.epoch_length,
         transaction_validity_period,
         disable_tx_routing: config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: config.spice_pending_transaction_queue_enabled(),
     };
 
     let rpc_handler_addr = spawn_rpc_handler_actor(
@@ -615,6 +616,8 @@ pub fn setup_tx_request_handler(
         epoch_length: chain_genesis.epoch_length,
         transaction_validity_period: chain_genesis.transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: client_config
+            .spice_pending_transaction_queue_enabled(),
     };
 
     RpcHandlerActor::new(

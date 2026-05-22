@@ -825,8 +825,8 @@ fn test_cloud_archival_missing_chunks_one_shard() {
 /// receipt-to-tx info for its `(block_hash, shard_id)` matching the chain
 /// store entry-by-entry. Walks every still-on-chain height up to `cloud_head`.
 #[test]
-// TODO(cloud_archival): un-ignore once `ShardData` carries outcomes and receipt-to-tx info.
-#[ignore]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_outcomes_and_receipts() {
     let mut h = CloudArchiveHarness::builder().build();
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
@@ -924,8 +924,11 @@ fn test_cloud_archival_outcomes_and_receipts() {
                     matches!(v1.origin, ReceiptOrigin::FromTransaction(_))
                 })
                 .count();
-            let ChunkApplyStats::V0(stats) =
-                writer_chunk_store.get_chunk_apply_stats(&block_hash, shard_id).unwrap();
+            let ChunkApplyStats::V1(stats) =
+                writer_chunk_store.get_chunk_apply_stats(&block_hash, shard_id).unwrap()
+            else {
+                unreachable!("freshly written chunks must be ChunkApplyStats::V1");
+            };
             assert_eq!(
                 cloud_stored_from_tx_count, stats.transactions_num as usize,
                 "FromTransaction count mismatch at h={height} shard={shard_id}: cloud has {cloud_stored_from_tx_count}, chunk apply processed {} transactions",

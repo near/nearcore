@@ -2,9 +2,9 @@ use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::trie::update::TrieUpdateResult;
 use crate::{
-    ShardTries, TrieUpdate, get_account, has_received_data, set, set_access_key, set_account,
-    set_delayed_receipt, set_gas_key_nonce, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data,
+    ShardTries, TrieUpdate, get_account, has_received_data, set, set_access_key_by_handle,
+    set_account, set_delayed_receipt, set_gas_key_nonce_by_handle, set_postponed_receipt,
+    set_promise_yield_receipt, set_received_data,
 };
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
@@ -54,17 +54,15 @@ impl<'a> StorageComputer<'a> {
                 Some((account_id.clone(), code.len() as u64))
             }
             StateRecord::AccessKey { account_id, public_key, access_key } => {
-                let public_key: PublicKey = public_key.clone();
                 let access_key: AccessKey = access_key.clone();
                 let storage_usage = self.config.num_extra_bytes_record
-                    + borsh::object_length(&public_key).unwrap() as u64
+                    + public_key.trie_id_len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64;
                 Some((account_id.clone(), storage_usage))
             }
             StateRecord::GasKeyNonce { account_id, public_key, index: _index, nonce } => {
-                let public_key: PublicKey = public_key.clone();
                 let storage_usage = self.config.num_extra_bytes_record
-                    + borsh::object_length(&public_key).unwrap() as u64
+                    + public_key.trie_id_len() as u64
                     + size_of::<NonceIndex>() as u64
                     + borsh::object_length(&nonce).unwrap() as u64;
                 Some((account_id.clone(), storage_usage))
@@ -233,7 +231,7 @@ impl GenesisStateApplier {
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     storage.modify(|state_update| {
-                        set_access_key(
+                        set_access_key_by_handle(
                             state_update,
                             account_id.clone(),
                             public_key.clone(),
@@ -243,7 +241,7 @@ impl GenesisStateApplier {
                 }
                 StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => storage
                     .modify(|state_update| {
-                        set_gas_key_nonce(
+                        set_gas_key_nonce_by_handle(
                             state_update,
                             account_id.clone(),
                             public_key.clone(),

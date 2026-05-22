@@ -18,7 +18,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice_core::SpiceCoreReader;
+use crate::spice::core::SpiceCoreReader;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -908,6 +908,9 @@ impl Chain {
                 %epoch_protocol_version,
                 "header protocol version smaller than epoch protocol version"
             );
+            return Err(Error::InvalidProtocolVersion);
+        }
+        if ProtocolFeature::Spice.enabled(epoch_protocol_version) && !header.is_spice() {
             return Err(Error::InvalidProtocolVersion);
         }
 
@@ -2540,6 +2543,7 @@ impl Chain {
 
         if ProtocolFeature::Spice.enabled(protocol_version) {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
+            self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(
