@@ -1812,19 +1812,9 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
 
-        // Spice ChunkExecutionResults may reference chunks from the prior epoch (epoch boundary
-        // case). Resolve the prev epoch id once upfront so we can look up
-        // those assignments without an extra walk per block. None means the
-        // current epoch has no predecessor (genesis-adjacent aggregation).
-        let prev_epoch_id = {
-            let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
-            let first_block_prev_hash = *self.get_block_info(&epoch_first_block)?.prev_hash();
-            if first_block_prev_hash == CryptoHash::default() {
-                None
-            } else {
-                Some(*self.get_block_info(&first_block_prev_hash)?.epoch_id())
-            }
-        };
+        // Resolved once for the spice aggregation step below. None for genesis
+        // or when boundary BlockInfos are missing (e.g. mid epoch sync).
+        let prev_epoch_id = self.prev_epoch_id_or_none(block_hash);
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
         let mut cur_hash = *block_hash;
@@ -1891,6 +1881,17 @@ impl EpochManager {
 
             cur_hash = prev_hash;
         }))
+    }
+
+    /// Returns the epoch id preceding `block_hash`'s epoch, or `None` for
+    /// genesis-adjacent or when boundary BlockInfos are missing (epoch sync).
+    fn prev_epoch_id_or_none(&self, block_hash: &CryptoHash) -> Option<EpochId> {
+        let epoch_first_block = *self.get_block_info(block_hash).ok()?.epoch_first_block();
+        let first_block_prev_hash = *self.get_block_info(&epoch_first_block).ok()?.prev_hash();
+        if first_block_prev_hash == CryptoHash::default() {
+            return None;
+        }
+        Some(*self.get_block_info(&first_block_prev_hash).ok()?.epoch_id())
     }
 
     /// Get the shard split to include in the block header, if any.
