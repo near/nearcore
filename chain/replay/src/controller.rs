@@ -1,5 +1,7 @@
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::types::{ApplyChunkResult, RuntimeAdapter, StorageDataSource};
+use near_chain::types::{
+    ApplyChunkResult, MaybePinnedMemtrieRoot, RuntimeAdapter, StorageDataSource,
+};
 use near_chain::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, ShardUpdateReason,
     ShardUpdateResult, StorageContext, process_shard_update,
@@ -60,6 +62,7 @@ pub struct PreparedReplay<'a> {
     block_hash: CryptoHash,
     block_height: BlockHeight,
     update_reason: ShardUpdateReason,
+    memtrie_pin: MaybePinnedMemtrieRoot,
     /// Cached so the resulting ChunkExtra can be constructed in the
     /// `OldChunk` case (where it copies validator proposals, gas limit etc.
     /// from the previous chunk extra). `None` for the `NewChunk` case.
@@ -82,13 +85,20 @@ impl PreparedReplay<'_> {
             block_hash,
             block_height,
             update_reason,
+            memtrie_pin,
             prev_chunk_extra,
             expected_chunk_extra,
         } = self;
 
         let shard_context = ShardContext { shard_uid, should_apply_chunk: true };
-        let shard_update_result =
-            process_shard_update(&span, runtime, update_reason, shard_context, None)?;
+        let shard_update_result = process_shard_update(
+            &span,
+            runtime,
+            update_reason,
+            shard_context,
+            memtrie_pin,
+            None,
+        )?;
 
         let (actual_chunk_extra, apply_result) = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult { apply_result, gas_limit, .. }) => {
@@ -219,7 +229,7 @@ impl MemtrieShardReplayController {
         let block_context =
             Chain::get_apply_chunk_block_context(&block, prev_block.header(), is_new_chunk);
 
-        let (update_reason, prev_chunk_extra_for_result) = if is_new_chunk {
+        let (update_reason, prev_state_root, prev_chunk_extra_for_result) = if is_new_chunk {
             let chunk = chain_store.get_chunk(&chunk_header.chunk_hash())?;
 
             let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_hash)?;
@@ -239,9 +249,10 @@ impl MemtrieShardReplayController {
                 vec![true; chunk.to_transactions().len()],
             );
 
+            let prev_state_root = chunk_header.prev_state_root();
             let reason = ShardUpdateReason::NewChunk(NewChunkData {
                 gas_limit: chunk_header.gas_limit(),
-                prev_state_root: chunk_header.prev_state_root(),
+                prev_state_root,
                 prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
                 chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
@@ -249,15 +260,19 @@ impl MemtrieShardReplayController {
                 block: block_context,
                 storage_context,
             });
-            (reason, None)
+            (reason, prev_state_root, None)
         } else {
+            let prev_state_root = *prev_chunk_extra.state_root();
             let reason = ShardUpdateReason::OldChunk(OldChunkData {
                 block: block_context,
                 prev_chunk_extra: prev_chunk_extra.clone(),
                 storage_context,
             });
-            (reason, Some(prev_chunk_extra))
+            (reason, prev_state_root, Some(prev_chunk_extra))
         };
+
+        let memtrie_pin =
+            self.runtime.get_tries().maybe_pin_memtrie_root(shard_uid, prev_state_root)?;
 
         let expected_chunk_extra =
             ChunkExtra::clone(chain_store.get_chunk_extra(&block_hash, &shard_uid)?.as_ref());
@@ -268,6 +283,7 @@ impl MemtrieShardReplayController {
             block_hash,
             block_height,
             update_reason,
+            memtrie_pin,
             prev_chunk_extra: prev_chunk_extra_for_result,
             expected_chunk_extra,
         })
