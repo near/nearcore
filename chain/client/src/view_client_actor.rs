@@ -1332,23 +1332,29 @@ fn handle_receipt_to_tx(
     let mut current_height = msg.block_height;
     let mut current_shard = msg.shard_id;
     let mut remaining_budget = MAX_OUTCOMES_PER_REQUEST;
-    // Tracks whether the previous hop was satisfied by the hint scanner
-    // (column-miss → scan resolved). Used by the next iteration's
-    // column-miss branch to pick scan direction + width: after a scan hop,
-    // `current_height` points at the *exact* execution height of the just-
-    // resolved parent, so the next hop's producer can only live at or
-    // before that anchor — use `ScanDirection::Ancestor` with the
-    // operator-tuned `max_hop_distance`. Otherwise (loop entry or after a
-    // column hit) the anchor is the caller's possibly-imprecise hint, so
-    // use `ScanDirection::CenterOut` with the caller's `effective_window`.
-    // Initialized to false so hop 0 always runs CenterOut.
-    let mut last_was_miss = false;
+    // Tracks whether the previous hop's `current_receipt_id` was resolved
+    // by the hint scanner (column miss → scan hit). Drives scan direction
+    // for the next column-miss branch:
+    // - true → next scan uses `ScanDirection::Ancestor` with the
+    //   operator-tuned `max_hop_distance`. Justified because the prior
+    //   scan refreshed `current_height` to the resolved parent's exact
+    //   execution block, and the producer of the next-hop receipt must
+    //   live at or before that anchor (ancestry is monotonic in time).
+    // - false → next scan uses `ScanDirection::CenterOut` with the
+    //   caller's `effective_window`. Used on loop entry and after column
+    //   hits. Column hits leave `current_height` at whatever the prior
+    //   scan set (or the caller's hint if no scan has run), but multiple
+    //   column hits can put the target many hops away from that anchor,
+    //   where the scan-refreshed direction/width is no longer the right
+    //   selection. Reverting to caller-controlled width on column hits
+    //   keeps the policy under the caller's stated tolerance.
+    let mut last_hop_was_scan_resolved = false;
 
     for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
         let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
         let info = match column_info {
             Some(info) => {
-                last_was_miss = false;
+                last_hop_was_scan_resolved = false;
                 info
             }
             None => {
@@ -1358,7 +1364,7 @@ fn handle_receipt_to_tx(
                 if !actor.config.save_tx_outcomes {
                     return Err(GetReceiptToTxError::OutcomesNotStored);
                 }
-                let (direction, window) = if last_was_miss {
+                let (direction, window) = if last_hop_was_scan_resolved {
                     (ScanDirection::Ancestor, max_hop_distance)
                 } else {
                     (ScanDirection::CenterOut, effective_window)
@@ -1373,7 +1379,7 @@ fn handle_receipt_to_tx(
                     &mut remaining_budget,
                 )? {
                     Some(res) => {
-                        last_was_miss = true;
+                        last_hop_was_scan_resolved = true;
                         current_height = Some(res.outcome_block_height);
                         // No `current_shard = None` here: the FromReceipt arm
                         // recomputes it from the parent's predecessor account,
