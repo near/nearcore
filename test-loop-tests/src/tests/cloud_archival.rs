@@ -763,8 +763,13 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
         cloud_storage.get_epoch_data(target_epoch_id).unwrap().epoch_start_height();
     let chunk_drop_height = target_epoch_start + 5;
     assert!(
-        cloud_storage.get_shard_data(chunk_drop_height, dropped_shard).unwrap().is_none(),
-        "shard {dropped_shard} chunk at h={chunk_drop_height} must be None in cloud"
+        cloud_storage
+            .get_shard_data(chunk_drop_height, dropped_shard)
+            .unwrap()
+            .unwrap()
+            .chunk()
+            .is_none(),
+        "carried chunk at h={chunk_drop_height} must be archived with chunk=None"
     );
 
     assert!(h.gc_tail() > target, "target height should be gc-ed");
@@ -803,6 +808,14 @@ fn test_cloud_archival_missing_chunks_one_shard() {
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
 
     let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let state_root_at = |height| -> CryptoHash {
+        *cloud_storage
+            .get_shard_data(height, dropped_shard)
+            .unwrap()
+            .unwrap()
+            .chunk_extra()
+            .state_root()
+    };
     for epoch in [1u64, 2] {
         let probe = epoch * h.epoch_length + h.epoch_length / 2;
         let epoch_id =
@@ -810,10 +823,28 @@ fn test_cloud_archival_missing_chunks_one_shard() {
         let epoch_start = cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_start_height();
         for offset in dropped_offsets {
             let height = epoch_start + offset;
-            let dropped = cloud_storage.get_shard_data(height, dropped_shard).unwrap();
-            let other = cloud_storage.get_shard_data(height, other_shard).unwrap();
-            assert!(dropped.is_none(), "dropped shard at h={height} must be None");
-            assert!(other.is_some(), "other shard at h={height} must be Some");
+            let dropped =
+                cloud_storage.get_shard_data(height, dropped_shard).unwrap().unwrap();
+            let other = cloud_storage.get_shard_data(height, other_shard).unwrap().unwrap();
+            assert!(
+                dropped.chunk().is_none(),
+                "carried chunk at h={height} must have chunk=None"
+            );
+            assert!(other.chunk().is_some(), "other shard at h={height} must have a new chunk");
+            // State advances at every block (bandwidth scheduler), so the
+            // carried chunk's state_root must differ from both neighbors.
+            let prev = height - 1;
+            let next = height + 1;
+            assert_ne!(
+                state_root_at(height),
+                state_root_at(prev),
+                "state_root at h={height} (carried) must differ from h={prev}",
+            );
+            assert_ne!(
+                state_root_at(height),
+                state_root_at(next),
+                "state_root at h={height} (carried) must differ from h={next}",
+            );
         }
     }
     h.assert_heads_and_gc_ok();
@@ -866,6 +897,7 @@ fn test_cloud_archival_outcomes_and_receipts() {
             // Cloud outcome_ids must equal chain's OutcomeIds; each outcome must match.
             let cloud_stored_outcomes: HashMap<CryptoHash, &ExecutionOutcomeWithProof> = shard_data
                 .transaction_result_for_block()
+                .unwrap()
                 .iter()
                 .map(|(id, outcome)| (*id, outcome))
                 .collect();

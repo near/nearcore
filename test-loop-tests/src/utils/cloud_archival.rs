@@ -454,7 +454,7 @@ fn apply_state_changes(
         cloud_storage.get_shard_data(start_block_height, shard_id).unwrap().unwrap();
     assert_eq!(
         state_root,
-        start_block_shard_data.chunk().prev_state_root(),
+        start_block_shard_data.chunk().unwrap().prev_state_root(),
         "initial state_root must match prev_state_root of the start block"
     );
     for block_height in start_block_height..=target_block_height {

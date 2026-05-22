@@ -132,7 +132,7 @@ impl CloudStorage {
         shard_id: ShardId,
     ) -> Result<Option<ShardData>, CloudRetrievalError> {
         let batch = self.get_shard_batch_for_height(block_height, shard_id)?;
-        Ok(batch.get_shard_at_height(block_height).cloned())
+        Ok(batch.get_data_at_height(block_height).cloned())
     }
 }
 
