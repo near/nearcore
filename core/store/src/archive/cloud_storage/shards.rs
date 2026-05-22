@@ -77,8 +77,10 @@ pub fn build_shard_data(
         format_args!("CHUNK APPLY STATS: height {block_height}, shard {shard_id:?}"),
     )?;
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
-    // `IncomingReceipts` is `None` only at genesis-adjacent heights where
-    // the chain doesn't write it.
+    // `IncomingReceipts` is only written at `(block, shard)` when at least
+    // one new chunk in `block` produces a receipt targeting `shard`;
+    // tolerate absence.
+    // TODO(cloud_archival): regression test for an all-chunks-missing block.
     let incoming_receipts = match chain_store.get_incoming_receipts(&block_hash, shard_id) {
         Ok(r) => Some(r.to_vec()),
         Err(Error::DBNotFoundErr(_)) => None,
@@ -244,14 +246,12 @@ pub enum ShardBatch {
 pub struct ShardBatchV1 {
     start_height: BlockHeight,
     end_height: BlockHeight,
-    /// One entry per height; `None` at skipped slots or when the chunk at
-    /// that height is not new for this shard.
+    /// One entry per height; `None` at skipped slots.
     data: Vec<Option<ShardData>>,
 }
 
 /// Builds a `ShardBatch` by reading shard data for each height in `range`.
-/// Pushes `None` for skipped slots and for heights where this shard's chunk
-/// is not new.
+/// Pushes `None` for skipped slots.
 pub fn build_shard_batch(
     store: &Store,
     shard_layout: &ShardLayout,

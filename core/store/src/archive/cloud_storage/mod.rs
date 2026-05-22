@@ -123,8 +123,7 @@ impl CloudStorage {
     }
 
     /// Test-only: fetch a single shard's data. See `get_block_data`. Returns
-    /// `Ok(None)` when the height has no block or this shard's chunk is not
-    /// new at that height.
+    /// `Ok(None)` when the height has no block.
     #[cfg(feature = "test_features")]
     pub fn get_shard_data(
         &self,

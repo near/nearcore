@@ -851,6 +851,7 @@ fn test_cloud_archival_missing_chunks_one_shard() {
 /// Verifies that each archived `ShardData` carries the outcomes and
 /// receipt-to-tx info for its `(block_hash, shard_id)` matching the chain
 /// store entry-by-entry. Walks every still-on-chain height up to `cloud_head`.
+/// Assumes no chunk drops in the iterated window (every shard has a new chunk).
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
