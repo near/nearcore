@@ -1416,9 +1416,9 @@ fn test_hint_malformed_window_without_height() {
 }
 
 /// Synthetic chain: column has child → FromReceipt(P), but the column entry
-/// for P is absent. Hint supplied. The boundary-refresh proactive scan should
-/// pick up P's coordinates, then the next iteration scans for P and resolves
-/// terminally. Regression guard for mixed column-hit / hint-fallback walks.
+/// for P is absent. Hint supplied. The next iteration's column-miss scan
+/// should pick up P's coordinates and resolve terminally. Regression guard
+/// for mixed column-hit / hint-fallback walks.
 #[test]
 fn test_hint_column_then_fallback_boundary() {
     init_test_logger();
@@ -1486,7 +1486,7 @@ fn test_hint_column_then_fallback_boundary() {
             window: None,
         },
     )
-    .expect("column hit + boundary-refresh scan should resolve to terminal tx");
+    .expect("column hit then next-hop column-miss scan should resolve to terminal tx");
     assert_eq!(response.transaction_hash, call_tx_hash);
     assert_eq!(response.sender_account_id, user_account);
 }
@@ -1708,9 +1708,9 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
     }
 }
 
-/// Stale-hint fall-through: the boundary refresh misses AND the next-hop
-/// column also misses, so the walk falls through to `UnknownReceipt` rather
-/// than fabricating a result.
+/// Stale-hint fall-through: the next-hop column-miss scan misses AND no
+/// later column entry hits, so the walk falls through to `UnknownReceipt`
+/// rather than fabricating a result.
 ///
 /// The sibling scenario (refresh misses, column hits, terminal Ok) is
 /// already covered by `test_hint_column_then_fallback_boundary`.
@@ -1868,8 +1868,8 @@ fn test_hint_ancestor_includes_anchor() {
 
 /// Inject an emit→execute delay larger than `receipt_to_tx_max_hop_distance`
 /// via a cross-shard transfer. With `max_hop_distance=0` and the caller's
-/// `window=0`, neither the ancestor boundary refresh nor the next-iteration
-/// column-miss scan can reach the tx's producing block. The walk surfaces
+/// `window=0`, the next-iteration column-miss scan in Ancestor mode cannot
+/// reach the tx's producing block. The walk surfaces
 /// `UnknownReceipt`, documenting the fail-fast contract: ancestor misses
 /// when configured distance is too tight for the actual emit-to-execute
 /// delay.

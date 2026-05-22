@@ -1521,8 +1521,9 @@ fn shard_for_account_at_height(
 }
 
 /// Run one hint-fallback scan and unconditionally record its stats. Used by
-/// both the column-miss branch and the boundary-refresh branch so neither
-/// path can drop metric accounting on an error return.
+/// the column-miss branch in both CenterOut (hop 0 / post-column-hit) and
+/// Ancestor (post-scan-resolved hop) directions, so neither path can drop
+/// metric accounting on an error return.
 fn run_hint_scan(
     actor: &ViewClientActor,
     receipt_id: CryptoHash,
