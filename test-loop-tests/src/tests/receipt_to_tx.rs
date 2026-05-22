@@ -1974,6 +1974,100 @@ fn test_hint_window_config_override() {
     );
 }
 
+/// Pin the load-bearing band for hop-1+ ancestor scan width:
+/// `d ∈ (effective_window, max_hop_distance]` where
+/// `d = parent_execution_height − grandparent_execution_height`.
+///
+/// Setup mirrors `test_hint_cross_shard_walk_resolves_via_predecessor_shard`
+/// (cross-shard contract call producing a refund chain) but tightens the
+/// caller's window to 0 so `effective_window = 0 < d ≤ max_hop_distance = 10`.
+/// The natural cross-shard delay puts the producing tx outcome a block earlier
+/// than the action receipt on the sender shard.
+///
+/// Hop 0 finds the action receipt at `(action_height, action_shard)` with
+/// `window = 0` (anchor only). Without the hop-1+ ancestor scan width
+/// (`max_hop_distance = 10`) covering the gap between the action receipt and
+/// its producing tx, the walk would terminate `UnknownReceipt`. This test pins
+/// the load-bearing claim so any future restructure that preserves the same
+/// coverage continues to pass.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_hint_ancestor_gap_band() {
+    init_test_logger();
+    let sender_account = create_account_id("account0");
+    let receiver_account: AccountId = "test1".parse().unwrap();
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .num_shards(2)
+        .add_user_account(&sender_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .gas_prices(min_gas_price, min_gas_price)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let receiver_signer = create_user_test_signer(&receiver_account);
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &receiver_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &receiver_signer,
+        env.validator().head().last_block_hash,
+    );
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    let sender_signer = create_user_test_signer(&sender_account);
+    let call_tx = SignedTransaction::call(
+        1,
+        sender_account.clone(),
+        receiver_account,
+        &sender_signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.validator().head().last_block_hash,
+    );
+    let call_tx_hash = call_tx.get_hash();
+    let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome =
+        outcome.receipts_outcome.iter().find(|r| r.id == action_receipt_id).unwrap();
+    let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+    let action_shard = shard_containing_outcome(
+        &env,
+        action_height,
+        action_receipt_id,
+        &[ShardId::new(0), ShardId::new(1)],
+    );
+
+    // window=0 forces effective_window=0 < d on hop 1+. Walk only succeeds
+    // because the hop-1+ ancestor scan width (max_hop_distance default 10)
+    // reaches the producing tx outcome a block earlier on the sender shard.
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: refund_receipt_id,
+            block_height: Some(action_height),
+            shard_id: Some(action_shard),
+            window: Some(0),
+        },
+    )
+    .expect("ancestor gap band must be covered by hop-1+ scan width");
+    assert_eq!(response.transaction_hash, call_tx_hash);
+    assert_eq!(response.sender_account_id, sender_account);
+}
+
 /// A2A — hint height past the chain head (not locally resolvable) must surface
 /// as `UnknownReceipt`. The handler must not fall back to the head epoch's
 /// shard layout, which could scan the wrong shards on a post-resharding node.
