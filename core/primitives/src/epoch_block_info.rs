@@ -346,7 +346,8 @@ fn chunk_endorsements_from_header(header: &BlockHeader) -> ChunkEndorsementsBitm
 
 /// BlockInfo used on spice chains. Carries `last_certified_block_epoch` so
 /// EpochManager can hold the epoch transition until execution certification
-/// has caught up.
+/// has caught up, and `prev_spice_chunk_endorsement_stats` which the epoch
+/// info aggregator sums into per-validator stats for spice reward and kickout.
 #[derive(
     Default,
     BorshSerialize,
