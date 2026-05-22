@@ -93,7 +93,11 @@ pub fn run(
     fees_config: Arc<RuntimeFeesConfig>,
 ) -> VMResult {
     let span = tracing::Span::current();
+    #[cfg(feature = "metrics")]
+    let start = std::time::Instant::now();
     let outcome = prepared.run(ext, context, fees_config);
+    #[cfg(feature = "metrics")]
+    crate::metrics::record_execution_duration(start.elapsed());
     let outcome = match outcome {
         Ok(o) => o,
         e @ Err(_) => return e,

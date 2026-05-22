@@ -579,7 +579,7 @@ impl WasmtimeVM {
             "wasmtime compiled contract",
         );
 
-        crate::metrics::compilation_duration(VMKind::Wasmtime, elapsed);
+        crate::metrics::compilation_duration(elapsed);
         Ok(serialized)
     }
 
