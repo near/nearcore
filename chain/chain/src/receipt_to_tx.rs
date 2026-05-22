@@ -51,8 +51,9 @@ pub enum ScanDirection {
     /// is included because same-shard local receipts can execute in the
     /// same block as their producing outcome (`process_local_receipts`
     /// runs within the same `apply()` call as the transactions that emit
-    /// them; see `runtime/runtime/src/lib.rs`). Used for hop 1+
-    /// (boundary-refresh from a resolved parent height).
+    /// them; see `runtime/runtime/src/lib.rs`). Used for hop 1+ column-miss
+    /// scans where the anchor is the previously scan-resolved parent's
+    /// exact execution height.
     Ancestor,
 }
 

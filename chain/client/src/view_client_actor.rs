@@ -1332,12 +1332,17 @@ fn handle_receipt_to_tx(
     let mut current_height = msg.block_height;
     let mut current_shard = msg.shard_id;
     let mut remaining_budget = MAX_OUTCOMES_PER_REQUEST;
-    // P1A: tracks whether the previous hop was satisfied by the hint
-    // scanner. Boundary refresh only runs after a scan hop, because that's
-    // the situation in which the next iteration's column lookup is also
-    // expected to miss. Set on every iteration's column/scan branch — no
-    // initial value is observable.
-    let mut last_was_miss;
+    // Tracks whether the previous hop was satisfied by the hint scanner
+    // (column-miss → scan resolved). Used by the next iteration's
+    // column-miss branch to pick scan direction + width: after a scan hop,
+    // `current_height` points at the *exact* execution height of the just-
+    // resolved parent, so the next hop's producer can only live at or
+    // before that anchor — use `ScanDirection::Ancestor` with the
+    // operator-tuned `max_hop_distance`. Otherwise (loop entry or after a
+    // column hit) the anchor is the caller's possibly-imprecise hint, so
+    // use `ScanDirection::CenterOut` with the caller's `effective_window`.
+    // Initialized to false so hop 0 always runs CenterOut.
+    let mut last_was_miss = false;
 
     for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
         let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
@@ -1353,13 +1358,18 @@ fn handle_receipt_to_tx(
                 if !actor.config.save_tx_outcomes {
                     return Err(GetReceiptToTxError::OutcomesNotStored);
                 }
+                let (direction, window) = if last_was_miss {
+                    (ScanDirection::Ancestor, max_hop_distance)
+                } else {
+                    (ScanDirection::CenterOut, effective_window)
+                };
                 match scan_with_optional_shard_enumeration(
                     actor,
                     current_receipt_id,
                     height,
                     current_shard,
-                    effective_window,
-                    ScanDirection::CenterOut,
+                    window,
+                    direction,
                     &mut remaining_budget,
                 )? {
                     Some(res) => {
@@ -1400,42 +1410,6 @@ fn handle_receipt_to_tx(
                 current_shard = current_height.and_then(|h| {
                     shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
                 });
-                // P1A: only proactively refresh the hint when the previous hop
-                // was already a scan. After a column hit, the column is the
-                // authoritative source; refreshing eagerly burns budget on
-                // every FromReceipt step of a column-only walk.
-                if hint_provided
-                    && actor.config.save_tx_outcomes
-                    && last_was_miss
-                    && let Some(height) = current_height
-                {
-                    match scan_with_optional_shard_enumeration(
-                        actor,
-                        parent_id,
-                        height,
-                        current_shard,
-                        max_hop_distance,
-                        ScanDirection::Ancestor,
-                        &mut remaining_budget,
-                    )? {
-                        Some(res) => {
-                            current_height = Some(res.outcome_block_height);
-                            // Keep `current_shard` from the A1A derivation
-                            // above. The refresh just confirmed that's the
-                            // shard where the parent's producing outcome
-                            // lives, which is exactly the shard the next
-                            // iteration's column-miss scan needs to hit.
-                        }
-                        None => {
-                            // Boundary refresh missed. Keep the existing
-                            // hint; the next iteration's column lookup may
-                            // still hit. If it also misses, the next scan
-                            // runs with this hint and may itself miss —
-                            // terminating in UnknownReceipt rather than
-                            // fabricating a result.
-                        }
-                    }
-                }
                 current_receipt_id = parent_id;
             }
         }
