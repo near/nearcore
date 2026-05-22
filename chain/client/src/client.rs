@@ -1175,11 +1175,15 @@ impl Client {
                 .chain
                 .spice_core_reader
                 .prev_last_certified_block_epoch_id(prev_header.hash())?;
+            let endorsement_contribution = self
+                .chain
+                .spice_core_reader
+                .prev_spice_chunk_endorsement_stats(&epoch_id, prev_header.hash())?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,
                 prev_last_certified_block_epoch_id,
-                prev_spice_chunk_endorsement_stats: Vec::new(),
+                prev_spice_chunk_endorsement_stats: endorsement_contribution.current_validators,
             })
         } else {
             None

@@ -557,7 +557,9 @@ fn test_validate_core_statements_in_block_with_parent_not_recorded() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
-    let next_block = build_block(&mut chain, &block, vec![]);
+    // `block` is intentionally not processed, so `block_builder` cannot
+    // auto-compute `prev_spice_chunk_endorsement_stats`. Use the raw builder.
+    let next_block = raw_block_builder(&chain, &block).spice_core_statements(vec![]).build();
     assert_matches!(
         core_reader.validate_core_statements_in_block(&next_block),
         Err(InvalidSpiceCoreStatementsError::NoPrevUncertifiedChunks)
@@ -1306,7 +1308,9 @@ fn block_certification_core_statements(block: &Block) -> Vec<SpiceCoreStatement>
     core_statements
 }
 
-fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
+// Builds a block without core statements or endorsement stats, allows testing
+// core statement validation logic separately from endorsement stats logic.
+fn raw_block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
     let block_producer = chain
         .epoch_manager
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
@@ -1314,6 +1318,18 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
+}
+
+fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
+    let next_epoch_id =
+        chain.epoch_manager.get_epoch_id_from_prev_block(prev_block.hash()).unwrap();
+    let prev_spice_chunk_endorsement_stats = chain
+        .spice_core_reader
+        .prev_spice_chunk_endorsement_stats(&next_epoch_id, prev_block.hash())
+        .unwrap()
+        .current_validators;
+    raw_block_builder(chain, prev_block)
+        .prev_spice_chunk_endorsement_stats(prev_spice_chunk_endorsement_stats)
 }
 
 fn build_block(

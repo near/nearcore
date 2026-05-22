@@ -252,12 +252,25 @@ pub fn create_chunk(
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
+    let prev_spice_chunk_endorsement_stats = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        let next_epoch_id =
+            client.epoch_manager.get_epoch_id_from_prev_block(last_block.hash()).unwrap();
+        client
+            .chain
+            .spice_core_reader
+            .prev_spice_chunk_endorsement_stats(&next_epoch_id, last_block.hash())
+            .unwrap()
+            .current_validators
+    } else {
+        Vec::new()
+    };
     let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
         .height(next_height)
         .chunks(vec![encoded_chunk.cloned_header()])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut block_merkle_tree)
+        .prev_spice_chunk_endorsement_stats(prev_spice_chunk_endorsement_stats)
         .build();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
         .map_err(|(err, _)| err)
