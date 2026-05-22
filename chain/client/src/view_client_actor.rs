@@ -1397,7 +1397,7 @@ fn handle_receipt_to_tx(
             }
             ReceiptOrigin::FromReceipt(origin) => {
                 let parent_id = origin.parent_receipt_id;
-                // A1A: derive next-hop shard from the parent receipt's
+                // Derive next-hop shard from the parent receipt's
                 // predecessor account. The parent receipt P executed on the
                 // shard of P.receiver_id; P.receiver_id = R.predecessor_id
                 // (where R is the receipt we just resolved). We don't have R
@@ -1475,7 +1475,7 @@ fn scan_with_optional_shard_enumeration(
     Ok(None)
 }
 
-/// A2A: shard layout at the hinted height. `Ok(None)` means the height isn't
+/// Shard layout at the hinted height. `Ok(None)` means the height isn't
 /// locally resolvable (typically GC'd at the archival horizon); the caller
 /// maps that to `UnknownReceipt`. Falling back to the head epoch's shard
 /// layout would be wrong across a resharding boundary — wrong shards scanned,

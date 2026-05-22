@@ -1120,10 +1120,10 @@ fn test_hint_fallback_resolves_through_refund_chain() {
 
 /// Cross-shard depth-2 walk with `save_receipt_to_tx=false`. Hop 1 uses the
 /// supplied action shard to resolve refund → action receipt. The hop-2 scan
-/// is shard-narrowed via the handler's predecessor-account derivation
-/// (A1A): the action receipt's `parent_predecessor_id` resolves to the
-/// sender shard, so the ancestor scan goes straight to shard 0 and finds
-/// the originating transaction without enumerating all shards.
+/// is shard-narrowed via the handler's predecessor-account derivation: the
+/// action receipt's `parent_predecessor_id` resolves to the sender shard, so
+/// the ancestor scan goes straight to shard 0 and finds the originating
+/// transaction without enumerating all shards.
 ///
 /// Gated off under spice: the spice execution model lands the cross-shard
 /// refund / action receipts on different blocks than the standard model, so
@@ -1493,7 +1493,7 @@ fn test_hint_column_then_fallback_boundary() {
 
 /// (true, true) origin-row collision: outcome id present in both Transactions
 /// and Receipts. The classifier skips, the scan exhausts, terminal error is
-/// `UnknownReceipt`. Carry-forward from Blocker 3.
+/// `UnknownReceipt`.
 #[test]
 fn test_hint_classifier_skips_on_both_origin_rows_present() {
     init_test_logger();
@@ -1708,12 +1708,12 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
     }
 }
 
-/// T3A — stale-hint fall-through, V2 variant: the boundary refresh misses AND
-/// the next-hop column also misses, so the walk falls through to
-/// `UnknownReceipt` rather than fabricating a result.
+/// Stale-hint fall-through: the boundary refresh misses AND the next-hop
+/// column also misses, so the walk falls through to `UnknownReceipt` rather
+/// than fabricating a result.
 ///
-/// The V1 variant (refresh misses, column hits, terminal Ok) is already
-/// covered by `test_hint_column_then_fallback_boundary`.
+/// The sibling scenario (refresh misses, column hits, terminal Ok) is
+/// already covered by `test_hint_column_then_fallback_boundary`.
 #[test]
 fn test_hint_stale_then_column_miss_returns_unknown() {
     init_test_logger();
@@ -2068,8 +2068,8 @@ fn test_hint_ancestor_gap_band() {
     assert_eq!(response.sender_account_id, sender_account);
 }
 
-/// A2A — hint height past the chain head (not locally resolvable) must surface
-/// as `UnknownReceipt`. The handler must not fall back to the head epoch's
+/// Hint height past the chain head (not locally resolvable) must surface as
+/// `UnknownReceipt`. The handler must not fall back to the head epoch's
 /// shard layout, which could scan the wrong shards on a post-resharding node.
 #[test]
 fn test_hint_height_unresolvable_returns_unknown_receipt() {
