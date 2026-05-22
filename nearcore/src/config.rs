@@ -295,6 +295,15 @@ pub struct Config {
     /// If set to `None`, defaults to the same value as `save_tx_outcomes`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_receipt_to_tx: Option<bool>,
+    /// Maximum ±window width accepted on `EXPERIMENTAL_receipt_to_tx`
+    /// requests (hop 0 caller-supplied window). Requests larger than this
+    /// are rejected with `WindowTooLarge`. If `None`, defaults to 20.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_to_tx_max_hint_window: Option<BlockHeightDelta>,
+    /// Maximum block-distance the ancestor scan walks per hop after hop 0
+    /// of an `EXPERIMENTAL_receipt_to_tx` walk. If `None`, defaults to 10.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_to_tx_max_hop_distance: Option<BlockHeightDelta>,
     /// Number of worker threads in the contract-cache-warming pool. `0` disables warming.
     #[serde(default = "default_contract_cache_warming_pool_thread_count")]
     pub contract_cache_warming_pool_thread_count: usize,
@@ -477,6 +486,8 @@ impl Default for Config {
             save_state_changes: None,
             save_tx_outcomes: None,
             save_receipt_to_tx: None,
+            receipt_to_tx_max_hint_window: None,
+            receipt_to_tx_max_hop_distance: None,
             contract_cache_warming_pool_thread_count:
                 default_contract_cache_warming_pool_thread_count(),
             contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
@@ -772,6 +783,8 @@ impl NearConfig {
                 save_receipt_to_tx: config
                     .save_receipt_to_tx
                     .unwrap_or_else(|| config.save_tx_outcomes.unwrap_or(is_archive_or_rpc)),
+                receipt_to_tx_max_hint_window: config.receipt_to_tx_max_hint_window.unwrap_or(20),
+                receipt_to_tx_max_hop_distance: config.receipt_to_tx_max_hop_distance.unwrap_or(10),
                 contract_cache_warming_pool_thread_count: config
                     .contract_cache_warming_pool_thread_count,
                 contract_cache_warming_max_item_count: config.contract_cache_warming_max_item_count,
@@ -1786,6 +1799,19 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use tempfile::tempdir;
+
+    #[test]
+    fn config_deserialization_with_missing_receipt_to_tx_fields() {
+        // Locks the serde-default migration contract: an existing config.json
+        // without the two new receipt_to_tx hint knobs must deserialize and
+        // surface `None`, so the `ClientConfig` mapper falls back to its
+        // 20 / 10 defaults. If this test ever fails, an operator upgrade
+        // will reject their old config file at load time.
+        let json_data = json!({});
+        let config: Config = serde_json::from_value(json_data).unwrap();
+        assert_eq!(config.receipt_to_tx_max_hint_window, None);
+        assert_eq!(config.receipt_to_tx_max_hop_distance, None);
+    }
 
     #[test]
     fn test_old_tracked_config_fields_are_parsed() {

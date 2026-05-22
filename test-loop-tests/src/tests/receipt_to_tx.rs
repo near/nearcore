@@ -12,7 +12,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, Gas, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::DBCol;
 
@@ -1263,25 +1263,28 @@ fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
     assert_eq!(response.transaction_hash, tx_hash);
 }
 
-/// `window > MAX_HINT_WINDOW` is rejected up front with `WindowTooLarge`.
+/// `window > receipt_to_tx_max_hint_window` is rejected up front with
+/// `WindowTooLarge`.
 #[test]
 fn test_hint_fallback_window_too_large() {
     init_test_logger();
     let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
 
+    // ClientConfig::test() seeds receipt_to_tx_max_hint_window to 20.
+    let configured_max: BlockHeightDelta = 20;
     let result = handle(
         &mut env,
         GetReceiptToTx {
             receipt_id: CryptoHash::hash_bytes(b"any"),
             block_height: Some(100),
             shard_id: Some(ShardId::new(0)),
-            window: Some(near_chain::receipt_to_tx::MAX_HINT_WINDOW + 1),
+            window: Some(configured_max + 1),
         },
     );
     match result {
         Err(GetReceiptToTxError::WindowTooLarge { requested, maximum }) => {
-            assert_eq!(requested, near_chain::receipt_to_tx::MAX_HINT_WINDOW + 1);
-            assert_eq!(maximum, near_chain::receipt_to_tx::MAX_HINT_WINDOW);
+            assert_eq!(requested, configured_max + 1);
+            assert_eq!(maximum, configured_max);
         }
         other => panic!("expected WindowTooLarge, got {other:?}"),
     }
@@ -1785,6 +1788,190 @@ fn test_hint_stale_then_column_miss_returns_unknown() {
             panic!("expected UnknownReceipt at the stale-hint cross-hop miss, got {other:?}")
         }
     }
+}
+
+/// 2-hop self-call walk with the ancestor scan distance pinned to 0. The hint
+/// resolver visits only the anchor height for hop 1+, so the test only passes
+/// if the producing outcome of the parent receipt lives at the anchor itself.
+/// For a same-account self-call, `process_local_receipts` runs the action
+/// receipt within the same `apply()` call as its emitting tx, so both
+/// outcomes share a block. Locks the anchor-inclusion invariant in the
+/// integration layer.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_hint_ancestor_includes_anchor() {
+    init_test_logger();
+    let user_account = create_account_id("account0");
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .gas_prices(min_gas_price, min_gas_price)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+            // Anchor-only: hop 1+ may only inspect the resolved parent's
+            // own execution block. A successful walk proves the anchor is
+            // visited.
+            config.receipt_to_tx_max_hop_distance = 0;
+        })
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &user_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &signer,
+        env.validator().head().last_block_hash,
+    );
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    let call_tx = SignedTransaction::call(
+        2,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.validator().head().last_block_hash,
+    );
+    let call_tx_hash = call_tx.get_hash();
+    let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome =
+        outcome.receipts_outcome.iter().find(|r| r.id == action_receipt_id).unwrap();
+    let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: refund_receipt_id,
+            block_height: Some(action_height),
+            shard_id: Some(ShardId::new(0)),
+            window: None,
+        },
+    )
+    .expect("anchor-only ancestor scan should still resolve local same-shard receipts");
+    assert_eq!(response.transaction_hash, call_tx_hash);
+    assert_eq!(response.sender_account_id, user_account);
+}
+
+/// Inject an emit→execute delay larger than `receipt_to_tx_max_hop_distance`
+/// via a cross-shard transfer. With `max_hop_distance=0` and the caller's
+/// `window=0`, neither the ancestor boundary refresh nor the next-iteration
+/// column-miss scan can reach the tx's producing block. The walk surfaces
+/// `UnknownReceipt`, documenting the fail-fast contract: ancestor misses
+/// when configured distance is too tight for the actual emit-to-execute
+/// delay.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_hint_ancestor_distance_misses_when_delay_exceeds_config() {
+    init_test_logger();
+    let sender_account = create_account_id("account0");
+    let receiver_account: AccountId = "test1".parse().unwrap();
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .num_shards(2)
+        .add_user_account(&sender_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .gas_prices(min_gas_price, min_gas_price)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+            // Distance 0 collapses the ancestor scan to anchor-only.
+            config.receipt_to_tx_max_hop_distance = 0;
+        })
+        .build();
+
+    let signer = create_user_test_signer(&sender_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        sender_account,
+        receiver_account,
+        &signer,
+        Balance::from_yoctonear(100),
+        env.validator().head().last_block_hash,
+    );
+    let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome =
+        outcome.receipts_outcome.iter().find(|r| r.id == action_receipt_id).unwrap();
+    let action_height = env
+        .validator()
+        .client()
+        .chain
+        .get_block_header(&action_outcome.block_hash)
+        .unwrap()
+        .height();
+    let action_shard = shard_containing_outcome(
+        &env,
+        action_height,
+        action_receipt_id,
+        &[ShardId::new(0), ShardId::new(1)],
+    );
+
+    // window=0 forces hop 0 to inspect only the anchor height too; combined
+    // with max_hop_distance=0 the walk has zero slack to reach the
+    // cross-shard tx outcome which executed a block earlier.
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: action_receipt_id,
+            block_height: Some(action_height),
+            shard_id: Some(action_shard),
+            window: Some(0),
+        },
+    );
+    match result {
+        Err(GetReceiptToTxError::UnknownReceipt(id)) => {
+            assert_eq!(id, action_receipt_id);
+        }
+        other => panic!("expected UnknownReceipt under tight max_hop_distance, got {other:?}"),
+    }
+}
+
+/// Operator override: raise `receipt_to_tx_max_hint_window` past the default
+/// and verify that a `window` value over the old default is accepted instead
+/// of being rejected by the up-front cap check. Locks the contract that the
+/// new field is operator-tunable.
+#[test]
+fn test_hint_window_config_override() {
+    init_test_logger();
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(EPOCH_LENGTH)
+        .track_all_shards()
+        .config_modifier(|config, _| {
+            config.receipt_to_tx_max_hint_window = 50;
+        })
+        .build();
+
+    // 30 > default cap (20) but < operator-raised cap (50). The handler must
+    // accept it; with no matching receipt anywhere the walk terminates in
+    // UnknownReceipt, not WindowTooLarge.
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: CryptoHash::hash_bytes(b"absent"),
+            block_height: Some(100),
+            shard_id: Some(ShardId::new(0)),
+            window: Some(30),
+        },
+    );
+    assert!(
+        matches!(result, Err(GetReceiptToTxError::UnknownReceipt(_))),
+        "window=30 must be accepted under max_hint_window=50; got {result:?}"
+    );
 }
 
 /// A2A — hint height past the chain head (not locally resolvable) must surface

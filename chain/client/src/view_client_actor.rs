@@ -8,7 +8,7 @@ use crate::{
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::receipt_to_tx::{
-    DEFAULT_HINT_WINDOW, HintResolution, HintScanStats, MAX_HINT_WINDOW, ResolveHintError,
+    DEFAULT_HINT_WINDOW, HintResolution, HintScanStats, ResolveHintError, ScanDirection,
     resolve_receipt_via_hint,
 };
 use near_chain::spice::chain::SpiceChainReader;
@@ -1305,10 +1305,12 @@ fn handle_receipt_to_tx(
         return Err(GetReceiptToTxError::MalformedHint("window requires block_height".to_string()));
     }
     let effective_window = msg.window.unwrap_or(DEFAULT_HINT_WINDOW);
-    if hint_provided && effective_window > MAX_HINT_WINDOW {
+    let max_hint_window = actor.config.receipt_to_tx_max_hint_window;
+    let max_hop_distance = actor.config.receipt_to_tx_max_hop_distance;
+    if hint_provided && effective_window > max_hint_window {
         return Err(GetReceiptToTxError::WindowTooLarge {
             requested: effective_window,
-            maximum: MAX_HINT_WINDOW,
+            maximum: max_hint_window,
         });
     }
 
@@ -1357,6 +1359,7 @@ fn handle_receipt_to_tx(
                     height,
                     current_shard,
                     effective_window,
+                    ScanDirection::CenterOut,
                     &mut remaining_budget,
                 )? {
                     Some(res) => {
@@ -1411,7 +1414,8 @@ fn handle_receipt_to_tx(
                         parent_id,
                         height,
                         current_shard,
-                        effective_window,
+                        max_hop_distance,
+                        ScanDirection::Ancestor,
                         &mut remaining_budget,
                     )? {
                         Some(res) => {
@@ -1445,10 +1449,11 @@ fn handle_receipt_to_tx(
 
 /// Per-request ceiling on the total number of outcome rows the hint-fallback
 /// scanner may read across all hops. Worst case without this cap is
-/// `RECEIPT_TO_TX_MAX_DEPTH * (2 * MAX_HINT_WINDOW + 1) * outcomes_per_chunk`,
-/// which a misaligned hint on a deep chain can drive into the millions on
-/// an unauthenticated public endpoint. 100k is well above the legitimate
-/// usage envelope (depth ≤ 3, window ≤ 5, sparse outcomes) and still bounded.
+/// `RECEIPT_TO_TX_MAX_DEPTH * (2 * receipt_to_tx_max_hint_window + 1) *
+/// outcomes_per_chunk`, which a misaligned hint on a deep chain can drive
+/// into the millions on an unauthenticated public endpoint. 100k is well
+/// above the legitimate usage envelope (depth ≤ 3, window ≤ 5, sparse
+/// outcomes) and still bounded.
 ///
 /// Note: when `shard_id` is omitted, the budget is consumed across *all*
 /// shards in iteration order — a hit on the last-iterated shard charges every
@@ -1462,19 +1467,34 @@ fn scan_with_optional_shard_enumeration(
     block_height: BlockHeight,
     shard_id: Option<ShardId>,
     window: BlockHeightDelta,
+    direction: ScanDirection,
     remaining_budget: &mut u64,
 ) -> Result<Option<HintResolution>, GetReceiptToTxError> {
     if let Some(shard_id) = shard_id {
-        return run_hint_scan(actor, receipt_id, block_height, shard_id, window, remaining_budget);
+        return run_hint_scan(
+            actor,
+            receipt_id,
+            block_height,
+            shard_id,
+            window,
+            direction,
+            remaining_budget,
+        );
     }
 
     let Some(shard_ids) = shard_ids_for_hint_height(actor, block_height)? else {
         return Err(GetReceiptToTxError::UnknownReceipt(receipt_id));
     };
     for shard_id in shard_ids {
-        if let Some(resolution) =
-            run_hint_scan(actor, receipt_id, block_height, shard_id, window, remaining_budget)?
-        {
+        if let Some(resolution) = run_hint_scan(
+            actor,
+            receipt_id,
+            block_height,
+            shard_id,
+            window,
+            direction,
+            remaining_budget,
+        )? {
             return Ok(Some(resolution));
         }
     }
@@ -1529,6 +1549,7 @@ fn run_hint_scan(
     block_height: BlockHeight,
     shard_id: ShardId,
     window: BlockHeightDelta,
+    direction: ScanDirection,
     remaining_budget: &mut u64,
 ) -> Result<Option<HintResolution>, GetReceiptToTxError> {
     let mut stats = HintScanStats::default();
@@ -1538,6 +1559,7 @@ fn run_hint_scan(
         block_height,
         shard_id,
         window,
+        direction,
         &mut stats,
         remaining_budget,
     );

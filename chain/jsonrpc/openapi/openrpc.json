@@ -8185,6 +8185,18 @@
             ],
             "description": "Determines whether client should exit if the protocol version is not supported\nfor the next or next next epoch."
           },
+          "receipt_to_tx_max_hint_window": {
+            "description": "Maximum ±window width accepted for `EXPERIMENTAL_receipt_to_tx`\nhint mode (hop 0 caller-supplied window). Requests with `window`\nlarger than this are rejected with `WindowTooLarge`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_to_tx_max_hop_distance": {
+            "description": "Maximum block-distance the ancestor scan walks per hop after hop 0.\nThe iterator visits `h, h-1, h-2, ..., h-max_hop_distance` where `h`\nis the previously resolved parent's execution height. The anchor is\nincluded because same-shard local receipts can execute in the same\nblock as their producing outcome. Raise this if cold archival\ntraffic shows ancestor misses under heavier congestion.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "resharding_config": {
             "$ref": "#/components/schemas/MutableConfigValue"
           },
@@ -9097,7 +9109,7 @@
       "RpcReceiptToTxRequest": {
         "properties": {
           "block_height": {
-            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort hinted fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk.\n\nCold-storage usage: this endpoint primarily serves historical queries,\nso the scan typically reads from cold storage where per-row latency is\norders of magnitude higher than hot. To keep request cost bounded,\ncallers should:\n  - Supply `block_height` within the parent outcome's `±window` range\n    (default 5 blocks).\n  - Supply `shard_id` when the producing shard is known; omitting it\n    forces all-shards enumeration on the first hop, multiplying the\n    cold-read cost by the number of tracked shards.\n  - Avoid increasing `window` beyond what the indexer's height\n    estimate actually requires; the scan budget is shared across the\n    full ancestry walk.\n\nReceipt-id-only queries against periods where `save_receipt_to_tx`\nwas disabled at processing time remain unsupported — the column was\nnever written and this endpoint provides no self-locating mechanism.",
+            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort hinted fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk. The caller-supplied\nheight anchors **hop 0** only; ancestor hops anchor on the previously\nresolved parent outcome's exact execution height.\n\nCold-storage usage: this endpoint primarily serves historical queries,\nso the scan typically reads from cold storage where per-row latency is\norders of magnitude higher than hot. To keep request cost bounded,\ncallers should:\n  - Supply `block_height` within the parent outcome's `±window` range\n    (default 5 blocks).\n  - Supply `shard_id` when the producing shard is known; omitting it\n    forces all-shards enumeration on the first hop, multiplying the\n    cold-read cost by the number of tracked shards.\n  - Avoid increasing `window` beyond what the indexer's height\n    estimate actually requires; the scan budget is shared across the\n    full ancestry walk.\n\nReceipt-id-only queries against periods where `save_receipt_to_tx`\nwas disabled at processing time remain unsupported — the column was\nnever written and this endpoint provides no self-locating mechanism.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -9120,7 +9132,7 @@
             ]
           },
           "window": {
-            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`. On cold storage, every extra\nblock in the window translates directly into additional remote\nreads — keep this tight.",
+            "description": "Optional override for the `±window` scan range on **hop 0** only.\nDefaults to `DEFAULT_HINT_WINDOW` when omitted; rejected with\n`WindowTooLarge` when greater than the node's\n`receipt_to_tx_max_hint_window` setting (default 20). On cold\nstorage, every extra block in the window translates directly into\nadditional remote reads — keep this tight.\n\nHops past the first scan around the resolved parent's execution\nheight, not around this field. Ancestor scan width is set by the\nnode's `receipt_to_tx_max_hop_distance` config (default 10) and is\nnot request-controlled.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -13165,7 +13177,7 @@
           "name": "block_height",
           "required": false,
           "schema": {
-            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort hinted fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk.\n\nCold-storage usage: this endpoint primarily serves historical queries,\nso the scan typically reads from cold storage where per-row latency is\norders of magnitude higher than hot. To keep request cost bounded,\ncallers should:\n  - Supply `block_height` within the parent outcome's `±window` range\n    (default 5 blocks).\n  - Supply `shard_id` when the producing shard is known; omitting it\n    forces all-shards enumeration on the first hop, multiplying the\n    cold-read cost by the number of tracked shards.\n  - Avoid increasing `window` beyond what the indexer's height\n    estimate actually requires; the scan budget is shared across the\n    full ancestry walk.\n\nReceipt-id-only queries against periods where `save_receipt_to_tx`\nwas disabled at processing time remain unsupported — the column was\nnever written and this endpoint provides no self-locating mechanism.",
+            "description": "Optional block height near where the receipt was created. Supplying it\nenables a best-effort hinted fallback scan when the local\n`ReceiptToTx` column is missing an entry mid-walk. The caller-supplied\nheight anchors **hop 0** only; ancestor hops anchor on the previously\nresolved parent outcome's exact execution height.\n\nCold-storage usage: this endpoint primarily serves historical queries,\nso the scan typically reads from cold storage where per-row latency is\norders of magnitude higher than hot. To keep request cost bounded,\ncallers should:\n  - Supply `block_height` within the parent outcome's `±window` range\n    (default 5 blocks).\n  - Supply `shard_id` when the producing shard is known; omitting it\n    forces all-shards enumeration on the first hop, multiplying the\n    cold-read cost by the number of tracked shards.\n  - Avoid increasing `window` beyond what the indexer's height\n    estimate actually requires; the scan budget is shared across the\n    full ancestry walk.\n\nReceipt-id-only queries against periods where `save_receipt_to_tx`\nwas disabled at processing time remain unsupported — the column was\nnever written and this endpoint provides no self-locating mechanism.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -13200,7 +13212,7 @@
           "name": "window",
           "required": false,
           "schema": {
-            "description": "Optional override for the `±window` scan range. Defaults to\n`DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`\nwhen greater than `MAX_HINT_WINDOW`. On cold storage, every extra\nblock in the window translates directly into additional remote\nreads — keep this tight.",
+            "description": "Optional override for the `±window` scan range on **hop 0** only.\nDefaults to `DEFAULT_HINT_WINDOW` when omitted; rejected with\n`WindowTooLarge` when greater than the node's\n`receipt_to_tx_max_hint_window` setting (default 20). On cold\nstorage, every extra block in the window translates directly into\nadditional remote reads — keep this tight.\n\nHops past the first scan around the resolved parent's execution\nheight, not around this field. Ancestor scan width is set by the\nnode's `receipt_to_tx_max_hop_distance` config (default 10) and is\nnot request-controlled.",
             "format": "uint64",
             "minimum": 0,
             "type": [

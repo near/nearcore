@@ -53,7 +53,9 @@ pub struct RpcReceiptToTxRequest {
     pub receipt_reference: ReceiptReference,
     /// Optional block height near where the receipt was created. Supplying it
     /// enables a best-effort hinted fallback scan when the local
-    /// `ReceiptToTx` column is missing an entry mid-walk.
+    /// `ReceiptToTx` column is missing an entry mid-walk. The caller-supplied
+    /// height anchors **hop 0** only; ancestor hops anchor on the previously
+    /// resolved parent outcome's exact execution height.
     ///
     /// Cold-storage usage: this endpoint primarily serves historical queries,
     /// so the scan typically reads from cold storage where per-row latency is
@@ -78,11 +80,17 @@ pub struct RpcReceiptToTxRequest {
     /// this field does not narrow the entire walk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shard_id: Option<ShardId>,
-    /// Optional override for the `±window` scan range. Defaults to
-    /// `DEFAULT_HINT_WINDOW` when omitted; rejected with `WindowTooLarge`
-    /// when greater than `MAX_HINT_WINDOW`. On cold storage, every extra
-    /// block in the window translates directly into additional remote
-    /// reads — keep this tight.
+    /// Optional override for the `±window` scan range on **hop 0** only.
+    /// Defaults to `DEFAULT_HINT_WINDOW` when omitted; rejected with
+    /// `WindowTooLarge` when greater than the node's
+    /// `receipt_to_tx_max_hint_window` setting (default 20). On cold
+    /// storage, every extra block in the window translates directly into
+    /// additional remote reads — keep this tight.
+    ///
+    /// Hops past the first scan around the resolved parent's execution
+    /// height, not around this field. Ancestor scan width is set by the
+    /// node's `receipt_to_tx_max_hop_distance` config (default 10) and is
+    /// not request-controlled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<BlockHeightDelta>,
 }

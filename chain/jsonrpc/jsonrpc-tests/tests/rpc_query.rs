@@ -716,8 +716,9 @@ async fn test_receipt_to_tx_hint_window_too_large() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
 
-    // Pick a deterministic error: window above MAX_HINT_WINDOW (20) is rejected
-    // at request validation before any tracking check or scan work.
+    // Pick a deterministic error: window above receipt_to_tx_max_hint_window
+    // (default 20) is rejected at request validation before any tracking check
+    // or scan work.
     let json = serde_json::json!({
         "jsonrpc": "2.0",
         "id": "dontcare",

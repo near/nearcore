@@ -1,3 +1,22 @@
+//! Hint-fallback resolver for the receipt-to-tx walk.
+//!
+//! Two scan modes share one `resolve_receipt_via_hint` entry point:
+//!
+//! * **Hop 0 — `ScanDirection::CenterOut`.** The anchor is a caller-supplied
+//!   hint that could be off either side of the producing outcome, so the
+//!   resolver visits `h, h-1, h+1, h-2, h+2, ...` up to `±window`.
+//! * **Hop 1+ — `ScanDirection::Ancestor`.** The anchor is the previously
+//!   resolved parent outcome's *exact* execution height. The producing
+//!   outcome we still need to locate must live at or before the anchor —
+//!   receipts are produced before they execute, so forward heights are
+//!   physically impossible. The anchor itself stays in the iteration
+//!   because same-shard local receipts can execute in the same block as
+//!   their producing outcome (`process_local_receipts` runs inside the
+//!   same `apply()` call as the transactions that emit them).
+//!
+//! Both modes consume the per-request outcome budget enforced by the
+//! handler; the kernel only counts and reports per-scan progress.
+
 use crate::{ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_o11y::tracing;
@@ -9,13 +28,33 @@ use near_primitives::receipt::{
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
 use near_store::DBCol;
 
-/// Default scan window (in blocks) for [`resolve_receipt_via_hint`] when the
-/// caller does not specify one. The scan inspects heights `[h-window, h+window]`.
+/// Default scan window (in blocks) for the caller-controlled hop 0 scan of
+/// [`resolve_receipt_via_hint`] when the caller does not specify one. Hop 0
+/// runs in `ScanDirection::CenterOut`, inspecting `[h-window, h+window]`.
+/// Hop 1+ uses [`ScanDirection::Ancestor`] with its own width set by the
+/// node config, not this default.
 pub const DEFAULT_HINT_WINDOW: BlockHeightDelta = 5;
 
-/// Maximum scan window that the hint-scan resolver will accept. Requests above
-/// this cap are rejected so a single RPC call can't blow up I/O cost.
-pub const MAX_HINT_WINDOW: BlockHeightDelta = 20;
+/// Direction of the hint scan around an anchor block height.
+///
+/// Hop 0 anchors on a caller-supplied hint that could be off either side,
+/// so the resolver visits `±window` heights center-out. Hop 1+ anchors on
+/// the previously resolved parent's execution height — which is exact, not
+/// a hint — so the producing outcome of interest must live at the anchor
+/// or earlier. Forward heights are physically impossible because receipts
+/// are produced before they execute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanDirection {
+    /// Center-out `±window` scan. Used for hop 0 (caller hint).
+    CenterOut,
+    /// Anchor-inclusive backward scan: `h, h-1, ..., h-window`. The anchor
+    /// is included because same-shard local receipts can execute in the
+    /// same block as their producing outcome (`process_local_receipts`
+    /// runs within the same `apply()` call as the transactions that emit
+    /// them; see `runtime/runtime/src/lib.rs`). Used for hop 1+
+    /// (boundary-refresh from a resolved parent height).
+    Ancestor,
+}
 
 /// Versioned constructor for `ReceiptToTxInfo`. Used by the RPC hint-scan
 /// resolver (`resolve_receipt_via_hint`) when synthesizing origin info
@@ -46,6 +85,25 @@ fn center_out_heights(
         let upper = (low != high).then_some(high);
         [lower, upper].into_iter().flatten()
     }))
+}
+
+/// Iterate heights backward from `block_height` down to `block_height -
+/// max_distance`, saturating at 0. The anchor is included.
+///
+/// Order: `h, h-1, h-2, ..., h-max_distance`. The anchor is included so the
+/// scan still finds same-shard local receipts (which execute in the same
+/// block as their producing outcome). Forward heights are never visited
+/// because receipts are produced before they execute.
+fn ancestor_heights(
+    block_height: BlockHeight,
+    max_distance: BlockHeightDelta,
+) -> impl Iterator<Item = BlockHeight> {
+    (0..=max_distance).map_while(move |offset| {
+        if offset > block_height {
+            return None;
+        }
+        Some(block_height - offset)
+    })
 }
 
 /// Successful resolution of a parent outcome via the hint scan. Carries the
@@ -80,8 +138,11 @@ pub enum ResolveHintError {
 }
 
 /// Attempt to resolve the immediate parent of `receipt_id` by scanning
-/// `OutcomeIds` / `TransactionResultForBlock` rows in a `±window` block range
-/// around `block_height` on `shard_id`.
+/// `OutcomeIds` / `TransactionResultForBlock` rows in a block range around
+/// `block_height` on `shard_id`. The scan direction is set by `direction`:
+/// hop 0 uses `CenterOut` (`±window` around a caller hint); hop 1+ uses
+/// `Ancestor` (`h, h-1, ..., h-window` backward from the previously
+/// resolved parent's execution height).
 ///
 /// `Ok(Some(_))` — parent located, info synthesized in-flight.
 /// `Ok(None)` — window exhausted without finding the receipt.
@@ -98,12 +159,17 @@ pub fn resolve_receipt_via_hint(
     block_height: BlockHeight,
     shard_id: ShardId,
     window: BlockHeightDelta,
+    direction: ScanDirection,
     stats: &mut HintScanStats,
     remaining_budget: &mut u64,
 ) -> Result<Option<HintResolution>, ResolveHintError> {
     let store = chain_store.store();
 
-    for height in center_out_heights(block_height, window) {
+    let heights: Box<dyn Iterator<Item = BlockHeight>> = match direction {
+        ScanDirection::CenterOut => Box::new(center_out_heights(block_height, window)),
+        ScanDirection::Ancestor => Box::new(ancestor_heights(block_height, window)),
+    };
+    for height in heights {
         stats.heights_scanned += 1;
         let block_hash = match chain_store.get_block_hash_by_height(height) {
             Ok(h) => h,
@@ -195,6 +261,10 @@ mod tests {
         center_out_heights(h, w).collect()
     }
 
+    fn collect_ancestor(h: BlockHeight, w: BlockHeightDelta) -> Vec<BlockHeight> {
+        ancestor_heights(h, w).collect()
+    }
+
     #[test]
     fn center_out_basic() {
         assert_eq!(collect(100, 0), vec![100]);
@@ -207,5 +277,33 @@ mod tests {
         // Offsets greater than block_height should drop the lower side, not produce duplicates.
         assert_eq!(collect(2, 5), vec![2, 1, 3, 0, 4, 5, 6, 7]);
         assert_eq!(collect(0, 2), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn ancestor_heights_basic() {
+        assert_eq!(collect_ancestor(100, 0), vec![100]);
+        assert_eq!(collect_ancestor(100, 3), vec![100, 99, 98, 97]);
+    }
+
+    #[test]
+    fn ancestor_heights_saturates_at_zero() {
+        assert_eq!(collect_ancestor(2, 5), vec![2, 1, 0]);
+        assert_eq!(collect_ancestor(0, 5), vec![0]);
+    }
+
+    #[test]
+    fn ancestor_heights_no_forward() {
+        // Lock the invariant directly on the iterator: ancestor scan must
+        // never emit a height greater than its anchor.
+        for h in [0, 1, 5, 100, 1_000_000] {
+            for w in [0, 1, 5, 20, 100] {
+                for emitted in ancestor_heights(h, w) {
+                    assert!(
+                        emitted <= h,
+                        "ancestor_heights({h}, {w}) emitted {emitted} > anchor {h}"
+                    );
+                }
+            }
+        }
     }
 }
