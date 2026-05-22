@@ -68,9 +68,11 @@ pub struct RpcReceiptToTxRequest {
     /// callers should:
     ///   - Supply `block_height` within the parent outcome's `±window` range
     ///     (default 5 blocks).
-    ///   - Supply `shard_id` when the producing shard is known; omitting it
-    ///     forces all-shards enumeration on the first applicable scan,
-    ///     multiplying the cold-read cost by the number of tracked shards.
+    ///   - Supply `shard_id` when the producing shard is known. Omitting
+    ///     it leaves `current_shard` unset until the walk crosses a
+    ///     `FromReceipt` arm (which derives the shard via
+    ///     predecessor-account lookup); any scan that runs before that
+    ///     enumerates all tracked shards, multiplying cold-read cost.
     ///   - Avoid increasing `window` beyond what the indexer's height
     ///     estimate actually requires; the scan budget is shared across the
     ///     full ancestry walk.
@@ -80,15 +82,17 @@ pub struct RpcReceiptToTxRequest {
     /// never written and this endpoint provides no self-locating mechanism.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_height: Option<BlockHeight>,
-    /// Optional shard hint consumed by the first hint scan that runs before
-    /// any `FromReceipt` walker hop has executed. Once a `FromReceipt` arm
+    /// Optional shard hint consumed by any hint scan that runs before the
+    /// walk has crossed a `FromReceipt` arm. Once a `FromReceipt` arm
     /// fires, the handler overwrites `current_shard` via predecessor-account
     /// derivation (`shard_for_account_at_height(parent_predecessor_id,
     /// current_height)`), so this field does not narrow the rest of the
-    /// walk. A hop-0 column hit that returns `FromReceipt` discards the
-    /// caller's shard hint without using it. Omitting `shard_id` makes the
-    /// first applicable scan enumerate all shards at the hint height,
-    /// multiplying the scan budget by the number of tracked shards.
+    /// walk. If the very first walker step is a column hit returning
+    /// `FromReceipt`, the caller's shard hint is discarded without being
+    /// used by any scan. Omitting `shard_id` leaves `current_shard` unset;
+    /// any scan that runs before a `FromReceipt` arm has derived it then
+    /// enumerates all tracked shards at the hint height, multiplying the
+    /// scan budget by the number of shards.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shard_id: Option<ShardId>,
     /// Optional override for the `±window` scan range used whenever the
@@ -100,10 +104,13 @@ pub struct RpcReceiptToTxRequest {
     /// storage, every extra block in the window translates directly into
     /// additional remote reads — keep this tight.
     ///
-    /// This field does not control scan width after a scan-resolved hop.
-    /// Scans that immediately follow a scan-resolved hop use a backward
-    /// iterator capped by the node's `receipt_to_tx_max_hop_distance`
-    /// config (default 10) and are not request-controlled.
+    /// This field does not control scan width on a scan that immediately
+    /// follows a scan-resolved hop; those use a backward iterator capped
+    /// by the node's `receipt_to_tx_max_hop_distance` config (default
+    /// 10), not by `window`. If a column hit follows a scan-resolved
+    /// hop, the next column-miss scan reverts to `CenterOut` with this
+    /// `window` again — the policy tracks the immediately preceding
+    /// hop, not the walk's all-time scan history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<BlockHeightDelta>,
 }

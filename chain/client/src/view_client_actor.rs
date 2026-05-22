@@ -1407,12 +1407,19 @@ fn handle_receipt_to_tx(
                 // predecessor account. The parent receipt P executed on the
                 // shard of P.receiver_id; P.receiver_id = R.predecessor_id
                 // (where R is the receipt we just resolved). We don't have R
-                // loaded here but we do have `parent_predecessor_id` which is
-                // P.predecessor_id, useful for finding *P's* parent (the
+                // loaded here but we do have `parent_predecessor_id` which
+                // is P.predecessor_id, useful for finding *P's* parent (the
                 // grandparent G executed on shard(G.receiver_id) =
-                // shard(P.predecessor_id)). That's the shard we want the next
-                // hop to scan, so the column-miss branch lands on the right
-                // shard without enumerating.
+                // shard(P.predecessor_id)). That's the shard the next
+                // column-miss scan should target, so this assignment lets
+                // the scan run on one shard instead of enumerating all of
+                // them. Best-effort: the shard is computed at
+                // `current_height`, which may be stale by a few hops after
+                // intervening column hits; across a resharding boundary the
+                // derivation can pick a shard that no longer contains the
+                // producing outcome, in which case the scan misses and the
+                // walk falls through to `UnknownReceipt` rather than
+                // fabricating a result.
                 current_shard = current_height.and_then(|h| {
                     shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
                 });
@@ -1435,10 +1442,12 @@ fn handle_receipt_to_tx(
 /// above the legitimate usage envelope (depth ≤ 3, window ≤ 5, sparse
 /// outcomes) and still bounded.
 ///
-/// Note: when `shard_id` is omitted, the budget is consumed across *all*
-/// shards in iteration order — a hit on the last-iterated shard charges every
-/// earlier shard's outcomes too. Callers that know the creating shard should
-/// supply it on hop 1 to avoid this multiplier.
+/// Note: when `current_shard` is unset (caller omitted `shard_id` and no
+/// `FromReceipt` arm has derived a shard yet), the scan enumerates all
+/// tracked shards and the budget is consumed across them in iteration
+/// order — a hit on the last-iterated shard charges every earlier shard's
+/// outcomes too. Callers that know the creating shard should supply
+/// `shard_id` so the very first scan runs on one shard.
 const MAX_OUTCOMES_PER_REQUEST: u64 = 100_000;
 
 fn scan_with_optional_shard_enumeration(

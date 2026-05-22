@@ -117,7 +117,7 @@ fn ancestor_heights(
 /// synthesized `ReceiptToTxInfo` plus the execution block height of the outcome
 /// itself, which the caller uses to refresh `block_height` for the next hop.
 /// The outcome's shard is *not* propagated: the next hop's scan target lives
-/// on a different shard (the producer of the parent receipt). The handler
+/// on the producer's shard, which may or may not match this one. The handler
 /// derives that shard from `ReceiptOriginReceipt.parent_predecessor_id` at
 /// the resolved height.
 pub struct HintResolution {
