@@ -5,6 +5,8 @@ use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
 use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
+use bitvec::order::Lsb0;
+use bitvec::vec::BitVec;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
 use near_crypto::{KeyHandle, PublicKey};
@@ -1152,6 +1154,79 @@ impl ValidatorStats {
     /// 100.
     pub fn less_than(&self, threshold: u8) -> bool {
         self.produced * 100 < u64::from(threshold) * self.expected
+    }
+}
+
+/// Selects which epoch's validator assignment to consult for a spice
+/// ChunkExecutionResult. `Previous` only occurs at the epoch boundary, when
+/// certification lag carries chunks from the prior epoch.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum EpochRef {
+    Current,
+    Previous,
+}
+
+/// Per-ChunkExecutionResult endorsement bitmap carried on a spice block header.
+/// One entry per ChunkExecutionResult in the previous block's body, ordered 1:1
+/// with `iter_execution_results`. `bits` packs one bit per validator slot in
+/// this ChunkExecutionResult's assignment, in assignment order.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct SpiceChunkEndorsementStats {
+    pub chunk_epoch: EpochRef,
+    pub shard_id: ShardId,
+    /// Height of the chunk's parent block, used together with `shard_id` and
+    /// the selected epoch_id to look up the validator assignment.
+    pub chunk_height: BlockHeight,
+    /// Endorsement bits, LSB-first within bytes; padding bits at the tail
+    /// are zero. Mirrors `ChunkEndorsementsBitmap`.
+    // TODO(spice): bound length on deserialize against a ceiling derived
+    // from target_validator_mandates_per_shard, to prevent OOM via adversarial input.
+    pub bits: Vec<u8>,
+}
+
+impl SpiceChunkEndorsementStats {
+    pub fn from_endorsements(
+        chunk_epoch: EpochRef,
+        shard_id: ShardId,
+        chunk_height: BlockHeight,
+        endorsements: Vec<bool>,
+    ) -> Self {
+        let bitvec: BitVec<u8, Lsb0> = endorsements.iter().collect();
+        Self { chunk_epoch, shard_id, chunk_height, bits: bitvec.into() }
+    }
+
+    /// Yields `true` for each set bit, in assignment order. Length is a
+    /// multiple of 8 due to byte alignment; padding bits at the tail are zero.
+    pub fn iter(&self) -> impl Iterator<Item = bool> + '_ {
+        BitVec::<u8, Lsb0>::from_vec(self.bits.clone()).into_iter()
+    }
+
+    /// Total bit count (multiple of 8).
+    pub fn len_bits(&self) -> usize {
+        self.bits.len() * 8
     }
 }
 
