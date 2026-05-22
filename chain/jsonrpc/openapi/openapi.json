@@ -3414,6 +3414,13 @@
               }
             ]
           },
+          "prev_spice_chunk_endorsement_stats": {
+            "items": {
+              "$ref": "#/components/schemas/SpiceChunkEndorsementStats"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
           },
@@ -19475,6 +19482,28 @@
         "required": [
           "account_id",
           "is_double_sign"
+        ],
+        "type": "object"
+      },
+      "SpiceChunkEndorsementStats": {
+        "description": "Per-validator chunk endorsement delta for a single block under spice.",
+        "properties": {
+          "expected": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "produced": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "produced",
+          "expected"
         ],
         "type": "object"
       },
