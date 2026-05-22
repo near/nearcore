@@ -557,6 +557,7 @@ impl Chain {
         let tip = chain_store.head()?;
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
         let mut tracked_shards = Vec::new();
+        let mut missing_state_shards = Vec::new();
         for shard_uid in shard_layout.shard_uids() {
             if should_load_memtrie_at_startup(
                 shard_uid,
@@ -565,7 +566,17 @@ impl Chain {
                 runtime_adapter.as_ref(),
             ) {
                 tracked_shards.push(shard_uid);
+            } else if shard_tracker.cares_about_shard(&tip.prev_block_hash, shard_uid.shard_id()) {
+                missing_state_shards.push(shard_uid);
             }
+        }
+
+        if !missing_state_shards.is_empty() {
+            return Err(Error::Other(format!(
+                "tracked_shards_config includes shards {missing_state_shards:?} that this node never had state for. \
+                 nearcore does not yet auto-recover state for newly-tracked shards across a restart (see #15404). \
+                 to proceed: stop the node, wipe the local database, then restart so the node state-syncs the new shards from scratch."
+            )));
         }
 
         let shard_uid_pending_resharding =
@@ -3763,8 +3774,7 @@ impl Chain {
 
 /// True if memtries should be loaded for `shard_uid` at startup.
 ///
-/// Self-heals stale `Ready` flags from pre-#15404 DBs by downgrading
-/// them to `Empty` when the implied `ChunkExtra` is missing.
+/// Downgrades stale `Ready` flags (no `ChunkExtra`) to `Empty`; see #15404.
 fn should_load_memtrie_at_startup(
     shard_uid: ShardUId,
     parent_hash: &CryptoHash,
