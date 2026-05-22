@@ -823,13 +823,9 @@ fn test_cloud_archival_missing_chunks_one_shard() {
         let epoch_start = cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_start_height();
         for offset in dropped_offsets {
             let height = epoch_start + offset;
-            let dropped =
-                cloud_storage.get_shard_data(height, dropped_shard).unwrap().unwrap();
+            let dropped = cloud_storage.get_shard_data(height, dropped_shard).unwrap().unwrap();
             let other = cloud_storage.get_shard_data(height, other_shard).unwrap().unwrap();
-            assert!(
-                dropped.chunk().is_none(),
-                "carried chunk at h={height} must have chunk=None"
-            );
+            assert!(dropped.chunk().is_none(), "carried chunk at h={height} must have chunk=None");
             assert!(other.chunk().is_some(), "other shard at h={height} must have a new chunk");
             // State advances at every block (bandwidth scheduler), so the
             // carried chunk's state_root must differ from both neighbors.
