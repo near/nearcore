@@ -190,19 +190,34 @@ impl EpochInfoAggregator {
         }
 
         // Step 2b: apply spice flat endorsement deltas. Empty Vec is a no-op.
+        // Header validation already enforces the length invariant; skip
+        // rather than crash if anything ever slips past it.
         if let Some(deltas) = block_info.prev_spice_chunk_endorsement_stats() {
             let num_validators = epoch_info.validators_iter().len();
-            assert!(
-                deltas.is_empty() || deltas.len() == num_validators,
+            let length_ok = deltas.is_empty() || deltas.len() == num_validators;
+            debug_assert!(
+                length_ok,
                 "prev_spice_chunk_endorsement_stats length {} must be 0 or {}",
                 deltas.len(),
                 num_validators,
             );
-            for (validator_id, delta) in deltas.iter().enumerate() {
-                let entry =
-                    self.spice_endorsement_tracker.entry(validator_id as ValidatorId).or_default();
-                entry.produced += u64::from(delta.produced);
-                entry.expected += u64::from(delta.expected);
+            if length_ok {
+                for (validator_id, delta) in deltas.iter().enumerate() {
+                    let entry = self
+                        .spice_endorsement_tracker
+                        .entry(validator_id as ValidatorId)
+                        .or_default();
+                    entry.produced += u64::from(delta.produced);
+                    entry.expected += u64::from(delta.expected);
+                }
+            } else {
+                tracing::error!(
+                    target: "epoch_tracker",
+                    block_height = %block_info_height,
+                    deltas_len = %deltas.len(),
+                    num_validators,
+                    "prev_spice_chunk_endorsement_stats length mismatch, skipping",
+                );
             }
         }
 

@@ -343,11 +343,18 @@ impl SpiceCoreReader {
                     Some(&validator_id) => &mut current_validators[validator_id as usize],
                     None => departed_validators.entry(account_id.clone()).or_default(),
                 };
-                // TODO(spice): limit number of core statements in block for the checked_adds
-                // to be safe. (#14970)
-                stats.expected = stats.expected.checked_add(1).unwrap();
+                // TODO(spice): limit number of core statements in block (#14970)
+                stats.expected = stats.expected.checked_add(1).ok_or_else(|| {
+                    Error::InvalidSpiceChunkEndorsementStats(
+                        "overflow accumulating endorsement stats".to_string(),
+                    )
+                })?;
                 if endorsers.contains(&(chunk_id, account_id)) {
-                    stats.produced = stats.produced.checked_add(1).unwrap();
+                    stats.produced = stats.produced.checked_add(1).ok_or_else(|| {
+                        Error::InvalidSpiceChunkEndorsementStats(
+                            "overflow accumulating endorsement stats".to_string(),
+                        )
+                    })?;
                 }
             }
         }
