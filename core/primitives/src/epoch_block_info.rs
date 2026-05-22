@@ -1,7 +1,7 @@
 use crate::block_header::BlockHeader;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use crate::types::{AccountId, EpochId, ShardId, ValidatorStakeV1};
+use crate::types::{AccountId, EpochId, ShardId, SpiceChunkEndorsementStats, ValidatorStakeV1};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, BlockHeight, ProtocolVersion};
@@ -90,6 +90,10 @@ impl BlockInfo {
             let last_certified_block_epoch = *header
                 .prev_last_certified_block_epoch_id()
                 .expect("spice block header must carry prev_last_certified_block_epoch_id");
+            let prev_spice_chunk_endorsement_stats = header
+                .prev_spice_chunk_endorsement_stats()
+                .expect("spice block header must carry prev_spice_chunk_endorsement_stats")
+                .to_vec();
             return Self::V5(BlockInfoV5 {
                 hash: *header.hash(),
                 height: header.height(),
@@ -106,6 +110,7 @@ impl BlockInfo {
                 chunk_endorsements: chunk_endorsements_from_header(header),
                 shard_split: header.shard_split().cloned(),
                 last_certified_block_epoch,
+                prev_spice_chunk_endorsement_stats,
             });
         }
         BlockInfo::new(
@@ -316,6 +321,15 @@ impl BlockInfo {
             Self::V5(info) => Some(&info.last_certified_block_epoch),
         }
     }
+
+    /// Populated only on spice chains. See `SpiceChunkEndorsementStats`.
+    #[inline]
+    pub fn prev_spice_chunk_endorsement_stats(&self) -> Option<&[SpiceChunkEndorsementStats]> {
+        match self {
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
+            Self::V5(info) => Some(&info.prev_spice_chunk_endorsement_stats),
+        }
+    }
 }
 
 fn chunk_endorsements_from_header(header: &BlockHeader) -> ChunkEndorsementsBitmap {
@@ -330,7 +344,9 @@ fn chunk_endorsements_from_header(header: &BlockHeader) -> ChunkEndorsementsBitm
 
 /// BlockInfo used on spice chains. Carries `last_certified_block_epoch` so
 /// EpochManager can hold the epoch transition until execution certification
-/// has caught up.
+/// has caught up, and `prev_spice_chunk_endorsement_stats` which the epoch
+/// info aggregator consumes per-ChunkExecutionResult to derive per-validator endorsement stats
+/// for spice reward and kickout.
 #[derive(
     Default,
     BorshSerialize,
@@ -362,6 +378,8 @@ pub struct BlockInfoV5 {
     pub shard_split: Option<(ShardId, AccountId)>,
     /// Epoch id of the last block whose chunk execution results are certified.
     pub last_certified_block_epoch: EpochId,
+    /// Mirrors the header field; consumed by the epoch info aggregator.
+    pub prev_spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
 
 // V3 -> V4: Add shard_split for dynamic resharding, remove slashed
