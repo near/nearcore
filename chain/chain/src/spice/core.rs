@@ -343,7 +343,6 @@ impl SpiceCoreReader {
                     Some(&validator_id) => &mut current_validators[validator_id as usize],
                     None => departed_validators.entry(account_id.clone()).or_default(),
                 };
-                // TODO(spice): limit number of core statements in block (#14970)
                 stats.expected = stats.expected.checked_add(1).ok_or_else(|| {
                     Error::InvalidSpiceChunkEndorsementStats(
                         "overflow accumulating endorsement stats".to_string(),
