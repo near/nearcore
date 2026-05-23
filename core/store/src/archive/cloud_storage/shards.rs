@@ -23,6 +23,7 @@ pub enum ShardData {
     V1(ShardDataV1),
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ShardDataV1 {
     NewChunk(NewChunkData),
