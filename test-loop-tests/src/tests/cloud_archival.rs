@@ -920,8 +920,10 @@ fn test_cloud_archival_outcomes_and_receipts() {
             }
             total_outcomes += cloud_stored_outcomes.len();
 
-            let cloud_stored_receipt_to_tx: HashMap<CryptoHash, &ReceiptToTxInfo> =
-                shard_data.receipt_to_tx().iter().map(|(id, info)| (*id, info)).collect();
+            let cloud_stored_receipt_to_tx: HashMap<CryptoHash, &ReceiptToTxInfo> = shard_data
+                .receipt_to_tx()
+                .map(|r| r.iter().map(|(id, info)| (*id, info)).collect())
+                .unwrap_or_default();
             for (id, cloud_stored_info) in &cloud_stored_receipt_to_tx {
                 assert_eq!(
                     &chain_store.get_receipt_to_tx(id).unwrap(),

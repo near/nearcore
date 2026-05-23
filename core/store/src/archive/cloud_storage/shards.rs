@@ -24,15 +24,20 @@ pub enum ShardData {
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ShardDataV1 {
-    /// Read from `DBCol::Chunks`. `None` when the chunk is carried.
-    chunk: Option<ShardChunk>,
+pub enum ShardDataV1 {
+    NewChunk(NewChunkData),
+    Carried(CarriedData),
+}
 
-    /// Read from `DBCol::IncomingReceipts`.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct NewChunkData {
+    /// Read from `DBCol::Chunks`.
+    chunk: ShardChunk,
+    /// Read from `DBCol::IncomingReceipts`. `None` when no new chunk in
+    /// the block produces a receipt targeting this shard.
     incoming_receipts: Option<Vec<ReceiptProof>>,
     /// Read from `DBCol::OutgoingReceipts`.
-    outgoing_receipts: Option<Vec<Receipt>>,
-
+    outgoing_receipts: Vec<Receipt>,
     /// Read from `DBCol::ChunkExtra`.
     chunk_extra: ChunkExtra,
     /// Read from `DBCol::ChunkApplyStats`.
@@ -40,14 +45,26 @@ pub struct ShardDataV1 {
     /// Read from `DBCol::StateChanges`.
     state_changes: Vec<RawStateChangesWithTrieKey>,
     /// Read from `DBCol::OutcomeIds` and `DBCol::TransactionResultForBlock`.
-    transaction_result_for_block: Option<Vec<(CryptoHash, ExecutionOutcomeWithProof)>>,
+    transaction_result_for_block: Vec<(CryptoHash, ExecutionOutcomeWithProof)>,
     /// Read from `DBCol::ProcessedReceiptIds` (entries tagged
     /// `ReceiptSource::ReceiptToTxGc`) and `DBCol::ReceiptToTx`.
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
-/// `Ok(None)` at skipped heights (no block). At carried-chunk heights
-/// returns `Some` with `chunk: None` and the new-chunk-only fields empty.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct CarriedData {
+    /// Read from `DBCol::ChunkExtra`.
+    chunk_extra: ChunkExtra,
+    /// Read from `DBCol::ChunkApplyStats`.
+    chunk_apply_stats: ChunkApplyStats,
+    /// Read from `DBCol::StateChanges`.
+    state_changes: Vec<RawStateChangesWithTrieKey>,
+    /// Read from `DBCol::IncomingReceipts`. `None` when no new chunk in
+    /// the block produces a receipt targeting this shard.
+    incoming_receipts: Option<Vec<ReceiptProof>>,
+}
+
+/// `Ok(None)` at skipped heights (no block).
 pub fn build_shard_data(
     store: &Store,
     shard_layout: &ShardLayout,
@@ -86,36 +103,34 @@ pub fn build_shard_data(
         Err(Error::DBNotFoundErr(_)) => None,
         Err(e) => return Err(e),
     };
-    // Non-`None` fields below are always present at every height where
-    // `apply_chunk` ran (new or old).
-    let mut shard_data = ShardDataV1 {
-        chunk: None,
+
+    if !chunk_header.is_new_chunk(block_height) {
+        return Ok(Some(ShardData::V1(ShardDataV1::Carried(CarriedData {
+            chunk_extra,
+            chunk_apply_stats,
+            state_changes,
+            incoming_receipts,
+        }))));
+    }
+
+    let chunk = chunk_store.get_chunk(chunk_header.chunk_hash())?;
+    let outgoing_receipts = chain_store.get_outgoing_receipts(&block_hash, shard_id)?.to_vec();
+    let transaction_result_for_block =
+        build_transaction_result_for_block(store, &block_hash, shard_id)?;
+    let receipt_to_tx = build_receipt_to_tx(store, &block_hash, shard_id)?;
+
+    Ok(Some(ShardData::V1(ShardDataV1::NewChunk(NewChunkData {
+        chunk,
         incoming_receipts,
-        outgoing_receipts: None,
+        outgoing_receipts,
         chunk_extra,
         chunk_apply_stats,
         state_changes,
-        transaction_result_for_block: None,
-        receipt_to_tx: Vec::new(),
-    };
-
-    if !chunk_header.is_new_chunk(block_height) {
-        return Ok(Some(ShardData::V1(shard_data)));
-    }
-
-    // Chain writes these at every new chunk.
-    shard_data.chunk = Some(chunk_store.get_chunk(chunk_header.chunk_hash())?);
-    shard_data.outgoing_receipts =
-        Some(chain_store.get_outgoing_receipts(&block_hash, shard_id)?.to_vec());
-    shard_data.transaction_result_for_block =
-        Some(build_transaction_result_for_block(store, &block_hash, shard_id)?);
-    shard_data.receipt_to_tx = build_receipt_to_tx(store, &block_hash, shard_id)?;
-
-    Ok(Some(ShardData::V1(shard_data)))
+        transaction_result_for_block,
+        receipt_to_tx,
+    }))))
 }
 
-/// Reads `DBCol::OutcomeIds` + `DBCol::TransactionResultForBlock` for
-/// `(block, shard)`.
 fn build_transaction_result_for_block(
     store: &Store,
     block_hash: &CryptoHash,
@@ -138,8 +153,6 @@ fn build_transaction_result_for_block(
     Ok(transaction_result_for_block)
 }
 
-/// Walks `DBCol::ProcessedReceiptIds` for `(block, shard)`, keeps entries
-/// tagged `ReceiptToTxGc`, and reads each `DBCol::ReceiptToTx` entry.
 fn build_receipt_to_tx(
     store: &Store,
     block_hash: &CryptoHash,
@@ -199,25 +212,29 @@ fn get_state_changes(
 impl ShardData {
     pub fn chunk(&self) -> Option<&ShardChunk> {
         match self {
-            ShardData::V1(data) => data.chunk.as_ref(),
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.chunk),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
 
     pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
         match self {
-            ShardData::V1(data) => &data.state_changes,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.state_changes,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.state_changes,
         }
     }
 
     pub fn chunk_extra(&self) -> &ChunkExtra {
         match self {
-            ShardData::V1(data) => &data.chunk_extra,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.chunk_extra,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.chunk_extra,
         }
     }
 
     pub fn chunk_apply_stats(&self) -> &ChunkApplyStats {
         match self {
-            ShardData::V1(data) => &data.chunk_apply_stats,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.chunk_apply_stats,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.chunk_apply_stats,
         }
     }
 
@@ -225,13 +242,15 @@ impl ShardData {
         &self,
     ) -> Option<&[(CryptoHash, ExecutionOutcomeWithProof)]> {
         match self {
-            ShardData::V1(data) => data.transaction_result_for_block.as_deref(),
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.transaction_result_for_block),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
 
-    pub fn receipt_to_tx(&self) -> &[(CryptoHash, ReceiptToTxInfo)] {
+    pub fn receipt_to_tx(&self) -> Option<&[(CryptoHash, ReceiptToTxInfo)]> {
         match self {
-            ShardData::V1(data) => &data.receipt_to_tx,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.receipt_to_tx),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
 }
