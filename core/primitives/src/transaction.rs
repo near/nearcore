@@ -1051,7 +1051,7 @@ mod tests {
 
     /// An outer ed25519 transaction whose only action is a `Delegate`
     /// wrapping an inner ML-DSA-65 signer + an inner `AddKey` of a third
-    /// ML-DSA-65 pubkey must be rejected pre-feature: the centralised
+    /// ML-DSA-65 pubkey must be rejected pre-feature: the centralized
     /// `post_quantum_signatures_required` walks into `SignedDelegateAction`
     /// and the nested `actions` vec recursively. This is the case the
     /// per-action gates would have had to remember to handle for both
