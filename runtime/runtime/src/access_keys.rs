@@ -1201,7 +1201,7 @@ mod tests {
     }
 
     /// Pre-hash sanity: the borsh-serialized full pubkey for ML-DSA-65 is
-    /// 1953 bytes, but we explicitly do NOT use that length for storage —
+    /// 1953 bytes, but we explicitly do NOT use that length for storage -
     /// `trie_id_len()` is what counts.
     #[test]
     fn test_ml_dsa_65_trie_id_len_is_hash_size() {

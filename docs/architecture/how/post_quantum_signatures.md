@@ -8,7 +8,7 @@ below.
 
 ## Summary
 
-NEAR supports a third transaction-signature scheme — FIPS 204 **ML-DSA-65** —
+NEAR supports a third transaction-signature scheme - FIPS 204 **ML-DSA-65** -
 alongside the existing `ed25519` and `secp256k1` schemes. Existing schemes are
 NOT deprecated. ML-DSA-65 is accepted in transactions and as access keys after
 the `PostQuantumSignatures` protocol feature activates (nightly version 154 at
@@ -45,20 +45,20 @@ A single `ProtocolFeature::PostQuantumSignatures` gate controls:
   (`runtime/runtime/src/verifier.rs::validate_delegate_action`).
 
 Borsh deserialization of `PublicKey::MLDSA65` and `Signature::MLDSA65` is
-**not** gated — once a value enters state it must always parse — but the
+**not** gated - once a value enters state it must always parse - but the
 action-validation gates ensure no ML-DSA-65 value can enter state on a
 pre-feature protocol. Practically that means: when `PostQuantumSignatures`
 activates, no ML-DSA-65 access keys exist in state yet, so the runtime
 doesn't have to handle a mixed population of "legacy keys we tolerated
-before the gate existed" and "keys added under the new rules" — every
+before the gate existed" and "keys added under the new rules" - every
 ML-DSA-65 key in state was added under the new rules.
 
 ### 3. `PublicKey` enum extension and `KeyHandle` split
 
-`PublicKey` gains exactly one new variant — the full pubkey — and uses borsh
+`PublicKey` gains exactly one new variant - the full pubkey - and uses borsh
 tag `2`:
 
-- `PublicKey::MLDSA65(MlDsa65PublicKey)` — full 1952-byte public key. Carried
+- `PublicKey::MLDSA65(MlDsa65PublicKey)` - full 1952-byte public key. Carried
   in transactions, actions, and any wire format. Used for signature
   verification. Reports `key_type() == KeyType::MLDSA65`.
 
@@ -66,11 +66,11 @@ The hash form does **not** live on `PublicKey`. It lives on a separate
 `KeyHandle` enum, which is the type used by the trie-key layer and view-API
 responses:
 
-- `KeyHandle::ED25519(ED25519PublicKey)` — borsh tag `0`, byte-identical to
+- `KeyHandle::ED25519(ED25519PublicKey)` - borsh tag `0`, byte-identical to
   `PublicKey::ED25519`'s encoding.
-- `KeyHandle::SECP256K1(Secp256K1PublicKey)` — borsh tag `1`, byte-identical
+- `KeyHandle::SECP256K1(Secp256K1PublicKey)` - borsh tag `1`, byte-identical
   to `PublicKey::SECP256K1`'s encoding.
-- `KeyHandle::MlDsa65Hash(MlDsa65PublicKeyHash)` — borsh tag `3`, 48-byte
+- `KeyHandle::MlDsa65Hash(MlDsa65PublicKeyHash)` - borsh tag `3`, 48-byte
   SHA3-384 digest. Appears only as a result of parsing a trie key (e.g.
   `view_access_key_list`) or constructed via `From<&PublicKey>` from a known
   full ML-DSA-65 pubkey. Cannot sign, cannot verify, never appears in
@@ -108,7 +108,7 @@ bits. SHA3-256 would leave the access-key lookup at Category 2, one level
 under the keypair.
 
 Storage impact: an ML-DSA-65 access key occupies 49 bytes in the trie key
-portion versus 1953 if stored raw — about a 96% reduction. Storage stake
+portion versus 1953 if stored raw - about a 96% reduction. Storage stake
 drops from ~0.0195 NEAR to ~0.0005 NEAR per key.
 
 UX consequence: `view_access_key_list` returns `ml-dsa-65-hash:<bs58>` for
@@ -117,7 +117,7 @@ chain entries to known keys. This matches the model already in use for
 ETH-style implicit accounts.
 
 Migration is zero, because the trie cannot contain any ML-DSA-65 entry on a
-pre-feature protocol — the action-validation gates prevent it.
+pre-feature protocol - the action-validation gates prevent it.
 
 ### 5. Storage usage and fee plumbing
 
@@ -165,12 +165,12 @@ integration:
   Mesh specification to add a post-quantum entry; the NEAR-side
   implementation will follow once that change is merged upstream. Until
   then, the `From<KeyType> for CurveType` arm for `MLDSA65` is a temporary
-  `unreachable!()` — see the unresolved-issues section below.
+  `unreachable!()` - see the unresolved-issues section below.
 - **Cross-network mirror** (`tools/mirror/src/key_mapping.rs`) panics on
   ML-DSA-65 pubkey mapping; deterministic-derivation scheme for PQ keys is a
   follow-up.
 - **ETH wallet contract** (`integration-tests/src/tests/features/wallet_contract.rs`)
-  marks ML-DSA-65 unreachable in the AddKey selector path — wallet contracts
+  marks ML-DSA-65 unreachable in the AddKey selector path - wallet contracts
   are explicitly ed25519/secp256k1.
 
 ## Caveats
@@ -220,20 +220,20 @@ items the team should resolve before stabilizing in 2.13.
 
 ### Must-resolve before activation
 
-1. **Rosetta-RPC ML-DSA-65 representation — depends on upstream Mesh
+1. **Rosetta-RPC ML-DSA-65 representation - depends on upstream Mesh
    spec.** The current `From<KeyType> for CurveType` arm for `MLDSA65` in
    `chain/rosetta-rpc/src/models.rs` is `unreachable!()` and *will* panic
    the server. It is reachable from three production endpoints:
 
-   - `POST /block` — panics on any block containing an ML-DSA-65
+   - `POST /block` - panics on any block containing an ML-DSA-65
      `AddKey`, `DeleteKey`, `Stake`, `TransferToGasKey`,
      `WithdrawFromGasKey`, or `Delegate` action. This is the high-volume
      endpoint exchanges and indexers poll on every new block; one PQ-signed
      tx ⇒ every Rosetta consumer crashes on that block.
-   - `POST /block/transaction` — same code path (the implementation fetches
+   - `POST /block/transaction` - same code path (the implementation fetches
      the whole block, then filters). Even fetching an unrelated ed25519 tx
      from the same block triggers the panic.
-   - `POST /construction/parse` — panics if a client posts a tx blob with
+   - `POST /construction/parse` - panics if a client posts a tx blob with
      an ML-DSA-65 action. Reachable as a deliberate DoS vector for anyone
      with construction access.
 
@@ -247,7 +247,7 @@ items the team should resolve before stabilizing in 2.13.
 ### Before stabilization in 2.13
 
 2. **Economic-impact audit & pricing.** Not started. The strict
-   requirement from the briefing — storage and compute priced correctly —
+   requirement from the briefing - storage and compute priced correctly -
    is partially covered: per-key storage stake now scales correctly via
    `trie_id_len()`. Outstanding work:
    - Per-byte component on `AddKey` and `DeleteKey` fees.
@@ -264,7 +264,7 @@ items the team should resolve before stabilizing in 2.13.
 
 4. **Domain-tag export.** `ML_DSA_65_HASH_DOMAIN_TAG` is currently private
    inside `core/crypto/src/signature.rs`. Wallets that want to compute the
-   on-chain hash of their own pubkey need this — either publish the constant
+   on-chain hash of their own pubkey need this - either publish the constant
    or provide a small public helper (`MlDsa65PublicKey::hash()` is already
    public but the underlying domain tag is not).
 
@@ -281,7 +281,7 @@ items the team should resolve before stabilizing in 2.13.
       and `tools/fork-network/src/cli.rs` silently `filter_map` / `continue`
       past hash-form entries with no log or warning, so a real ML-DSA-bearing
       chain would be silently mirrored with access keys missing.
-    Proper support is deferred to a follow-up — it likely needs a
+    Proper support is deferred to a follow-up - it likely needs a
     deterministic seed-derived mapping (analogous to ed25519/secp256k1
     mapping in `key_mapping.rs`). For now the design accepts that PQ keys
     cannot be mirrored, and the inconsistency above should at minimum be

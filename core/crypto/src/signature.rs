@@ -152,22 +152,20 @@ impl std::fmt::Debug for ED25519PublicKey {
 
 /// ML-DSA-65 public key (1952 bytes).
 ///
-/// Boxed to keep `PublicKey` enum size bounded — the inline form would bloat
+/// Boxed to keep `PublicKey` enum size bounded - the inline form would bloat
 /// every `PublicKey` holder to ~2 KiB regardless of variant.
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash, derive_more::AsRef, ProtocolSchema)]
 #[as_ref(forward)]
 pub struct MlDsa65PublicKey(pub Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>);
 
 impl MlDsa65PublicKey {
-    /// SHA3-384 of (domain-separation tag || raw pubkey bytes).
+    /// Compute the on-trie [`MlDsa65PublicKeyHash`] for this public key -
+    /// the SHA3-384 of (domain-separation tag || raw pubkey bytes).
     ///
     /// This is the form an ML-DSA-65 access key takes inside the trie: the
     /// full pubkey lives only on the wire (in transactions and actions),
-    /// never in state. The full pubkey can be derived from the hash only by
-    /// brute force.
-    ///
-    /// Named `to_pubkey_hash` rather than `hash` to avoid confusion with the
-    /// `std::hash::Hash` trait, which `PublicKey` also implements.
+    /// never in state. The full pubkey can be derived from the handle only
+    /// by brute force.
     pub fn to_pubkey_hash(&self) -> MlDsa65PublicKeyHash {
         use sha3::{Digest, Sha3_384};
         let mut hasher = Sha3_384::new();
@@ -204,9 +202,11 @@ impl bolero::TypeGenerator for MlDsa65PublicKey {
     }
 }
 
-/// SHA3-384 digest used as the trie-storage identifier for an ML-DSA-65
-/// access key. Cannot sign or verify; only appears as a lookup key and in
-/// view-API responses.
+/// On-trie identifier of an ML-DSA-65 access key - and, in the future,
+/// the basis for ML-DSA-65 implicit-account ids. Stored as the SHA3-384
+/// digest of (domain-tag || raw pubkey) because the full 1952-byte pubkey
+/// would be prohibitive to keep in state. Cannot sign or verify; only
+/// appears as a lookup key and in view-API responses.
 #[derive(
     Clone,
     Copy,
@@ -260,19 +260,19 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
-    /// Length of this public key's borsh encoding, in bytes — that is,
-    /// the on-the-wire size including the 1-byte type tag.
+    /// Length of this public key's borsh encoding, in bytes - that is,
+    /// the on-the-wire size of the raw key bytes plus a 1-byte borsh
+    /// discriminant tag (the leading `+ 1` in each arm).
     ///
     /// For storage-fee accounting use [`PublicKey::trie_id_len`] instead;
     /// for ML-DSA-65 those two diverge (1953 wire vs 49 on-trie).
     // `is_empty` always returns false, so there is no point in adding it
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        const ED25519_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH + 1;
         match self {
-            Self::ED25519(_) => ED25519_LEN,
-            Self::SECP256K1(_) => 65,
-            Self::MLDSA65(_) => ML_DSA_65_PUBLIC_KEY_LENGTH + 1,
+            Self::ED25519(_) => 1 + ed25519_dalek::PUBLIC_KEY_LENGTH,
+            Self::SECP256K1(_) => 1 + 64,
+            Self::MLDSA65(_) => 1 + ML_DSA_65_PUBLIC_KEY_LENGTH,
         }
     }
 
@@ -323,7 +323,7 @@ impl PublicKey {
     /// `len()`; for ML-DSA-65 the trie stores a SHA3-384 hash (49 bytes
     /// including the type tag), not the 1953-byte borsh-encoded pubkey.
     /// Used by storage-fee calculations on the runtime side; cheap to call
-    /// (no hashing) — for ML-DSA-65 this returns the size of the digest
+    /// (no hashing) - for ML-DSA-65 this returns the size of the digest
     /// form without actually hashing the pubkey.
     pub fn trie_id_len(&self) -> usize {
         match self {
@@ -482,12 +482,12 @@ impl From<MlDsa65PublicKey> for PublicKey {
 ///
 /// The trie stores ed25519 and secp256k1 access keys as their full
 /// public keys, but ML-DSA-65 access keys as a SHA3-384 hash of the
-/// pubkey (storage-efficiency optimization — see
+/// pubkey (storage-efficiency optimization - see
 /// `docs/architecture/how/post_quantum_signatures.md`).
 ///
 /// `KeyHandle` is the type the trie-key layer reads and writes, and the
 /// type used by view-API responses that list an account's keys. It is
-/// NOT a public key — the `MlDsa65Hash` variant cannot verify a
+/// NOT a public key - the `MlDsa65Hash` variant cannot verify a
 /// signature. To verify, the caller needs the full pubkey, which is
 /// carried separately on the wire (in the transaction or action).
 ///
@@ -495,7 +495,7 @@ impl From<MlDsa65PublicKey> for PublicKey {
 /// full key in the trie (ed25519, secp256k1), and replaces ML-DSA-65's
 /// full-key variant with the SHA3-384 hash actually stored. This makes
 /// "a full ML-DSA-65 key in the trie" unrepresentable in the type
-/// system — the encoding/decoding round-trip becomes lossless and
+/// system - the encoding/decoding round-trip becomes lossless and
 /// invalid combinations cannot be constructed.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, ProtocolSchema)]
 pub enum KeyHandle {
@@ -534,7 +534,10 @@ impl Hash for KeyHandle {
 }
 
 impl KeyHandle {
-    /// Length, in bytes, of this handle's on-trie encoding.
+    /// Length, in bytes, of this handle's on-trie borsh encoding: the raw
+    /// handle bytes plus a 1-byte borsh discriminant tag (the leading
+    /// `+ 1` in each arm). For ML-DSA-65 the handle is the 48-byte
+    /// SHA3-384 digest, not the full 1952-byte pubkey.
     pub fn trie_id_len(&self) -> usize {
         match self {
             Self::ED25519(_) => 1 + ed25519_dalek::PUBLIC_KEY_LENGTH,
@@ -556,7 +559,7 @@ impl KeyHandle {
 
     /// Returns the underlying full public key, if this handle carries
     /// one (ed25519 / secp256k1). For ML-DSA-65 entries the trie stores
-    /// only a hash, so the full pubkey is not recoverable — returns
+    /// only a hash, so the full pubkey is not recoverable - returns
     /// `None` in that case.
     pub fn full_pubkey(&self) -> Option<PublicKey> {
         match self {
@@ -637,7 +640,7 @@ impl FromStr for KeyHandle {
             KeyType::SECP256K1 => {
                 Ok(Self::SECP256K1(Secp256K1PublicKey::from(decode_bs58::<64>(key_data)?)))
             }
-            // Full ML-DSA-65 keys never appear on the wire in this form —
+            // Full ML-DSA-65 keys never appear on the wire in this form -
             // they would be unrepresentable in `KeyHandle`. The caller
             // should hash the pubkey first (via `From<&PublicKey>`) or
             // pass the `ml-dsa-65-hash:` form directly.
@@ -696,7 +699,7 @@ impl BorshDeserialize for KeyHandle {
             // for the full ML-DSA-65 pubkey, which by construction never
             // appears in the trie (`KeyHandle` stores the hash, tag 3).
             // Refusing to decode tag 2 here keeps that invariant
-            // structural — a full ML-DSA-65 key cannot land in a
+            // structural - a full ML-DSA-65 key cannot land in a
             // `KeyHandle`-shaped slot through any borsh round-trip.
             3 => {
                 let mut buf = [0u8; ML_DSA_65_HASH_LENGTH];
@@ -729,20 +732,8 @@ impl std::fmt::Debug for ED25519SecretKey {
 }
 
 /// FIPS 204 ML-DSA-65 raw private key (4032 bytes).
-///
-/// Equality is constant-time via `subtle::ConstantTimeEq` to avoid leaking
-/// bytes through timing during comparisons.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MlDsa65SecretKey(pub Box<[u8; ML_DSA_65_SECRET_KEY_LENGTH]>);
-
-impl PartialEq for MlDsa65SecretKey {
-    fn eq(&self, other: &Self) -> bool {
-        use subtle::ConstantTimeEq;
-        self.0[..].ct_eq(&other.0[..]).into()
-    }
-}
-
-impl Eq for MlDsa65SecretKey {}
 
 impl Debug for MlDsa65SecretKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -1374,7 +1365,7 @@ mod tests {
                     KeyType::SECP256K1 => {
                         Signature::from_parts(KeyType::SECP256K1, &sign[..65]).unwrap()
                     }
-                    // ML-DSA-65 signatures are 3309 bytes — the bolero
+                    // ML-DSA-65 signatures are 3309 bytes - the bolero
                     // [u8; 65] generator above can't construct one, so we
                     // exercise this variant in dedicated tests instead.
                     KeyType::MLDSA65 => return,
@@ -1520,8 +1511,8 @@ mod tests {
         use borsh::BorshDeserialize;
         // 1 byte tag (intentionally wrong) + ML-DSA-sized payload of zeros.
         // Tag 0 = ED25519: ed25519 expects a fixed 32-byte pubkey, so the
-        // long buffer should be either rejected (length mismatch) or — at
-        // worst — parse a partial prefix; in any case it must NOT decode
+        // long buffer should be either rejected (length mismatch) or - at
+        // worst - parse a partial prefix; in any case it must NOT decode
         // back to an ML-DSA-65 variant.
         let mut buf = vec![0u8; 1 + super::ML_DSA_65_PUBLIC_KEY_LENGTH];
         buf[0] = 0u8;
@@ -1575,7 +1566,7 @@ mod tests {
         assert!(!tampered_sig.verify(&data, &pk));
     }
 
-    /// `from_seed` must be deterministic — same seed in, same key out.
+    /// `from_seed` must be deterministic - same seed in, same key out.
     #[cfg(feature = "rand")]
     #[test]
     fn test_ml_dsa_65_from_seed_deterministic() {
@@ -1672,7 +1663,7 @@ mod tests {
     /// `ml-dsa-65-hash:` must not be parseable as a `KeyType` and must not
     /// accidentally resolve to `KeyType::MLDSA65` despite the shared prefix.
     /// Likewise, `PublicKey::from_str("ml-dsa-65-hash:...")` must fail
-    /// loudly — the hash form is a `KeyHandle` concept only.
+    /// loudly - the hash form is a `KeyHandle` concept only.
     #[test]
     fn test_ml_dsa_65_hash_prefix_not_a_key_type() {
         // `ml-dsa-65-hash` is not a valid KeyType discriminator.
@@ -1748,7 +1739,7 @@ mod tests {
     /// sign/verify round-trip on a fixed message. If `aws-lc-rs` ever
     /// changes the bytes it emits for ML-DSA-65 keygen, or makes verify
     /// reject something it used to accept (or vice versa), this test
-    /// fails — preventing a silent fork between nodes on different
+    /// fails - preventing a silent fork between nodes on different
     /// `aws-lc-rs` versions.
     ///
     /// Only the public key is byte-pinned: ML-DSA-65 signatures *can*

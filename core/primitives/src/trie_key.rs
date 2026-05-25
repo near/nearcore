@@ -167,7 +167,7 @@ pub enum TrieKey {
         account_id: AccountId,
     } = col::CONTRACT_CODE,
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
-    /// a given key handle (the on-trie identifier of the access key — for
+    /// a given key handle (the on-trie identifier of the access key - for
     /// ed25519/secp256k1 this is the full public key; for ML-DSA-65 it is
     /// a SHA3-384 hash of the public key).
     AccessKey {
@@ -302,7 +302,7 @@ pub fn gas_key_nonce_key_len(account_id: &AccountId, key_handle: &KeyHandle) -> 
 /// The on-trie bytes are exactly `KeyHandle`'s borsh encoding, so we
 /// delegate to `BorshSerialize` rather than duplicating the layout here.
 /// For ed25519 / secp256k1 the identifier is the full `PublicKey`; for
-/// ML-DSA-65 it is `[tag=3] || sha3_384(domain || raw_pubkey)` — the
+/// ML-DSA-65 it is `[tag=3] || sha3_384(domain || raw_pubkey)` - the
 /// full ML-DSA-65 pubkey never enters the trie.
 fn append_key_handle_trie_id(
     buf: &mut impl trie_key_buffer::TrieKeyBuffer,

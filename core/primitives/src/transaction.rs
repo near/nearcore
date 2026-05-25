@@ -417,7 +417,7 @@ impl SignedTransaction {
     }
 
     /// Returns `true` if this transaction carries any post-quantum key
-    /// material — its signer pubkey, its signature, or anywhere inside
+    /// material - its signer pubkey, its signature, or anywhere inside
     /// one of its actions (including a nested `Delegate` action).
     ///
     /// Used to decide whether the `PostQuantumSignatures` protocol
