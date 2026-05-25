@@ -212,8 +212,9 @@ pub(crate) fn map_records<P: AsRef<Path>>(
     near_chain_configs::stream_records_from_file(reader, |mut r| {
         match &mut r {
             StateRecord::AccessKey { account_id, public_key, access_key } => {
-                // Mirror does not yet support post-quantum keys; bail
-                // loudly if we hit one, matching the panic in key_mapping.rs.
+                // TODO(post-quantum): Mirror does not yet support post-quantum keys;
+                // bail loudly if we hit one, matching the panic in
+                // key_mapping.rs.
                 let Some(full_pk) = public_key.full_pubkey() else {
                     panic!(
                         "mirror: cannot transform an ML-DSA-65 hash-form access \
@@ -237,6 +238,7 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
+                // TODO(post-quantum): same as the AccessKey arm above.
                 let Some(full_pk) = public_key.full_pubkey() else {
                     panic!(
                         "mirror: cannot transform an ML-DSA-65 hash-form gas \
