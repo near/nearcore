@@ -998,7 +998,7 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        // fork-network does not support ML-DSA-65 yet —
+                        // TODO(post-quantum): fork-network does not support ML-DSA-65 yet -
                         // skip hash-form entries since we lack the full
                         // pubkey needed for key_mapping.
                         let Some(full_pk) = public_key.full_pubkey() else {
@@ -1024,6 +1024,8 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
+                        // TODO(post-quantum): same skip as the AccessKey arm above for
+                        // hash-form ML-DSA-65 entries.
                         let Some(full_pk) = public_key.full_pubkey() else {
                             continue;
                         };

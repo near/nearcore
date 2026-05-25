@@ -178,7 +178,7 @@ impl NearVM {
                 tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
-        crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
+        crate::metrics::compilation_duration(start.elapsed());
 
         tracing::debug!(
             target: "vm",
