@@ -34,6 +34,7 @@ use near_crypto::{KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::AccessKey;
+use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{
     Action, AddKeyAction, DeployContractAction, DeterministicStateInitAction,
     GlobalContractDeployMode, GlobalContractIdentifier, TransferAction,
@@ -43,7 +44,7 @@ use near_primitives::deterministic_account_id::{
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, CompilationError, FunctionCallError,
-    InvalidTxError, TxExecutionError,
+    InvalidTxError, ReceiptValidationError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -52,9 +53,10 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{AccountView, ExecutionStatusView};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
+use near_primitives_core::version::ProtocolFeature;
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
 
@@ -104,6 +106,159 @@ fn test_deterministic_state_init_by_hash_above_zba() {
     // To update, run with Balance::ZERO and copy the number from the error.
     let balance = Balance::from_yoctonear(1_001_750_000_000_000_000_000_000);
     check_deterministic_state_init(GlobalContractDeployMode::CodeHash, big(), balance);
+}
+
+/// Ensure a deterministic account can be deployed via a meta transaction, i.e.
+/// a `DeterministicStateInit` action wrapped inside a `DelegateAction`.
+#[test]
+fn test_deterministic_state_init_via_meta_tx() {
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let (state_init, det_account) = env.new_deterministic_account_with_data(empty());
+
+    let outcome = env
+        .deploy_deterministic_account_via_meta_tx(state_init, det_account.clone(), Balance::ZERO)
+        .expect("meta tx should be accepted by the network");
+    outcome.assert_success();
+
+    env.assert_test_contract_usable_on_account(det_account);
+}
+
+/// Ensure there is no exploit with invalid deterministic account ids through
+/// meta transactions.
+///
+/// With the old (buggy) code, `validate_delegate_action` used
+/// `outer_tx.receiver_id` instead of `delegate_action.receiver_id` when
+/// checking inner actions. The exploit tx therefore passes initial tx
+/// validation. The exploit is prevent by a following `validate_receipt` check
+/// when the meta transaction is unpacked.
+#[test]
+fn test_deterministic_state_init_meta_tx_receiver_check_pre_fix() {
+    let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
+    let outcome = try_meta_tx_deterministic_receiver_exploit(fix_version - 1)
+        .expect("without the fix, exploit tx passes initial tx validation");
+
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::NewReceiptValidationError(
+                ReceiptValidationError::ActionsValidation(
+                    ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
+                )
+            ),
+            ..
+        })),
+        "expected InvalidDeterministicStateInitReceiver in NewReceiptValidationError, got: {:?}",
+        outcome.status
+    );
+}
+
+/// With `FixDelegatedDeterministicStateInit` in place, the exploit should
+/// already be caught at the first tx validation.
+#[test]
+fn test_deterministic_state_init_meta_tx_receiver_check() {
+    let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
+    let err = try_meta_tx_deterministic_receiver_exploit(fix_version)
+        .expect_err("exploit tx must be rejected at tx validation with the fix");
+    assert_matches!(
+        err,
+        InvalidTxError::ActionsValidation(
+            ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
+        ),
+        "wrong error: {err:?}"
+    );
+}
+
+/// Set up the exploit scenario and return the result of submitting the exploit tx.
+///
+/// `det_account_b` is deployed as a deterministic account and given an access key so
+/// it can act as meta_tx_sender. The exploit tx wraps `state_init_b` inside a delegate
+/// action whose `receiver_id` is `det_account_a` (wrong target). With the fix this is
+/// caught at tx validation; without it, tx validation passes but the receipt fails.
+fn try_meta_tx_deterministic_receiver_exploit(
+    protocol_version: ProtocolVersion,
+) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
+    let mut env = TestEnv::setup_with_version(Balance::from_near(100), protocol_version);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let (_state_init_a, det_account_a) = env.new_deterministic_account_with_data(small());
+    let (state_init_b, det_account_b) = env.new_deterministic_account_with_data(big());
+    assert_ne!(det_account_a, det_account_b);
+
+    // Deploy det_account_b and add a full-access key so it can act as meta_tx_sender.
+    let user_signer = create_user_test_signer(&env.user_account());
+    let storage_balance = env.balance_for_storage(state_init_b.clone());
+    let deploy_tx = SignedTransaction::deterministic_state_init(
+        env.next_nonce(),
+        env.user_account(),
+        det_account_b.clone(),
+        &user_signer,
+        env.get_tx_block_hash(),
+        state_init_b.clone(),
+        storage_balance,
+    );
+    env.run_tx(deploy_tx);
+
+    let meta_tx_sender_signer = create_user_test_signer(&det_account_b);
+    let pk_base64 = near_primitives_core::serialize::to_base64(
+        &borsh::to_vec(&meta_tx_sender_signer.public_key()).unwrap(),
+    );
+    let add_key_args = serde_json::json!([
+        { "batch_create": { "account_id": det_account_b.as_str() }, "id": 0 },
+        {
+            "action_add_key_with_full_access": {
+                "promise_index": 0,
+                "public_key": pk_base64,
+                "nonce": 0
+            },
+            "id": 0,
+            "return": true
+        }
+    ]);
+    let add_key_tx = SignedTransaction::call(
+        env.next_nonce(),
+        env.user_account(),
+        det_account_b.clone(),
+        &user_signer,
+        Balance::from_near(2),
+        "call_promise".to_owned(),
+        serde_json::to_vec(&add_key_args).unwrap(),
+        Gas::from_teragas(300),
+        env.get_tx_block_hash(),
+    );
+    env.run_tx(add_key_tx);
+
+    // Craft the exploit: outer_tx.receiver = det_account_b = derive(state_init_b).
+    // Old check: det_account_b == derive(state_init_b) passes.
+    // The delegate action targets det_account_a, which is the wrong account.
+    // In no protocol version can this ever be allowed to be executed successfully.
+    let relayer = env.independent_account();
+    let relayer_signer = create_user_test_signer(&relayer);
+    let inner_action = Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+        state_init: state_init_b,
+        deposit: Balance::ZERO,
+    }));
+    let delegate_nonce = env.next_nonce_for(&det_account_b);
+    let delegate_action = DelegateAction {
+        sender_id: det_account_b.clone(),
+        receiver_id: det_account_a.clone(),
+        actions: vec![NonDelegateAction::try_from(inner_action).unwrap()],
+        nonce: delegate_nonce,
+        max_block_height: 1_000_000,
+        public_key: meta_tx_sender_signer.public_key(),
+    };
+    let signed_delegate_action =
+        SignedDelegateAction::sign(&meta_tx_sender_signer, delegate_action);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        relayer,
+        det_account_b.clone(),
+        &relayer_signer,
+        vec![Action::Delegate(Box::new(signed_delegate_action))],
+        env.get_tx_block_hash(),
+    );
+    env.try_execute_tx(tx)
 }
 
 /// Create an account with deterministic ID and call a function on it.
@@ -790,6 +945,10 @@ struct TestEnv {
 
 impl TestEnv {
     fn setup(initial_balance: Balance) -> Self {
+        Self::setup_with_version(initial_balance, PROTOCOL_VERSION)
+    }
+
+    fn setup_with_version(initial_balance: Balance, protocol_version: ProtocolVersion) -> Self {
         init_test_logger();
 
         let [user_account, independent_account, global_contract_account] =
@@ -812,6 +971,7 @@ impl TestEnv {
                 initial_balance,
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
+            .protocol_version(protocol_version)
             .build();
 
         let runtime_config_store = RuntimeConfigStore::new(None);
@@ -884,6 +1044,46 @@ impl TestEnv {
             self.get_tx_block_hash(),
         );
         self.run_tx(deploy_tx);
+    }
+
+    /// Deploy a deterministic account via a meta transaction (delegate action).
+    ///
+    /// relayer: independent_account from test setup
+    /// delegate sender: user_account from the test setup
+    fn deploy_deterministic_account_via_meta_tx(
+        &mut self,
+        state_init: DeterministicAccountStateInit,
+        det_account: AccountId,
+        balance: Balance,
+    ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
+        let user_account = self.user_account();
+        let relayer = self.independent_account();
+        let user_signer = create_user_test_signer(&user_account);
+        let relayer_signer = create_user_test_signer(&relayer);
+
+        let inner_action = Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+            state_init,
+            deposit: balance,
+        }));
+
+        let delegate_action = DelegateAction {
+            sender_id: user_account.clone(),
+            receiver_id: det_account,
+            actions: vec![NonDelegateAction::try_from(inner_action).unwrap()],
+            nonce: self.next_nonce(),
+            max_block_height: 1_000_000,
+            public_key: user_signer.public_key(),
+        };
+        let signed_delegate_action = SignedDelegateAction::sign(&user_signer, delegate_action);
+        let tx = SignedTransaction::from_actions(
+            self.next_nonce(),
+            relayer,
+            user_account,
+            &relayer_signer,
+            vec![Action::Delegate(Box::new(signed_delegate_action))],
+            self.get_tx_block_hash(),
+        );
+        self.try_execute_tx(tx)
     }
 
     /// Call `call_promise` on the user account's test contract and assert
@@ -1168,6 +1368,10 @@ impl TestEnv {
 
     fn view_account(&self, account: &AccountId) -> AccountView {
         self.env.rpc_node().view_account_query(account).unwrap()
+    }
+
+    fn next_nonce_for(&self, account: &AccountId) -> u64 {
+        transactions::get_next_nonce(&self.env.test_loop.data, &self.env.node_datas, account)
     }
 }
 
