@@ -291,6 +291,8 @@ const PRIORITY_APPLY_CHUNKS: u8 = 50;
 const PRIORITY_PARTIAL_WITNESS_VALIDATION: u8 = 70;
 /// Witness creation
 const PRIORITY_WITNESS_CREATION: u8 = 70;
+/// Background compiled-contract cache warming for upcoming protocol upgrades.
+const PRIORITY_CONTRACT_CACHE_WARMING: u8 = 10;
 
 /// Shared thread pool for contract compilation and pipelining.
 pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
@@ -304,6 +306,37 @@ pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
             PRIORITY_CONTRACT_COMPILATION,
         ))
     })
+}
+
+/// Cache-warming pool. Built once by [`init_contract_warming_pool`].
+/// `None` = disabled.
+static COMPILATION_CACHE_WARMING_POOL: std::sync::OnceLock<Option<Arc<ThreadPool>>> =
+    std::sync::OnceLock::new();
+
+/// Initialize the cache-warming pool with the given `thread_count`. Intended
+/// to be called exactly once during runtime construction; subsequent calls
+/// are no-ops (the pool's thread count cannot change after init, since the
+/// workers have already been spawned).
+///
+/// `thread_count == 0` disables the pool: [`contract_warming_pool`] then
+/// returns `None` for the lifetime of the process.
+pub fn init_contract_warming_pool(thread_count: usize) {
+    let _ = COMPILATION_CACHE_WARMING_POOL.set((thread_count > 0).then(|| {
+        Arc::new(ThreadPool::new(
+            "contract_warming",
+            Duration::from_secs(60),
+            thread_count,
+            PRIORITY_CONTRACT_CACHE_WARMING,
+        ))
+    }));
+}
+
+/// Shared cache-warming pool, or `None` if disabled (via `thread_count == 0`
+/// at init) or not yet initialized. Pool runs at the lowest realtime
+/// priority of any near pool, so its workers yield to chunk application and
+/// witness work. Warming jobs are fire-and-forget.
+pub fn contract_warming_pool() -> Option<&'static Arc<ThreadPool>> {
+    COMPILATION_CACHE_WARMING_POOL.get().and_then(|p| p.as_ref())
 }
 
 /// Async computation spawner to be used for chunk applying tasks.

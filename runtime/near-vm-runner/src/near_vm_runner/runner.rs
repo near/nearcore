@@ -178,7 +178,7 @@ impl NearVM {
                 tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
-        crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
+        crate::metrics::compilation_duration(start.elapsed());
 
         tracing::debug!(
             target: "vm",
@@ -619,6 +619,10 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 }
 
 impl crate::runner::VM for NearVM {
+    fn vm_hash(&self) -> u64 {
+        near_vm_vm_hash()
+    }
+
     fn contract_cached(
         &self,
         cache: &dyn ContractRuntimeCache,
@@ -683,6 +687,19 @@ impl crate::runner::VM for NearVM {
             (_, Err(err)) => Ok(Err(err)),
             _ => Ok(Ok(ContractPrecompilatonResult::ContractCompiled)),
         }
+    }
+
+    /// NearVM doesn't use per-key compilation locks, so there's nothing to
+    /// "try" against — just delegate to `precompile`.
+    fn try_precompile(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
+        self.precompile(code, cache)
     }
 }
 

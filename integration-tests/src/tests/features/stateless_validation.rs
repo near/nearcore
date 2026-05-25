@@ -106,11 +106,11 @@ fn run_chunk_validation_test(
             account_id: account.clone(),
             account: Account::new(initial_balance, staked, AccountContract::None, 0),
         });
-        records.push(StateRecord::AccessKey {
-            account_id: account.clone(),
-            public_key: create_test_signer(account.as_str()).public_key(),
-            access_key: AccessKey::full_access(),
-        });
+        records.push(StateRecord::access_key(
+            account.clone(),
+            &create_test_signer(account.as_str()).public_key(),
+            AccessKey::full_access(),
+        ));
         // The total supply must be correct to pass validation.
         genesis_config.total_supply = genesis_config
             .total_supply

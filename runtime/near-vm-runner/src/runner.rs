@@ -93,7 +93,11 @@ pub fn run(
     fees_config: Arc<RuntimeFeesConfig>,
 ) -> VMResult {
     let span = tracing::Span::current();
+    #[cfg(feature = "metrics")]
+    let start = std::time::Instant::now();
     let outcome = prepared.run(ext, context, fees_config);
+    #[cfg(feature = "metrics")]
+    crate::metrics::record_execution_duration(start.elapsed());
     let outcome = match outcome {
         Ok(o) => o,
         e @ Err(_) => return e,
@@ -132,6 +136,12 @@ pub trait Contract {
 }
 
 pub trait VM {
+    /// The `vm_hash` component of the on-disk cache key for this VM
+    /// instance (see [`crate::cache::get_contract_cache_key`]). Captures
+    /// any VM-implementation-specific inputs to the cache key that aren't
+    /// covered by `Config` alone (e.g. wasmtime engine version).
+    fn vm_hash(&self) -> u64;
+
     /// Determine if the machine code for the contract is already cached.
     ///
     /// If this returns `true`, `VM::precompile` **will** return `Ok(Ok(ContractAlreadyInCache))`.
@@ -166,6 +176,16 @@ pub trait VM {
     /// `code`, `cache` and [`Config`] may reuse the results of this
     /// precompilation step.
     fn precompile(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
+
+    /// Like [`Self::precompile`], but returns `ContractAlreadyInCache`
+    /// instead of blocking when another thread is already compiling the
+    /// same contract. Implementations without per-key compilation locks may
+    /// trivially delegate to [`Self::precompile`].
+    fn try_precompile(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,

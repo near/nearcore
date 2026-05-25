@@ -70,5 +70,5 @@ pub fn add_account_with_access_key(
         account_id: account_id.clone(),
         account: Account::new(balance, Balance::ZERO, AccountContract::None, 0),
     });
-    records.push(StateRecord::AccessKey { account_id, public_key, access_key });
+    records.push(StateRecord::access_key(account_id, public_key, access_key));
 }

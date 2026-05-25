@@ -205,7 +205,6 @@ snapshot_kind: text
     "discard_custom_sections": true,
     "global_contract_host_fns": false,
     "reftypes_bulk_memory": false,
-    "deterministic_account_ids": false,
     "gas_key_host_fns": false,
     "one_yocto_on_promise": false,
     "p256_verify_host_fn": false,

@@ -9,7 +9,9 @@ use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
-use crate::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
+use crate::types::{
+    ApplyChunkBlockContext, MaybePinnedMemtrieRoot, RuntimeAdapter, StorageDataSource,
+};
 use crate::validate::{
     validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
 };
@@ -583,6 +585,8 @@ pub fn validate_chunk_state_witness_impl(
                     new_chunk_data,
                     ShardContext { shard_uid, should_apply_chunk: true },
                     runtime_adapter,
+                    // Recorded-storage replay; no memtrie path.
+                    MaybePinnedMemtrieRoot::no_memtries(),
                     None,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
@@ -666,6 +670,8 @@ pub fn validate_chunk_state_witness_impl(
                     old_chunk_data,
                     shard_context,
                     runtime_adapter,
+                    // Recorded-storage replay; no memtrie path.
+                    MaybePinnedMemtrieRoot::no_memtries(),
                 )?;
                 let congestion_info = chunk_extra.congestion_info();
                 (shard_uid, apply_result.new_root, congestion_info)

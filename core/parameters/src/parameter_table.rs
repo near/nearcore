@@ -454,7 +454,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 eth_implicit_global_contract: params.get(Parameter::EthImplicitGlobalContract)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
-                deterministic_account_ids: params.get(Parameter::DeterministicAccountIds)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
                 p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,

@@ -54,6 +54,11 @@ pub enum FunctionCallError {
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
     HostError(HostError),
+    /// The compiled module was rejected by the VM host when instantiating it.
+    /// This covers host-side resource limits.
+    LoadingError {
+        msg: String,
+    },
 }
 
 impl FunctionCallError {
@@ -61,7 +66,9 @@ impl FunctionCallError {
         const BASE_SIZE: usize = 4; // to roughly accommodate for static parts of the enum
         match self {
             FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
-            FunctionCallError::LinkError { msg } => BASE_SIZE + msg.len(),
+            FunctionCallError::LinkError { msg } | FunctionCallError::LoadingError { msg } => {
+                BASE_SIZE + msg.len()
+            }
             FunctionCallError::MethodResolveError(_)
             | FunctionCallError::WasmTrap(_)
             | FunctionCallError::HostError(_) => BASE_SIZE,
@@ -449,6 +456,7 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::MethodResolveError(e) => e.fmt(f),
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
+            FunctionCallError::LoadingError { msg } => write!(f, "Loading error: {}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
         }
     }

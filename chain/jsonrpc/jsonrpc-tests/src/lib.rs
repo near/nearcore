@@ -2,17 +2,17 @@ use axum::Router;
 use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
+use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
-use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::SpiceClientConfig;
-use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
-use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
@@ -131,7 +131,6 @@ pub fn create_test_setup_with_accounts_and_validity(
         max_block_prod_time: 200,
         num_block_producer_seats: num_validator_seats,
         archive: false,
-        state_sync_enabled: true,
         transaction_pool_size_limit: None,
     });
 
@@ -270,6 +269,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         epoch_length: client_config.epoch_length,
         transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: client_config
+            .spice_pending_transaction_queue_enabled(),
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(

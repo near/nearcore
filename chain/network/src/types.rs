@@ -11,7 +11,7 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::spice_data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
@@ -23,7 +23,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
-use near_primitives::spice_partial_data::SpicePartialData;
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::partial_data::SpicePartialData;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -31,8 +32,7 @@ use near_primitives::stateless_validation::contract_distribution::{
     PartialEncodedContractDeploys, SpiceChunkContractAccesses, SpiceContractCodeRequest,
     SpiceContractCodeResponse,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
@@ -291,9 +291,9 @@ pub enum NetworkRequests {
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
     ChunkEndorsement(AccountId, ChunkEndorsement),
     /// Message from chunk producer to set of chunk validators to send state witness part.
-    PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
+    PartialEncodedStateWitness(Vec<(AccountId, VersionedPartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
-    PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
+    PartialEncodedStateWitnessForward(Vec<AccountId>, VersionedPartialEncodedStateWitness),
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request

@@ -1,4 +1,5 @@
 use crate::access_keys::initial_nonce_value;
+use crate::cache_warming::precompile_contract_with_warming;
 use crate::config::{
     safe_add_compute, storage_removes_compute, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
@@ -6,6 +7,7 @@ use crate::config::{
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
+use near_parameters::vm::Config as VmConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
 };
@@ -32,7 +34,6 @@ use near_store::{
     StorageError, TrieAccess, TrieUpdate, compute_gas_key_balance_sum, get_access_key,
     remove_account, set_access_key,
 };
-use near_vm_runner::precompile_contract;
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::{
     eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
@@ -218,7 +219,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 Balance::ZERO,
                 AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
-                    + public_key.len() as u64
+                    + public_key.trie_id_len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
             ));
@@ -265,13 +266,15 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
-                // is a no-op if the contract was already compiled.
-                precompile_contract(
+                // is a no-op if the contract was already compiled. If a protocol upgrade with a
+                // different `wasm_config` is scheduled for the next epoch, also warm the new
+                // cache key in the background.
+                precompile_contract_with_warming(
                     &wallet_contract(contract_hash).expect("should definitely exist"),
                     Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
-                )
-                .ok();
+                );
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
         }
@@ -292,7 +295,8 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
-    config: Arc<near_parameters::vm::Config>,
+    config: Arc<VmConfig>,
+    next_config: Option<Arc<VmConfig>>,
     cache: Option<&dyn ContractRuntimeCache>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
@@ -319,11 +323,12 @@ pub(crate) fn action_deploy_contract(
     // contracts into the storage as part of the commit routine, however no code should be relying
     // that the contracts are written to The State.
     state_update.set_code(account_id.clone(), &code);
-    // Precompile the contract and store result (compiled code or error) in the contract runtime
-    // cache.
-    // Note, that contract compilation costs are already accounted in deploy cost using special
-    // logic in estimator (see get_runtime_config() function).
-    precompile_contract(&code, config, cache).ok();
+    // Precompile the contract under the current `wasm_config`. If a protocol upgrade with a
+    // different `wasm_config` is scheduled for the next epoch, also schedule a fire-and-forget
+    // warming compile under the new config so the on-disk cache is hot at the boundary.
+    // Note: contract compilation costs are already accounted in deploy cost using special logic
+    // in estimator (see get_runtime_config() function).
+    precompile_contract_with_warming(&code, config, next_config, cache);
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)
@@ -343,20 +348,34 @@ pub(crate) fn action_delete_account(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
-    let mut account_storage_usage = account_ref.storage_usage();
-    let code_len = get_code_len_or_default(
-        state_update,
-        account_id.clone(),
-        account_ref.local_contract_hash().unwrap_or_default(),
-        current_protocol_version,
-    )?;
-    debug_assert!(
-        code_len == 0 || account_storage_usage > code_len,
-        "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
-        account_storage_usage,
-        code_len
-    );
-    account_storage_usage = account_storage_usage.saturating_sub(code_len);
+    let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
+        .enabled(current_protocol_version)
+    {
+        let contract_storage = get_contract_storage_usage(
+            state_update,
+            account_id,
+            account_ref,
+            current_protocol_version,
+        )?;
+        account_ref.storage_usage().saturating_sub(contract_storage)
+    } else {
+        // Legacy behavior: only subtracts local contract code, misses the
+        // global contract identifier overhead.
+        let account_storage_usage = account_ref.storage_usage();
+        let code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            account_ref.local_contract_hash().unwrap_or_default(),
+            current_protocol_version,
+        )?;
+        debug_assert!(
+            code_len == 0 || account_storage_usage > code_len,
+            "account storage usage should be larger than code size. storage usage: {}, code size: {}",
+            account_storage_usage,
+            code_len
+        );
+        account_storage_usage.saturating_sub(code_len)
+    };
     if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
         result.result =
             Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
@@ -428,6 +447,26 @@ fn get_code_len_or_default(
     Ok(code_len.unwrap_or_default().try_into().unwrap())
 }
 
+fn get_contract_storage_usage(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+    account: &Account,
+    current_protocol_version: ProtocolVersion,
+) -> Result<StorageUsage, StorageError> {
+    Ok(match account.contract().as_ref() {
+        AccountContract::None => 0,
+        AccountContract::Local(code_hash) => get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            *code_hash,
+            current_protocol_version,
+        )?,
+        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
+            account.contract().identifier_storage_usage()
+        }
+    })
+}
+
 /// Clears the contract storage usage based on type for an account.
 pub(crate) fn clear_account_contract_storage_usage(
     state_update: &TrieUpdate,
@@ -435,25 +474,9 @@ pub(crate) fn clear_account_contract_storage_usage(
     account: &mut Account,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    match account.contract().as_ref() {
-        AccountContract::None => {}
-        AccountContract::Local(code_hash) => {
-            let prev_code_len = get_code_len_or_default(
-                state_update,
-                account_id.clone(),
-                *code_hash,
-                current_protocol_version,
-            )?;
-            account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
-        }
-        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
-            account.set_storage_usage(
-                account
-                    .storage_usage()
-                    .saturating_sub(account.contract().identifier_storage_usage()),
-            );
-        }
-    };
+    let contract_storage =
+        get_contract_storage_usage(state_update, account_id, account, current_protocol_version)?;
+    account.set_storage_usage(account.storage_usage().saturating_sub(contract_storage));
     Ok(())
 }
 
@@ -832,7 +855,7 @@ fn check_transfer_to_nonexisting_account(
 mod tests {
 
     use super::*;
-    use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::FunctionCallAction;
@@ -844,6 +867,7 @@ mod tests {
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::EpochId;
     use near_primitives::types::Gas;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
@@ -952,10 +976,11 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let action_result = test_delete_large_account(
+        let action_result = test_delete_account(
             &"alice".parse().unwrap(),
-            &CryptoHash::default(),
+            AccountContract::from_local_code_hash(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
+            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert_eq!(
@@ -969,7 +994,10 @@ mod tests {
         )
     }
 
-    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
+    fn test_delete_account_with_contract(
+        storage_usage: u64,
+        protocol_version: ProtocolVersion,
+    ) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -989,28 +1017,22 @@ mod tests {
             &deploy_action,
             Arc::clone(&apply_state.config.wasm_config),
             None,
+            None,
             apply_state.current_protocol_version,
         );
         assert!(res.is_ok());
-        test_delete_large_account(
+        test_delete_account(
             &account_id,
-            &account.local_contract_hash().unwrap_or_default(),
+            AccountContract::from_local_code_hash(
+                account.local_contract_hash().unwrap_or_default(),
+            ),
             storage_usage,
+            protocol_version,
             &mut state_update,
         )
     }
 
-    #[test]
-    fn test_delete_account_with_contract_and_small_state() {
-        let action_result =
-            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
-        assert!(action_result.result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_account_with_contract_and_large_state() {
-        let action_result =
-            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
+    fn expect_delete_account_too_large(action_result: &ActionResult) {
         assert_eq!(
             action_result.result,
             Err(ActionError {
@@ -1020,6 +1042,176 @@ mod tests {
                 }
             })
         );
+    }
+
+    fn test_delete_account_in_empty_trie(
+        account_id: &AccountId,
+        contract: AccountContract,
+        storage_usage: u64,
+        protocol_version: ProtocolVersion,
+    ) -> ActionResult {
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        test_delete_account(
+            account_id,
+            contract,
+            storage_usage,
+            protocol_version,
+            &mut state_update,
+        )
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_small_state() {
+        let action_result = test_delete_account_with_contract(
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
+            PROTOCOL_VERSION,
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_delete_account_with_contract_and_large_state() {
+        let action_result = test_delete_account_with_contract(
+            10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
+            PROTOCOL_VERSION,
+        );
+        expect_delete_account_too_large(&action_result);
+    }
+
+    #[test]
+    fn test_delete_account_with_local_contract_fix_enabled() {
+        let action_result = test_delete_account_with_contract(
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    fn test_delete_account_global_contract_protocol_transition() {
+        let account_id: AccountId = "alice".parse().unwrap();
+        let storage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 32;
+        let enabled =
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version();
+
+        // Before the fix: the identifier is not subtracted, so `MAX + 32 > MAX`.
+        let before = test_delete_account_in_empty_trie(
+            &account_id,
+            AccountContract::Global(CryptoHash::default()),
+            storage,
+            enabled - 1,
+        );
+        expect_delete_account_too_large(&before);
+
+        // From the fix onwards: the 32-byte identifier is subtracted, so
+        // `MAX + 32 - 32 == MAX`, which is not `> MAX`.
+        let after = test_delete_account_in_empty_trie(
+            &account_id,
+            AccountContract::Global(CryptoHash::default()),
+            storage,
+            enabled,
+        );
+        assert!(after.result.is_ok());
+    }
+
+    /// `MAX + 33`: still over the limit after subtracting the 32-byte identifier.
+    #[test]
+    fn test_delete_account_global_contract_fix_enabled_over_boundary() {
+        let action_result = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::Global(CryptoHash::default()),
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        expect_delete_account_too_large(&action_result);
+    }
+
+    /// `GlobalByAccount` identifiers are sized by the referenced account id length
+    /// rather than a fixed 32 bytes.
+    #[test]
+    fn test_delete_account_global_by_account_fix_enabled() {
+        let global_id: AccountId = "global-contract.near".parse().unwrap();
+        let identifier_len = global_id.len() as u64;
+        let action_result = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::GlobalByAccount(global_id),
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    /// Storage below the identifier size must `saturating_sub` to 0, not underflow-panic.
+    #[test]
+    fn test_delete_account_global_contract_storage_smaller_than_identifier() {
+        let action_result = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::Global(CryptoHash::default()),
+            10,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        assert!(action_result.result.is_ok());
+    }
+
+    /// No contract: nothing subtracted; strict `>` means exactly `MAX` is still ok.
+    #[test]
+    fn test_delete_account_no_contract_fix_enabled_at_limit() {
+        let at_limit = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::None,
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        assert!(at_limit.result.is_ok());
+    }
+
+    /// No contract: nothing subtracted; one byte over `MAX` is rejected.
+    #[test]
+    fn test_delete_account_no_contract_fix_enabled_over_limit() {
+        let over_limit = test_delete_account_in_empty_trie(
+            &"alice".parse().unwrap(),
+            AccountContract::None,
+            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        expect_delete_account_too_large(&over_limit);
+    }
+
+    #[test]
+    fn test_delete_account_over_limit_leaves_account_unchanged() {
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let account_id: AccountId = "alice".parse().unwrap();
+        let storage_usage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33;
+        let mut account = Some(Account::new(
+            Balance::from_yoctonear(100),
+            Balance::ZERO,
+            AccountContract::Global(CryptoHash::default()),
+            storage_usage,
+        ));
+        let mut actor_id = account_id.clone();
+        let mut action_result = ActionResult::default();
+        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+        let config = RuntimeConfig::test();
+
+        let res = action_delete_account(
+            &mut state_update,
+            &mut account,
+            &mut actor_id,
+            &receipt,
+            &mut action_result,
+            &account_id,
+            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
+            &config,
+            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+        );
+        assert!(res.is_ok());
+        expect_delete_account_too_large(&action_result);
+        let account_after = account.as_ref().expect("account must remain on failure");
+        assert_eq!(account_after.storage_usage(), storage_usage);
     }
 
     fn create_delegate_action_receipt() -> (ActionReceipt, SignedDelegateAction) {
@@ -1072,6 +1264,7 @@ mod tests {
             random_seed: CryptoHash::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,

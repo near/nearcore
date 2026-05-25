@@ -230,8 +230,6 @@ pub struct VMConfigView {
     pub global_contract_host_fns: bool,
     /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
     pub reftypes_bulk_memory: bool,
-    /// See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).
-    pub deterministic_account_ids: bool,
     /// See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).
     pub gas_key_host_fns: bool,
     /// See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).
@@ -277,7 +275,6 @@ impl From<crate::vm::Config> for VMConfigView {
             eth_implicit_global_contract: config.eth_implicit_global_contract,
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
-            deterministic_account_ids: config.deterministic_account_ids,
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
@@ -303,7 +300,6 @@ impl From<VMConfigView> for crate::vm::Config {
             eth_implicit_global_contract: view.eth_implicit_global_contract,
             global_contract_host_fns: view.global_contract_host_fns,
             reftypes_bulk_memory: view.reftypes_bulk_memory,
-            deterministic_account_ids: view.deterministic_account_ids,
             gas_key_host_fns: view.gas_key_host_fns,
             one_yocto_on_promise: view.one_yocto_on_promise,
             p256_verify_host_fn: view.p256_verify_host_fn,

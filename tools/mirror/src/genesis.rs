@@ -212,12 +212,21 @@ pub(crate) fn map_records<P: AsRef<Path>>(
     near_chain_configs::stream_records_from_file(reader, |mut r| {
         match &mut r {
             StateRecord::AccessKey { account_id, public_key, access_key } => {
-                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
-                let new_record = StateRecord::AccessKey {
-                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
-                    public_key: replacement.public_key(),
-                    access_key: access_key.clone(),
+                // TODO(post-quantum): Mirror does not yet support post-quantum keys;
+                // bail loudly if we hit one, matching the panic in
+                // key_mapping.rs.
+                let Some(full_pk) = public_key.full_pubkey() else {
+                    panic!(
+                        "mirror: cannot transform an ML-DSA-65 hash-form access \
+                         key entry for {account_id}",
+                    );
                 };
+                let replacement = crate::key_mapping::map_key(&full_pk, secret.as_ref());
+                let new_record = StateRecord::access_key(
+                    crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    &replacement.public_key(),
+                    access_key.clone(),
+                );
                 // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                 if account_id.get_account_type() != AccountType::NearImplicitAccount
                     && access_key.permission == AccessKeyPermission::FullAccess
@@ -229,13 +238,20 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
-                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
-                let new_record = StateRecord::GasKeyNonce {
-                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
-                    public_key: replacement.public_key(),
-                    index: *index,
-                    nonce: *nonce,
+                // TODO(post-quantum): same as the AccessKey arm above.
+                let Some(full_pk) = public_key.full_pubkey() else {
+                    panic!(
+                        "mirror: cannot transform an ML-DSA-65 hash-form gas \
+                         key nonce entry for {account_id}",
+                    );
                 };
+                let replacement = crate::key_mapping::map_key(&full_pk, secret.as_ref());
+                let new_record = StateRecord::gas_key_nonce(
+                    crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    &replacement.public_key(),
+                    *index,
+                    *nonce,
+                );
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::Account { account_id, .. } => {
@@ -281,11 +297,11 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 
     for account_id in accounts {
         if !has_full_key.contains(&account_id) {
-            records_seq.serialize_element(&StateRecord::AccessKey {
+            records_seq.serialize_element(&StateRecord::access_key(
                 account_id,
-                public_key: default_key.clone(),
-                access_key: AccessKey::full_access(),
-            })?;
+                &default_key,
+                AccessKey::full_access(),
+            ))?;
         }
     }
     records_seq.end()?;
@@ -489,7 +505,8 @@ mod test {
     }
 
     fn has_default_full_access_key(records: &[StateRecord]) -> bool {
-        let default_key = crate::key_mapping::default_extra_key(None).public_key();
+        let default_key: near_crypto::KeyHandle =
+            (&crate::key_mapping::default_extra_key(None).public_key()).into();
         records.iter().any(|r| match r {
             StateRecord::AccessKey { public_key, access_key, .. } => {
                 *public_key == default_key
@@ -511,12 +528,7 @@ mod test {
                     near_primitives::hash::CryptoHash::default(),
                 ),
             },
-            StateRecord::GasKeyNonce {
-                account_id: "alice.near".parse().unwrap(),
-                public_key,
-                index: 3,
-                nonce: 42,
-            },
+            StateRecord::gas_key_nonce("alice.near".parse().unwrap(), &public_key, 3, 42),
         ];
         let out = run_map_records(&records);
         let gas_key_record = out
@@ -528,7 +540,7 @@ mod test {
             unreachable!()
         };
         assert_eq!(account_id.as_str(), "alice.near");
-        assert_eq!(*public_key, mapped_public_key);
+        assert_eq!(*public_key, (&mapped_public_key).into());
         assert_eq!(*index, 3);
         assert_eq!(*nonce, 42);
         // GasKeyNonce record should not suppress adding a full default access
@@ -548,11 +560,11 @@ mod test {
                     near_primitives::hash::CryptoHash::default(),
                 ),
             },
-            StateRecord::AccessKey {
-                account_id: "bob.near".parse().unwrap(),
-                public_key,
-                access_key: AccessKey::gas_key_full_access(4),
-            },
+            StateRecord::access_key(
+                "bob.near".parse().unwrap(),
+                &public_key,
+                AccessKey::gas_key_full_access(4),
+            ),
         ];
         let out = run_map_records(&records);
         let gas_key_record = out
@@ -568,7 +580,7 @@ mod test {
             unreachable!()
         };
         assert_eq!(account_id.as_str(), "bob.near");
-        assert_eq!(*public_key, mapped_public_key);
+        assert_eq!(*public_key, (&mapped_public_key).into());
         assert_eq!(
             access_key.permission,
             AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
