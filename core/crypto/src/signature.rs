@@ -561,6 +561,13 @@ impl KeyHandle {
     /// one (ed25519 / secp256k1). For ML-DSA-65 entries the trie stores
     /// only a hash, so the full pubkey is not recoverable - returns
     /// `None` in that case.
+    ///
+    /// TODO(post-quantum): every current caller treats the `None` case as "skip
+    /// this entry" (fork-network and mirror tools), which means
+    /// ML-DSA-65 access keys are silently dropped during network
+    /// forking and mirroring. Grep for `TODO(post-quantum)` to find the call
+    /// sites that need to be taught to recover the full pubkey (e.g.
+    /// via a side index of pubkey-hash → pubkey, or via RPC lookup).
     pub fn full_pubkey(&self) -> Option<PublicKey> {
         match self {
             Self::ED25519(k) => Some(PublicKey::ED25519(k.clone())),
@@ -1236,9 +1243,8 @@ impl FromStr for Signature {
             }
             KeyType::SECP256K1 => Signature::SECP256K1(Secp256K1Signature(decode_bs58(sig_data)?)),
             KeyType::MLDSA65 => {
-                Signature::MLDSA65(MlDsa65Signature(Box::new(decode_bs58::<
-                    ML_DSA_65_SIGNATURE_LENGTH,
-                >(sig_data)?)))
+                let data = decode_bs58::<ML_DSA_65_SIGNATURE_LENGTH>(sig_data)?;
+                Signature::MLDSA65(MlDsa65Signature(Box::new(data)))
             }
         })
     }
@@ -1504,22 +1510,17 @@ mod tests {
         assert_eq!(sig, sig2);
     }
 
-    /// Construct an ML-DSA signature with the wrong borsh tag and confirm it
-    /// fails to deserialize as a different variant.
+    /// Construct an ML-DSA-sized borsh blob with the ED25519 tag and
+    /// confirm it is rejected. ED25519 reads a fixed 32-byte pubkey, so
+    /// the remaining 1920 bytes are leftover and `try_from_slice` must
+    /// fail with a "not all bytes read" error rather than silently
+    /// decoding to a different variant.
     #[test]
     fn test_ml_dsa_65_tag_mismatch() {
         use borsh::BorshDeserialize;
-        // 1 byte tag (intentionally wrong) + ML-DSA-sized payload of zeros.
-        // Tag 0 = ED25519: ed25519 expects a fixed 32-byte pubkey, so the
-        // long buffer should be either rejected (length mismatch) or - at
-        // worst - parse a partial prefix; in any case it must NOT decode
-        // back to an ML-DSA-65 variant.
         let mut buf = vec![0u8; 1 + super::ML_DSA_65_PUBLIC_KEY_LENGTH];
         buf[0] = 0u8;
-        let parsed = PublicKey::try_from_slice(&buf);
-        if let Ok(p) = parsed {
-            assert!(matches!(p, PublicKey::ED25519(_)));
-        }
+        assert!(PublicKey::try_from_slice(&buf).is_err());
     }
 
     /// ML-DSA-65 verify must reject a signature produced by a different key.
