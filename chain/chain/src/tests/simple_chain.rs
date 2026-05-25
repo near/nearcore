@@ -6,6 +6,7 @@ use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
+use near_primitives::types::EpochId;
 use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance};
 use std::sync::Arc;
 
@@ -417,4 +418,20 @@ fn test_pending_block_same_height() {
     let result_b = chain.process_block_test(block2b);
     assert_matches!(result_b, Ok(_));
     assert_eq!(chain.head().unwrap().height, 2);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn process_block_fails_with_invalid_prev_last_certified_block_epoch_id() {
+    init_test_logger();
+    let (mut chain, _, _, signer) = setup(Clock::real());
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+    let bogus = EpochId(CryptoHash::hash_bytes(b"bogus"));
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer)
+        .prev_last_certified_block_epoch_id(bogus)
+        .build();
+    assert_matches!(
+        chain.process_block_test(block),
+        Err(Error::InvalidPrevLastCertifiedBlockEpochId(_))
+    );
 }

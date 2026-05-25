@@ -352,6 +352,11 @@ pub enum ProtocolFeature {
     FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
+    /// Fix `action_delete_account` not subtracting the global contract
+    /// identifier storage usage. Previously only local contract code was
+    /// subtracted, overstating storage usage for accounts with global
+    /// contracts and making them marginally harder to delete.
+    FixDeleteAccountGlobalContractStorageUsage,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
@@ -504,6 +509,7 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
