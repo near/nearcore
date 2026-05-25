@@ -14,7 +14,7 @@ use near_chain_configs::{
     default_contract_cache_warming_max_item_count,
     default_contract_cache_warming_pool_thread_count,
 };
-use near_crypto::{KeyHandle, PublicKey};
+use near_crypto::{PublicKeyHandle, PublicKey};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -1844,7 +1844,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(KeyHandle, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
+    ) -> Result<Vec<(PublicKeyHandle, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)

@@ -45,7 +45,7 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{KeyHandle, PublicKey, Signature};
+use near_crypto::{PublicKeyHandle, PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
@@ -303,16 +303,16 @@ pub struct QueryError {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyInfoView {
-    pub public_key: KeyHandle,
+    pub public_key: PublicKeyHandle,
     pub access_key: AccessKeyView,
 }
 
 impl AccessKeyInfoView {
     /// Build an `AccessKeyInfoView` from anything convertible into
-    /// `KeyHandle` (notably `PublicKey`). Encapsulates the conversion
+    /// `PublicKeyHandle` (notably `PublicKey`). Encapsulates the conversion
     /// so call sites can pass a `PublicKey` directly without
     /// remembering the `.into()`.
-    pub fn new(public_key: impl Into<KeyHandle>, access_key: AccessKeyView) -> Self {
+    pub fn new(public_key: impl Into<PublicKeyHandle>, access_key: AccessKeyView) -> Self {
         Self { public_key: public_key.into(), access_key }
     }
 }
@@ -2802,16 +2802,16 @@ pub enum StateChangeValueView {
     },
     AccessKeyUpdate {
         account_id: AccountId,
-        public_key: KeyHandle,
+        public_key: PublicKeyHandle,
         access_key: AccessKeyView,
     },
     AccessKeyDeletion {
         account_id: AccountId,
-        public_key: KeyHandle,
+        public_key: PublicKeyHandle,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
-        public_key: KeyHandle,
+        public_key: PublicKeyHandle,
         index: NonceIndex,
         nonce: Nonce,
     },

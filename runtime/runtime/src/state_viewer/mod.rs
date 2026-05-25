@@ -5,7 +5,7 @@ use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use itertools::Itertools;
-use near_crypto::{KeyHandle, KeyType, PublicKey};
+use near_crypto::{PublicKeyHandle, KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
@@ -157,7 +157,7 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<(KeyHandle, AccessKey)>, errors::ViewAccessKeyError> {
+    ) -> Result<Vec<(PublicKeyHandle, AccessKey)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let access_keys =
             state_update

@@ -1,7 +1,7 @@
 use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::KeyHandle;
+use near_crypto::PublicKeyHandle;
 #[cfg(test)]
 use near_crypto::PublicKey;
 use near_primitives_core::trie_key::access_key_key_len;
@@ -172,7 +172,7 @@ pub enum TrieKey {
     /// a SHA3-384 hash of the public key).
     AccessKey {
         account_id: AccountId,
-        key_handle: KeyHandle,
+        key_handle: PublicKeyHandle,
     } = col::ACCESS_KEY,
     /// Used to store `primitives::receipt::ReceivedData` struct for a given receiver's `AccountId`
     /// of `DataReceipt` and a given `data_id` (the unique identifier for the data).
@@ -270,7 +270,7 @@ pub enum TrieKey {
     /// `NonceIndex` suffix.
     GasKeyNonce {
         account_id: AccountId,
-        key_handle: KeyHandle,
+        key_handle: PublicKeyHandle,
         index: NonceIndex,
     } = 21,
 }
@@ -294,37 +294,37 @@ impl Byte for u8 {
 pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
 
 /// Returns the length of the trie key for a gas key nonce.
-pub fn gas_key_nonce_key_len(account_id: &AccountId, key_handle: &KeyHandle) -> usize {
+pub fn gas_key_nonce_key_len(account_id: &AccountId, key_handle: &PublicKeyHandle) -> usize {
     access_key_key_len(account_id.len(), key_handle.trie_id_len()) + size_of::<NonceIndex>()
 }
 
 /// Append the on-trie identifier of `key_handle` into the given buffer.
-/// The on-trie bytes are exactly `KeyHandle`'s borsh encoding, so we
+/// The on-trie bytes are exactly `PublicKeyHandle`'s borsh encoding, so we
 /// delegate to `BorshSerialize` rather than duplicating the layout here.
 /// For ed25519 / secp256k1 the identifier is the full `PublicKey`; for
 /// ML-DSA-65 it is `[tag=3] || sha3_384(domain || raw_pubkey)` - the
 /// full ML-DSA-65 pubkey never enters the trie.
 fn append_key_handle_trie_id(
     buf: &mut impl trie_key_buffer::TrieKeyBuffer,
-    key_handle: &KeyHandle,
+    key_handle: &PublicKeyHandle,
 ) {
     borsh::to_writer(buf.borsh_writer(), key_handle).unwrap()
 }
 
 impl TrieKey {
     /// Constructor for [`TrieKey::AccessKey`] that accepts anything
-    /// convertible into [`KeyHandle`] (notably a `PublicKey` or `&PublicKey`).
+    /// convertible into [`PublicKeyHandle`] (notably a `PublicKey` or `&PublicKey`).
     /// Encapsulates the pubkey → trie-storage-handle conversion so call
     /// sites don't have to remember the `.into()`.
-    pub fn access_key(account_id: AccountId, key_handle: impl Into<KeyHandle>) -> Self {
+    pub fn access_key(account_id: AccountId, key_handle: impl Into<PublicKeyHandle>) -> Self {
         Self::AccessKey { account_id, key_handle: key_handle.into() }
     }
 
     /// Constructor for [`TrieKey::GasKeyNonce`] that accepts anything
-    /// convertible into [`KeyHandle`].
+    /// convertible into [`PublicKeyHandle`].
     pub fn gas_key_nonce(
         account_id: AccountId,
-        key_handle: impl Into<KeyHandle>,
+        key_handle: impl Into<PublicKeyHandle>,
         index: NonceIndex,
     ) -> Self {
         Self::GasKeyNonce { account_id, key_handle: key_handle.into(), index }
@@ -627,14 +627,14 @@ pub mod trie_key_parsers {
     use super::*;
 
     /// Parse the on-trie identifier of an access-key entry out of the raw
-    /// key bytes. Returns the same `KeyHandle` shape that `append_into`
-    /// wrote: `KeyHandle::ED25519(..)` / `KeyHandle::SECP256K1(..)` for
-    /// classical entries, and `KeyHandle::MlDsa65Hash(..)` for ML-DSA-65
+    /// key bytes. Returns the same `PublicKeyHandle` shape that `append_into`
+    /// wrote: `PublicKeyHandle::ED25519(..)` / `PublicKeyHandle::SECP256K1(..)` for
+    /// classical entries, and `PublicKeyHandle::MlDsa65(..)` for ML-DSA-65
     /// entries.
     pub fn parse_key_handle_from_access_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
-    ) -> Result<KeyHandle, std::io::Error> {
+    ) -> Result<PublicKeyHandle, std::io::Error> {
         let prefix_len = col::ACCESS_KEY.len() * 2 + account_id.len();
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
@@ -642,11 +642,11 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::AccessKey",
             ));
         }
-        // `KeyHandle`'s borsh tag layout (0 / 1 / 3) matches the on-trie
+        // `PublicKeyHandle`'s borsh tag layout (0 / 1 / 3) matches the on-trie
         // encoding produced by `append_key_handle_trie_id`, so we can
         // delegate to its borsh deserializer.
         let mut buf = &raw_key[prefix_len..];
-        KeyHandle::deserialize(&mut buf)
+        PublicKeyHandle::deserialize(&mut buf)
     }
 
     /// Parses the nonce index from a gas key raw key. Note that each nonce gas key
@@ -654,7 +654,7 @@ pub mod trie_key_parsers {
     pub fn parse_nonce_index_from_gas_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
-        key_handle: &KeyHandle,
+        key_handle: &PublicKeyHandle,
     ) -> Result<Option<NonceIndex>, std::io::Error> {
         let prefix_len = access_key_key_len(account_id.len(), key_handle.trie_id_len());
         if raw_key.len() < prefix_len {
@@ -918,7 +918,7 @@ mod tests {
     #[test]
     fn test_key_for_access_key_consistency() {
         let public_key = PublicKey::empty(KeyType::ED25519);
-        let key_handle: KeyHandle = (&public_key).into();
+        let key_handle: PublicKeyHandle = (&public_key).into();
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
             let key = TrieKey::access_key(account_id.clone(), key_handle.clone());
             let raw_key = key.to_vec();
@@ -941,7 +941,7 @@ mod tests {
 
     /// Encoding an `AccessKey` trie key with a full `MLDSA65` pubkey must
     /// write the SHA3-384 hash form, not the 1953-byte raw bytes. Parsing
-    /// the resulting raw key returns `KeyHandle::MlDsa65Hash` carrying the
+    /// the resulting raw key returns `PublicKeyHandle::MlDsa65` carrying the
     /// matching hash.
     #[cfg(feature = "rand")]
     #[test]
@@ -950,7 +950,7 @@ mod tests {
         let sk = SecretKey::from_seed(KeyType::MLDSA65, "trie-roundtrip");
         let full_pk = sk.public_key();
         let expected_hash = match &full_pk {
-            PublicKey::MLDSA65(k) => k.to_pubkey_hash(),
+            PublicKey::MLDSA65(k) => k.to_public_key_handle(),
             _ => unreachable!(),
         };
 
@@ -972,10 +972,10 @@ mod tests {
         // Bytes after the tag match the expected hash.
         assert_eq!(&raw_key[prefix_len + 1..], expected_hash.as_ref());
 
-        // Parsing yields `KeyHandle::MlDsa65Hash`, NOT a full pubkey.
+        // Parsing yields `PublicKeyHandle::MlDsa65`, NOT a full pubkey.
         let parsed =
             trie_key_parsers::parse_key_handle_from_access_key_key(&raw_key, &account_id).unwrap();
-        assert_eq!(parsed, KeyHandle::MlDsa65Hash(expected_hash));
+        assert_eq!(parsed, PublicKeyHandle::MlDsa65(expected_hash));
     }
 
     #[test]
@@ -1204,7 +1204,7 @@ mod tests {
     #[test]
     fn test_key_for_gas_key_nonce_consistency() {
         let public_key = PublicKey::empty(KeyType::ED25519);
-        let key_handle: KeyHandle = (&public_key).into();
+        let key_handle: PublicKeyHandle = (&public_key).into();
         let nonce_index: NonceIndex = 2; // Arbitrary nonce index for testing.
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
             let access_key = TrieKey::access_key(account_id.clone(), key_handle.clone());
@@ -1267,7 +1267,7 @@ mod tests {
     fn test_access_key_key_len_matches_trie_key() {
         for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let public_key = PublicKey::empty(key_type);
-            let key_handle: KeyHandle = (&public_key).into();
+            let key_handle: PublicKeyHandle = (&public_key).into();
             for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
                 let key = TrieKey::access_key(account_id.clone(), key_handle.clone());
                 let raw_key = key.to_vec();

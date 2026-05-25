@@ -53,7 +53,7 @@ doesn't have to handle a mixed population of "legacy keys we tolerated
 before the gate existed" and "keys added under the new rules" - every
 ML-DSA-65 key in state was added under the new rules.
 
-### 3. `PublicKey` enum extension and `KeyHandle` split
+### 3. `PublicKey` enum extension and `PublicKeyHandle` split
 
 `PublicKey` gains exactly one new variant - the full pubkey - and uses borsh
 tag `2`:
@@ -63,23 +63,23 @@ tag `2`:
   verification. Reports `key_type() == KeyType::MLDSA65`.
 
 The hash form does **not** live on `PublicKey`. It lives on a separate
-`KeyHandle` enum, which is the type used by the trie-key layer and view-API
+`PublicKeyHandle` enum, which is the type used by the trie-key layer and view-API
 responses:
 
-- `KeyHandle::ED25519(ED25519PublicKey)` - borsh tag `0`, byte-identical to
+- `PublicKeyHandle::ED25519(ED25519PublicKey)` - borsh tag `0`, byte-identical to
   `PublicKey::ED25519`'s encoding.
-- `KeyHandle::SECP256K1(Secp256K1PublicKey)` - borsh tag `1`, byte-identical
+- `PublicKeyHandle::SECP256K1(Secp256K1PublicKey)` - borsh tag `1`, byte-identical
   to `PublicKey::SECP256K1`'s encoding.
-- `KeyHandle::MlDsa65Hash(MlDsa65PublicKeyHash)` - borsh tag `3`, 48-byte
+- `PublicKeyHandle::MlDsa65Hash(MlDsa65PublicKeyHandle)` - borsh tag `3`, 48-byte
   SHA3-384 digest. Appears only as a result of parsing a trie key (e.g.
   `view_access_key_list`) or constructed via `From<&PublicKey>` from a known
   full ML-DSA-65 pubkey. Cannot sign, cannot verify, never appears in
   transactions or actions.
 
 The tag spaces are deliberately disjoint across the two types: `PublicKey`
-owns `{0, 1, 2}`, `KeyHandle` owns `{0, 1, 3}`. Tag `2` (full ML-DSA-65 key)
+owns `{0, 1, 2}`, `PublicKeyHandle` owns `{0, 1, 3}`. Tag `2` (full ML-DSA-65 key)
 is reserved on `PublicKey` and is by construction never written into the
-trie; tag `3` (hash) is reserved on `KeyHandle` and never appears on the
+trie; tag `3` (hash) is reserved on `PublicKeyHandle` and never appears on the
 wire. This makes "a full ML-DSA-65 key in the trie" and "an ML-DSA-65 hash
 in a transaction" both unrepresentable at the type level.
 
@@ -176,7 +176,7 @@ integration:
 ## Caveats
 
 1. **Borsh tag 2 is irreversibly assigned to `PublicKey::MLDSA65`** and
-   tag 3 to `KeyHandle::MlDsa65Hash`. Once any block on a network has
+   tag 3 to `PublicKeyHandle::MlDsa65Hash`. Once any block on a network has
    accepted an ML-DSA-65 transaction or AddKey, the tag-2 → full-pubkey and
    tag-3 → hash decodings are part of the chain's history.
 
@@ -201,9 +201,9 @@ integration:
    paths still hit the heap once each but the impact is negligible.
 
 7. **The hash form is structurally separated from the wire form.** The
-   trie returns a `KeyHandle::MlDsa65Hash`, which is a distinct type from
+   trie returns a `PublicKeyHandle::MlDsa65Hash`, which is a distinct type from
    `PublicKey`; `Signature::verify` cannot even be expressed against a
-   `KeyHandle`. Code paths that fetch an access key from state and then
+   `PublicKeyHandle`. Code paths that fetch an access key from state and then
    want to verify a signature against it must obtain the full pubkey from
    the wire (the transaction or action carries it).
 

@@ -1,5 +1,5 @@
 use crate::near_primitives::shard_layout::ShardUId;
-use near_crypto::{KeyHandle, PublicKey};
+use near_crypto::{PublicKeyHandle, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::hash::CryptoHash;
@@ -58,7 +58,7 @@ pub trait ViewRuntimeAdapter {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(KeyHandle, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
+    ) -> Result<Vec<(PublicKeyHandle, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_gas_key_nonces(
         &self,
