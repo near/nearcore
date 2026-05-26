@@ -14,20 +14,24 @@ use near_client::sync::external::{
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptSource;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::CloudStorage;
+use near_store::archive::cloud_storage::{
+    CloudStorage, is_cloud_blob_carried, is_cloud_blob_derived,
+};
 use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
 };
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 #[derive(Clone)]
 pub(crate) struct WriterConfig {
@@ -485,13 +489,226 @@ fn apply_state_changes(
 /// `is_cloud_blob_carried` ∪ `is_cloud_blob_derived`, plus the hot cols
 /// `BlockHeight`, `BlockMerkleTree`, `EpochInfo`, `EpochStart`. Caller must
 /// `.disable_gc()` so the writer retains the bootstrap range.
-///
-/// TODO(cloud-archival): implementation lands in the parity-helper-impl PR.
 pub(crate) fn assert_reader_parity(
-    _reader: &Store,
-    _writer: &Store,
-    _start: BlockHeight,
-    _end: BlockHeight,
-    _shard_uids: &[ShardUId],
+    reader: &Store,
+    writer: &Store,
+    start: BlockHeight,
+    end: BlockHeight,
+    shard_uids: &[ShardUId],
 ) {
+    let chain_store = writer.chain_store();
+    let in_range_hashes: HashSet<CryptoHash> = (start..=end)
+        .filter_map(|h| chain_store.get_block_hash_by_height(h).ok())
+        .collect();
+    let in_range_epoch_ids: HashSet<CryptoHash> = in_range_hashes
+        .iter()
+        .filter_map(|hash| chain_store.get_block_header(hash).ok().map(|h| h.epoch_id().0))
+        .collect();
+    let out_of_range_content = out_of_range_content_keys(writer, start, end, shard_uids);
+
+    // Hot cols (not iterated below) that the reader still populates.
+    assert_block_height_keyed_parity(reader, writer, DBCol::BlockHeight, start, end);
+    assert_block_hash_keyed_parity(reader, writer, DBCol::BlockMerkleTree, &in_range_hashes, 0);
+    assert_block_hash_keyed_parity(reader, writer, DBCol::EpochInfo, &in_range_epoch_ids, 0);
+    assert_block_hash_keyed_parity(reader, writer, DBCol::EpochStart, &in_range_epoch_ids, 0);
+
+    for col in DBCol::iter()
+        .filter(|&c| c.is_cold() && (is_cloud_blob_carried(c) || is_cloud_blob_derived(c)))
+        // TODO(cloud-archival): drop this filter once the reader's
+        // `save_shard_data` populates these cols.
+        .filter(|&c| {
+            !matches!(
+                c,
+                DBCol::NextBlockHashes
+                    | DBCol::BlockPerHeight
+                    | DBCol::ChunkHashesByHeight
+                    | DBCol::ChunkExtra
+                    | DBCol::ChunkApplyStats
+                    | DBCol::IncomingReceipts
+                    | DBCol::OutgoingReceipts
+                    | DBCol::OutcomeIds
+                    | DBCol::TransactionResultForBlock
+                    | DBCol::StateChanges
+                    | DBCol::Chunks
+                    | DBCol::Transactions
+                    | DBCol::Receipts
+                    | DBCol::ReceiptToTx
+            )
+        })
+    {
+        match col {
+            DBCol::BlockPerHeight | DBCol::ChunkHashesByHeight => {
+                assert_block_height_keyed_parity(reader, writer, col, start, end);
+            }
+            DBCol::Block
+            | DBCol::BlockHeader
+            | DBCol::BlockInfo
+            | DBCol::NextBlockHashes
+            | DBCol::ChunkExtra
+            | DBCol::ChunkApplyStats
+            | DBCol::IncomingReceipts
+            | DBCol::OutgoingReceipts
+            | DBCol::OutcomeIds
+            | DBCol::StateChanges => {
+                assert_block_hash_keyed_parity(reader, writer, col, &in_range_hashes, 0);
+            }
+            DBCol::TransactionResultForBlock => {
+                assert_block_hash_keyed_parity(
+                    reader,
+                    writer,
+                    col,
+                    &in_range_hashes,
+                    CryptoHash::LENGTH,
+                );
+            }
+            DBCol::Chunks | DBCol::Transactions | DBCol::Receipts | DBCol::ReceiptToTx => {
+                assert_content_hash_keyed_parity(
+                    reader,
+                    writer,
+                    col,
+                    &out_of_range_content[&col],
+                    start,
+                    end,
+                );
+            }
+            _ => unreachable!("{col} not a reader-written cold col"),
+        }
+    }
+}
+
+fn assert_block_height_keyed_parity(
+    reader: &Store,
+    writer: &Store,
+    col: DBCol,
+    start: BlockHeight,
+    end: BlockHeight,
+) {
+    let collect = |s: &Store| -> BTreeMap<Box<[u8]>, Box<[u8]>> {
+        s.iter(col)
+            .filter(|(k, _)| {
+                (start..=end).contains(&BlockHeight::from_be_bytes(k[..8].try_into().unwrap()))
+            })
+            .collect()
+    };
+    assert_eq!(collect(reader), collect(writer), "{col} parity mismatch");
+}
+
+fn assert_block_hash_keyed_parity(
+    reader: &Store,
+    writer: &Store,
+    col: DBCol,
+    in_range_hashes: &HashSet<CryptoHash>,
+    offset: usize,
+) {
+    let collect = |s: &Store| -> BTreeMap<Box<[u8]>, Box<[u8]>> {
+        s.iter(col)
+            .filter(|(k, _)| {
+                k.len() >= offset + CryptoHash::LENGTH
+                    && in_range_hashes.contains(&CryptoHash(
+                        k[offset..offset + CryptoHash::LENGTH].try_into().unwrap(),
+                    ))
+            })
+            .collect()
+    };
+    assert_eq!(collect(reader), collect(writer), "{col} parity mismatch");
+}
+
+fn assert_content_hash_keyed_parity(
+    reader: &Store,
+    writer: &Store,
+    col: DBCol,
+    out_of_range_keys: &HashSet<Vec<u8>>,
+    start: BlockHeight,
+    end: BlockHeight,
+) {
+    let mut writer_kv: BTreeMap<Box<[u8]>, Box<[u8]>> = writer.iter(col).collect();
+    for key in out_of_range_keys {
+        writer_kv.remove(key.as_slice());
+    }
+    let reader_kv: BTreeMap<Box<[u8]>, Box<[u8]>> = reader.iter(col).collect();
+    assert_eq!(writer_kv, reader_kv, "{col} bag mismatch over [{start}, {end}]");
+}
+
+/// Returns content-hash keys the writer attributes to heights outside
+/// `[start, end]`, per cold col. Sanity-checks full coverage and disjointness.
+fn out_of_range_content_keys(
+    writer: &Store,
+    start: BlockHeight,
+    end: BlockHeight,
+    shard_uids: &[ShardUId],
+) -> HashMap<DBCol, HashSet<Vec<u8>>> {
+    let cols = [DBCol::Chunks, DBCol::Transactions, DBCol::Receipts, DBCol::ReceiptToTx];
+    let mut in_range: HashMap<DBCol, HashSet<Vec<u8>>> =
+        cols.iter().map(|&c| (c, HashSet::new())).collect();
+    let mut out_of_range: HashMap<DBCol, HashSet<Vec<u8>>> =
+        cols.iter().map(|&c| (c, HashSet::new())).collect();
+    let chain_store = writer.chain_store();
+    let chunk_store = writer.chunk_store();
+    let chain_head = chain_store.head().unwrap().height;
+    // Receipts have two save sites: `partial_chunks.prev_outgoing_receipts`
+    // (path 1, cross-shard carry) and `processed_receipts_to_save` (path 2,
+    // local receipts and processed). Attribute each key to first-seen height.
+    let mut seen_receipts: HashSet<Vec<u8>> = HashSet::new();
+    for h in 1..=chain_head {
+        let Ok(block_hash) = chain_store.get_block_hash_by_height(h) else {
+            continue;
+        };
+        let target = if (start..=end).contains(&h) { &mut in_range } else { &mut out_of_range };
+
+        // ReceiptToTx (`ReceiptToTxGc`-tagged) and Receipts path 2: from
+        // `ProcessedReceiptIds` metadata.
+        for shard_uid in shard_uids {
+            let processed = chain_store
+                .get_processed_receipt_ids(&block_hash, shard_uid.shard_id())
+                .unwrap_or_default();
+            for metadata in processed.iter() {
+                let id = metadata.receipt_id().as_ref().to_vec();
+                match metadata.source() {
+                    ReceiptSource::ReceiptToTxGc => {
+                        target.get_mut(&DBCol::ReceiptToTx).unwrap().insert(id);
+                    }
+                    _ => {
+                        if seen_receipts.insert(id.clone()) {
+                            target.get_mut(&DBCol::Receipts).unwrap().insert(id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Chunks / Transactions and Receipts path 1: walk each new chunk.
+        let Ok(block) = chain_store.get_block(&block_hash) else {
+            continue;
+        };
+        for chunk_header in block.chunks().iter_raw() {
+            if !chunk_header.is_new_chunk(h) {
+                continue;
+            }
+            let chunk_hash = chunk_header.chunk_hash();
+            target.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash.as_ref().to_vec());
+            let chunk = chunk_store.get_chunk(&chunk_hash).unwrap();
+            for tx in chunk.to_transactions() {
+                target
+                    .get_mut(&DBCol::Transactions)
+                    .unwrap()
+                    .insert(tx.get_hash().as_ref().to_vec());
+            }
+            for r in chunk.prev_outgoing_receipts() {
+                let id = r.get_hash().as_ref().to_vec();
+                if seen_receipts.insert(id.clone()) {
+                    target.get_mut(&DBCol::Receipts).unwrap().insert(id);
+                }
+            }
+        }
+    }
+    for &col in &cols {
+        let writer_all: HashSet<Vec<u8>> = writer.iter(col).map(|(k, _)| k.into_vec()).collect();
+        let walked: HashSet<Vec<u8>> = in_range[&col].union(&out_of_range[&col]).cloned().collect();
+        assert_eq!(walked, writer_all, "{col}: content walk did not cover writer's column");
+        assert!(
+            in_range[&col].is_disjoint(&out_of_range[&col]),
+            "{col}: content key in both in-range and out-of-range sets",
+        );
+    }
+    out_of_range
 }
