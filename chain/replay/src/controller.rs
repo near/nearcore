@@ -296,7 +296,7 @@ impl MemtrieShardReplayController {
 
         let block = self.chain_store.get_block(&block_hash)?;
         let prev_hash = *block.header().prev_hash();
-        let height = block.header().height();
+        let prev_height = self.chain_store.get_block_header(&prev_hash)?.height();
 
         let shard_layout =
             get_shard_layout(&self.chain_store, self.epoch_manager.as_ref(), &block_hash)?;
@@ -385,7 +385,7 @@ impl MemtrieShardReplayController {
         }
 
         let memtrie_changes = trie_update.to_memtrie_changes_only();
-        let applied_root = memtries_guard.apply_memtrie_changes(height - 1, &memtrie_changes);
+        let applied_root = memtries_guard.apply_memtrie_changes(prev_height, &memtrie_changes);
         if applied_root != prev_state_root {
             return Err(Error::Other(format!(
                 "memtrie root mismatch after reverse: expected {prev_state_root} but got {applied_root}",
