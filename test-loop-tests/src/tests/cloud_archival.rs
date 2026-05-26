@@ -5,16 +5,22 @@ use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
     WriterConfig, add_writer_node, apply_writer_settings, bootstrap_reader, check_account_balance,
     check_data_at_height_for_shards, gc_and_heads_sanity_checks, get_cloud_head, get_cloud_storage,
-    get_writer_handle, run_node_until, simulate_lagging_shard, snapshots_sanity_check,
-    stop_and_restart_node, verify_block_range,
+    get_writer_handle, resharding_gap_window, run_node_until,
+    run_until_cloud_head_above, run_until_resharding_sync_hash_recorded, simulate_lagging_shard,
+    snapshots_sanity_check, stop_and_restart_node, verify_block_range,
 };
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use borsh::to_vec;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+use near_chain_configs::{
+    CloudArchivalWriterConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, TrackedShardsConfig,
+};
 use near_client::archive::cloud_archival_reader::find_snapshot_at_or_before;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
@@ -22,13 +28,15 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::flat::FlatStorageManager;
 use near_store::{
     DBCol, KeyForStateChanges, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 /// Test harness for cloud archival tests. Owns the `TestLoopEnv` and exposes
 /// composable action and assertion methods so each test reads as an explicit
@@ -45,6 +53,8 @@ struct CloudArchiveHarness {
     snapshot_every_n_epochs: u64,
     /// Account ID of the reader node, set after `bootstrap_reader()`.
     reader_id: Option<AccountId>,
+    /// Post-resharding shard layout when `with_resharding` was used.
+    new_shard_layout: Option<ShardLayout>,
 }
 
 struct CloudArchiveHarnessBuilder {
@@ -54,6 +64,10 @@ struct CloudArchiveHarnessBuilder {
     dropped_block_heights: HashSet<BlockHeight>,
     /// Per-shard chunk-production schedule applied every epoch.
     dropped_chunks_by_shard: HashMap<ShardId, Vec<bool>>,
+    /// Boundary account for a static resharding split.
+    resharding_boundary: Option<AccountId>,
+    epoch_length: Option<BlockHeightDelta>,
+    batch_size: Option<u32>,
 }
 
 impl CloudArchiveHarnessBuilder {
@@ -97,6 +111,23 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
+    /// Schedules a static resharding split at `boundary_account` in the
+    /// successor protocol version.
+    fn with_resharding(mut self, boundary_account: AccountId) -> Self {
+        self.resharding_boundary = Some(boundary_account);
+        self
+    }
+
+    fn epoch_length(mut self, length: BlockHeightDelta) -> Self {
+        self.epoch_length = Some(length);
+        self
+    }
+
+    fn batch_size(mut self, size: u32) -> Self {
+        self.batch_size = Some(size);
+        self
+    }
+
     fn build(self) -> CloudArchiveHarness {
         let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
         let archival_kind =
@@ -105,26 +136,58 @@ impl CloudArchiveHarnessBuilder {
         let snapshot_every_n_epochs = self.writer.snapshot_every_n_epochs;
         let has_drops =
             !self.dropped_block_heights.is_empty() || !self.dropped_chunks_by_shard.is_empty();
+        let epoch_length = self.epoch_length.unwrap_or(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH);
+        let batch_size = self.batch_size.unwrap_or(CloudArchiveHarness::TEST_BATCH_SIZE);
+        let base_shard_layout = CloudArchiveHarness::default_shard_layout();
+        let resharding_boundary = self.resharding_boundary.clone();
+        let writer_archive_block_data = self.writer.archive_block_data;
+        let writer_tracked_shards = self.writer.tracked_shards.clone();
         let mut builder = TestLoopBuilder::new()
-            .shard_layout(CloudArchiveHarness::default_shard_layout())
-            .epoch_length(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH)
+            .shard_layout(base_shard_layout.clone())
+            .epoch_length(epoch_length)
             .add_user_account(&user_account, CloudArchiveHarness::USER_BALANCE)
             .enable_archival_node(archival_kind)
             .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP)
-            .bucket_config(BucketConfig::with_batch_size_for_test(
-                CloudArchiveHarness::TEST_BATCH_SIZE,
-            ))
+            .bucket_config(BucketConfig::with_batch_size_for_test(batch_size))
             .config_modifier(move |config, _client_index| {
                 if !config.archive {
                     return;
                 }
-                apply_writer_settings(
-                    config,
-                    self.writer.archive_block_data,
-                    &self.writer.tracked_shards,
-                    snapshot_every_n_epochs,
-                );
+                if resharding_boundary.is_some() {
+                    // Child shards added by resharding aren't known at startup,
+                    // so track everything in the current epoch's layout.
+                    config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
+                        archive_block_data: writer_archive_block_data,
+                        snapshot_every_n_epochs,
+                        ..Default::default()
+                    });
+                    config.tracked_shards_config = TrackedShardsConfig::AllShards;
+                } else {
+                    apply_writer_settings(
+                        config,
+                        writer_archive_block_data,
+                        &writer_tracked_shards,
+                        snapshot_every_n_epochs,
+                    );
+                }
             });
+        let mut new_shard_layout = None;
+        if let Some(boundary) = &self.resharding_boundary {
+            let base_epoch_config = TestEpochConfigBuilder::new()
+                .shard_layout(base_shard_layout.clone())
+                .epoch_length(epoch_length)
+                .build();
+            let (new_epoch_config, derived_layout) =
+                derive_new_epoch_config_from_boundary(&base_epoch_config, boundary);
+            new_shard_layout = Some(derived_layout);
+            let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter([
+                (PROTOCOL_VERSION - 1, Arc::new(base_epoch_config)),
+                (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
+            ]));
+            builder = builder
+                .protocol_version(PROTOCOL_VERSION - 1)
+                .epoch_config_store(epoch_config_store);
+        }
         if let Some(count) = self.num_validators {
             builder = builder.validators(count, 0);
         }
@@ -147,10 +210,11 @@ impl CloudArchiveHarnessBuilder {
         CloudArchiveHarness {
             env,
             archival_id,
-            epoch_length: CloudArchiveHarness::DEFAULT_EPOCH_LENGTH,
+            epoch_length,
             cold_storage_enabled: self.cold_storage,
             snapshot_every_n_epochs,
             reader_id: None,
+            new_shard_layout,
         }
     }
 }
@@ -173,6 +237,9 @@ impl CloudArchiveHarness {
             num_validators: None,
             dropped_block_heights: HashSet::new(),
             dropped_chunks_by_shard: HashMap::new(),
+            resharding_boundary: None,
+            epoch_length: None,
+            batch_size: None,
         }
     }
 
@@ -199,6 +266,11 @@ impl CloudArchiveHarness {
         let reader_id: AccountId = "reader".parse().unwrap();
         bootstrap_reader(&mut self.env, &reader_id, start_height, target_height);
         self.reader_id = Some(reader_id);
+    }
+
+    /// Post-resharding shard layout. Requires `with_resharding` on the builder.
+    fn new_shard_layout(&self) -> &ShardLayout {
+        self.new_shard_layout.as_ref().expect("with_resharding required")
     }
 
     fn kill_reader(&mut self) {
@@ -1187,6 +1259,80 @@ fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
             "state unreachable for shard {dropped_shard} at h={h_check}"
         );
     }
+
+    h.kill_reader();
+    h.shutdown();
+}
+
+/// Bootstraps a reader across a resharding boundary and asserts the reader
+/// trie holds state for parent shards before the boundary, new-layout
+/// shards inside the resharding gap, and new-layout shards at target.
+#[test]
+// TODO(cloud_archival): un-ignore when resharding support is implemented.
+#[ignore]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_resharding_gap_inverse_walk() {
+    let mut h = CloudArchiveHarness::builder()
+        .epoch_length(6)
+        .batch_size(1)
+        .with_resharding("boundary".parse().unwrap())
+        .build();
+    let new_layout = h.new_shard_layout().clone();
+    let base_layout = CloudArchiveHarness::default_shard_layout();
+    let timeout = Duration::seconds((6 * h.epoch_length) as i64);
+
+    run_until_resharding_sync_hash_recorded(&mut h.env, &h.archival_id, &new_layout, timeout);
+    let (epoch_start, sync_prev_prev) = resharding_gap_window(&h.env, &h.archival_id);
+    // Target sits past sync_block in the new epoch (forward-replay region).
+    let target = sync_prev_prev + 4;
+    run_until_cloud_head_above(&mut h.env, &h.archival_id, target, timeout);
+    // Freeze the writer so the chain blocks the assertions read aren't GC'd.
+    get_writer_handle(&h.env, &h.archival_id).0.stop();
+
+    // Capture expected state roots from the writer's chain at three heights:
+    // start (in old epoch, parent shards), gap_height (in the resharding
+    // gap, new layout - reached via inverse walk), and target (past the
+    // gap, new layout - reached via forward replay).
+    let start = epoch_start - 1; // resharding block (last of old epoch)
+    let gap_height = epoch_start; // first block of new epoch, inside gap
+
+    let writer_store = h.writer_store();
+    let writer_chain = writer_store.chain_store();
+    let writer_chunks = writer_store.chunk_store();
+    let expected_at = |height: BlockHeight, uids: &[ShardUId]| -> HashMap<ShardUId, CryptoHash> {
+        let hash = writer_chain.get_block_hash_by_height(height).unwrap();
+        uids.iter()
+            .map(|uid| (*uid, *writer_chunks.get_chunk_extra(&hash, uid).unwrap().state_root()))
+            .collect()
+    };
+    let parent_uids: Vec<ShardUId> = base_layout.shard_uids().collect();
+    let new_uids: Vec<ShardUId> = new_layout.shard_uids().collect();
+    let expected_parent_at_start = expected_at(start, &parent_uids);
+    let expected_new_at_gap = expected_at(gap_height, &new_uids);
+    let expected_new_at_target = expected_at(target, &new_uids);
+
+    h.bootstrap_reader(start, target);
+
+    let reader_store = h.reader_store();
+    let reader_tries = ShardTries::new(
+        reader_store.trie_store(),
+        TrieConfig::default(),
+        FlatStorageManager::new(reader_store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    );
+    let assert_reachable =
+        |expected: &HashMap<ShardUId, CryptoHash>, height: BlockHeight, label: &str| {
+            for (uid, state_root) in expected {
+                let trie = reader_tries.get_trie_for_shard(*uid, *state_root);
+                assert!(
+                    trie.retrieve_root_node().is_ok(),
+                    "{label} shard {uid} state at h={height} unreachable in reader trie"
+                );
+            }
+        };
+    assert_reachable(&expected_parent_at_start, start, "parent");
+    assert_reachable(&expected_new_at_gap, gap_height, "new-layout (gap)");
+    assert_reachable(&expected_new_at_target, target, "new-layout (target)");
 
     h.kill_reader();
     h.shutdown();

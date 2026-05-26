@@ -16,8 +16,10 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_async::time::Duration;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
@@ -44,6 +46,67 @@ pub(crate) struct WriterConfig {
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     env.runner_for_account(account_id).run_until_head_height(target_height);
+}
+
+/// Runs until head's epoch has layout `new_layout` and its sync_hash is recorded.
+pub fn run_until_resharding_sync_hash_recorded(
+    env: &mut TestLoopEnv,
+    archival_id: &AccountId,
+    new_layout: &ShardLayout,
+    timeout: Duration,
+) {
+    let new_layout = new_layout.clone();
+    env.runner_for_account(archival_id).run_until(
+        move |node| {
+            let epoch_id = node.head().epoch_id;
+            let layout = node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            if layout != new_layout {
+                return false;
+            }
+            let store = node.client().chain.chain_store().store();
+            store.exists(DBCol::StateSyncHashes, epoch_id.as_ref())
+        },
+        timeout,
+    );
+}
+
+/// `(epoch_start_height, sync_prev_prev_height)` for the head's epoch.
+/// Caller must ensure the sync_hash is already recorded.
+pub fn resharding_gap_window(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+) -> (BlockHeight, BlockHeight) {
+    let node = env.node_for_account(archival_id);
+    let client = node.client();
+    let store = client.chain.chain_store().store();
+    let epoch_id = node.head().epoch_id;
+    let sync_hash: CryptoHash =
+        store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref()).unwrap();
+    let chain_store = store.chain_store();
+    let sync_header = chain_store.get_block_header(&sync_hash).unwrap();
+    let sync_prev_header = chain_store.get_block_header(sync_header.prev_hash()).unwrap();
+    let sync_prev_prev_header =
+        chain_store.get_block_header(sync_prev_header.prev_hash()).unwrap();
+    let epoch_start_height = client.epoch_manager.get_epoch_start_height(&sync_hash).unwrap();
+    (epoch_start_height, sync_prev_prev_header.height())
+}
+
+/// Runs until `CLOUD_MIN_HEAD` exceeds `min_height`.
+pub fn run_until_cloud_head_above(
+    env: &mut TestLoopEnv,
+    archival_id: &AccountId,
+    min_height: BlockHeight,
+    timeout: Duration,
+) {
+    env.runner_for_account(archival_id).run_until(
+        move |node| {
+            let store = node.client().chain.chain_store().store();
+            let cloud_head: BlockHeight =
+                store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap_or(0);
+            cloud_head > min_height
+        },
+        timeout,
+    );
 }
 
 fn execute_future<F: Future>(fut: F) -> F::Output {
