@@ -12,7 +12,7 @@ use crate::trie_key::trie_key_parsers::{
 use crate::trie_key::{TrieKey, col};
 use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
-use near_crypto::KeyHandle;
+use near_crypto::PublicKeyHandle;
 use near_primitives_core::types::{Nonce, NonceIndex, ShardId};
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -45,7 +45,7 @@ pub enum StateRecord {
         code: Vec<u8>,
     },
     /// Access key associated with some account.
-    AccessKey { account_id: AccountId, public_key: KeyHandle, access_key: AccessKey },
+    AccessKey { account_id: AccountId, public_key: PublicKeyHandle, access_key: AccessKey },
     /// Postponed Action Receipt.
     PostponedReceipt(Box<Receipt>),
     /// Received data from DataReceipt encoded in base64 for the given account_id and data_id.
@@ -60,27 +60,32 @@ pub enum StateRecord {
     /// The receipt was delayed because the shard was overwhelmed.
     DelayedReceipt(DelayedReceipt),
     /// Nonce for a gas key index.
-    GasKeyNonce { account_id: AccountId, public_key: KeyHandle, index: NonceIndex, nonce: Nonce },
+    GasKeyNonce {
+        account_id: AccountId,
+        public_key: PublicKeyHandle,
+        index: NonceIndex,
+        nonce: Nonce,
+    },
 }
 
 impl StateRecord {
     /// Constructor for [`StateRecord::AccessKey`] that accepts anything
-    /// convertible into [`KeyHandle`] (notably a `PublicKey` or `&PublicKey`).
+    /// convertible into [`PublicKeyHandle`] (notably a `PublicKey` or `&PublicKey`).
     /// Encapsulates the pubkey → trie-storage-handle conversion so call
     /// sites don't have to remember the `.into()`.
     pub fn access_key(
         account_id: AccountId,
-        public_key: impl Into<KeyHandle>,
+        public_key: impl Into<PublicKeyHandle>,
         access_key: AccessKey,
     ) -> Self {
         Self::AccessKey { account_id, public_key: public_key.into(), access_key }
     }
 
     /// Constructor for [`StateRecord::GasKeyNonce`] that accepts anything
-    /// convertible into [`KeyHandle`].
+    /// convertible into [`PublicKeyHandle`].
     pub fn gas_key_nonce(
         account_id: AccountId,
-        public_key: impl Into<KeyHandle>,
+        public_key: impl Into<PublicKeyHandle>,
         index: NonceIndex,
         nonce: Nonce,
     ) -> Self {
@@ -267,7 +272,7 @@ mod tests {
     fn test_gas_key_nonce_from_raw_key_value() {
         let account_id: AccountId = "alice.near".parse().unwrap();
         let public_key = near_crypto::PublicKey::from_seed(near_crypto::KeyType::ED25519, "test");
-        let key_handle: KeyHandle = (&public_key).into();
+        let key_handle: PublicKeyHandle = (&public_key).into();
         let nonce_index: NonceIndex = 42;
         let nonce: Nonce = 123;
 

@@ -342,7 +342,7 @@ mod tests {
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
-    use near_crypto::{InMemorySigner, KeyHandle, KeyType};
+    use near_crypto::{InMemorySigner, KeyType, PublicKeyHandle};
     use near_parameters::RuntimeConfig;
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
@@ -797,11 +797,12 @@ mod tests {
         let access_keys = viewer
             .view_access_keys(&state_update, &account_id)
             .expect("expected to find access keys");
-        let public_keys = access_keys.into_iter().map(|(pk, _)| pk).collect::<HashSet<KeyHandle>>();
+        let public_keys =
+            access_keys.into_iter().map(|(pk, _)| pk).collect::<HashSet<PublicKeyHandle>>();
         let expected_public_keys = vec![public_key, gas_key_public_key1, gas_key_public_key2]
             .into_iter()
-            .map(KeyHandle::from)
-            .collect::<HashSet<KeyHandle>>();
+            .map(PublicKeyHandle::from)
+            .collect::<HashSet<PublicKeyHandle>>();
         assert_eq!(public_keys, expected_public_keys);
     }
 
