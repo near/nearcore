@@ -69,7 +69,7 @@
             "$ref": "#/components/schemas/AccessKeyView"
           },
           "public_key": {
-            "$ref": "#/components/schemas/KeyHandle"
+            "$ref": "#/components/schemas/PublicKeyHandle"
           }
         },
         "required": [
@@ -6335,10 +6335,6 @@
         ],
         "title": "InvalidTxError"
       },
-      "KeyHandle": {
-        "title": "KeyHandle",
-        "type": "string"
-      },
       "KnownProducerView": {
         "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
         "properties": {
@@ -7252,6 +7248,10 @@
       },
       "PublicKey": {
         "title": "PublicKey",
+        "type": "string"
+      },
+      "PublicKeyHandle": {
+        "title": "PublicKeyHandle",
         "type": "string"
       },
       "ReceiptEnumView": {
@@ -11112,7 +11112,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/KeyHandle"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
@@ -11146,7 +11146,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/KeyHandle"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
@@ -11190,7 +11190,7 @@
                     "type": "integer"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/KeyHandle"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
