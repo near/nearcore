@@ -3,28 +3,21 @@ use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
 };
 use crate::spice::per_shard_executor::{
-    CERCertified, IncomingBlock, IncomingReceipt, PerShardExecutor, ReceiptSource,
+    CERCertified, IncomingBlock, IncomingReceipt, ReceiptSource,
 };
 use lru::LruCache;
-use near_async::ActorSystem;
 use near_async::futures::DelayedActionRunner;
-use near_async::messaging::{Actor, CanSend, Handler, IntoSender, LateBoundSender, Sender};
-use near_async::tokio::TokioRuntimeHandle;
-use near_chain::spice::core::SpiceCoreReader;
+use near_async::messaging::{Actor, CanSend, Handler, IntoSender, Sender};
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     ChainGenesis, ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode, Error,
 };
-use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::ShardId;
 use near_store::Store;
 use std::collections::HashMap;
@@ -38,36 +31,54 @@ use std::sync::Arc;
 pub struct PerShardChunkApplied {
     pub block_hash: CryptoHash,
     pub shard_id: ShardId,
-    pub outgoing_receipt_proofs: Vec<ReceiptProof>,
+    pub outgoing_receipt_proofs: Vec<near_primitives::sharding::ReceiptProof>,
     pub bandwidth_scheduler_state_hash: CryptoHash,
+}
+
+/// The senders the coordinator uses to reach one per-shard executor. Built from
+/// either a production `TokioRuntimeHandle` or a test-loop `TestLoopSender` via
+/// [`per_shard_mailbox`], so the coordinator is agnostic to how the per-shard
+/// actors were spawned.
+pub struct PerShardMailbox {
+    pub incoming_block: Sender<IncomingBlock>,
+    pub incoming_receipt: Sender<IncomingReceipt>,
+    pub cer_certified: Sender<CERCertified>,
+}
+
+/// Build a [`PerShardMailbox`] from any per-shard actor handle (production
+/// `TokioRuntimeHandle` or test-loop `TestLoopSender`). The target field types
+/// drive `IntoSender` resolution for each message.
+pub fn per_shard_mailbox<H>(handle: H) -> PerShardMailbox
+where
+    H: Clone + IntoSender<IncomingBlock> + IntoSender<IncomingReceipt> + IntoSender<CERCertified>,
+{
+    PerShardMailbox {
+        incoming_block: handle.clone().into_sender(),
+        incoming_receipt: handle.clone().into_sender(),
+        cer_certified: handle.into_sender(),
+    }
 }
 
 /// Bound for the soft cross-shard sanity-check LRU. Skip-on-recovery, so a small
 /// window is enough.
 const BANDWIDTH_HASH_CACHE_CAP: usize = 256;
 
-/// Block-level half of the per-shard SPICE chunk-execution subsystem. Spawns and
-/// owns the per-shard `PerShardExecutor` actors, fans block events out to them,
-/// and drives the disk-driven execution-head advance.
+/// Block-level half of the per-shard SPICE chunk-execution subsystem. Fans block
+/// events out to the per-shard executors, routes cross-shard receipts, and drives
+/// the disk-driven execution-head advance.
 ///
-/// Gated behind [`super::SPICE_PER_SHARD_EXECUTOR`].
+/// Prototype: the per-shard actors are spawned/registered up-front by the setup
+/// site (which differs between a real node and test-loop) and handed in as
+/// `mailboxes`; the coordinator does not spawn them. Dynamic shard reconcile
+/// (spawn-early / retire-late) is deferred. Gated behind
+/// [`super::SPICE_PER_SHARD_EXECUTOR`].
 pub struct ChunkExecutorCoordinator {
-    actor_system: ActorSystem,
-    store: Store,
-    genesis: ChainGenesis,
     chain_store: ChainStore,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    core_reader: SpiceCoreReader,
-    validator_signer: MutableValidatorSigner,
-    network_adapter: PeerManagerAdapter,
-    core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
-    /// The coordinator's own `PerShardChunkApplied` sender, handed to each
-    /// per-shard actor as its upstream channel (late-bound to this actor).
-    self_sender: Sender<PerShardChunkApplied>,
-    mailboxes: HashMap<ShardId, TokioRuntimeHandle<PerShardExecutor>>,
+    mailboxes: HashMap<ShardId, PerShardMailbox>,
     /// Soft cross-shard sanity check: block -> first-seen bandwidth scheduler
     /// state hash. Not completion state; losing it on restart only skips the
     /// check (option (b) from the design).
@@ -75,83 +86,26 @@ pub struct ChunkExecutorCoordinator {
 }
 
 impl ChunkExecutorCoordinator {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        actor_system: ActorSystem,
         store: Store,
-        genesis: ChainGenesis,
+        genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        core_reader: SpiceCoreReader,
-        validator_signer: MutableValidatorSigner,
-        network_adapter: PeerManagerAdapter,
-        core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
-        self_sender: Sender<PerShardChunkApplied>,
+        mailboxes: HashMap<ShardId, PerShardMailbox>,
     ) -> Self {
-        let chain_store = ChainStore::new(store.clone(), true, genesis.transaction_validity_period);
+        let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period);
         Self {
-            actor_system,
-            store,
-            genesis,
             chain_store,
             runtime_adapter,
             epoch_manager,
             shard_tracker,
-            core_reader,
-            validator_signer,
-            network_adapter,
-            core_writer_sender,
             data_distributor_adapter,
-            self_sender,
-            mailboxes: HashMap::new(),
+            mailboxes,
             bandwidth_hash_cache: LruCache::new(
                 NonZeroUsize::new(BANDWIDTH_HASH_CACHE_CAP).unwrap(),
             ),
-        }
-    }
-
-    /// Spawn a `PerShardExecutor` for `shard_id` on its own dedicated thread if
-    /// not already live.
-    fn ensure_shard_actor(&mut self, shard_id: ShardId) {
-        if self.mailboxes.contains_key(&shard_id) {
-            return;
-        }
-        // Per-actor late-bound self-sender for its AppliedContinue self-message.
-        let myself_adapter = LateBoundSender::new();
-        let actor = PerShardExecutor::new(
-            shard_id,
-            self.store.clone(),
-            &self.genesis,
-            self.runtime_adapter.clone(),
-            self.epoch_manager.clone(),
-            self.shard_tracker.clone(),
-            self.core_reader.clone(),
-            self.validator_signer.clone(),
-            self.network_adapter.clone(),
-            self.core_writer_sender.clone(),
-            self.self_sender.clone(),
-            myself_adapter.as_sender(),
-        );
-        let handle = self.actor_system.spawn_tokio_actor(actor);
-        myself_adapter.bind(handle.clone());
-        self.mailboxes.insert(shard_id, handle);
-    }
-
-    /// Spawn actors for every shard this node tracks at `parent_hash`'s epoch.
-    /// Prototype: keyed on the processed block; with a static tracked set this
-    /// reduces to "spawn all tracked shards".
-    fn reconcile_shard_actors(&mut self, parent_hash: &CryptoHash) {
-        let shard_ids = match self.tracked_shard_ids(parent_hash) {
-            Ok(shard_ids) => shard_ids,
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, "failed to resolve tracked shards");
-                return;
-            }
-        };
-        for shard_id in shard_ids {
-            self.ensure_shard_actor(shard_id);
         }
     }
 
@@ -202,8 +156,8 @@ impl ChunkExecutorCoordinator {
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
         let block = self.chain_store.get_block(block_hash)?;
         let prev_hash = *block.header().prev_hash();
+        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
         for shard_id in self.tracked_shard_ids(&prev_hash)? {
-            let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             match self.chain_store.get_chunk_extra(block_hash, &shard_uid) {
                 Ok(_) => {}
@@ -307,17 +261,8 @@ impl Actor for ChunkExecutorCoordinator {
 
 impl Handler<ProcessedBlock> for ChunkExecutorCoordinator {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
-        // Spawn actors for any newly-tracked shard, keyed on this block.
-        let parent_hash = match self.chain_store.get_block_header(&block_hash) {
-            Ok(header) => *header.prev_hash(),
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, %block_hash, "missing header for processed block");
-                return;
-            }
-        };
-        self.reconcile_shard_actors(&parent_hash);
-        for handle in self.mailboxes.values() {
-            handle.send(IncomingBlock { block_hash });
+        for mailbox in self.mailboxes.values() {
+            mailbox.incoming_block.send(IncomingBlock { block_hash });
         }
     }
 }
@@ -346,8 +291,8 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
         // wrote them), so LocallyVerified is a wake-up only.
         for proof in &outgoing_receipt_proofs {
             let to_shard_id = proof.1.to_shard_id;
-            if let Some(handle) = self.mailboxes.get(&to_shard_id) {
-                handle.send(IncomingReceipt {
+            if let Some(mailbox) = self.mailboxes.get(&to_shard_id) {
+                mailbox.incoming_receipt.send(IncomingReceipt {
                     block_hash,
                     proof: proof.clone(),
                     source: ReceiptSource::LocallyVerified,
@@ -361,7 +306,6 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
             block_hash,
             receipt_proofs: outgoing_receipt_proofs,
         });
-        // Nudge the disk-driven head advance.
         self.advance_execution_head();
     }
 }
@@ -369,8 +313,8 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinator {
     fn handle(&mut self, msg: ExecutorIncomingUnverifiedReceipts) {
         let to_shard_id = msg.receipt_proof.1.to_shard_id;
-        if let Some(handle) = self.mailboxes.get(&to_shard_id) {
-            handle.send(IncomingReceipt {
+        if let Some(mailbox) = self.mailboxes.get(&to_shard_id) {
+            mailbox.incoming_receipt.send(IncomingReceipt {
                 block_hash: msg.block_hash,
                 proof: msg.receipt_proof,
                 source: ReceiptSource::FromNetwork,
@@ -381,8 +325,8 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinator {
 
 impl Handler<ExecutionResultEndorsed> for ChunkExecutorCoordinator {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
-        for handle in self.mailboxes.values() {
-            handle.send(CERCertified { block_hash });
+        for mailbox in self.mailboxes.values() {
+            mailbox.cer_certified.send(CERCertified { block_hash });
         }
     }
 }
