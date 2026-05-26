@@ -31,6 +31,7 @@ use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::chunk_validator_actor::send_spice_chunk_endorsement;
@@ -46,6 +47,32 @@ pub struct IncomingBlock {
 #[derive(Debug)]
 pub struct AppliedContinue {
     pub just_applied: CryptoHash,
+}
+
+/// How a receipt proof reached this shard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiptSource {
+    /// Produced by a sibling shard on this node — already written to disk by the
+    /// sender, so this is a wake-up only (no write).
+    LocallyVerified,
+    /// Reconstructed from the network; must be verified against the source
+    /// block's CER and written by this actor.
+    FromNetwork,
+}
+
+/// A receipt proof addressed to this shard.
+#[derive(Debug)]
+pub struct IncomingReceipt {
+    pub block_hash: CryptoHash,
+    pub proof: ReceiptProof,
+    pub source: ReceiptSource,
+}
+
+/// A source block's CER reached on-chain quorum: verify buffered network
+/// receipts from it and re-check parked children.
+#[derive(Debug)]
+pub struct CERCertified {
+    pub block_hash: CryptoHash,
 }
 
 struct ParkedBlock {
@@ -74,6 +101,10 @@ pub struct PerShardExecutor {
     coordinator_sender: Sender<PerShardChunkApplied>,
     myself_sender: Sender<AppliedContinue>,
     pending: Vec<ParkedBlock>,
+    /// Network-path receipt proofs buffered until the source block's CER lands,
+    /// keyed by source block. Local-path proofs are never buffered (already on
+    /// disk). See `ReceiptSource`.
+    pending_unverified_receipts: HashMap<CryptoHash, Vec<ReceiptProof>>,
 }
 
 enum ApplyOutcome {
@@ -112,7 +143,42 @@ impl PerShardExecutor {
             coordinator_sender,
             myself_sender,
             pending: Vec::new(),
+            pending_unverified_receipts: HashMap::new(),
         }
+    }
+
+    /// Verify any buffered `FromNetwork` receipts from `source_block` against its
+    /// CER and write the valid ones. No-op until the CER is on chain.
+    fn try_verify(&mut self, source_block: &CryptoHash) {
+        let header = match self.chain_store.get_block_header(source_block) {
+            Ok(header) => header,
+            Err(_) => return,
+        };
+        let cer = match self.core_reader.get_block_execution_results(&header) {
+            Ok(Some(cer)) => cer,
+            Ok(None) => return,
+            Err(err) => {
+                tracing::error!(target: "chunk_executor", ?err, %source_block, "failed reading CER for receipt verification");
+                return;
+            }
+        };
+        let Some(proofs) = self.pending_unverified_receipts.remove(source_block) else {
+            return;
+        };
+        let store = self.chain_store.store();
+        let mut store_update = store.store_update();
+        for proof in proofs {
+            let from_shard_id = proof.1.from_shard_id;
+            let Some(result) = cer.0.get(&from_shard_id) else {
+                continue;
+            };
+            if proof.verify_against_receipt_root(result.outgoing_receipts_root) {
+                save_receipt_proof(&mut store_update, source_block, &proof);
+            } else {
+                tracing::warn!(target: "chunk_executor", %source_block, ?from_shard_id, "dropping invalid network receipt proof");
+            }
+        }
+        store_update.commit();
     }
 
     /// Apply at most one parked chunk. Scans in height order and acts on the
@@ -388,6 +454,27 @@ impl Handler<IncomingBlock> for PerShardExecutor {
 
 impl Handler<AppliedContinue> for PerShardExecutor {
     fn handle(&mut self, _msg: AppliedContinue) {
+        self.try_apply_one();
+    }
+}
+
+impl Handler<IncomingReceipt> for PerShardExecutor {
+    fn handle(&mut self, IncomingReceipt { block_hash, proof, source }: IncomingReceipt) {
+        match source {
+            // Sender already wrote the proof to disk; just re-check.
+            ReceiptSource::LocallyVerified => {}
+            ReceiptSource::FromNetwork => {
+                self.pending_unverified_receipts.entry(block_hash).or_default().push(proof);
+                self.try_verify(&block_hash);
+            }
+        }
+        self.try_apply_one();
+    }
+}
+
+impl Handler<CERCertified> for PerShardExecutor {
+    fn handle(&mut self, CERCertified { block_hash }: CERCertified) {
+        self.try_verify(&block_hash);
         self.try_apply_one();
     }
 }

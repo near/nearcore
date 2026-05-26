@@ -306,16 +306,23 @@ fn spawn_spice_actors(
             validator_signer.clone(),
             network_adapter.clone(),
             spice_core_writer_adapter.as_sender(),
+            spice_data_distributor_adapter.as_multi_sender(),
             chunk_executor_coordinator_adapter.as_sender(),
         );
         let addr = actor_system.spawn_tokio_actor(coordinator);
         chunk_executor_coordinator_adapter.bind(addr);
     }
+    // Prototype: ExecutionResultEndorsed and ExecutorIncomingUnverifiedReceipts
+    // go to the coordinator when the per-shard subsystem is enabled.
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
         spice_core_reader.clone(),
-        chunk_executor_adapter.as_sender(),
+        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+            chunk_executor_coordinator_adapter.as_sender()
+        } else {
+            chunk_executor_adapter.as_sender()
+        },
         spice_chunk_validator_adapter.as_sender(),
     );
     let spice_core_writer_addr = actor_system.spawn_tokio_actor(spice_core_writer_actor);
@@ -328,7 +335,11 @@ fn spawn_spice_actors(
         shard_tracker.clone(),
         spice_core_reader,
         network_adapter.clone(),
-        chunk_executor_adapter.as_sender(),
+        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+            chunk_executor_coordinator_adapter.as_sender()
+        } else {
+            chunk_executor_adapter.as_sender()
+        },
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),

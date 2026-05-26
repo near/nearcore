@@ -1,11 +1,17 @@
-use crate::spice::per_shard_executor::{IncomingBlock, PerShardExecutor};
+use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::spice::data_distributor_actor::{
+    SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
+};
+use crate::spice::per_shard_executor::{
+    CERCertified, IncomingBlock, IncomingReceipt, PerShardExecutor, ReceiptSource,
+};
 use lru::LruCache;
 use near_async::ActorSystem;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, IntoSender, LateBoundSender, Sender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain::spice::core::SpiceCoreReader;
-use near_chain::spice::core_writer_actor::ProcessedBlock;
+use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     ChainGenesis, ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode, Error,
@@ -57,6 +63,7 @@ pub struct ChunkExecutorCoordinator {
     validator_signer: MutableValidatorSigner,
     network_adapter: PeerManagerAdapter,
     core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
+    data_distributor_adapter: SpiceDataDistributorAdapter,
     /// The coordinator's own `PerShardChunkApplied` sender, handed to each
     /// per-shard actor as its upstream channel (late-bound to this actor).
     self_sender: Sender<PerShardChunkApplied>,
@@ -80,6 +87,7 @@ impl ChunkExecutorCoordinator {
         validator_signer: MutableValidatorSigner,
         network_adapter: PeerManagerAdapter,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
+        data_distributor_adapter: SpiceDataDistributorAdapter,
         self_sender: Sender<PerShardChunkApplied>,
     ) -> Self {
         let chain_store = ChainStore::new(store.clone(), true, genesis.transaction_validity_period);
@@ -95,6 +103,7 @@ impl ChunkExecutorCoordinator {
             validator_signer,
             network_adapter,
             core_writer_sender,
+            data_distributor_adapter,
             self_sender,
             mailboxes: HashMap::new(),
             bandwidth_hash_cache: LruCache::new(
@@ -315,7 +324,12 @@ impl Handler<ProcessedBlock> for ChunkExecutorCoordinator {
 
 impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
     fn handle(&mut self, msg: PerShardChunkApplied) {
-        let PerShardChunkApplied { block_hash, bandwidth_scheduler_state_hash, .. } = msg;
+        let PerShardChunkApplied {
+            block_hash,
+            shard_id: _,
+            outgoing_receipt_proofs,
+            bandwidth_scheduler_state_hash,
+        } = msg;
         // Soft cross-shard sanity check (option (b)): all tracked shards must
         // agree on the bandwidth scheduler state hash. Skip-on-recovery (the
         // cache is empty after restart).
@@ -328,8 +342,47 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
                 self.bandwidth_hash_cache.put(block_hash, bandwidth_scheduler_state_hash);
             }
         }
-        // Receipt routing to local destination shards is Phase 4; for now just
-        // nudge the disk-driven head advance.
+        // Wake local destination shards. The proofs are ALREADY on disk (sender
+        // wrote them), so LocallyVerified is a wake-up only.
+        for proof in &outgoing_receipt_proofs {
+            let to_shard_id = proof.1.to_shard_id;
+            if let Some(handle) = self.mailboxes.get(&to_shard_id) {
+                handle.send(IncomingReceipt {
+                    block_hash,
+                    proof: proof.clone(),
+                    source: ReceiptSource::LocallyVerified,
+                });
+            }
+        }
+        // Forward to the data distributor for network broadcast. Prototype:
+        // forwarded unconditionally (producer-gating is deferred — redundant
+        // sends are harmless here).
+        self.data_distributor_adapter.send(SpiceDistributorOutgoingReceipts {
+            block_hash,
+            receipt_proofs: outgoing_receipt_proofs,
+        });
+        // Nudge the disk-driven head advance.
         self.advance_execution_head();
+    }
+}
+
+impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinator {
+    fn handle(&mut self, msg: ExecutorIncomingUnverifiedReceipts) {
+        let to_shard_id = msg.receipt_proof.1.to_shard_id;
+        if let Some(handle) = self.mailboxes.get(&to_shard_id) {
+            handle.send(IncomingReceipt {
+                block_hash: msg.block_hash,
+                proof: msg.receipt_proof,
+                source: ReceiptSource::FromNetwork,
+            });
+        }
+    }
+}
+
+impl Handler<ExecutionResultEndorsed> for ChunkExecutorCoordinator {
+    fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
+        for handle in self.mailboxes.values() {
+            handle.send(CERCertified { block_hash });
+        }
     }
 }
