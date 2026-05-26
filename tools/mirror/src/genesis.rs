@@ -505,7 +505,7 @@ mod test {
     }
 
     fn has_default_full_access_key(records: &[StateRecord]) -> bool {
-        let default_key: near_crypto::KeyHandle =
+        let default_key: near_crypto::PublicKeyHandle =
             (&crate::key_mapping::default_extra_key(None).public_key()).into();
         records.iter().any(|r| match r {
             StateRecord::AccessKey { public_key, access_key, .. } => {
