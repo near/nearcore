@@ -91,14 +91,8 @@ impl PreparedReplay<'_> {
         } = self;
 
         let shard_context = ShardContext { shard_uid, should_apply_chunk: true };
-        let shard_update_result = process_shard_update(
-            &span,
-            runtime,
-            update_reason,
-            shard_context,
-            memtrie_pin,
-            None,
-        )?;
+        let shard_update_result =
+            process_shard_update(&span, runtime, update_reason, shard_context, memtrie_pin, None)?;
 
         let (actual_chunk_extra, apply_result) = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult { apply_result, gas_limit, .. }) => {
