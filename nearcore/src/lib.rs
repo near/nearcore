@@ -235,10 +235,20 @@ fn new_spice_client_config(
         LateBoundSender<TokioRuntimeHandle<SpiceDataDistributorActor>>,
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
+    chunk_executor_coordinator_adapter: &Arc<
+        LateBoundSender<TokioRuntimeHandle<ChunkExecutorCoordinator>>,
+    >,
 ) -> SpiceClientConfig {
     let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
+        // Prototype: route ProcessedBlock to the new coordinator when the
+        // per-shard subsystem is enabled, otherwise to the monolithic executor.
+        let chunk_executor_sender = if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+            chunk_executor_coordinator_adapter.as_sender()
+        } else {
+            chunk_executor_adapter.as_sender()
+        };
         SpiceClientConfig {
-            chunk_executor_sender: chunk_executor_adapter.as_sender(),
+            chunk_executor_sender,
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
             spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
             spice_core_writer_sender: spice_core_writer_adapter.as_sender(),
@@ -271,19 +281,36 @@ fn spawn_spice_actors(
         LateBoundSender<TokioRuntimeHandle<SpiceDataDistributorActor>>,
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
+    chunk_executor_coordinator_adapter: &Arc<
+        LateBoundSender<TokioRuntimeHandle<ChunkExecutorCoordinator>>,
+    >,
 ) {
-    // Prototype: when enabled, run the new per-shard subsystem alongside the
-    // monolithic executor (which stays the default). The coordinator is idle
-    // until later phases wire routing into it.
-    if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
-        actor_system.spawn_tokio_actor(ChunkExecutorCoordinator::new());
-    }
-
     let spice_core_reader = SpiceCoreReader::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
         chain_genesis.gas_limit,
     );
+
+    // Prototype: when enabled, run the new per-shard subsystem instead of the
+    // monolithic executor. The coordinator receives ProcessedBlock (re-pointed
+    // in new_spice_client_config) and spawns/owns the per-shard executors.
+    if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        let coordinator = ChunkExecutorCoordinator::new(
+            actor_system.clone(),
+            runtime.store().clone(),
+            chain_genesis.clone(),
+            runtime.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            spice_core_reader.clone(),
+            validator_signer.clone(),
+            network_adapter.clone(),
+            spice_core_writer_adapter.as_sender(),
+            chunk_executor_coordinator_adapter.as_sender(),
+        );
+        let addr = actor_system.spawn_tokio_actor(coordinator);
+        chunk_executor_coordinator_adapter.bind(addr);
+    }
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
@@ -606,11 +633,13 @@ pub async fn start_with_config_and_synchronization_impl(
     let spice_chunk_validator_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
+    let chunk_executor_coordinator_adapter = LateBoundSender::new();
     let spice_client_config = new_spice_client_config(
         &chunk_executor_adapter,
         &spice_chunk_validator_adapter,
         &spice_data_distributor_adapter,
         &spice_core_writer_adapter,
+        &chunk_executor_coordinator_adapter,
     );
 
     let StartClientResult {
@@ -676,6 +705,7 @@ pub async fn start_with_config_and_synchronization_impl(
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,
             &spice_core_writer_adapter,
+            &chunk_executor_coordinator_adapter,
         );
     }
 

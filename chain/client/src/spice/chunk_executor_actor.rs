@@ -1084,7 +1084,7 @@ impl ChunkExecutorActor {
     }
 }
 
-fn new_execution_result(
+pub(crate) fn new_execution_result(
     gas_limit: Gas,
     apply_result: &ApplyChunkResult,
     outgoing_receipts_root: CryptoHash,
@@ -1117,7 +1117,7 @@ fn set_witness(
     store_update.set(DBCol::witnesses(), &key, &value);
 }
 
-fn get_receipt_proofs_for_shard(
+pub(crate) fn get_receipt_proofs_for_shard(
     store: &Store,
     block_hash: &CryptoHash,
     to_shard_id: ShardId,
