@@ -1332,31 +1332,20 @@ fn handle_receipt_to_tx(
     let mut current_height = msg.block_height;
     let mut current_shard = msg.shard_id;
     let mut remaining_budget = MAX_OUTCOMES_PER_REQUEST;
-    // Tracks whether the previous hop's `current_receipt_id` was resolved
-    // by the hint scanner (column miss → scan hit). Drives scan direction
-    // for the next column-miss branch:
-    // - true → next scan uses `ScanDirection::Ancestor` with the
-    //   operator-tuned `max_hop_distance`. Justified because the prior
-    //   scan refreshed `current_height` to the resolved parent's exact
-    //   execution block, and the producer of the next-hop receipt must
-    //   live at or before that anchor (ancestry is monotonic in time).
-    // - false → next scan uses `ScanDirection::CenterOut` with the
-    //   caller's `effective_window`. Used on loop entry and after column
-    //   hits. Column hits leave `current_height` at whatever the prior
-    //   scan set (or the caller's hint if no scan has run), but multiple
-    //   column hits can put the target many hops away from that anchor,
-    //   where the scan-refreshed direction/width is no longer the right
-    //   selection. Reverting to caller-controlled width on column hits
-    //   keeps the policy under the caller's stated tolerance.
-    let mut last_hop_was_scan_resolved = false;
+    // Monotonic. Starts false; flips true on the first scan-resolve; never
+    // reset. After a scan refreshes `current_height` to a resolved parent's
+    // exact execution height, causality (receipts emit before they execute)
+    // guarantees every later ancestor's emitter outcome lives at or before
+    // that anchor. Column hits walked past the anchor deepen the backward
+    // distance but preserve the upper-bound provenance, so subsequent
+    // column-miss scans stay on `Ancestor + max_hop_distance`. Pre-first-scan
+    // the anchor is the caller's literal hint and `CenterOut` spans both sides.
+    let mut have_scanned = false;
 
     for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
         let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
         let info = match column_info {
-            Some(info) => {
-                last_hop_was_scan_resolved = false;
-                info
-            }
+            Some(info) => info,
             None => {
                 let Some(height) = current_height else {
                     return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
@@ -1364,7 +1353,7 @@ fn handle_receipt_to_tx(
                 if !actor.config.save_tx_outcomes {
                     return Err(GetReceiptToTxError::OutcomesNotStored);
                 }
-                let (direction, window) = if last_hop_was_scan_resolved {
+                let (direction, window) = if have_scanned {
                     (ScanDirection::Ancestor, max_hop_distance)
                 } else {
                     (ScanDirection::CenterOut, effective_window)
@@ -1379,7 +1368,7 @@ fn handle_receipt_to_tx(
                     &mut remaining_budget,
                 )? {
                     Some(res) => {
-                        last_hop_was_scan_resolved = true;
+                        have_scanned = true;
                         current_height = Some(res.outcome_block_height);
                         // No `current_shard = None` here: the FromReceipt arm
                         // recomputes it from the parent's predecessor account,
@@ -1414,12 +1403,13 @@ fn handle_receipt_to_tx(
                 // column-miss scan should target, so this assignment lets
                 // the scan run on one shard instead of enumerating all of
                 // them. Best-effort: the shard is computed at
-                // `current_height`, which may be stale by a few hops after
-                // intervening column hits; across a resharding boundary the
-                // derivation can pick a shard that no longer contains the
-                // producing outcome, in which case the scan misses and the
-                // walk falls through to `UnknownReceipt` rather than
-                // fabricating a result.
+                // `current_height`, which may be stale wrt the receipt's
+                // actual creation height — column hits walk past
+                // `current_height` without refreshing it. Across a
+                // resharding boundary the derivation can pick a shard that
+                // no longer contains the producing outcome, in which case
+                // the scan misses and the walk falls through to
+                // `UnknownReceipt` rather than fabricating a result.
                 current_shard = current_height.and_then(|h| {
                     shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
                 });
@@ -1531,10 +1521,10 @@ fn shard_for_account_at_height(
 
 /// Run one hint-fallback scan and unconditionally record its stats.
 /// Used by the column-miss branch in both `ScanDirection::CenterOut`
-/// (anchor is caller's hint or a stale height after a column hit) and
-/// `ScanDirection::Ancestor` (anchor refreshed by an immediately
-/// preceding scan), so neither path can drop metric accounting on an
-/// error return.
+/// (pre-first-scan, anchor is the caller's literal hint) and
+/// `ScanDirection::Ancestor` (any prior hop in the walk has been
+/// scan-resolved, anchor has upper-bound provenance), so neither path
+/// can drop metric accounting on an error return.
 fn run_hint_scan(
     actor: &ViewClientActor,
     receipt_id: CryptoHash,

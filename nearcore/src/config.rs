@@ -296,16 +296,19 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_receipt_to_tx: Option<bool>,
     /// Maximum ±window width accepted on `EXPERIMENTAL_receipt_to_tx`
-    /// requests. Caps the caller-supplied `window` field, which applies
-    /// to any `CenterOut` scan (loop-entry hop or scan following a
-    /// column-hit hop). Requests larger than this are rejected with
+    /// requests. Caps the caller-supplied `window` field. Applies to the
+    /// pre-first-scan `CenterOut` scan against the caller's literal hint.
+    /// Subsequent ancestor scans use `receipt_to_tx_max_hop_distance`,
+    /// not this field. Requests larger than this are rejected with
     /// `WindowTooLarge`. If `None`, defaults to 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_hint_window: Option<BlockHeightDelta>,
-    /// Maximum block-distance the ancestor scan walks per scan-resolved
-    /// hop of an `EXPERIMENTAL_receipt_to_tx` walk. The iterator visits
-    /// `h, h-1, ..., h-max_hop_distance` where `h` is the resolved
-    /// parent's exact execution height. If `None`, defaults to 10.
+    /// Maximum block-distance the ancestor scan walks per hop after any
+    /// scan in an `EXPERIMENTAL_receipt_to_tx` walk refreshes
+    /// `current_height`. All subsequent column-miss scans visit `h, h-1,
+    /// ..., h-max_hop_distance` from the most-recent scan-refreshed
+    /// anchor, regardless of intervening column hits. If `None`,
+    /// defaults to 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_hop_distance: Option<BlockHeightDelta>,
     /// Number of worker threads in the contract-cache-warming pool. `0` disables warming.
@@ -788,7 +791,7 @@ impl NearConfig {
                     .save_receipt_to_tx
                     .unwrap_or_else(|| config.save_tx_outcomes.unwrap_or(is_archive_or_rpc)),
                 receipt_to_tx_max_hint_window: config.receipt_to_tx_max_hint_window.unwrap_or(20),
-                receipt_to_tx_max_hop_distance: config.receipt_to_tx_max_hop_distance.unwrap_or(10),
+                receipt_to_tx_max_hop_distance: config.receipt_to_tx_max_hop_distance.unwrap_or(20),
                 contract_cache_warming_pool_thread_count: config
                     .contract_cache_warming_pool_thread_count,
                 contract_cache_warming_max_item_count: config.contract_cache_warming_max_item_count,

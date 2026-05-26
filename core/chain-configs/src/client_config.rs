@@ -795,18 +795,27 @@ pub struct ClientConfig {
     /// Whether to persist receipt-to-tx origin mappings to disk or not.
     pub save_receipt_to_tx: bool,
     /// Maximum ±window width accepted on `EXPERIMENTAL_receipt_to_tx`
-    /// requests. Caps the caller-supplied `window` field, which applies
-    /// to any `CenterOut` scan (loop-entry hop or scan following a
-    /// column-hit hop). Requests with `window` larger than this are
-    /// rejected with `WindowTooLarge`.
+    /// requests. Caps the caller-supplied `window` field. Applies to the
+    /// pre-first-scan `CenterOut` scan against the caller's literal hint.
+    /// Subsequent ancestor scans use `receipt_to_tx_max_hop_distance`,
+    /// not this field. Operators raising this cap should also consider
+    /// raising `receipt_to_tx_max_hop_distance` so backward reach across
+    /// scan-resolved-then-column-hit chains matches the caller's wider
+    /// hint scope. Requests with `window` larger than this are rejected
+    /// with `WindowTooLarge`.
     pub receipt_to_tx_max_hint_window: BlockHeightDelta,
-    /// Maximum block-distance the ancestor scan walks per scan-resolved
-    /// hop. When a column-miss scan immediately follows a scan-resolved
-    /// hop, the iterator visits `h, h-1, h-2, ..., h-max_hop_distance`
-    /// where `h` is the resolved parent's exact execution height. The
-    /// anchor is included because same-shard local receipts can execute
-    /// in the same block as their producing outcome. Raise this if cold
-    /// archival traffic shows ancestor misses under heavier congestion.
+    /// Maximum block-distance the ancestor scan walks per hop after any
+    /// scan in the walk refreshes `current_height`. All subsequent
+    /// column-miss scans visit `h, h-1, ..., h-max_hop_distance` from
+    /// the most-recent scan-refreshed anchor, regardless of intervening
+    /// column hits, subject to this distance. The anchor is included
+    /// because same-shard local receipts can execute in the same block
+    /// as their producing outcome. Raise if cold archival traffic shows
+    /// ancestor misses — the relevant gap is from the scan-refreshed
+    /// anchor to the producer-outcome height of the receipt whose
+    /// column row is missing (not "between consecutive scans" — column
+    /// hits between scans don't reset the anchor). Default 20 (matches
+    /// `receipt_to_tx_max_hint_window`).
     pub receipt_to_tx_max_hop_distance: BlockHeightDelta,
     /// Number of worker threads in the contract cache-warming pool. The
     /// pool runs at the lowest realtime priority of any near pool, so the

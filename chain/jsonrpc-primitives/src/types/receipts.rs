@@ -56,11 +56,16 @@ pub struct RpcReceiptToTxRequest {
     /// `ReceiptToTx` column is missing an entry mid-walk. The handler uses
     /// this height as the anchor for the first hint scan. Each scan that
     /// resolves a hop refreshes the anchor to that resolved parent's exact
-    /// execution height; the next column-miss scan (if it immediately
-    /// follows the scan-resolved hop) anchors on that exact height. Column
-    /// hits do not refresh the anchor, so a column-miss scan that follows a
-    /// column hit re-uses whatever height the prior scan wrote (or the
-    /// caller's hint, if no scan has run).
+    /// execution height. After the first scan resolves a hop, the anchor
+    /// is an upper bound for every later ancestor in the walk (causality:
+    /// receipts emit before they execute). All subsequent column-miss
+    /// scans use `Ancestor` direction, anchored on the most-recent
+    /// scan-refreshed height. A missing `ReceiptToTx` row has no block
+    /// height of its own; the gap that matters for `max_hop_distance` is
+    /// from the scan-refreshed anchor to the producer-outcome height of
+    /// the receipt whose column row is missing. Bump
+    /// `receipt_to_tx_max_hop_distance` if your workload sees gaps wider
+    /// than the default 20 blocks.
     ///
     /// Cold-storage usage: this endpoint primarily serves historical queries,
     /// so the scan typically reads from cold storage where per-row latency is
@@ -95,22 +100,19 @@ pub struct RpcReceiptToTxRequest {
     /// scan budget by the number of shards.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shard_id: Option<ShardId>,
-    /// Optional override for the `±window` scan range used whenever the
-    /// handler scans against a caller-supplied or stale anchor (i.e.
-    /// against `current_height` that was not refreshed by an immediately
-    /// preceding scan). Defaults to `DEFAULT_HINT_WINDOW` when omitted;
-    /// rejected with `WindowTooLarge` when greater than the node's
+    /// Optional override for the `±window` scan range used on the
+    /// pre-first-scan `CenterOut` scan against the caller's literal hint.
+    /// Defaults to `DEFAULT_HINT_WINDOW` when omitted; rejected with
+    /// `WindowTooLarge` when greater than the node's
     /// `receipt_to_tx_max_hint_window` setting (default 20). On cold
     /// storage, every extra block in the window translates directly into
     /// additional remote reads — keep this tight.
     ///
-    /// This field does not control scan width on a scan that immediately
-    /// follows a scan-resolved hop; those use a backward iterator capped
-    /// by the node's `receipt_to_tx_max_hop_distance` config (default
-    /// 10), not by `window`. If a column hit follows a scan-resolved
-    /// hop, the next column-miss scan reverts to `CenterOut` with this
-    /// `window` again — the policy tracks the immediately preceding
-    /// hop, not the walk's all-time scan history.
+    /// After the first scan-resolve, all later scans use `Ancestor +
+    /// receipt_to_tx_max_hop_distance` regardless of intervening column
+    /// hits, subject to `max_hop_distance`. Bumping `window` past
+    /// `max_hop_distance` widens only the pre-first-scan scan; tune the
+    /// node config to widen subsequent ancestor scans.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<BlockHeightDelta>,
 }

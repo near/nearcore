@@ -1,25 +1,24 @@
 //! Hint-fallback resolver for the receipt-to-tx walk.
 //!
 //! `resolve_receipt_via_hint` is a single entry point with two scan
-//! modes selected by `ScanDirection`. The handler picks the mode per
-//! call based on whether the previous walker hop was satisfied by the
-//! hint scanner:
+//! modes selected by `ScanDirection`. The handler picks the mode based
+//! on whether any prior hop in this walk has been scan-resolved
+//! (monotonic — set once, never reset):
 //!
-//! * **`ScanDirection::CenterOut`** — anchor is a caller-supplied hint
-//!   (loop entry) or a height left by an earlier scan that subsequent
-//!   column hits have walked past without refreshing (column hits do
-//!   not touch `current_height`). The resolver visits `h, h-1, h+1,
+//! * **`ScanDirection::CenterOut`** — anchor is the caller's literal
+//!   hint (no scan has run yet). The resolver visits `h, h-1, h+1,
 //!   h-2, h+2, ...` up to `±window` because the anchor could be off
 //!   either side of the producing outcome.
-//! * **`ScanDirection::Ancestor`** — the immediately preceding hop was
-//!   scan-resolved, so `current_height` was just refreshed to that
-//!   resolved parent's exact execution height. The producing outcome
-//!   we still need to locate must live at or before the anchor
-//!   (receipts are produced before they execute; forward heights are
-//!   physically impossible). The anchor itself stays in the iteration
-//!   because same-shard local receipts can execute in the same block
-//!   as their producing outcome (`process_local_receipts` runs inside
-//!   the same `apply()` call as the transactions that emit them).
+//! * **`ScanDirection::Ancestor`** — any prior hop in this walk was
+//!   scan-resolved, so the anchor has upper-bound provenance via
+//!   causality (receipts emit before they execute; later ancestors
+//!   cannot execute past a refreshed anchor). Subsequent ancestor
+//!   scans reach `max_hop_distance` backward from the anchor
+//!   regardless of intervening column hits. The anchor itself stays in
+//!   the iteration because same-shard local receipts can execute in
+//!   the same block as their producing outcome (`process_local_receipts`
+//!   runs inside the same `apply()` call as the transactions that emit
+//!   them).
 //!
 //! Both modes consume the per-request outcome budget enforced by the
 //! handler; the kernel only counts and reports per-scan progress.
@@ -43,23 +42,24 @@ use near_store::DBCol;
 pub const DEFAULT_HINT_WINDOW: BlockHeightDelta = 5;
 
 /// Direction of the hint scan around an anchor block height. The handler
-/// picks the variant based on whether the immediately preceding walker
-/// hop was scan-resolved (`Ancestor`) or not (`CenterOut`). Hop number
-/// is not part of the decision.
+/// picks the variant based on whether any prior hop in the walk was
+/// scan-resolved (`Ancestor`) or not (`CenterOut`). The flag is monotonic
+/// — once set on the first scan-resolve it stays set for the rest of the
+/// walk; intervening column hits do not flip it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanDirection {
-    /// Center-out `±window` scan. Used when the scan anchor is the
-    /// caller's hint or a height that the most recent scan wrote and
-    /// subsequent column hits have walked past without refreshing.
+    /// Center-out `±window` scan. Used when no scan has run yet, so the
+    /// anchor is the caller's literal hint and could be off either side
+    /// of the producing outcome.
     CenterOut,
-    /// Anchor-inclusive backward scan: `h, h-1, ..., h-window`. The anchor
-    /// is included because same-shard local receipts can execute in the
-    /// same block as their producing outcome (`process_local_receipts`
-    /// runs within the same `apply()` call as the transactions that emit
-    /// them; see `runtime/runtime/src/lib.rs`). Used when the column-miss
-    /// scan immediately follows a scan-resolved hop, so `current_height`
-    /// is the resolved parent's exact execution height; producers of the
-    /// current hop's target must live at or before that anchor.
+    /// Anchor-inclusive backward scan: `h, h-1, ..., h-window`. The
+    /// anchor is included because same-shard local receipts can execute
+    /// in the same block as their producing outcome
+    /// (`process_local_receipts` runs within the same `apply()` call as
+    /// the transactions that emit them; see `runtime/runtime/src/lib.rs`).
+    /// Used once any prior hop has been scan-resolved: causality
+    /// guarantees later ancestors execute at or before the most-recent
+    /// scan-refreshed anchor, regardless of column hits walked between.
     Ancestor,
 }
 
@@ -148,11 +148,11 @@ pub enum ResolveHintError {
 /// `OutcomeIds` / `TransactionResultForBlock` rows in a block range
 /// around `block_height` on `shard_id`. The scan direction is set by
 /// the caller-supplied `direction`: `CenterOut` (`±window` around the
-/// anchor) when the anchor is caller-supplied or stale, `Ancestor`
-/// (`h, h-1, ..., h-window` backward from the anchor) when the anchor
-/// is the exact execution height of a just-resolved parent. The
-/// handler in `chain/client` picks the direction based on whether the
-/// previous walker hop was scan-resolved.
+/// anchor) when the anchor is the caller's literal hint and no prior
+/// scan has run, `Ancestor` (`h, h-1, ..., h-window` backward from the
+/// anchor) once any prior hop in the walk has been scan-resolved. The
+/// handler in `chain/client` picks the direction based on whether
+/// **any** prior hop in this walk was scan-resolved (monotonic).
 ///
 /// `Ok(Some(_))` — parent located, info synthesized in-flight.
 /// `Ok(None)` — window exhausted without finding the receipt.
