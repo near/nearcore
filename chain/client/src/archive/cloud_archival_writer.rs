@@ -10,7 +10,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::archive::CloudArchivingError;
@@ -316,12 +316,12 @@ impl CloudArchivalWriter {
         &self,
         batch_range: &BatchRange,
     ) -> Result<(), CloudArchivingError> {
-        // TODO(cloud_archival): support resharding.
         let prev_epoch_end = self.get_local_prev_epoch_end()?;
         let epoch_id = self.epoch_manager.get_next_epoch_id(&prev_epoch_end)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let tracked_shards =
             self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
+        let inverse_ceiling = self.resharding_inverse_ceiling(&epoch_id, &prev_epoch_end)?;
 
         let block_advanced = if self.config.archive_block_data {
             self.archive_block_batch_if_lagging(batch_range).await?
@@ -329,7 +329,12 @@ impl CloudArchivalWriter {
             false
         };
         let advanced_shards = self
-            .archive_shard_batches_if_lagging(batch_range, &shard_layout, &tracked_shards)
+            .archive_shard_batches_if_lagging(
+                batch_range,
+                &shard_layout,
+                &tracked_shards,
+                inverse_ceiling,
+            )
             .await?;
         let new_prev_epoch_end = self.find_epoch_ending_in_batch(batch_range)?;
         if self.config.archive_block_data {
@@ -400,11 +405,14 @@ impl CloudArchivalWriter {
 
     /// Archives shard batches for tracked shards whose local head is behind
     /// `batch_range.end()`. Returns the shard IDs that were advanced.
+    /// `inverse_ceiling`: passed to `archive_shard_batch` to enable inverse
+    /// state-change attachment in a resharding epoch.
     async fn archive_shard_batches_if_lagging(
         &self,
         batch_range: &BatchRange,
         shard_layout: &ShardLayout,
         tracked_shards: &[ShardUId],
+        inverse_ceiling: Option<BlockHeight>,
     ) -> Result<Vec<ShardId>, CloudArchivingError> {
         let mut advanced_shards = Vec::new();
         for shard_uid in tracked_shards {
@@ -429,12 +437,42 @@ impl CloudArchivalWriter {
                     shard_layout,
                     batch_range,
                     *shard_uid,
+                    inverse_ceiling,
                 )
                 .await?;
             self.cloud_storage.update_cloud_shard_head(shard_id, batch_range.end()).await?;
             advanced_shards.push(shard_id);
         }
         Ok(advanced_shards)
+    }
+
+    /// Highest block height that should carry inverse state changes. `None`
+    /// for non-resharding epochs. `Some(sync_prev_prev_height)` when
+    /// sync_hash for the new epoch is recorded; `Some(BlockHeight::MAX)`
+    /// while it isn't (finality-plus-atomic `FINAL_HEAD` + `StateSyncHashes`
+    /// write in `ChainStoreUpdate::finalize` guarantees the writer can only
+    /// be at gap blocks until sync_hash lands).
+    fn resharding_inverse_ceiling(
+        &self,
+        epoch_id: &EpochId,
+        prev_epoch_end: &CryptoHash,
+    ) -> Result<Option<BlockHeight>, near_chain_primitives::Error> {
+        let prev_epoch_id = self.epoch_manager.get_epoch_id(prev_epoch_end)?;
+        let cur_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let prev_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
+        if cur_layout == prev_layout {
+            return Ok(None);
+        }
+        let Some(sync_hash) =
+            self.hot_store.get_ser::<CryptoHash>(DBCol::StateSyncHashes, epoch_id.as_ref())
+        else {
+            return Ok(Some(BlockHeight::MAX));
+        };
+        let chain_store = self.hot_store.chain_store();
+        let sync_header = chain_store.get_block_header(&sync_hash)?;
+        let sync_prev_header = chain_store.get_block_header(sync_header.prev_hash())?;
+        let sync_prev_prev_header = chain_store.get_block_header(sync_prev_header.prev_hash())?;
+        Ok(Some(sync_prev_prev_header.height()))
     }
 
     /// Initializes the cloud archive writer: validates bucket config and

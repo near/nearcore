@@ -3696,9 +3696,23 @@ impl Chain {
         let epoch_height =
             self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
         if epoch_height % snapshot_every_n_epochs != 0 {
-            return Ok(SnapshotAction::None);
+            // Cloud-archive readers anchor the resharding-gap backward walk
+            // at this snapshot; the cadence skip would drop the only anchor
+            // for the new layout. Cadence=1 nodes never reach this branch.
+            if !self.is_resharding_epoch(&head)? {
+                return Ok(SnapshotAction::None);
+            }
         }
         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
+    }
+
+    /// True when `head`'s epoch's shard layout differs from the previous epoch's.
+    fn is_resharding_epoch(&self, head: &Tip) -> Result<bool, Error> {
+        let cur_layout = self.epoch_manager.get_shard_layout(&head.epoch_id)?;
+        let prev_epoch_id =
+            self.epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
+        let prev_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
+        Ok(cur_layout != prev_layout)
     }
 
     pub fn transaction_validity_period(&self) -> BlockHeightDelta {

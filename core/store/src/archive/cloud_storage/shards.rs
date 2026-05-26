@@ -1,7 +1,11 @@
 use crate::adapter::StoreAdapter;
 use crate::adapter::chain_store::option_to_not_found;
 use crate::archive::cloud_storage::batch::BatchRange;
-use crate::{DBCol, KeyForStateChanges, Store};
+use crate::flat::FlatStorageManager;
+use crate::trie::AccessOptions;
+use crate::{
+    DBCol, KeyForStateChanges, ShardTries, StateSnapshotConfig, Store, TrieConfig,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
@@ -51,6 +55,9 @@ pub struct ShardDataV1 {
     /// Read from `DBCol::ProcessedReceiptIds` (entries tagged
     /// `ReceiptSource::ReceiptToTxGc`) and `DBCol::ReceiptToTx`.
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+
+    /// Earlier value of each key in `state_changes`. `None` if not computed.
+    inverse_state_changes: Option<InverseStateChanges>,
 }
 
 /// Builds a `ShardData` object for the given block height and shard ID by
@@ -64,6 +71,7 @@ pub fn build_shard_data(
     shard_layout: &ShardLayout,
     block_height: BlockHeight,
     shard_uid: ShardUId,
+    inverse_state_changes: Option<InverseStateChanges>,
 ) -> Result<Option<ShardData>, Error> {
     let chain_store = store.chain_store();
     let chunk_store = store.chunk_store();
@@ -156,8 +164,33 @@ pub fn build_shard_data(
         chunk_apply_stats,
         transaction_result_for_block,
         receipt_to_tx,
+        inverse_state_changes,
     };
     Ok(Some(ShardData::V1(shard_data)))
+}
+
+/// For each key changed in this block, reads its value at `prev_state_root`.
+/// Output sorted by `TrieKey` bytes so every writer produces the same blob.
+pub fn build_inverse_state_changes(
+    store: &Store,
+    tries: &ShardTries,
+    shard_layout: &ShardLayout,
+    shard_uid: ShardUId,
+    block_hash: &CryptoHash,
+    prev_state_root: CryptoHash,
+) -> Result<InverseStateChanges, Error> {
+    let forward = get_state_changes(store, shard_layout, block_hash, shard_uid)?;
+    let trie = tries.get_trie_for_shard(shard_uid, prev_state_root);
+    let mut entries = Vec::with_capacity(forward.len());
+    for change in &forward {
+        let key_bytes = change.trie_key.to_vec();
+        let pre_value = trie
+            .get(&key_bytes, AccessOptions::DEFAULT)
+            .map_err(|e| Error::Other(format!("inverse lookup failed: {e}")))?;
+        entries.push((change.trie_key.clone(), pre_value));
+    }
+    entries.sort_by(|(a, _), (b, _)| a.to_vec().cmp(&b.to_vec()));
+    Ok(entries)
 }
 
 // TODO(cloud_archival) Consider calling this function once per block height instead for each shard.
@@ -227,10 +260,9 @@ impl ShardData {
         }
     }
 
-    // TODO(cloud_archival): return the stored field once the writer attaches it.
     pub fn inverse_state_changes(&self) -> Option<&InverseStateChanges> {
         match self {
-            ShardData::V1(_) => None,
+            ShardData::V1(data) => data.inverse_state_changes.as_ref(),
         }
     }
 }
@@ -252,20 +284,81 @@ pub struct ShardBatchV1 {
 
 /// Builds a `ShardBatch` by reading shard data for each height in `range`.
 /// Pushes `None` for skipped slots and for heights where this shard's chunk
-/// is not new.
+/// is not new. If `inverse_ceiling` is `Some(h)`, fills `inverse_state_changes`
+/// on each present block with height `<= h`.
 pub fn build_shard_batch(
     store: &Store,
     genesis_height: BlockHeight,
     shard_layout: &ShardLayout,
     range: &BatchRange,
     shard_uid: ShardUId,
+    inverse_ceiling: Option<BlockHeight>,
 ) -> Result<ShardBatch, Error> {
+    let tries = inverse_ceiling.map(|_| {
+        ShardTries::new(
+            store.trie_store(),
+            TrieConfig::default(),
+            FlatStorageManager::new(store.flat_store()),
+            StateSnapshotConfig::Disabled,
+        )
+    });
     let count = (range.end() - range.start() + 1) as usize;
     let mut data = Vec::with_capacity(count);
     for height in range.start()..=range.end() {
-        data.push(build_shard_data(store, genesis_height, shard_layout, height, shard_uid)?);
+        let inverse = build_inverse_at_height(
+            store,
+            tries.as_ref(),
+            shard_layout,
+            shard_uid,
+            height,
+            inverse_ceiling,
+        )?;
+        data.push(build_shard_data(
+            store,
+            genesis_height,
+            shard_layout,
+            height,
+            shard_uid,
+            inverse,
+        )?);
     }
     Ok(ShardBatch::new(range.start(), range.end(), data))
+}
+
+/// Inverse entries for `(height, shard_uid)`, or `None` if `height` is
+/// above `inverse_ceiling` or there is no block at `height`.
+fn build_inverse_at_height(
+    store: &Store,
+    tries: Option<&ShardTries>,
+    shard_layout: &ShardLayout,
+    shard_uid: ShardUId,
+    height: BlockHeight,
+    inverse_ceiling: Option<BlockHeight>,
+) -> Result<Option<InverseStateChanges>, Error> {
+    let Some(ceiling) = inverse_ceiling else {
+        return Ok(None);
+    };
+    if height > ceiling {
+        return Ok(None);
+    }
+    let tries = tries.expect("tries are built whenever inverse_ceiling is Some");
+    let chain_store = store.chain_store();
+    let block_hash = match chain_store.get_block_hash_by_height(height) {
+        Ok(hash) => hash,
+        Err(Error::DBNotFoundErr(_)) => return Ok(None),
+        Err(other) => return Err(other),
+    };
+    let header = chain_store.get_block_header(&block_hash)?;
+    let prev_chunk_extra = store.chunk_store().get_chunk_extra(header.prev_hash(), &shard_uid)?;
+    let prev_state_root = *prev_chunk_extra.state_root();
+    Ok(Some(build_inverse_state_changes(
+        store,
+        tries,
+        shard_layout,
+        shard_uid,
+        &block_hash,
+        prev_state_root,
+    )?))
 }
 
 impl ShardBatch {
