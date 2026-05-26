@@ -23,8 +23,10 @@ use near_client::client_actor::ClientActor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::spice::chunk_executor_coordinator::{ChunkExecutorCoordinator, per_shard_mailbox};
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::per_shard_executor::PerShardExecutor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
@@ -34,18 +36,21 @@ use near_client::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
 };
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc::client::RpcTransport;
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::EpochId;
 use near_store::adapter::StoreAdapter;
 use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use tokio::sync::broadcast;
@@ -85,6 +90,7 @@ pub fn setup_client(
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
+    let chunk_executor_coordinator_adapter = LateBoundSender::new();
 
     let homedir = NodeExecutionData::homedir(tempdir, identifier);
     std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
@@ -284,7 +290,11 @@ pub fn setup_client(
         client_config.orphan_state_witness_max_size.as_u64(),
     );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
-        chunk_executor_adapter.as_sender()
+        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+            chunk_executor_coordinator_adapter.as_sender()
+        } else {
+            chunk_executor_adapter.as_sender()
+        }
     } else {
         noop().into_sender()
     };
@@ -437,11 +447,18 @@ pub fn setup_client(
         chain_genesis.gas_limit,
     );
 
+    // Prototype: when the per-shard subsystem is on, ExecutionResultEndorsed and
+    // ExecutorIncomingUnverifiedReceipts go to the coordinator instead of the
+    // monolithic executor (mirrors nearcore/src/lib.rs).
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime_adapter.store().chain_store(),
         epoch_manager.clone(),
         spice_core_reader.clone(),
-        chunk_executor_adapter.as_sender(),
+        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+            chunk_executor_coordinator_adapter.as_sender()
+        } else {
+            chunk_executor_adapter.as_sender()
+        },
         spice_chunk_validator_adapter.as_sender(),
     );
 
@@ -450,9 +467,13 @@ pub fn setup_client(
         runtime_adapter.store().chain_store(),
         validator_signer.clone(),
         shard_tracker.clone(),
-        spice_core_reader,
+        spice_core_reader.clone(),
         network_adapter.as_multi_sender(),
-        chunk_executor_adapter.as_sender(),
+        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+            chunk_executor_coordinator_adapter.as_sender()
+        } else {
+            chunk_executor_adapter.as_sender()
+        },
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -481,10 +502,52 @@ pub fn setup_client(
     let spice_data_distributor_sender = test_loop.data.register_actor(
         identifier,
         spice_data_distributor_actor,
-        Some(spice_data_distributor_adapter),
+        Some(spice_data_distributor_adapter.clone()),
     );
 
     test_loop.data.register_actor(identifier, chunk_executor_actor, Some(chunk_executor_adapter));
+
+    // Prototype: build the per-shard subsystem (one PerShardExecutor per shard +
+    // the coordinator) up-front and register each, mirroring nearcore/src/lib.rs.
+    // The coordinator does not spawn — test-loop can't register actors mid-run.
+    if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        let shard_ids = epoch_manager.shard_ids(&EpochId::default()).expect("genesis shard ids");
+        let mut mailboxes = HashMap::new();
+        for shard_id in shard_ids {
+            let self_adapter = LateBoundSender::new();
+            let per_shard_actor = PerShardExecutor::new(
+                shard_id,
+                runtime_adapter.store().clone(),
+                &chain_genesis,
+                runtime_adapter.clone(),
+                epoch_manager.clone(),
+                shard_tracker.clone(),
+                spice_core_reader.clone(),
+                validator_signer.clone(),
+                network_adapter.as_multi_sender(),
+                spice_core_writer_adapter.as_sender(),
+                chunk_executor_coordinator_adapter.as_sender(),
+                self_adapter.as_sender(),
+            );
+            let handle =
+                test_loop.data.register_actor(identifier, per_shard_actor, Some(self_adapter));
+            mailboxes.insert(shard_id, per_shard_mailbox(handle));
+        }
+        let coordinator = ChunkExecutorCoordinator::new(
+            runtime_adapter.store().clone(),
+            &chain_genesis,
+            runtime_adapter.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            spice_data_distributor_adapter.as_multi_sender(),
+            mailboxes,
+        );
+        test_loop.data.register_actor(
+            identifier,
+            coordinator,
+            Some(chunk_executor_coordinator_adapter),
+        );
+    }
 
     let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
         runtime_adapter.store().clone(),
