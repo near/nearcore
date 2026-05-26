@@ -183,8 +183,7 @@ impl<'a> ChainUpdate<'a> {
                 // anyway. Prepare a chunk extra as a copy of the old chunk
                 // extra and apply changes to it.
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
-                let mut new_extra = ChunkExtra::clone(&old_extra);
-                *new_extra.state_root_mut() = apply_result.new_root;
+                let new_extra = old_extra.next_for_old_chunk(apply_result.new_root);
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(

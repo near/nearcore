@@ -974,6 +974,16 @@ pub mod chunk_extra {
             }
         }
 
+        /// Builds the chunk extra for an old (missing) chunk from the
+        /// previous chunk extra. All fields are carried over except the
+        /// state root, which is replaced with the one produced by applying
+        /// the old chunk.
+        pub fn next_for_old_chunk(&self, state_root: StateRoot) -> Self {
+            let mut new_extra = self.clone();
+            *new_extra.state_root_mut() = state_root;
+            new_extra
+        }
+
         #[inline]
         pub fn validator_proposals(&self) -> ValidatorStakeIter<'_> {
             match self {
