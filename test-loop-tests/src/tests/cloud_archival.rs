@@ -1268,8 +1268,6 @@ fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
 /// trie holds state for parent shards before the boundary, new-layout
 /// shards inside the resharding gap, and new-layout shards at target.
 #[test]
-// TODO(cloud_archival): un-ignore when resharding support is implemented.
-#[ignore]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_resharding_gap_inverse_walk() {
     let mut h = CloudArchiveHarness::builder()

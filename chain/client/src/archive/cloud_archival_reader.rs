@@ -1,8 +1,13 @@
+use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
+use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudRetrievalError, CloudStorage, EpochData};
-use near_store::{DBCol, Store};
+use near_store::trie::AccessOptions;
+use near_store::{DBCol, ShardTries, Store};
 use std::collections::HashSet;
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
@@ -12,6 +17,8 @@ pub enum CloudArchivalReaderError {
     Retrieval(#[from] CloudRetrievalError),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
+    #[error(transparent)]
+    Storage(#[from] StorageError),
 }
 
 /// Writes block-level data from cloud storage into the local store.
@@ -225,4 +232,52 @@ fn save_new_epoch(
         "saved epoch data"
     );
     Ok(epoch_data)
+}
+
+/// Walks inverse state changes from `anchor_height` down to `target_height`
+/// for `shard_uid`, applying each block's entries via `Trie::update` +
+/// `tries.apply_all`. Heights with no `ShardData` or no inverse entries
+/// are silently skipped.
+pub fn apply_inverse_state_changes_range(
+    store: &Store,
+    cloud_storage: &CloudStorage,
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    anchor_state_root: CryptoHash,
+    anchor_height: BlockHeight,
+    target_height: BlockHeight,
+) -> Result<CryptoHash, CloudArchivalReaderError> {
+    assert!(target_height <= anchor_height);
+    let shard_id = shard_uid.shard_id();
+    let mut state_root = anchor_state_root;
+    let mut h = anchor_height;
+    while h > target_height {
+        let batch = cloud_storage.get_shard_batch_for_height(h, shard_id)?;
+        let batch_lo = std::cmp::max(batch.start_height(), target_height + 1);
+        for hh in (batch_lo..=h).rev() {
+            let Some(shard_data) = batch.get_shard_at_height(hh) else {
+                continue;
+            };
+            let Some(inverse) = shard_data.inverse_state_changes() else {
+                continue;
+            };
+            let trie = tries.get_trie_for_shard(shard_uid, state_root);
+            let trie_changes = trie.update(
+                inverse.iter().map(|(trie_key, pre)| (trie_key.to_vec(), pre.clone())),
+                AccessOptions::NO_SIDE_EFFECTS,
+            )?;
+            let mut store_update = store.trie_store().store_update();
+            // Insertions only; decrementing anchor-unique nodes here would
+            // remove the trie state at heights above the inverse walk that
+            // a subsequent forward apply (or sibling query) still needs.
+            tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
+            state_root = trie_changes.new_root;
+            store_update.commit();
+        }
+        if batch_lo == 0 {
+            break;
+        }
+        h = batch_lo - 1;
+    }
+    Ok(state_root)
 }
