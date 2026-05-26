@@ -1,3 +1,4 @@
+use crate::DBCol;
 use crate::archive::cloud_storage::batch::compute_batch_id;
 pub use crate::archive::cloud_storage::batch::{BatchId, BatchRange, compute_next_batch};
 pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData};
@@ -8,6 +9,58 @@ pub use crate::archive::cloud_storage::shards::{ShardBatch, ShardData};
 use near_external_storage::ExternalConnection;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
+
+/// Cold col carried in the batch blob as a field of `BlockData` / `ShardData`.
+pub fn is_cloud_blob_carried(col: DBCol) -> bool {
+    matches!(
+        col,
+        // BlockData (per block).
+        DBCol::Block
+            | DBCol::BlockHeader
+            | DBCol::BlockInfo
+            | DBCol::NextBlockHashes
+            // ShardData (per (block, shard)).
+            | DBCol::Chunks
+            | DBCol::OutcomeIds
+            | DBCol::TransactionResultForBlock
+            | DBCol::ReceiptToTx
+            | DBCol::IncomingReceipts
+            | DBCol::OutgoingReceipts
+            | DBCol::ChunkExtra
+            | DBCol::ChunkApplyStats
+            | DBCol::StateChanges
+    )
+}
+
+/// Cold col the reader reconstructs from blob payload at save time.
+pub fn is_cloud_blob_derived(col: DBCol) -> bool {
+    matches!(
+        col,
+        // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
+        DBCol::BlockPerHeight
+        // TODO(cloud_archival): reconstruct from Block in the reader.
+        | DBCol::ChunkHashesByHeight
+        // TODO(cloud_archival): reconstruct from the carried `ShardChunk`.
+        | DBCol::Transactions
+        | DBCol::Receipts
+    )
+}
+
+/// Cold col covered by a separate cloud-archive artifact, or out of the
+/// cloud-archive flow entirely.
+pub fn is_cloud_blob_excluded(col: DBCol) -> bool {
+    #[cfg(feature = "protocol_feature_spice")]
+    if col == DBCol::ReceiptProofs {
+        return true;
+    }
+    matches!(
+        col,
+        DBCol::State
+            | DBCol::StateShardUIdMapping
+            | DBCol::StateHeaders
+            | DBCol::StateChangesForSplitStates
+    )
+}
 
 pub mod config;
 pub mod opener;
@@ -148,64 +201,30 @@ mod tests {
     use super::file_id::CloudStorageFileID;
     use crate::DBCol;
     use crate::archive::cloud_storage::bucket_config::BucketConfig;
+    use crate::archive::cloud_storage::{
+        is_cloud_blob_carried, is_cloud_blob_derived, is_cloud_blob_excluded,
+    };
     use near_external_storage::ExternalConnection;
     use strum::IntoEnumIterator;
 
-    /// Cold columns whose data is carried by per-block-height batch blobs in cloud
-    /// archive, either as a direct field of `BlockData` / `ShardData` or extracted
-    /// from one of those at read time.
-    const CLOUD_BATCH_COLUMNS: &[DBCol] = &[
-        // Carried by BlockData (one entry per block).
-        DBCol::Block,
-        DBCol::BlockHeader,
-        DBCol::BlockInfo,
-        DBCol::NextBlockHashes,
-        // Carried by ShardData (one entry per (block, shard)).
-        DBCol::Chunks,
-        DBCol::Transactions,
-        DBCol::Receipts,
-        DBCol::OutcomeIds,
-        DBCol::TransactionResultForBlock,
-        DBCol::ReceiptToTx,
-        DBCol::IncomingReceipts,
-        DBCol::OutgoingReceipts,
-        DBCol::ChunkExtra,
-        DBCol::ChunkApplyStats,
-        DBCol::StateChanges,
-    ];
-
-    /// Cold columns intentionally not carried by batch blobs.
-    const CLOUD_NON_BATCH_COLUMNS: &[DBCol] = &[
-        // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
-        DBCol::BlockPerHeight,
-        // TODO(cloud_archival): reconstruct from Block in the reader.
-        DBCol::ChunkHashesByHeight,
-        // Per-epoch state snapshots cover state, not per-block deltas.
-        DBCol::State,
-        // Per-epoch state snapshots cover the shard-layout mapping that keys state.
-        DBCol::StateShardUIdMapping,
-        // Uploaded as a separate StateHeader file per (epoch_height, shard_id).
-        DBCol::StateHeaders,
-        // Not GC-ed; cloud archive only handles GC-ed data.
-        DBCol::StateChangesForSplitStates,
-        // Spice cold columns - cloud-archive integration is a separate task.
-        #[cfg(feature = "protocol_feature_spice")]
-        DBCol::ReceiptProofs,
-    ];
-
-    /// Every cold column must be classified as either batch-carried or
-    /// intentionally non-batch. A new cold column fails this test until
-    /// classified with a rationale.
+    /// Every cold column must be classified by exactly one of the three
+    /// `is_cloud_blob_*` predicates.
     #[test]
     fn every_cold_column_is_classified_for_cloud_archive() {
         for col in DBCol::iter() {
             if !col.is_cold() {
                 continue;
             }
-            assert!(
-                CLOUD_BATCH_COLUMNS.contains(&col) ^ CLOUD_NON_BATCH_COLUMNS.contains(&col),
-                "cold column {col:?} must be classified as batch or non-batch \
-                 (with a rationale)"
+            let categories = [
+                is_cloud_blob_carried(col),
+                is_cloud_blob_derived(col),
+                is_cloud_blob_excluded(col),
+            ];
+            assert_eq!(
+                categories.iter().filter(|x| **x).count(),
+                1,
+                "cold column {col:?} must be in exactly one of \
+                 is_cloud_blob_carried / is_cloud_blob_derived / is_cloud_blob_excluded",
             );
         }
     }

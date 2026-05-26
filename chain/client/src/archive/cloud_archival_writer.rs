@@ -433,7 +433,8 @@ impl CloudArchivalWriter {
 
     /// Initializes the cloud archive writer: validates bucket config and
     /// reconciles cloud heads with local state. Missing components start at
-    /// `hot_final_height - 1`; existing ones are clamped to that ceiling.
+    /// `current_epoch_start - 1` so the first uploaded `EpochData` reflects a
+    /// fully-archived epoch; existing ones are clamped to `hot_final_height - 1`.
     // TODO(cloud_archival) Cover this logic with tests.
     async fn initialize(
         &self,
@@ -447,12 +448,17 @@ impl CloudArchivalWriter {
 
         let (block_head_ext, shard_heads_ext) =
             self.read_external_heads(&tracked_shard_ids).await?;
+        let current_epoch_start = self.current_epoch_start_height(hot_final_height)?;
 
-        let (block_head_local, shard_heads_local, min_height_local) =
-            self.collect_resolved_heads(hot_final_height, block_head_ext, &shard_heads_ext);
+        let (block_head_local, shard_heads_local, min_height_local) = self.collect_resolved_heads(
+            hot_final_height,
+            current_epoch_start,
+            block_head_ext,
+            &shard_heads_ext,
+        );
 
         self.ensure_min_cloud_head_available_for_archiving(runtime_adapter, min_height_local)?;
-        self.log_initialization_status(block_head_ext, &shard_heads_ext, hot_final_height);
+        self.log_initialization_status(block_head_ext, &shard_heads_ext, current_epoch_start);
         self.set_local_heads(block_head_local, &shard_heads_local, min_height_local)?;
 
         Ok(())
@@ -484,7 +490,7 @@ impl CloudArchivalWriter {
         &self,
         block_head_ext: Option<BlockHeight>,
         shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
-        hot_final_height: BlockHeight,
+        current_epoch_start: BlockHeight,
     ) {
         // block_head_ext is None both when blocks aren't tracked and when
         // the external head is missing, so we need the config check for has_missing.
@@ -492,17 +498,18 @@ impl CloudArchivalWriter {
             block_head_ext.is_some() || shard_heads_ext.iter().any(|&(_, head)| head.is_some());
         let has_missing = (self.config.archive_block_data && block_head_ext.is_none())
             || shard_heads_ext.iter().any(|&(_, head)| head.is_none());
+        let fresh_start = current_epoch_start.saturating_sub(1).max(self.genesis_height);
 
         if has_missing && has_existing {
             tracing::info!(
                 target: "cloud_archival",
-                start_height = hot_final_height - 1,
-                "some external heads missing, new components start at hot_final_height - 1",
+                start_height = fresh_start,
+                "some external heads missing, new components start at current_epoch_start - 1",
             );
         } else if has_missing {
             tracing::info!(
                 target: "cloud_archival",
-                start_height = hot_final_height - 1,
+                start_height = fresh_start,
                 "no external heads found, initializing new cloud archive",
             );
         } else {
@@ -514,12 +521,15 @@ impl CloudArchivalWriter {
     }
 
     /// Resolves each external head to its final local height and computes the
-    /// overall minimum. Missing components default to `hot_final_height - 1`
-    /// — the last height that can actually be archived. Callers guarantee
-    /// `hot_final_height > genesis_height` so this is always a valid height.
+    /// overall minimum. Missing components default to `current_epoch_start - 1`
+    /// so the writer archives the current epoch from its start; the first
+    /// uploaded `EpochData` then reflects a fully-archived epoch, which the
+    /// reader's bootstrap relies on. Callers guarantee
+    /// `hot_final_height > genesis_height` so the defaults are always valid.
     fn collect_resolved_heads(
         &self,
         hot_final_height: BlockHeight,
+        current_epoch_start: BlockHeight,
         block_head_ext: Option<BlockHeight>,
         shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
     ) -> (Option<BlockHeight>, Vec<(ShardId, BlockHeight)>, BlockHeight) {
@@ -530,6 +540,10 @@ impl CloudArchivalWriter {
         // The highest archivable height is hot_final_height - 1 (the loop
         // only archives at heights strictly below hot_final_height).
         let max_archivable_height = hot_final_height - 1;
+        // Fresh-init default: one below the current epoch's first block so the
+        // first archived batch starts at the epoch's start. Validator nodes
+        // always have the current epoch's blocks in their hot store.
+        let fresh_default = current_epoch_start.saturating_sub(1).max(self.genesis_height);
 
         let mut min_height_local: Option<BlockHeight> = None;
         let mut update_min = |height: BlockHeight| {
@@ -539,7 +553,7 @@ impl CloudArchivalWriter {
         // Clamp to max_archivable_height so the writer never fast-forwards
         // past its own chain state when another writer is ahead.
         let block_head_local = if self.config.archive_block_data {
-            let height = block_head_ext.unwrap_or(max_archivable_height).min(max_archivable_height);
+            let height = block_head_ext.unwrap_or(fresh_default).min(max_archivable_height);
             update_min(height);
             Some(height)
         } else {
@@ -548,7 +562,7 @@ impl CloudArchivalWriter {
         let shard_heads_local: Vec<(ShardId, BlockHeight)> = shard_heads_ext
             .iter()
             .map(|&(shard_id, ext_head)| {
-                let height = ext_head.unwrap_or(max_archivable_height).min(max_archivable_height);
+                let height = ext_head.unwrap_or(fresh_default).min(max_archivable_height);
                 update_min(height);
                 (shard_id, height)
             })
@@ -557,6 +571,15 @@ impl CloudArchivalWriter {
         let min_height_local = min_height_local.expect("writer must track at least one component");
 
         (block_head_local, shard_heads_local, min_height_local)
+    }
+
+    /// Returns the first block height of the epoch containing `height`.
+    fn current_epoch_start_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<BlockHeight, near_chain_primitives::Error> {
+        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
+        Ok(self.epoch_manager.get_epoch_start_height(&block_hash)?)
     }
 
     /// Returns the tracked shard IDs for the epoch at the given height.

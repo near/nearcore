@@ -11,17 +11,12 @@ use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
     StateSyncConnection, download_and_apply_state_parts_sequentially, list_state_parts,
 };
-use near_primitives::block::Block;
-use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
-use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
@@ -329,27 +324,26 @@ pub fn bootstrap_reader(
 
     let cloud_storage = get_cloud_storage(env, reader_id);
 
+    // Resolve the target's epoch + sync block before downloading so we can
+    // include the sync block in the bootstrap range. State sync below needs
+    // `sync_block_height <= effective target`; bumping target up rather than
+    // requiring callers to pick an end past every epoch's sync block.
+    let (target_block_height, target_block_data) =
+        find_present_block_at_or_below(&cloud_storage, target_block_height).unwrap();
+    let epoch_id = target_block_data.block().header().epoch_id();
+    let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
+    let epoch_height = epoch_data.epoch_info().epoch_height();
+    let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap().unwrap();
+    let sync_hash = sync_block.block().hash();
+    let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
+    let target_block_height = std::cmp::max(target_block_height, epoch_data.sync_block_height());
+
     // Download all blocks in the range into the reader's store.
     {
         let store = env.node_for_account(reader_id).client().chain.chain_store.store();
         bootstrap_range(&store, &cloud_storage, start_height, target_block_height)
             .expect("bootstrap_range should succeed");
     }
-
-    // If `target_block_height` is a skipped slot the height carries no data,
-    // so reconstructing state at the nearest present block at-or-below it is
-    // equivalent (no state changes between them).
-    let (target_block_height, target_block_data) =
-        find_present_block_at_or_below(&cloud_storage, target_block_height).unwrap();
-    let epoch_id = target_block_data.block().header().epoch_id();
-    let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
-    let epoch_height = epoch_data.epoch_info().epoch_height();
-
-    // Sync block is in the new epoch, after the prefix of blocks needed to
-    // reach two chunks per shard, and saved only once final - so present.
-    let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap().unwrap();
-    let sync_hash = sync_block.block().hash();
-    let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
@@ -486,54 +480,18 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// Verifies that all block and epoch columns written by bootstrap_range
-/// are present and consistent in the store.
-pub(crate) fn verify_block_range(
-    store: &Store,
-    start_height: BlockHeight,
-    end_height: BlockHeight,
+/// Asserts the reader's store matches the writer's on every col the reader
+/// populates from cloud, restricted to `[start, end]`: cold cols in
+/// `is_cloud_blob_carried` ∪ `is_cloud_blob_derived`, plus the hot cols
+/// `BlockHeight`, `BlockMerkleTree`, `EpochInfo`, `EpochStart`. Caller must
+/// `.disable_gc()` so the writer retains the bootstrap range.
+///
+/// TODO(cloud-archival): implementation lands in the parity-helper-impl PR.
+pub(crate) fn assert_reader_parity(
+    _reader: &Store,
+    _writer: &Store,
+    _start: BlockHeight,
+    _end: BlockHeight,
+    _shard_uids: &[ShardUId],
 ) {
-    let mut prev_hash = None;
-    let mut seen_epochs = HashSet::<EpochId>::new();
-    for height in start_height..=end_height {
-        let block_hash: CryptoHash = store
-            .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
-            .unwrap_or_else(|| panic!("BlockHeight entry missing at height {height}"));
-
-        // Verify all block-level columns exist.
-        let header: BlockHeader = store
-            .get_ser(DBCol::BlockHeader, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockHeader missing at height {height}"));
-        let _block: Block = store
-            .get_ser(DBCol::Block, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("Block missing at height {height}"));
-        let _block_info: BlockInfo = store
-            .get_ser(DBCol::BlockInfo, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockInfo missing at height {height}"));
-
-        // Verify epoch-level columns exist for each epoch we encounter.
-        let epoch_id = *header.epoch_id();
-        if seen_epochs.insert(epoch_id) {
-            let _epoch_info: EpochInfo = store
-                .get_ser(DBCol::EpochInfo, epoch_id.as_ref())
-                .unwrap_or_else(|| panic!("EpochInfo missing for epoch at height {height}"));
-        }
-
-        // Verify merkle tree exists and chains correctly from the previous block.
-        let tree: PartialMerkleTree = store
-            .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockMerkleTree missing at height {height}"));
-        if let Some(prev) = prev_hash {
-            assert_eq!(*header.prev_hash(), prev, "prev_hash linkage broken at height {height}");
-            let prev_tree: PartialMerkleTree = store
-                .get_ser(DBCol::BlockMerkleTree, CryptoHash::as_ref(&prev))
-                .expect("prev BlockMerkleTree should exist");
-            assert_eq!(
-                tree.size(),
-                prev_tree.size() + 1,
-                "merkle tree size should increment at height {height}"
-            );
-        }
-        prev_hash = Some(block_hash);
-    }
 }
