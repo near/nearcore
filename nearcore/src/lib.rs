@@ -29,6 +29,7 @@ use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
@@ -271,6 +272,13 @@ fn spawn_spice_actors(
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
 ) {
+    // Prototype: when enabled, run the new per-shard subsystem alongside the
+    // monolithic executor (which stays the default). The coordinator is idle
+    // until later phases wire routing into it.
+    if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        actor_system.spawn_tokio_actor(ChunkExecutorCoordinator::new());
+    }
+
     let spice_core_reader = SpiceCoreReader::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
