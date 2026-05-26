@@ -713,9 +713,10 @@ impl BorshDeserialize for PublicKeyHandle {
                 rd.read_exact(&mut buf)?;
                 Ok(Self::MlDsa65(MlDsa65PublicKeyHandle(buf)))
             }
-            other => {
-                Err(Error::new(ErrorKind::InvalidData, format!("unknown PublicKeyHandle tag {other}")))
-            }
+            other => Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("unknown PublicKeyHandle tag {other}"),
+            )),
         }
     }
 }

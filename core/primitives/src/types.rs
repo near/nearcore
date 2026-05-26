@@ -7,7 +7,7 @@ use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
-use near_crypto::{PublicKeyHandle, PublicKey};
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;

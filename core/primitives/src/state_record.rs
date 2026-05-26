@@ -60,7 +60,12 @@ pub enum StateRecord {
     /// The receipt was delayed because the shard was overwhelmed.
     DelayedReceipt(DelayedReceipt),
     /// Nonce for a gas key index.
-    GasKeyNonce { account_id: AccountId, public_key: PublicKeyHandle, index: NonceIndex, nonce: Nonce },
+    GasKeyNonce {
+        account_id: AccountId,
+        public_key: PublicKeyHandle,
+        index: NonceIndex,
+        nonce: Nonce,
+    },
 }
 
 impl StateRecord {

@@ -5,7 +5,7 @@ use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use itertools::Itertools;
-use near_crypto::{PublicKeyHandle, KeyType, PublicKey};
+use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;

@@ -1,5 +1,5 @@
 use crate::near_primitives::shard_layout::ShardUId;
-use near_crypto::{PublicKeyHandle, PublicKey};
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::hash::CryptoHash;

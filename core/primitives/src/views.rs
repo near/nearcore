@@ -45,7 +45,7 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKeyHandle, PublicKey, Signature};
+use near_crypto::{PublicKey, PublicKeyHandle, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;

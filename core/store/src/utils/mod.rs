@@ -5,7 +5,7 @@ use crate::db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
 use crate::trie::AccessOptions;
 use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKeyHandle, PublicKey};
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
@@ -285,7 +285,12 @@ pub fn set_access_key(
     public_key: PublicKey,
     access_key: &AccessKey,
 ) {
-    set_access_key_by_handle(state_update, account_id, PublicKeyHandle::from(public_key), access_key);
+    set_access_key_by_handle(
+        state_update,
+        account_id,
+        PublicKeyHandle::from(public_key),
+        access_key,
+    );
 }
 
 /// Variant of [`set_access_key`] used by genesis state application and
