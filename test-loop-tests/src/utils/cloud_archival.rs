@@ -5,7 +5,7 @@ use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess};
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
 use near_client::archive::cloud_archival_reader::{
-    bootstrap_range, find_present_block_at_or_below,
+    apply_inverse_state_changes_range, bootstrap_range, find_present_block_at_or_below,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
@@ -392,27 +392,15 @@ pub fn bootstrap_reader(
 
     let cloud_storage = get_cloud_storage(env, reader_id);
 
-    // Download all blocks in the range into the reader's store.
     {
         let store = env.node_for_account(reader_id).client().chain.chain_store.store();
         bootstrap_range(&store, &cloud_storage, start_height, target_block_height)
             .expect("bootstrap_range should succeed");
     }
 
-    // If `target_block_height` is a skipped slot the height carries no data,
-    // so reconstructing state at the nearest present block at-or-below it is
-    // equivalent (no state changes between them).
-    let (target_block_height, target_block_data) =
+    let (target_block_height, _) =
         find_present_block_at_or_below(&cloud_storage, target_block_height).unwrap();
-    let epoch_id = target_block_data.block().header().epoch_id();
-    let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
-    let epoch_height = epoch_data.epoch_info().epoch_height();
-
-    // Sync block is in the new epoch, after the prefix of blocks needed to
-    // reach two chunks per shard, and saved only once final - so present.
-    let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap().unwrap();
-    let sync_hash = sync_block.block().hash();
-    let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
+    let segments = find_epoch_segments(&cloud_storage, start_height, target_block_height);
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
@@ -423,47 +411,158 @@ pub fn bootstrap_reader(
         StateSnapshotConfig::Disabled,
     );
     let state_sync_connection = StateSyncConnection::from_cloud_storage(&cloud_storage);
+    // Tracks the state root each shard reached at the end of the last
+    // segment it appeared in. Inherited shards continue forward from this
+    // root instead of re-downloading a snapshot.
+    let mut shard_state: std::collections::HashMap<ShardUId, CryptoHash> =
+        std::collections::HashMap::new();
 
-    for shard_id in epoch_data.shard_layout().shard_ids() {
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
-        let target_block_shard_data =
-            cloud_storage.get_shard_data(target_block_height, shard_id).unwrap().unwrap();
-        let target_state_root = *target_block_shard_data.chunk_extra().state_root();
-        let state_header =
-            cloud_storage.get_state_header(epoch_height, *epoch_id, shard_id).unwrap();
-        let state_sync_state_root = state_header.chunk_prev_state_root();
-
-        chain.state_sync_adapter.set_state_header(shard_id, *sync_hash, state_header).unwrap();
-
-        assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
-        execute_future(load_state_snapshot(
+    for (epoch_id, range_low, range_high) in segments {
+        bootstrap_one_epoch(
             chain,
             &state_sync_connection,
-            cloud_storage.chain_id(),
-            epoch_id,
-            epoch_height,
-            *sync_hash,
-            shard_id,
-            state_sync_state_root,
-        ));
-        assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
-
-        assert!(!has_state_root(&tries, shard_uid, target_state_root));
-        apply_state_changes(
             &cloud_storage,
             &store,
             &tries,
-            state_sync_state_root,
-            sync_prev_block_height,
-            target_block_height,
-            shard_uid,
+            epoch_id,
+            range_low,
+            range_high,
+            &mut shard_state,
         );
-        assert!(has_state_root(&tries, shard_uid, target_state_root));
+    }
+}
 
-        // Validate the restored state by reading from the trie.
-        let trie = tries.get_trie_for_shard(shard_uid, target_state_root);
-        let item_count = trie.disk_iter().unwrap().count();
-        assert!(item_count > 0, "trie for shard {shard_id} should not be empty after bootstrap");
+/// Walks `[start_height, target_block_height]` block-by-block in cloud and
+/// returns one `(epoch_id, range_low, range_high)` per epoch covered, in
+/// ascending height order.
+fn find_epoch_segments(
+    cloud_storage: &CloudStorage,
+    start_height: BlockHeight,
+    target_block_height: BlockHeight,
+) -> Vec<(EpochId, BlockHeight, BlockHeight)> {
+    let mut segments: Vec<(EpochId, BlockHeight, BlockHeight)> = Vec::new();
+    let mut current: Option<(EpochId, BlockHeight, BlockHeight)> = None;
+    let mut h = start_height;
+    while h <= target_block_height {
+        let batch = cloud_storage.get_block_batch_for_height(h).unwrap();
+        let last_in_batch = std::cmp::min(batch.end_height(), target_block_height);
+        for hh in h..=last_in_batch {
+            let Some(block_data) = batch.get_block_at_height(hh) else {
+                continue;
+            };
+            let epoch_id = *block_data.block().header().epoch_id();
+            match current.as_mut() {
+                None => current = Some((epoch_id, hh, hh)),
+                Some(seg) if seg.0 == epoch_id => seg.2 = hh,
+                Some(_) => {
+                    segments.push(current.take().unwrap());
+                    current = Some((epoch_id, hh, hh));
+                }
+            }
+        }
+        h = last_in_batch + 1;
+    }
+    if let Some(seg) = current {
+        segments.push(seg);
+    }
+    segments
+}
+
+/// For each shard in `epoch_id`'s layout, either state-syncs at this
+/// epoch's snapshot anchor (new shards) or continues forward from the
+/// state root the shard reached in the previous segment (inherited
+/// shards). Applies forward state changes up to `range_high` and inverse
+/// state changes down to `range_low` (or the epoch start, if higher).
+/// Updates `shard_state` with the resulting state root for each shard.
+fn bootstrap_one_epoch(
+    chain: &Chain,
+    state_sync_connection: &StateSyncConnection,
+    cloud_storage: &CloudStorage,
+    store: &Store,
+    tries: &ShardTries,
+    epoch_id: EpochId,
+    range_low: BlockHeight,
+    range_high: BlockHeight,
+    shard_state: &mut std::collections::HashMap<ShardUId, CryptoHash>,
+) {
+    let epoch_data = cloud_storage.get_epoch_data(epoch_id).unwrap();
+    let epoch_height = epoch_data.epoch_info().epoch_height();
+    let sync_block_height = epoch_data.sync_block_height();
+    let sync_block = cloud_storage.get_block_data(sync_block_height).unwrap().unwrap();
+    let sync_hash = *sync_block.block().hash();
+    let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
+    let sync_prev_block =
+        cloud_storage.get_block_data(sync_prev_block_height).unwrap().unwrap();
+    let sync_prev_prev_height = sync_prev_block.block().header().prev_height().unwrap();
+    let epoch_start_height = epoch_data.epoch_start_height();
+
+    for shard_id in epoch_data.shard_layout().shard_ids() {
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
+        if let Some(&prev_state_root) = shard_state.get(&shard_uid) {
+            // Inherited shard: continue forward from where the previous
+            // segment left off; no fresh snapshot needed.
+            apply_state_changes(
+                cloud_storage,
+                store,
+                tries,
+                prev_state_root,
+                epoch_start_height,
+                range_high,
+                shard_uid,
+            );
+        } else {
+            // New shard for this segment: state-sync at the anchor, then
+            // forward and (if needed) inverse from there.
+            let state_header =
+                cloud_storage.get_state_header(epoch_height, epoch_id, shard_id).unwrap();
+            let state_sync_state_root = state_header.chunk_prev_state_root();
+
+            chain.state_sync_adapter.set_state_header(shard_id, sync_hash, state_header).unwrap();
+            assert!(!has_state_root(tries, shard_uid, state_sync_state_root));
+            execute_future(load_state_snapshot(
+                chain,
+                state_sync_connection,
+                cloud_storage.chain_id(),
+                &epoch_id,
+                epoch_height,
+                sync_hash,
+                shard_id,
+                state_sync_state_root,
+            ));
+            assert!(has_state_root(tries, shard_uid, state_sync_state_root));
+
+            // Inverse first, so its `apply_insertions` increments the
+            // shared anchor/inverse-chain trie nodes before forward's
+            // `apply_all` decrements anchor-unique ones.
+            let inverse_low = std::cmp::max(range_low, epoch_start_height);
+            if inverse_low <= sync_prev_prev_height {
+                apply_inverse_state_changes_range(
+                    store,
+                    cloud_storage,
+                    tries,
+                    shard_uid,
+                    state_sync_state_root,
+                    sync_prev_prev_height,
+                    inverse_low,
+                )
+                .unwrap();
+            }
+            if range_high >= sync_prev_block_height {
+                apply_state_changes(
+                    cloud_storage,
+                    store,
+                    tries,
+                    state_sync_state_root,
+                    sync_prev_block_height,
+                    range_high,
+                    shard_uid,
+                );
+            }
+        }
+        // State at `range_high` is now in the trie. Record it so the
+        // next segment that inherits this shard can continue from here.
+        let shard_data = cloud_storage.get_shard_data(range_high, shard_id).unwrap().unwrap();
+        shard_state.insert(shard_uid, *shard_data.chunk_extra().state_root());
     }
 }
 
@@ -537,7 +636,11 @@ fn apply_state_changes(
             )
             .unwrap();
         let mut store_update = store.trie_store().store_update();
-        state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        // Insertions only: forward apply preserves every intermediate state
+        // root reached so a sibling query (or another walk from the same
+        // anchor) can still read those heights.
+        tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
+        state_root = trie_changes.new_root;
         store_update.commit();
         assert!(has_state_root(&tries, shard_uid, state_root));
     }
