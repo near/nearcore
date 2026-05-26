@@ -149,6 +149,9 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
+# Pinned to an exact version because we enable the `unstable` feature; any
+# release that touches the PQDSA APIs needs an explicit rebench.
+aws-lc-rs = { version = "=1.16.2", features = ["unstable"] }
 axum = { version = "0.8", features = ["http2", "macros"] }
 axum-test = "18.0"
 backtrace = "0.3"
@@ -398,7 +401,7 @@ wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in
 wasmparser-236 = { package = "wasmparser", version = "0.236" }
 wasmprinter = "0.236"
 wasm-smith = "0.236"
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", branch = "release-45.0.0", default-features = false, features = [
+wasmtime = { version = "45.0.0", default-features = false, features = [
     "cranelift",
     "winch",
 ] }

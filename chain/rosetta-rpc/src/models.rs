@@ -1254,6 +1254,9 @@ impl TryFrom<&PublicKey> for near_crypto::PublicKey {
             CurveType::Secp256k1 => {
                 near_crypto::PublicKey::SECP256K1((hex_bytes.as_ref() as &[u8]).try_into()?)
             }
+            CurveType::MlDsa65 => {
+                near_crypto::PublicKey::MLDSA65((hex_bytes.as_ref() as &[u8]).try_into()?)
+            }
         })
     }
 }
@@ -1266,6 +1269,13 @@ pub(crate) enum CurveType {
     Edwards25519,
     /// SEC compressed - 33 bytes (<https://secg.org/sec1-v2.pdf#subsubsection.2.3.3>)
     Secp256k1,
+    /// FIPS 204 ML-DSA-65 post-quantum public key - 1952 bytes
+    /// (<https://csrc.nist.gov/pubs/fips/204/final>). Added upstream by
+    /// <https://github.com/coinbase/mesh-specifications/pull/129>. Existing
+    /// Mesh clients that haven't picked up that change yet will likely
+    /// crash when they see this value; that's accepted for now.
+    #[serde(rename = "ml_dsa_65")]
+    MlDsa65,
 }
 
 impl From<near_crypto::KeyType> for CurveType {
@@ -1273,6 +1283,7 @@ impl From<near_crypto::KeyType> for CurveType {
         match key_type {
             near_crypto::KeyType::ED25519 => Self::Edwards25519,
             near_crypto::KeyType::SECP256K1 => Self::Secp256k1,
+            near_crypto::KeyType::MLDSA65 => Self::MlDsa65,
         }
     }
 }
@@ -1320,6 +1331,13 @@ impl TryFrom<&Signature> for near_crypto::Signature {
 pub(crate) enum SignatureType {
     /// `R (32-byte) || s (32-bytes)` - `64 bytes`
     Ed25519,
+    /// FIPS 204 ML-DSA-65 post-quantum signature - 3309 bytes
+    /// (<https://csrc.nist.gov/pubs/fips/204/final>). Added upstream by
+    /// <https://github.com/coinbase/mesh-specifications/pull/129>. Existing
+    /// Mesh clients that haven't picked up that change yet will likely
+    /// crash when they see this value; that's accepted for now.
+    #[serde(rename = "ml_dsa_65")]
+    MlDsa65,
     /* Rosetta Spec also provides:
      *
      * /// `r (32-bytes) || s (32-bytes)` - `64 bytes`
@@ -1343,6 +1361,7 @@ impl TryFrom<near_crypto::KeyType> for SignatureType {
             near_crypto::KeyType::SECP256K1 => Err(crate::errors::ErrorKind::InvalidInput(
                 "SECP256K1 keys are not supported in Rosetta".to_string(),
             )),
+            near_crypto::KeyType::MLDSA65 => Ok(Self::MlDsa65),
         }
     }
 }
@@ -1351,6 +1370,7 @@ impl From<SignatureType> for near_crypto::KeyType {
     fn from(signature_type: SignatureType) -> Self {
         match signature_type {
             SignatureType::Ed25519 => Self::ED25519,
+            SignatureType::MlDsa65 => Self::MLDSA65,
         }
     }
 }
@@ -1430,5 +1450,24 @@ mod tests {
     fn test_signature_type_try_from_secp256k1_returns_error() {
         let result = SignatureType::try_from(near_crypto::KeyType::SECP256K1);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_signature_type_try_from_ml_dsa_65() {
+        let result = SignatureType::try_from(near_crypto::KeyType::MLDSA65);
+        assert_eq!(result.unwrap(), SignatureType::MlDsa65);
+    }
+
+    #[test]
+    fn test_curve_type_from_ml_dsa_65() {
+        let curve: CurveType = near_crypto::KeyType::MLDSA65.into();
+        assert_eq!(curve, CurveType::MlDsa65);
+    }
+
+    /// Confirm the upstream Mesh wire string for both new variants.
+    #[test]
+    fn test_ml_dsa_65_serde_wire_string() {
+        assert_eq!(serde_json::to_string(&CurveType::MlDsa65).unwrap(), "\"ml_dsa_65\"");
+        assert_eq!(serde_json::to_string(&SignatureType::MlDsa65).unwrap(), "\"ml_dsa_65\"");
     }
 }

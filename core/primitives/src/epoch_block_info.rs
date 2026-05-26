@@ -86,6 +86,28 @@ impl BlockInfo {
         last_finalized_height: BlockHeight,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
+        if ProtocolFeature::Spice.enabled(current_protocol_version) {
+            let last_certified_block_epoch = *header
+                .prev_last_certified_block_epoch_id()
+                .expect("spice block header must carry prev_last_certified_block_epoch_id");
+            return Self::V5(BlockInfoV5 {
+                hash: *header.hash(),
+                height: header.height(),
+                last_finalized_height,
+                last_final_block_hash: *header.last_final_block(),
+                prev_hash: *header.prev_hash(),
+                proposals: header.prev_validator_proposals().collect(),
+                chunk_mask: header.chunk_mask().to_vec(),
+                latest_protocol_version: header.latest_protocol_version(),
+                total_supply: header.total_supply(),
+                epoch_first_block: Default::default(),
+                epoch_id: Default::default(),
+                timestamp_nanosec: header.raw_timestamp(),
+                chunk_endorsements: chunk_endorsements_from_header(header),
+                shard_split: header.shard_split().cloned(),
+                last_certified_block_epoch,
+            });
+        }
         BlockInfo::new(
             *header.hash(),
             header.height(),
@@ -101,37 +123,6 @@ impl BlockInfo {
             chunk_endorsements_from_header(header),
             header.shard_split().cloned(),
         )
-    }
-
-    /// Constructs BlockInfo for a spice chain. `last_certified_block_epoch`
-    /// is supplied by the caller and read by EpochManager to decide whether
-    /// to advance to the next epoch. In `ChainUpdate::postprocess_block` it
-    /// is derived from `header.prev_hash()` rather than `header.hash()`,
-    /// because the current block's uncertified-chunks tracking isn't written
-    /// until later in the same update, so it reflects certification as of
-    /// the parent block.
-    pub fn from_spice_header(
-        header: &BlockHeader,
-        last_finalized_height: BlockHeight,
-        last_certified_block_epoch: EpochId,
-    ) -> Self {
-        Self::V5(BlockInfoV5 {
-            hash: *header.hash(),
-            height: header.height(),
-            last_finalized_height,
-            last_final_block_hash: *header.last_final_block(),
-            prev_hash: *header.prev_hash(),
-            proposals: header.prev_validator_proposals().collect(),
-            chunk_mask: header.chunk_mask().to_vec(),
-            latest_protocol_version: header.latest_protocol_version(),
-            total_supply: header.total_supply(),
-            epoch_first_block: Default::default(),
-            epoch_id: Default::default(),
-            timestamp_nanosec: header.raw_timestamp(),
-            chunk_endorsements: chunk_endorsements_from_header(header),
-            shard_split: header.shard_split().cloned(),
-            last_certified_block_epoch,
-        })
     }
 
     #[inline]

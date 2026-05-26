@@ -3401,6 +3401,19 @@
             "nullable": true,
             "type": "integer"
           },
+          "prev_last_certified_block_epoch_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpochId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
           },

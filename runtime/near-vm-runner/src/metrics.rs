@@ -7,8 +7,8 @@ use std::{cell::RefCell, time::Duration};
 
 thread_local! {
     static METRICS: RefCell<Metrics> = const { RefCell::new(Metrics {
-        near_vm_compilation_time: Duration::new(0, 0),
-        wasmtime_compilation_time: Duration::new(0, 0),
+        compilation_time: Duration::new(0, 0),
+        execution_time: Duration::new(0, 0),
         compiled_contract_cache_lookups: 0,
         compiled_contract_cache_hits: 0,
         compiled_contract_memory_cache_hits: 0,
@@ -19,8 +19,18 @@ static COMPILATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_vm_runner_compilation_seconds",
         "Histogram of how long it takes to compile things",
-        &["vm_kind", "shard_id"],
-        Some(vec![0.01, 0.02, 0.04, 0.08, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0, 5.0]),
+        &["shard_id"],
+        Some(vec![0.025, 0.05, 0.1, 0.5]),
+    )
+    .unwrap()
+});
+
+static EXECUTION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_vm_runner_execution_seconds",
+        "Histogram of how long it takes to execute a contract call",
+        &["shard_id"],
+        Some(vec![0.025, 0.05, 0.1, 0.5]),
     )
     .unwrap()
 });
@@ -68,8 +78,8 @@ static COMPILED_CONTRACT_MEMORY_CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = Lazy
 
 #[derive(Default, Copy, Clone)]
 struct Metrics {
-    near_vm_compilation_time: Duration,
-    wasmtime_compilation_time: Duration,
+    compilation_time: Duration,
+    execution_time: Duration,
     /// Number of lookups from the compiled contract cache.
     compiled_contract_cache_lookups: u64,
     /// Number of times the lookup from the compiled contract cache finds a match.
@@ -79,14 +89,12 @@ struct Metrics {
 }
 
 #[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
-pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: Duration) {
-    use near_parameters::vm::VMKind;
-    METRICS.with_borrow_mut(|m| match kind {
-        VMKind::Wasmer0 => unreachable!(),
-        VMKind::Wasmtime => m.wasmtime_compilation_time += duration,
-        VMKind::Wasmer2 => unreachable!(),
-        VMKind::NearVm => m.near_vm_compilation_time += duration,
-    });
+pub(crate) fn compilation_duration(duration: Duration) {
+    METRICS.with_borrow_mut(|m| m.compilation_time += duration);
+}
+
+pub(crate) fn record_execution_duration(duration: Duration) {
+    METRICS.with_borrow_mut(|m| m.execution_time += duration);
 }
 
 /// Records the result of a compiled-contract cache lookup.
@@ -115,23 +123,21 @@ pub(crate) fn set_compiled_contract_cache_metrics(cache_id: &str, items: usize, 
 /// Reports the current metrics at the end of a single VM invocation (eg. to run a function call).
 pub fn report_metrics(shard_id: impl std::fmt::Display, caller_context: &str) {
     METRICS.with_borrow_mut(|m| {
-        let has_data = !m.near_vm_compilation_time.is_zero()
-            || !m.wasmtime_compilation_time.is_zero()
+        let has_data = !m.compilation_time.is_zero()
+            || !m.execution_time.is_zero()
             || m.compiled_contract_cache_lookups > 0;
         if !has_data {
             *m = Metrics::default();
             return;
         }
         let shard_id = shard_id.to_string();
-        if !m.near_vm_compilation_time.is_zero() {
+        if !m.compilation_time.is_zero() {
             COMPILATION_TIME
-                .with_label_values(&["near_vm", &shard_id])
-                .observe(m.near_vm_compilation_time.as_secs_f64());
+                .with_label_values(&[&shard_id])
+                .observe(m.compilation_time.as_secs_f64());
         }
-        if !m.wasmtime_compilation_time.is_zero() {
-            COMPILATION_TIME
-                .with_label_values(&["wasmtime", &shard_id])
-                .observe(m.wasmtime_compilation_time.as_secs_f64());
+        if !m.execution_time.is_zero() {
+            EXECUTION_TIME.with_label_values(&[&shard_id]).observe(m.execution_time.as_secs_f64());
         }
         if m.compiled_contract_cache_lookups > 0 {
             COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL

@@ -910,6 +910,9 @@ impl Chain {
             );
             return Err(Error::InvalidProtocolVersion);
         }
+        if ProtocolFeature::Spice.enabled(epoch_protocol_version) && !header.is_spice() {
+            return Err(Error::InvalidProtocolVersion);
+        }
 
         if header.epoch_id() == prev_header.epoch_id() {
             if header.next_bp_hash() != prev_header.next_bp_hash() {
@@ -2540,6 +2543,7 @@ impl Chain {
 
         if ProtocolFeature::Spice.enabled(protocol_version) {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
+            self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(

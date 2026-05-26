@@ -224,7 +224,8 @@ impl Block {
             BlockHeader::BlockHeaderV3(_)
             | BlockHeader::BlockHeaderV4(_)
             | BlockHeader::BlockHeaderV5(_)
-            | BlockHeader::BlockHeaderV6(_) => {
+            | BlockHeader::BlockHeaderV6(_)
+            | BlockHeader::BlockHeaderV7(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
         };
@@ -258,6 +259,8 @@ impl Block {
         let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
         let outcome_root = chunks_wrapper.compute_outcome_root();
 
+        let prev_last_certified_block_epoch_id =
+            spice_info.as_ref().map(|info| info.prev_last_certified_block_epoch_id);
         let body = if let Some(spice_info) = spice_info {
             BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, spice_info.core_statements)
         } else {
@@ -294,6 +297,7 @@ impl Block {
             prev.height(),
             chunk_endorsements_bitmap,
             shard_split,
+            prev_last_certified_block_epoch_id,
         );
 
         Self::new_block(header, body)
@@ -639,6 +643,7 @@ impl Block {
 pub struct SpiceNewBlockProductionInfo {
     pub core_statements: SpiceCoreStatements,
     pub newly_certified_block_execution_results: Vec<BlockExecutionResults>,
+    pub prev_last_certified_block_epoch_id: EpochId,
 }
 
 /// Distinguishes between new and old chunks.

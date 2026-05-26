@@ -339,12 +339,14 @@ mod tests {
     use super::*;
     use crate::ActionResult;
     use crate::ApplyState;
-    use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
     use near_crypto::{InMemorySigner, KeyHandle, KeyType};
     use near_parameters::RuntimeConfig;
-    use near_primitives::account::{AccessKey, AccessKeyPermission, Account, GasKeyInfo};
+    use near_primitives::account::{
+        AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+    };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -355,6 +357,7 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, NonceIndex, StateChangeCause,
     };
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::{ShardUId, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -680,8 +683,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
         state_update.commit(StateChangeCause::InitialState);
 
@@ -722,8 +730,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
 
         // Verify total burned balance equals sum of all gas key balances
@@ -1121,8 +1134,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         let expected_total =
             deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
         assert_eq!(
@@ -1160,11 +1178,60 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
         let expected_burnt =
             deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
         assert_eq!(action_result.tokens_burnt, expected_burnt);
+    }
+
+    /// `access_key_storage_usage` uses `public_key.trie_id_len()`, which for
+    /// ML-DSA-65 is the SHA3-384 hash form (1 tag + 48 bytes = 49 bytes),
+    /// not the 1953-byte borsh-encoded full pubkey. Verify that the
+    /// post-hashing storage delta vs an ed25519 key is just the hash-vs-raw
+    /// difference (~16 bytes), not the full-pubkey gap (~1920 bytes).
+    #[test]
+    fn test_ml_dsa_65_access_key_storage_scales() {
+        let config = RuntimeConfig::test();
+        let access_key = AccessKey::full_access();
+
+        let ed_pk: PublicKey =
+            near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "alice-ed")
+                .public_key();
+        let pq_pk: PublicKey =
+            near_crypto::SecretKey::from_seed(near_crypto::KeyType::MLDSA65, "alice-pq")
+                .public_key();
+
+        let ed_usage = access_key_storage_usage(&config.fees, &ed_pk, &access_key);
+        let pq_usage = access_key_storage_usage(&config.fees, &pq_pk, &access_key);
+
+        assert!(
+            pq_usage > ed_usage,
+            "ML-DSA storage usage ({pq_usage}) must exceed ed25519 ({ed_usage})"
+        );
+        // Difference reduces to the trie-id encoded length delta:
+        // ML-DSA-65: [tag=3] + 48-byte SHA3-384 hash = 49 bytes.
+        // ED25519:   [tag=0] + 32-byte raw pubkey   = 33 bytes.
+        // Expected delta: 49 - 33 = 16 bytes.
+        let delta = pq_usage - ed_usage;
+        assert_eq!(delta, 16, "expected exactly +16-byte storage delta (hash form), got {delta}");
+    }
+
+    /// Pre-hash sanity: the borsh-serialized full pubkey for ML-DSA-65 is
+    /// 1953 bytes, but we explicitly do NOT use that length for storage -
+    /// `trie_id_len()` is what counts.
+    #[test]
+    fn test_ml_dsa_65_trie_id_len_is_hash_size() {
+        let pq_pk: PublicKey =
+            near_crypto::SecretKey::from_seed(near_crypto::KeyType::MLDSA65, "trie-id-len")
+                .public_key();
+        assert_eq!(pq_pk.trie_id_len(), 1 + 48);
+        assert_eq!(pq_pk.len(), 1 + 1952); // borsh form still reports full
     }
 }

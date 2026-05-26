@@ -923,6 +923,8 @@ pub struct BlockHeaderView {
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
     pub shard_split: Option<(ShardId, AccountId)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_last_certified_block_epoch_id: Option<EpochId>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -967,6 +969,9 @@ impl From<&BlockHeader> for BlockHeaderView {
             latest_protocol_version: header.latest_protocol_version(),
             chunk_endorsements: header.chunk_endorsements().map(|bitmap| bitmap.bytes()),
             shard_split: header.shard_split().cloned(),
+            prev_last_certified_block_epoch_id: header
+                .prev_last_certified_block_epoch_id()
+                .cloned(),
         }
     }
 }
@@ -1003,6 +1008,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.prev_height.unwrap_or_default(),
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
             view.shard_split,
+            view.prev_last_certified_block_epoch_id,
         )
     }
 }

@@ -352,6 +352,11 @@ pub enum ProtocolFeature {
     FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
+    /// Fix `action_delete_account` not subtracting the global contract
+    /// identifier storage usage. Previously only local contract code was
+    /// subtracted, overstating storage usage for accounts with global
+    /// contracts and making them marginally harder to delete.
+    FixDeleteAccountGlobalContractStorageUsage,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
@@ -389,6 +394,11 @@ pub enum ProtocolFeature {
     /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
     /// sync after resharding.
     StickyReshardingValidatorAssignment,
+    /// Add FIPS 204 ML-DSA-65 (post-quantum) as a third transaction signature
+    /// scheme alongside ed25519 and secp256k1. Pre-feature blocks reject any
+    /// transaction or `AddKey` action carrying an ML-DSA-65 key/signature, so
+    /// post-feature there is no question of grandfathered keys.
+    PostQuantumSignatures,
 }
 
 impl ProtocolFeature {
@@ -499,6 +509,7 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
@@ -511,6 +522,7 @@ impl ProtocolFeature {
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::StickyReshardingValidatorAssignment => 153,
+            ProtocolFeature::PostQuantumSignatures => 154,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -559,7 +571,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 153;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 154;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
