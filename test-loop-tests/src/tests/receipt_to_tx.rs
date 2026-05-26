@@ -1980,13 +1980,13 @@ fn test_hint_window_config_override() {
 ///
 /// Setup mirrors `test_hint_cross_shard_walk_resolves_via_predecessor_shard`
 /// (cross-shard contract call producing a refund chain) but tightens the
-/// caller's window to 0 so `effective_window = 0 < d ≤ max_hop_distance = 10`.
+/// caller's window to 0 so `effective_window = 0 < d ≤ max_hop_distance = 20`.
 /// The natural cross-shard delay puts the producing tx outcome a block earlier
 /// than the action receipt on the sender shard.
 ///
 /// Hop 0 finds the action receipt at `(action_height, action_shard)` with
 /// `window = 0` (anchor only). Without the hop-1+ ancestor scan width
-/// (`max_hop_distance = 10`) covering the gap between the action receipt and
+/// (`max_hop_distance = 20`) covering the gap between the action receipt and
 /// its producing tx, the walk would terminate `UnknownReceipt`. This test pins
 /// the load-bearing claim so any future restructure that preserves the same
 /// coverage continues to pass.
@@ -2052,7 +2052,7 @@ fn test_hint_ancestor_gap_band() {
     );
 
     // window=0 forces effective_window=0 < d on hop 1+. Walk only succeeds
-    // because the hop-1+ ancestor scan width (max_hop_distance default 10)
+    // because the hop-1+ ancestor scan width (max_hop_distance default 20)
     // reaches the producing tx outcome a block earlier on the sender shard.
     let response = handle(
         &mut env,
