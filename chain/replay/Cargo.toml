@@ -1,0 +1,28 @@
+[package]
+name = "near-replay"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+near-chain.workspace = true
+near-epoch-manager.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+node-runtime.workspace = true
+
+[features]
+nightly = [
+    "near-chain/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+]

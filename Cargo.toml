@@ -24,6 +24,7 @@ members = [
     "benchmarks/transactions-generator",
     "chain/chain",
     "chain/chunks",
+    "chain/replay",
     "chain/client",
     "chain/client-primitives",
     "chain/epoch-manager",
@@ -85,6 +86,7 @@ members = [
     "tools/mock-node",
     "tools/ping",
     "tools/protocol-schema-check",
+    "tools/replay",
     "tools/restaked",
     "tools/state-parts",
     "tools/state-parts-dump-check",
@@ -237,6 +239,7 @@ near-async-derive = { path = "core/async-derive" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }
+near-replay = { path = "chain/replay" }
 near-chain-primitives = { path = "chain/chain-primitives" }
 near-chunks = { path = "chain/chunks" }
 near-chunks-primitives = { path = "chain/chunks-primitives" }
@@ -271,6 +274,7 @@ near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
 near-replay-archive-tool = { path = "tools/replay-archive" }
+near-replay-tool = { path = "tools/replay" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
