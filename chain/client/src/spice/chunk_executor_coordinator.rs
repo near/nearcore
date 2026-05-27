@@ -94,7 +94,7 @@ impl ChunkExecutorCoordinator {
         &mut self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
-        let desired: HashSet<ShardId> = self.tracked_shard_ids(parent_hash)?.into_iter().collect();
+        let desired: HashSet<ShardId> = self.spawned_shard_ids(parent_hash)?.into_iter().collect();
         let mut newly_spawned = Vec::new();
         for &shard_id in &desired {
             if !self.mailboxes.contains_key(&shard_id) {
@@ -125,10 +125,17 @@ impl ChunkExecutorCoordinator {
         Ok(())
     }
 
-    /// Shards this node tracks at `parent_hash`'s epoch — currently or in the
-    /// next epoch, so a shard keeps being applied through the epoch where it
-    /// stops being tracked.
-    fn tracked_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
+    /// Shards this node spawns an executor for at `parent_hash`'s epoch —
+    /// currently *or in the next epoch*. The next-epoch shards are (for a node
+    /// joining a shard at the boundary) the ones being state-synced + caught up:
+    /// spawning their executor early lets it run catchup ahead of the boundary,
+    /// and keeping it for the trailing epoch lets a departing shard finish.
+    ///
+    /// This is the spawn/retire set only. It must NOT be used to gate block-level
+    /// finalization — a shard still state-syncing for the next epoch has no
+    /// `ChunkExtra` for the current epoch and would stall the head. Use
+    /// `executed_shard_ids` for that. (Compatibility with future spice state sync.)
+    fn spawned_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         Ok(self
             .epoch_manager
@@ -140,11 +147,26 @@ impl ChunkExecutorCoordinator {
             .collect())
     }
 
-    /// `ShardUId`s this node tracks at `block_hash`'s epoch.
-    fn tracked_shard_uids(&self, block_hash: &CryptoHash) -> Result<Vec<ShardUId>, Error> {
+    /// Shards this node *executes* at `parent_hash`'s epoch — current epoch only.
+    /// This is the set block-level finalization gates on: a shard being synced for
+    /// the next epoch is spawned (`spawned_shard_ids`) but not yet executed here,
+    /// so it must not block the current epoch's head advance.
+    fn executed_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+        Ok(self
+            .epoch_manager
+            .shard_ids(&epoch_id)?
+            .into_iter()
+            .filter(|&shard_id| self.shard_tracker.cares_about_shard(parent_hash, shard_id))
+            .collect())
+    }
+
+    /// `ShardUId`s this node executes at `block_hash`'s epoch (the head-advance /
+    /// finalization gate set — current epoch only, see `executed_shard_ids`).
+    fn executed_shard_uids(&self, block_hash: &CryptoHash) -> Result<Vec<ShardUId>, Error> {
         let prev_hash = *self.chain_store.get_block_header(block_hash)?.prev_hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-        self.tracked_shard_ids(&prev_hash)?
+        self.executed_shard_ids(&prev_hash)?
             .into_iter()
             .map(|shard_id| Ok(shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?))
             .collect()
@@ -177,7 +199,7 @@ impl ChunkExecutorCoordinator {
     }
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
-        for shard_uid in self.tracked_shard_uids(block_hash)? {
+        for shard_uid in self.executed_shard_uids(block_hash)? {
             match self.chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid) {
                 Ok(_) => {}
                 Err(Error::DBNotFoundErr(_)) => return Ok(false),
@@ -237,7 +259,7 @@ impl ChunkExecutorCoordinator {
         let prev_height = self.chain_store.get_block_header(&final_hash)?.prev_height();
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let tries = self.runtime_adapter.get_tries();
-        for shard_uid in self.tracked_shard_uids(&final_hash)? {
+        for shard_uid in self.executed_shard_uids(&final_hash)? {
             if new_flat_head != CryptoHash::default()
                 && flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some()
             {
