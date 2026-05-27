@@ -1,11 +1,11 @@
-use crate::spice::chunk_executor_actor::{
-    chunk_extra_exists, distribute_witness, get_chunk_extra, get_new_chunk_if_valid,
-    get_receipt_proofs_for_shard, is_descendant_of_final_execution_head, save_receipt_proof,
-    send_chunk_endorsement,
-};
 use crate::spice::chunk_executor_coordinator::PerShardChunkApplied;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
+};
+use crate::spice::executor_shared::{
+    chunk_extra_exists, distribute_witness, get_chunk_extra, get_new_chunk_if_valid,
+    get_receipt_proofs_for_shard, is_descendant_of_final_execution_head, save_receipt_proof,
+    send_chunk_endorsement,
 };
 use crate::spice::persist::commit_per_shard_outputs;
 use near_async::futures::DelayedActionRunner;

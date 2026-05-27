@@ -23,8 +23,6 @@ use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ClientActor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
-use near_client::spice::SPICE_PER_SHARD_EXECUTOR;
-use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
@@ -85,7 +83,6 @@ pub fn setup_client(
     let partial_witness_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
     let resharding_sender = LateBoundSender::new();
-    let chunk_executor_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -289,11 +286,7 @@ pub fn setup_client(
         client_config.orphan_state_witness_max_size.as_u64(),
     );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
-        if SPICE_PER_SHARD_EXECUTOR {
-            chunk_executor_coordinator_adapter.as_sender()
-        } else {
-            chunk_executor_adapter.as_sender()
-        }
+        chunk_executor_coordinator_adapter.as_sender()
     } else {
         noop().into_sender()
     };
@@ -446,18 +439,13 @@ pub fn setup_client(
         chain_genesis.gas_limit,
     );
 
-    // Prototype: when the per-shard subsystem is on, ExecutionResultEndorsed and
-    // ExecutorIncomingUnverifiedReceipts go to the coordinator instead of the
-    // monolithic executor (mirrors nearcore/src/lib.rs).
+    // ExecutionResultEndorsed and ExecutorIncomingUnverifiedReceipts go to the
+    // coordinator (mirrors nearcore/src/lib.rs).
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime_adapter.store().chain_store(),
         epoch_manager.clone(),
         spice_core_reader.clone(),
-        if cfg!(feature = "protocol_feature_spice") && SPICE_PER_SHARD_EXECUTOR {
-            chunk_executor_coordinator_adapter.as_sender()
-        } else {
-            chunk_executor_adapter.as_sender()
-        },
+        chunk_executor_coordinator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
 
@@ -468,34 +456,10 @@ pub fn setup_client(
         shard_tracker.clone(),
         spice_core_reader.clone(),
         network_adapter.as_multi_sender(),
-        if cfg!(feature = "protocol_feature_spice") && SPICE_PER_SHARD_EXECUTOR {
-            chunk_executor_coordinator_adapter.as_sender()
-        } else {
-            chunk_executor_adapter.as_sender()
-        },
+        chunk_executor_coordinator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
-    );
-
-    let chunk_executor_actor = ChunkExecutorActor::new(
-        runtime_adapter.store().clone(),
-        &chain_genesis,
-        runtime_adapter.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        network_adapter.as_multi_sender(),
-        validator_signer.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
-        chunk_executor_adapter.as_sender(),
-        spice_core_writer_adapter.as_sender(),
-        spice_data_distributor_adapter.as_multi_sender(),
-        ChunkExecutorConfig {
-            save_trie_changes: client_config.save_trie_changes,
-            save_tx_outcomes: client_config.save_tx_outcomes,
-            save_receipt_to_tx: client_config.save_receipt_to_tx,
-            save_state_changes: client_config.save_state_changes,
-        },
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(
@@ -504,12 +468,10 @@ pub fn setup_client(
         Some(spice_data_distributor_adapter.clone()),
     );
 
-    test_loop.data.register_actor(identifier, chunk_executor_actor, Some(chunk_executor_adapter));
-
-    // Prototype: the coordinator spawns/retires per-shard executors via a
+    // The coordinator spawns/retires per-shard executors via a
     // TestLoopPerShardSpawner (registers actors with the loop through a deferred
     // event — see notes/14). Mirrors nearcore/src/lib.rs.
-    if cfg!(feature = "protocol_feature_spice") && SPICE_PER_SHARD_EXECUTOR {
+    if cfg!(feature = "protocol_feature_spice") {
         let deps = PerShardDeps {
             store: runtime_adapter.store().clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,

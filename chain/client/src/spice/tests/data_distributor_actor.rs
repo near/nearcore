@@ -1,10 +1,10 @@
-use crate::spice::chunk_executor_actor::{
-    ExecutorIncomingUnverifiedReceipts, save_receipt_proof, save_witness_and_contract_accesses,
-};
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
     Error, ReceiveDataError, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
     SpiceDistributorStateWitness,
+};
+use crate::spice::executor_shared::{
+    ExecutorIncomingUnverifiedReceipts, save_receipt_proof, save_witness_and_contract_accesses,
 };
 use assert_matches::assert_matches;
 use itertools::Itertools as _;

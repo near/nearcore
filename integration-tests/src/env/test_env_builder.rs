@@ -15,8 +15,6 @@ use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::spice::chunk_executor_actor::ChunkExecutorConfig;
-use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::{ChunkValidationActor, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
@@ -609,26 +607,6 @@ impl TestEnvBuilder {
             })
             .collect();
 
-        let spice_chunk_executors = (0..num_clients)
-            .map(|i| {
-                TestonlySyncChunkExecutorActor::new(
-                    clients[i].runtime_adapter.store().clone(),
-                    &chain_genesis,
-                    clients[i].runtime_adapter.clone(),
-                    clients[i].epoch_manager.clone(),
-                    clients[i].shard_tracker.clone(),
-                    network_adapters[i].as_multi_sender(),
-                    validator_signers[i].clone(),
-                    ChunkExecutorConfig {
-                        save_trie_changes: self.save_trie_changes,
-                        save_tx_outcomes: self.save_tx_outcomes,
-                        save_receipt_to_tx: self.save_receipt_to_tx,
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect();
-
         TestEnv {
             clock,
             actor_system,
@@ -641,7 +619,6 @@ impl TestEnvBuilder {
             clients,
             chunk_validation_actors,
             rpc_handlers: tx_request_handlers,
-            spice_chunk_executors,
             account_indices: AccountIndices(
                 self.clients
                     .into_iter()

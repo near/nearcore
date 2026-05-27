@@ -1,4 +1,4 @@
-use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::spice::executor_shared::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::per_shard_executor::{IncomingReceipt, PerShardExecutorSender, ReceiptSource};
 use crate::spice::per_shard_spawner::PerShardSpawner;
 use lru::LruCache;

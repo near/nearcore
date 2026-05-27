@@ -28,11 +28,10 @@ use near_client::archive::cloud_archival_writer::{
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
-use near_client::spice::SPICE_PER_SHARD_EXECUTOR;
-use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::executor_shared::ChunkExecutorConfig;
 use near_client::spice::per_shard_spawner::{PerShardDeps, TokioPerShardSpawner};
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
@@ -47,7 +46,6 @@ use near_network::PeerManagerActor;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::genesis::GenesisId;
 use near_primitives::types::EpochId;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter as _;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
@@ -229,7 +227,6 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 }
 
 fn new_spice_client_config(
-    chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
     >,
@@ -241,16 +238,9 @@ fn new_spice_client_config(
         LateBoundSender<TokioRuntimeHandle<ChunkExecutorCoordinator>>,
     >,
 ) -> SpiceClientConfig {
-    let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
-        // Prototype: route ProcessedBlock to the new coordinator when the
-        // per-shard subsystem is enabled, otherwise to the monolithic executor.
-        let chunk_executor_sender = if SPICE_PER_SHARD_EXECUTOR {
-            chunk_executor_coordinator_adapter.as_sender()
-        } else {
-            chunk_executor_adapter.as_sender()
-        };
+    if cfg!(feature = "protocol_feature_spice") {
         SpiceClientConfig {
-            chunk_executor_sender,
+            chunk_executor_sender: chunk_executor_coordinator_adapter.as_sender(),
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
             spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
             spice_core_writer_sender: spice_core_writer_adapter.as_sender(),
@@ -262,8 +252,7 @@ fn new_spice_client_config(
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),
         }
-    };
-    spice_client_config
+    }
 }
 
 fn spawn_spice_actors(
@@ -275,7 +264,6 @@ fn spawn_spice_actors(
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
     chunk_executor_config: ChunkExecutorConfig,
-    chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
     >,
@@ -293,50 +281,42 @@ fn spawn_spice_actors(
         chain_genesis.gas_limit,
     );
 
-    // Prototype: when enabled, run the new per-shard subsystem instead of the
-    // monolithic executor. The coordinator spawns/retires one PerShardExecutor
-    // per tracked shard (each on its own dedicated tokio thread) via the
-    // TokioPerShardSpawner. The coordinator receives ProcessedBlock (re-pointed
-    // in new_spice_client_config).
-    if SPICE_PER_SHARD_EXECUTOR {
-        let deps = PerShardDeps {
-            store: runtime.store().clone(),
-            transaction_validity_period: chain_genesis.transaction_validity_period,
-            save_trie_changes: chunk_executor_config.save_trie_changes,
-            save_tx_outcomes: chunk_executor_config.save_tx_outcomes,
-            save_receipt_to_tx: chunk_executor_config.save_receipt_to_tx,
-            runtime_adapter: runtime.clone(),
-            epoch_manager: epoch_manager.clone(),
-            core_reader: spice_core_reader.clone(),
-            validator_signer: validator_signer.clone(),
-            network_adapter: network_adapter.clone(),
-            core_writer_sender: spice_core_writer_adapter.as_sender(),
-            data_distributor_adapter: spice_data_distributor_adapter.as_multi_sender(),
-        };
-        let spawner = Box::new(TokioPerShardSpawner::new(actor_system.clone(), deps));
-        let coordinator = ChunkExecutorCoordinator::new(
-            runtime.store().clone(),
-            chain_genesis,
-            runtime.clone(),
-            epoch_manager.clone(),
-            shard_tracker.clone(),
-            spawner,
-            chunk_executor_coordinator_adapter.as_sender(),
-        );
-        let addr = actor_system.spawn_tokio_actor(coordinator);
-        chunk_executor_coordinator_adapter.bind(addr);
-    }
-    // Prototype: ExecutionResultEndorsed and ExecutorIncomingUnverifiedReceipts
-    // go to the coordinator when the per-shard subsystem is enabled.
+    // The coordinator spawns/retires one PerShardExecutor per tracked shard (each
+    // on its own dedicated tokio thread) via the TokioPerShardSpawner. It receives
+    // ProcessedBlock (re-pointed in new_spice_client_config), and ExecutionResultEndorsed
+    // / ExecutorIncomingUnverifiedReceipts (routed below).
+    let deps = PerShardDeps {
+        store: runtime.store().clone(),
+        transaction_validity_period: chain_genesis.transaction_validity_period,
+        save_trie_changes: chunk_executor_config.save_trie_changes,
+        save_tx_outcomes: chunk_executor_config.save_tx_outcomes,
+        save_receipt_to_tx: chunk_executor_config.save_receipt_to_tx,
+        runtime_adapter: runtime.clone(),
+        epoch_manager: epoch_manager.clone(),
+        core_reader: spice_core_reader.clone(),
+        validator_signer: validator_signer.clone(),
+        network_adapter: network_adapter.clone(),
+        core_writer_sender: spice_core_writer_adapter.as_sender(),
+        data_distributor_adapter: spice_data_distributor_adapter.as_multi_sender(),
+    };
+    let spawner = Box::new(TokioPerShardSpawner::new(actor_system.clone(), deps));
+    let coordinator = ChunkExecutorCoordinator::new(
+        runtime.store().clone(),
+        chain_genesis,
+        runtime.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        spawner,
+        chunk_executor_coordinator_adapter.as_sender(),
+    );
+    let addr = actor_system.spawn_tokio_actor(coordinator);
+    chunk_executor_coordinator_adapter.bind(addr);
+
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
         spice_core_reader.clone(),
-        if SPICE_PER_SHARD_EXECUTOR {
-            chunk_executor_coordinator_adapter.as_sender()
-        } else {
-            chunk_executor_adapter.as_sender()
-        },
+        chunk_executor_coordinator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
     let spice_core_writer_addr = actor_system.spawn_tokio_actor(spice_core_writer_actor);
@@ -346,40 +326,16 @@ fn spawn_spice_actors(
         epoch_manager.clone(),
         runtime.store().chain_store(),
         validator_signer.clone(),
-        shard_tracker.clone(),
+        shard_tracker,
         spice_core_reader,
         network_adapter.clone(),
-        if SPICE_PER_SHARD_EXECUTOR {
-            chunk_executor_coordinator_adapter.as_sender()
-        } else {
-            chunk_executor_adapter.as_sender()
-        },
+        chunk_executor_coordinator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
     let spice_data_distributor_addr = actor_system.spawn_tokio_actor(spice_data_distributor_actor);
     spice_data_distributor_adapter.bind(spice_data_distributor_addr);
-
-    let chunk_executor_actor = ChunkExecutorActor::new(
-        runtime.store().clone(),
-        chain_genesis,
-        runtime.clone(),
-        epoch_manager.clone(),
-        shard_tracker,
-        network_adapter.clone(),
-        validator_signer.clone(),
-        {
-            let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
-            ApplyChunksSpawner::default().into_spawner(thread_limit)
-        },
-        chunk_executor_adapter.as_sender(),
-        spice_core_writer_adapter.as_sender(),
-        spice_data_distributor_adapter.as_multi_sender(),
-        chunk_executor_config,
-    );
-    let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
-    chunk_executor_adapter.bind(chunk_executor_addr);
 
     let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
         runtime.store().clone(),
@@ -654,13 +610,11 @@ pub async fn start_with_config_and_synchronization_impl(
     let (block_notification_watch_sender, block_notification_watch_receiver) =
         tokio::sync::watch::channel(None);
 
-    let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
     let chunk_executor_coordinator_adapter = LateBoundSender::new();
     let spice_client_config = new_spice_client_config(
-        &chunk_executor_adapter,
         &spice_chunk_validator_adapter,
         &spice_data_distributor_adapter,
         &spice_core_writer_adapter,
@@ -726,7 +680,6 @@ pub async fn start_with_config_and_synchronization_impl(
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,
                 save_state_changes: config.client_config.save_state_changes,
             },
-            &chunk_executor_adapter,
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,
             &spice_core_writer_adapter,

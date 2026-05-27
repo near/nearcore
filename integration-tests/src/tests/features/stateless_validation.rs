@@ -575,9 +575,6 @@ fn produce_block(env: &mut TestEnv) {
         let blocks_processed =
             env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
         assert_eq!(blocks_processed, vec![*block.hash()]);
-        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-            env.spice_execute_block(i, *block.hash());
-        }
     }
 
     env.process_partial_encoded_chunks();

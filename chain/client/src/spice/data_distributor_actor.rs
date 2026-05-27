@@ -1,9 +1,9 @@
-use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::spice::chunk_executor_actor::get_contract_accesses;
-use crate::spice::chunk_executor_actor::get_receipt_proof;
-use crate::spice::chunk_executor_actor::get_witness;
-use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
+use crate::spice::executor_shared::ExecutorIncomingUnverifiedReceipts;
+use crate::spice::executor_shared::get_contract_accesses;
+use crate::spice::executor_shared::get_receipt_proof;
+use crate::spice::executor_shared::get_witness;
+use crate::spice::executor_shared::receipt_proof_exists;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use itertools::Itertools as _;

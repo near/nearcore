@@ -10,9 +10,11 @@ use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::executor_shared::ChunkExecutorConfig;
+use near_client::spice::per_shard_spawner::{PerShardDeps, TokioPerShardSpawner};
 use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
@@ -150,13 +152,13 @@ pub fn create_test_setup_with_accounts_and_validity(
     );
 
     // 7. Create ClientActor
-    let chunk_executor_adapter = LateBoundSender::new();
+    let chunk_executor_coordinator_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
     let spice_client_config = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         SpiceClientConfig {
-            chunk_executor_sender: chunk_executor_adapter.as_sender(),
+            chunk_executor_sender: chunk_executor_coordinator_adapter.as_sender(),
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
             spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
             spice_core_writer_sender: spice_core_writer_adapter.as_sender(),
@@ -205,7 +207,7 @@ pub fn create_test_setup_with_accounts_and_validity(
             runtime.store().chain_store(),
             epoch_manager.clone(),
             spice_core_reader.clone(),
-            chunk_executor_adapter.as_sender(),
+            chunk_executor_coordinator_adapter.as_sender(),
             spice_chunk_validator_adapter.as_sender(),
         );
         let spice_core_writer_addr = actor_system.spawn_tokio_actor(spice_core_writer_actor);
@@ -216,9 +218,9 @@ pub fn create_test_setup_with_accounts_and_validity(
             runtime.store().chain_store(),
             signer.clone(),
             shard_tracker.clone(),
-            spice_core_reader,
+            spice_core_reader.clone(),
             noop().into_multi_sender(),
-            chunk_executor_adapter.as_sender(),
+            chunk_executor_coordinator_adapter.as_sender(),
             spice_chunk_validator_adapter.as_sender(),
             spice_chunk_validator_adapter.as_sender(),
             spice_chunk_validator_adapter.as_sender(),
@@ -227,25 +229,33 @@ pub fn create_test_setup_with_accounts_and_validity(
             actor_system.spawn_tokio_actor(spice_data_distributor_actor);
         spice_data_distributor_adapter.bind(spice_data_distributor_addr);
 
-        let chunk_executor_actor = ChunkExecutorActor::new(
+        let config = ChunkExecutorConfig::default();
+        let deps = PerShardDeps {
+            store: runtime.store().clone(),
+            transaction_validity_period: chain_genesis.transaction_validity_period,
+            save_trie_changes: config.save_trie_changes,
+            save_tx_outcomes: config.save_tx_outcomes,
+            save_receipt_to_tx: config.save_receipt_to_tx,
+            runtime_adapter: runtime.clone(),
+            epoch_manager: epoch_manager.clone(),
+            core_reader: spice_core_reader,
+            validator_signer: signer.clone(),
+            network_adapter: noop().into_multi_sender(),
+            core_writer_sender: spice_core_writer_adapter.as_sender(),
+            data_distributor_adapter: spice_data_distributor_adapter.as_multi_sender(),
+        };
+        let spawner = Box::new(TokioPerShardSpawner::new(actor_system.clone(), deps));
+        let coordinator = ChunkExecutorCoordinator::new(
             runtime.store().clone(),
             &chain_genesis,
             runtime.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            noop().into_multi_sender(),
-            signer.clone(),
-            {
-                let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
-                ApplyChunksSpawner::default().into_spawner(thread_limit)
-            },
-            chunk_executor_adapter.as_sender(),
-            spice_core_writer_adapter.as_sender(),
-            spice_data_distributor_adapter.as_multi_sender(),
-            ChunkExecutorConfig::default(),
+            spawner,
+            chunk_executor_coordinator_adapter.as_sender(),
         );
-        let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
-        chunk_executor_adapter.bind(chunk_executor_addr);
+        let coordinator_addr = actor_system.spawn_tokio_actor(coordinator);
+        chunk_executor_coordinator_adapter.bind(coordinator_addr);
 
         let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
             runtime.store().clone(),
