@@ -1,3 +1,4 @@
+use super::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::chunk_executor_actor::{
     get_receipt_proofs_for_shard, is_descendant_of_final_execution_head, new_execution_result,
     save_receipt_proof, save_witness_and_contract_accesses,
@@ -41,8 +42,6 @@ use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
-
-use super::chunk_validator_actor::send_spice_chunk_endorsement;
 
 /// The coordinator's handle to one per-shard executor. Built from the actor's
 /// runtime handle via `.as_multi_sender()`, so the coordinator is agnostic to
