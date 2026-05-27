@@ -1,5 +1,5 @@
 use super::partial_witness_actor::{
-    DeferOrigin, KickoutGate, PENDING_V2_WITNESS_CACHE_SIZE, PendingV2WitnessCache, kickout_gate,
+    DeferOrigin, PENDING_V2_WITNESS_CACHE_SIZE, PendingV2WitnessCache, witness_kicked_out,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
@@ -182,17 +182,17 @@ fn v2_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
 }
 
 #[test]
-fn kickout_gate_pre_kickout_drops_v2_proceeds_v1() {
+fn witness_kicked_out_pre_kickout_drops_v2_proceeds_v1() {
     let signer = create_test_signer("test_account");
-    assert_eq!(kickout_gate(Some(false), &v1_witness(&signer)), KickoutGate::Proceed);
-    assert_eq!(kickout_gate(Some(false), &v2_witness(&signer)), KickoutGate::Drop);
+    assert!(!witness_kicked_out(Some(pre_kickout_version()), &v1_witness(&signer)));
+    assert!(witness_kicked_out(Some(pre_kickout_version()), &v2_witness(&signer)));
 }
 
 #[test]
-fn kickout_gate_post_kickout_drops_v1_proceeds_v2() {
+fn witness_kicked_out_post_kickout_drops_v1_proceeds_v2() {
     let signer = create_test_signer("test_account");
-    assert_eq!(kickout_gate(Some(true), &v1_witness(&signer)), KickoutGate::Drop);
-    assert_eq!(kickout_gate(Some(true), &v2_witness(&signer)), KickoutGate::Proceed);
+    assert!(witness_kicked_out(Some(post_kickout_version()), &v1_witness(&signer)));
+    assert!(!witness_kicked_out(Some(post_kickout_version()), &v2_witness(&signer)));
 }
 
 /// Unknown epoch (header-sync lag at epoch boundary) must NOT drop
@@ -202,8 +202,8 @@ fn kickout_gate_post_kickout_drops_v1_proceeds_v2() {
 /// downstream producer lookup will return `MissingBlock` and defer
 /// V2 into the pending cache.
 #[test]
-fn kickout_gate_unknown_epoch_proceeds_both_variants() {
+fn witness_kicked_out_unknown_epoch_proceeds_both_variants() {
     let signer = create_test_signer("test_account");
-    assert_eq!(kickout_gate(None, &v1_witness(&signer)), KickoutGate::Proceed);
-    assert_eq!(kickout_gate(None, &v2_witness(&signer)), KickoutGate::Proceed);
+    assert!(!witness_kicked_out(None, &v1_witness(&signer)));
+    assert!(!witness_kicked_out(None, &v2_witness(&signer)));
 }
