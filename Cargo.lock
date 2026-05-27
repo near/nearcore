@@ -8415,6 +8415,7 @@ dependencies = [
  "aurora-engine-transactions",
  "aurora-engine-types",
  "axum",
+ "base64 0.21.0",
  "borsh",
  "bytesize 1.1.0",
  "derive_builder",

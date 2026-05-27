@@ -6,6 +6,8 @@ use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
     check_receipts_presence_at_resharding_block,
 };
+#[cfg(feature = "nightly")]
+use crate::utils::resharding::call_promise_yield_with_id;
 #[cfg(feature = "test_features")]
 use crate::utils::resharding::fork_before_resharding_block;
 use crate::utils::resharding::{
@@ -1832,6 +1834,35 @@ fn slow_test_resharding_v3_yield_resume() {
         .deploy_test_contract(account_in_right_child.clone())
         .add_loop_action(call_promise_yield(
             true,
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            ReceiptKind::PromiseYield,
+        ))
+        .add_loop_action(check_receipts_presence_after_resharding_block(
+            vec![account_in_left_child, account_in_right_child],
+            ReceiptKind::PromiseYield,
+        ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+// `YieldWithId` ships in nightly; the with_id host fns are only available there.
+#[cfg(feature = "nightly")]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+// See `slow_test_resharding_v3_yield_resume` for the non-x86_64 caveat.
+#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+fn slow_test_resharding_v3_yield_resume_with_id() {
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_contract(account_in_left_child.clone())
+        .deploy_test_contract(account_in_right_child.clone())
+        .add_loop_action(call_promise_yield_with_id(
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
         ))
