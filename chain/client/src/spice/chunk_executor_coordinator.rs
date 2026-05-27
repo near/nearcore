@@ -4,7 +4,7 @@ use lru::LruCache;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
-use near_chain::types::{RuntimeAdapter, Tip};
+use near_chain::types::RuntimeAdapter;
 use near_chain::{
     ChainGenesis, ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode, Error,
 };
@@ -12,10 +12,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::ShardId;
-use near_store::Store;
+use near_store::{ShardUId, Store};
 use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -78,56 +77,59 @@ impl ChunkExecutorCoordinator {
         }
     }
 
+    /// Shards this node tracks at `parent_hash`'s epoch — currently or in the
+    /// next epoch, so a shard keeps being applied through the epoch where it
+    /// stops being tracked.
     fn tracked_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
-        Ok(shard_ids
+        Ok(self
+            .epoch_manager
+            .shard_ids(&epoch_id)?
             .into_iter()
-            .filter(|&shard_id| self.shard_tracker.cares_about_shard(parent_hash, shard_id))
+            .filter(|&shard_id| {
+                self.shard_tracker.cares_about_shard_this_or_next_epoch(parent_hash, shard_id)
+            })
             .collect())
     }
 
-    /// Disk-driven, idempotent. From the current execution head, while the next
-    /// canonical block has all tracked shards' `ChunkExtra` on disk, finalize it.
-    fn advance_execution_head(&mut self) {
+    /// `ShardUId`s this node tracks at `block_hash`'s epoch.
+    fn tracked_shard_uids(&self, block_hash: &CryptoHash) -> Result<Vec<ShardUId>, Error> {
+        let prev_hash = *self.chain_store.get_block_header(block_hash)?.prev_hash();
+        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        self.tracked_shard_ids(&prev_hash)?
+            .into_iter()
+            .map(|shard_id| Ok(shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?))
+            .collect()
+    }
+
+    /// Current execution head, or the genesis hash if execution hasn't started.
+    fn execution_head_or_genesis(&self) -> Result<CryptoHash, Error> {
+        match self.chain_store.spice_execution_head() {
+            Ok(tip) => Ok(tip.last_block_hash),
+            Err(Error::DBNotFoundErr(_)) => self.chain_store.genesis_hash(),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Disk-driven, idempotent. From the current execution head, finalize each
+    /// next canonical block whose tracked shards are all applied on disk.
+    fn advance_execution_head(&mut self) -> Result<(), Error> {
         loop {
-            let head = match self.chain_store.spice_execution_head() {
-                Ok(tip) => tip.last_block_hash,
-                Err(Error::DBNotFoundErr(_)) => self.genesis_hash(),
-                Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, "failed reading spice execution head");
-                    return;
-                }
-            };
+            let head = self.execution_head_or_genesis()?;
             let next = match self.chain_store.get_next_block_hash(&head) {
                 Ok(next) => next,
-                Err(Error::DBNotFoundErr(_)) => return,
-                Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, %head, "failed reading next block hash");
-                    return;
-                }
+                Err(Error::DBNotFoundErr(_)) => return Ok(()),
+                Err(err) => return Err(err),
             };
-            match self.all_tracked_shards_applied(&next) {
-                Ok(true) => {}
-                Ok(false) => return,
-                Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, %next, "failed checking applied shards");
-                    return;
-                }
+            if !self.all_tracked_shards_applied(&next)? {
+                return Ok(());
             }
-            if let Err(err) = self.block_level_finalize(&next) {
-                tracing::error!(target: "chunk_executor", ?err, %next, "block_level_finalize failed");
-                return;
-            }
+            self.block_level_finalize(&next)?;
         }
     }
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
-        let block = self.chain_store.get_block(block_hash)?;
-        let prev_hash = *block.header().prev_hash();
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-        for shard_id in self.tracked_shard_ids(&prev_hash)? {
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+        for shard_uid in self.tracked_shard_uids(block_hash)? {
             match self.chain_store.get_chunk_extra(block_hash, &shard_uid) {
                 Ok(_) => {}
                 Err(Error::DBNotFoundErr(_)) => return Ok(false),
@@ -137,14 +139,11 @@ impl ChunkExecutorCoordinator {
         Ok(true)
     }
 
-    /// Idempotent block-level finalize. Advances the spice heads, flat-storage
-    /// head, and memtrie GC. Per-shard artifacts are already on disk (written by
-    /// the per-shard actors). Reuses `ChainUpdate` (prototype hack, consistent
-    /// with the per-shard persist).
+    /// Idempotent block-level finalize: advance the spice heads, then (once a new
+    /// final execution head lands) the flat-storage head and memtrie GC over this
+    /// node's tracked shards. Per-shard artifacts are already on disk.
     fn block_level_finalize(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let mut chain_update = ChainUpdate::new(
             &mut self.chain_store,
             self.epoch_manager.clone(),
@@ -154,87 +153,34 @@ impl ChunkExecutorCoordinator {
         let final_execution_head = chain_update.update_spice_final_execution_head(&block)?;
         chain_update.save_spice_execution_head(block.header())?;
         chain_update.commit()?;
-        if let Some(final_execution_head) = final_execution_head {
-            self.update_flat_storage_head(&shard_layout, &final_execution_head)?;
-            self.gc_memtrie_roots(&shard_layout, &final_execution_head);
-        }
-        Ok(())
-    }
-
-    fn update_flat_storage_head(
-        &self,
-        shard_layout: &ShardLayout,
-        final_execution_head: &Tip,
-    ) -> Result<(), Error> {
-        let new_flat_head = final_execution_head.prev_block_hash;
-        if new_flat_head == CryptoHash::default() {
+        let Some(final_execution_head) = final_execution_head else {
             return Ok(());
-        }
+        };
+        let final_hash = final_execution_head.last_block_hash;
+        let new_flat_head = final_execution_head.prev_block_hash;
+        let prev_height = self.chain_store.get_block_header(&final_hash)?.prev_height();
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        for shard_uid in shard_layout.shard_uids() {
-            if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
-                continue;
+        let tries = self.runtime_adapter.get_tries();
+        for shard_uid in self.tracked_shard_uids(&final_hash)? {
+            if new_flat_head != CryptoHash::default()
+                && flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some()
+            {
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
             }
-            flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+            if let Some(prev_height) = prev_height {
+                tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
+            }
         }
         Ok(())
     }
 
-    fn gc_memtrie_roots(&self, shard_layout: &ShardLayout, final_execution_head: &Tip) {
-        let header = match self.chain_store.get_block_header(&final_execution_head.last_block_hash)
-        {
-            Ok(header) => header,
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, "missing final exec head header for memtrie gc");
-                return;
-            }
-        };
-        let Some(prev_height) = header.prev_height() else {
-            return;
-        };
-        let tries = self.runtime_adapter.get_tries();
-        for shard_uid in shard_layout.shard_uids() {
-            tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
-        }
-    }
-
-    fn genesis_hash(&self) -> CryptoHash {
-        // Prototype: walk back from the chain's final head to genesis. One-time
-        // on a cold execution head; mirrors the old executor's bootstrap.
-        let final_head = match self.chain_store.final_head() {
-            Ok(tip) => tip,
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, "failed reading final head");
-                return CryptoHash::default();
-            }
-        };
-        let mut header = match self.chain_store.get_block_header(&final_head.last_block_hash) {
-            Ok(header) => header,
-            Err(_) => return CryptoHash::default(),
-        };
-        while !header.is_genesis() {
-            header = match self.chain_store.get_block_header(header.prev_hash()) {
-                Ok(header) => header,
-                Err(_) => return CryptoHash::default(),
-            };
-        }
-        *header.hash()
-    }
-
-    /// Bootstrap/catch-up: broadcast `IncomingBlock` for every block above the
+    /// Bootstrap/catch-up: broadcast `ProcessedBlock` for every block above the
     /// execution head so per-shard actors apply any backlog. Bounded by the
     /// execution-head-to-tip gap (small in steady state; non-trivial only after
     /// a restart with execution lagging). Already-applied blocks are dropped by
     /// the per-shard `AlreadyApplied` check.
-    fn replay_blocks_above_execution_head(&self) {
-        let head = match self.chain_store.spice_execution_head() {
-            Ok(tip) => tip.last_block_hash,
-            Err(Error::DBNotFoundErr(_)) => self.genesis_hash(),
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, "failed reading spice execution head for replay");
-                return;
-            }
-        };
+    fn replay_blocks_above_execution_head(&self) -> Result<(), Error> {
+        let head = self.execution_head_or_genesis()?;
         let mut queue: VecDeque<CryptoHash> =
             self.chain_store.get_all_next_block_hashes(&head).into();
         while let Some(block_hash) = queue.pop_front() {
@@ -243,6 +189,7 @@ impl ChunkExecutorCoordinator {
             }
             queue.extend(self.chain_store.get_all_next_block_hashes(&block_hash));
         }
+        Ok(())
     }
 }
 
@@ -252,8 +199,11 @@ impl Actor for ChunkExecutorCoordinator {
         // Recover any applied-but-not-finalized backlog, then replay blocks above
         // the execution head so the per-shard actors re-derive readiness and
         // catch up (e.g. after a restart with execution lagging consensus).
-        self.advance_execution_head();
-        self.replay_blocks_above_execution_head();
+        let result =
+            self.advance_execution_head().and_then(|()| self.replay_blocks_above_execution_head());
+        if let Err(err) = result {
+            tracing::error!(target: "chunk_executor", ?err, "coordinator bootstrap failed");
+        }
     }
 }
 
@@ -275,16 +225,15 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
         } = msg;
         // Soft cross-shard sanity check (option (b)): all tracked shards must
         // agree on the bandwidth scheduler state hash. Skip-on-recovery (the
-        // cache is empty after restart).
-        match self.bandwidth_hash_cache.get(&block_hash) {
-            Some(first_seen) => assert_eq!(
-                *first_seen, bandwidth_scheduler_state_hash,
-                "bandwidth scheduler state diverged across shards for {block_hash}",
-            ),
-            None => {
-                self.bandwidth_hash_cache.put(block_hash, bandwidth_scheduler_state_hash);
-            }
-        }
+        // cache is empty after restart). On first report the inserted value
+        // equals the reported one, so the assert is a no-op until a sibling
+        // reports a different hash.
+        let first_seen =
+            *self.bandwidth_hash_cache.get_or_insert(block_hash, || bandwidth_scheduler_state_hash);
+        assert_eq!(
+            first_seen, bandwidth_scheduler_state_hash,
+            "bandwidth scheduler state diverged across shards for {block_hash}",
+        );
         // Wake local destination shards. The proofs are ALREADY on disk (sender
         // wrote them), so LocallyVerified is a wake-up only. Network distribution
         // to the DataDistributor is done (producer-gated) by the per-shard actor.
@@ -298,7 +247,9 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
                 });
             }
         }
-        self.advance_execution_head();
+        if let Err(err) = self.advance_execution_head() {
+            tracing::error!(target: "chunk_executor", ?err, "advance_execution_head failed");
+        }
     }
 }
 

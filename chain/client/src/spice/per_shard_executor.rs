@@ -151,21 +151,13 @@ impl PerShardExecutor {
 
     /// Verify any buffered `FromNetwork` receipts from `source_block` against its
     /// CER and write the valid ones. No-op until the CER is on chain.
-    fn try_verify(&mut self, source_block: &CryptoHash) {
-        let header = match self.chain_store.get_block_header(source_block) {
-            Ok(header) => header,
-            Err(_) => return,
-        };
-        let cer = match self.core_reader.get_block_execution_results(&header) {
-            Ok(Some(cer)) => cer,
-            Ok(None) => return,
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, %source_block, "failed reading CER for receipt verification");
-                return;
-            }
+    fn try_verify(&mut self, source_block: &CryptoHash) -> Result<(), Error> {
+        let header = self.chain_store.get_block_header(source_block)?;
+        let Some(cer) = self.core_reader.get_block_execution_results(&header)? else {
+            return Ok(()); // CER not on chain yet — wait for ExecutionResultEndorsed.
         };
         let Some(proofs) = self.pending_unverified_receipts.remove(source_block) else {
-            return;
+            return Ok(());
         };
         let store = self.chain_store.store();
         let mut store_update = store.store_update();
@@ -181,6 +173,7 @@ impl PerShardExecutor {
             }
         }
         store_update.commit();
+        Ok(())
     }
 
     /// Apply at most one parked chunk. Scans in height order and acts on the
@@ -572,7 +565,9 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
             ReceiptSource::LocallyVerified => {}
             ReceiptSource::FromNetwork => {
                 self.pending_unverified_receipts.entry(block_hash).or_default().push(proof);
-                self.try_verify(&block_hash);
+                if let Err(err) = self.try_verify(&block_hash) {
+                    tracing::error!(target: "chunk_executor", ?err, %block_hash, "receipt verification failed");
+                }
             }
         }
         self.try_apply_one();
@@ -581,7 +576,9 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
 
 impl Handler<ExecutionResultEndorsed> for PerShardExecutor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
-        self.try_verify(&block_hash);
+        if let Err(err) = self.try_verify(&block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, "receipt verification failed");
+        }
         self.try_apply_one();
     }
 }

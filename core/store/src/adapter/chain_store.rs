@@ -178,6 +178,11 @@ impl ChainStoreAdapter {
         .map(|v| *v)
     }
 
+    /// Hash of the genesis block.
+    pub fn genesis_hash(&self) -> Result<CryptoHash, Error> {
+        self.get_block_hash_by_height(self.get_or_init_genesis_height())
+    }
+
     /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
     pub fn get_all_block_hashes_by_height(
         &self,

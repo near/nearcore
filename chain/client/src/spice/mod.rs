@@ -13,4 +13,4 @@ mod tests;
 /// instead of the monolithic `ChunkExecutorActor`. A plain global const (not a
 /// config field) keeps the prototype's diff small; flip to `true` to exercise
 /// the new path.
-pub const SPICE_PER_SHARD_EXECUTOR: bool = false;
+pub const SPICE_PER_SHARD_EXECUTOR: bool = true;
