@@ -7,11 +7,13 @@ use crate::{
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, ExecutionOutcomeWithProof, SignedTransaction,
+};
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::LightClientBlockView;
@@ -428,6 +430,80 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
 
     pub fn set_final_head(&mut self, final_head: &Tip) {
         self.store_update.set_ser(DBCol::BlockMisc, FINAL_HEAD_KEY, final_head);
+    }
+
+    /// SPICE per-shard write helpers. These mirror the columns written by
+    /// `ChainStoreUpdate`'s `save_*` methods (flushed in `finalize`), but write
+    /// straight to the `StoreUpdate` so the SPICE per-shard executor can persist
+    /// its single shard's apply outputs without `ChainStore`/`ChainUpdate`.
+    /// Config-gating (`save_tx_outcomes` / `save_receipt_to_tx`) lives at the call
+    /// site — the caller decides whether to invoke the helper.
+    pub fn set_outgoing_receipt(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        outgoing_receipts: &[Receipt],
+    ) {
+        self.store_update.set_ser(
+            DBCol::OutgoingReceipts,
+            &get_block_shard_id(block_hash, shard_id),
+            &outgoing_receipts,
+        );
+    }
+
+    /// Writes the `ProcessedReceiptIds` metadata index and increments the
+    /// refcount of each processed `Receipt` (the `DBCol::Receipts` rc-column).
+    /// The metadata is built by the caller so the `save_receipt_to_tx` GC entries
+    /// stay a call-site decision.
+    pub fn set_processed_receipt_ids(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        metadata: &[ProcessedReceiptMetadata],
+        receipts: &[Receipt],
+    ) {
+        self.store_update.set_ser(
+            DBCol::ProcessedReceiptIds,
+            &get_block_shard_id(block_hash, shard_id),
+            &metadata,
+        );
+        for receipt in receipts {
+            let bytes = borsh::to_vec(&receipt).expect("borsh cannot fail");
+            self.store_update.increment_refcount(
+                DBCol::Receipts,
+                receipt.get_hash().as_ref(),
+                &bytes,
+            );
+        }
+    }
+
+    pub fn set_outcomes_with_proofs(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        outcomes: Vec<ExecutionOutcomeWithId>,
+        proofs: Vec<MerklePath>,
+    ) {
+        let mut outcome_ids = Vec::with_capacity(outcomes.len());
+        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
+            outcome_ids.push(outcome_with_id.id);
+            self.store_update.insert_ser(
+                DBCol::TransactionResultForBlock,
+                &get_outcome_id_block_hash(&outcome_with_id.id, block_hash),
+                &ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+            );
+        }
+        self.store_update.set_ser(
+            DBCol::OutcomeIds,
+            &get_block_shard_id(block_hash, shard_id),
+            &outcome_ids,
+        );
+    }
+
+    pub fn set_receipt_to_tx(&mut self, receipt_to_tx: &[(CryptoHash, ReceiptToTxInfo)]) {
+        for (receipt_id, info) in receipt_to_tx {
+            self.store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
+        }
     }
 
     /// This function is normally clubbed with set_block_header_only

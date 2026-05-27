@@ -184,6 +184,30 @@ pub fn apply_new_chunk(
     }
 }
 
+/// SPICE-only thin wrapper over [`apply_new_chunk`]. Under SPICE the per-shard
+/// executor always applies a real (possibly empty) new chunk for a tracked shard,
+/// so there is no `OldChunk` path, `should_apply_chunk` is always `true`, and the
+/// `ShardUpdateReason` / `ShardUpdateResult` enum wrapping `process_shard_update`
+/// adds is pure ceremony (its `OldChunk` arm is unreachable, forcing a panic at
+/// the call site). This forwards straight to `apply_new_chunk`.
+pub fn spice_apply_new_chunk(
+    parent_span: &tracing::Span,
+    runtime: &dyn RuntimeAdapter,
+    data: NewChunkData,
+    shard_uid: ShardUId,
+    memtrie_pin: MaybePinnedMemtrieRoot,
+) -> Result<NewChunkResult, Error> {
+    apply_new_chunk(
+        ApplyChunkReason::UpdateTrackedShard,
+        parent_span,
+        data,
+        ShardContext { shard_uid, should_apply_chunk: true },
+        runtime,
+        memtrie_pin,
+        None,
+    )
+}
+
 /// Applies shard update corresponding to missing chunk.
 /// (logunov) From what I know, the state update may include only validator
 /// accounts update on epoch start.

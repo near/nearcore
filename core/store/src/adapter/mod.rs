@@ -125,6 +125,10 @@ pub trait StoreUpdateAdapter: Sized {
         chain_store::ChainStoreUpdateAdapter::new(self.store_update())
     }
 
+    fn chunk_store_update(&mut self) -> chunk_store::ChunkStoreUpdateAdapter<'_> {
+        chunk_store::ChunkStoreUpdateAdapter::new(self.store_update())
+    }
+
     fn epoch_store_update(&mut self) -> epoch_store::EpochStoreUpdateAdapter<'_> {
         epoch_store::EpochStoreUpdateAdapter::new(self.store_update())
     }

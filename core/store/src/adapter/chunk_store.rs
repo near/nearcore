@@ -1,5 +1,5 @@
-use super::StoreAdapter;
-use crate::{DBCol, Store};
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::{DBCol, Store, StoreUpdate};
 use near_chain_primitives::Error;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::errors::ChunkAccessError;
@@ -10,6 +10,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use std::collections::HashSet;
+use std::io;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -82,6 +83,62 @@ impl ChunkStoreAdapter {
         shard_id: &ShardId,
     ) -> Option<ChunkApplyStats> {
         self.store.get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
+    }
+}
+
+pub struct ChunkStoreUpdateAdapter<'a> {
+    store_update: StoreUpdateHolder<'a>,
+}
+
+impl Into<StoreUpdate> for ChunkStoreUpdateAdapter<'static> {
+    fn into(self) -> StoreUpdate {
+        self.store_update.into()
+    }
+}
+
+impl ChunkStoreUpdateAdapter<'static> {
+    pub fn commit(self) -> io::Result<()> {
+        let store_update: StoreUpdate = self.into();
+        store_update.commit();
+        Ok(())
+    }
+}
+
+impl<'a> StoreUpdateAdapter for ChunkStoreUpdateAdapter<'a> {
+    fn store_update(&mut self) -> &mut StoreUpdate {
+        &mut self.store_update
+    }
+}
+
+impl<'a> ChunkStoreUpdateAdapter<'a> {
+    pub fn new(store_update: &'a mut StoreUpdate) -> Self {
+        Self { store_update: StoreUpdateHolder::Reference(store_update) }
+    }
+
+    pub fn set_chunk_extra(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_uid: &ShardUId,
+        chunk_extra: &ChunkExtra,
+    ) {
+        self.store_update.set_ser(
+            DBCol::ChunkExtra,
+            &get_block_shard_uid(block_hash, shard_uid),
+            chunk_extra,
+        );
+    }
+
+    pub fn set_chunk_apply_stats(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        stats: &ChunkApplyStats,
+    ) {
+        self.store_update.set_ser(
+            DBCol::ChunkApplyStats,
+            &get_block_shard_id(block_hash, shard_id),
+            stats,
+        );
     }
 }
 

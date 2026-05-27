@@ -4,6 +4,7 @@ pub mod chunk_validator_actor;
 pub mod data_distributor_actor;
 pub mod per_shard_executor;
 pub mod per_shard_spawner;
+pub mod persist;
 pub mod timer;
 
 #[cfg(test)]
