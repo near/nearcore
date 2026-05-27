@@ -217,6 +217,19 @@ impl PerShardExecutor {
         if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
             return Ok(ApplyOutcome::Dropped);
         }
+        // Resharding: this shard may be absent from `block`'s layout — split/merged
+        // away at an epoch boundary, or (for a child shard) not yet existent before
+        // it. Such a block carries no chunk for this shard, so drop it. This also
+        // keeps the height scan from computing `ShardUId(self.shard_id, block.epoch)`
+        // below, which would panic in `from_shard_id_and_layout`.
+        // NOTE(spice-resharding): execution actually crossing the boundary (a child
+        // shard inheriting parent state via `prev_chunk_extra`) is still a follow-up
+        // — see the old executor's `TODO(spice-resharding)`; today's test relies on
+        // execution lagging behind the boundary.
+        let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
+        if !shard_layout.shard_ids().any(|id| id == self.shard_id) {
+            return Ok(ApplyOutcome::Dropped);
+        }
         if self.chunk_extra_exists(block_hash)? {
             return Ok(ApplyOutcome::Dropped);
         }
@@ -253,7 +266,6 @@ impl PerShardExecutor {
             proofs
         };
 
-        let shard_layout = self.epoch_manager.get_shard_layout(&header.epoch_id())?;
         let shard_index = shard_layout.get_shard_index(self.shard_id)?;
         let chunk_header =
             block.chunks().get(shard_index).ok_or(Error::InvalidShardId(self.shard_id))?.clone();
