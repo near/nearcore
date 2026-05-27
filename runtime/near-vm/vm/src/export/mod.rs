@@ -30,7 +30,7 @@ pub enum VMExtern {
 }
 
 /// A function export value.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct VMFunction {
     /// The address of the native-code function.
     pub address: *const VMFunctionBody,

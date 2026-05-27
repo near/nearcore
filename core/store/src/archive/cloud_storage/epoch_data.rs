@@ -1,8 +1,10 @@
 use crate::Store;
 use crate::adapter::StoreAdapter;
+use crate::adapter::chain_store::option_to_not_found;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, EpochId};
@@ -25,6 +27,10 @@ pub struct EpochDataV1 {
     shard_layout: ShardLayout,
     /// Read from `DBCol::EpochStart` and `DBCol::BlockHeight`.
     epoch_start_height: BlockHeight,
+    /// Hash of the block immediately before the epoch start (= last block of
+    /// the previous epoch, which is always final). Used by the reader as the
+    /// `BlockMerkleTree` key for `epoch_start_prev_block_merkle_tree`.
+    epoch_start_prev_hash: CryptoHash,
     /// Read from `DBCol::BlockMerkleTree`.
     epoch_start_prev_block_merkle_tree: PartialMerkleTree,
     /// Read from `DBCol::StateSyncHashes` and `DBCol::BlockHeight`.
@@ -44,17 +50,19 @@ pub fn build_epoch_data(
     let store = store.chain_store();
     let epoch_start_block_hash = store.get_block_hash_by_height(epoch_start_height)?;
     let epoch_start_block = store.get_block(&epoch_start_block_hash)?;
-    let sync_block_hash = store
-        .get_current_epoch_sync_hash(&epoch_id)
-        .ok_or_else(|| Error::DBNotFoundErr(format!("StateSyncHashes, epoch ID: {epoch_id:?}")))?;
+    let epoch_start_prev_hash = *epoch_start_block.header().prev_hash();
+    let sync_block_hash = option_to_not_found(
+        store.get_current_epoch_sync_hash(&epoch_id),
+        format_args!("StateSyncHashes: epoch_id {epoch_id:?}"),
+    )?;
     let sync_block_height = store.get_block_height(&sync_block_hash)?;
-    let epoch_start_prev_block_merkle_tree =
-        store.get_block_merkle_tree(epoch_start_block.header().prev_hash())?;
+    let epoch_start_prev_block_merkle_tree = store.get_block_merkle_tree(&epoch_start_prev_hash)?;
     let epoch_data = EpochDataV1 {
         epoch_id,
         epoch_info,
         shard_layout,
         epoch_start_height,
+        epoch_start_prev_hash,
         epoch_start_prev_block_merkle_tree,
         sync_block_height,
     };
@@ -95,6 +103,12 @@ impl EpochData {
     pub fn epoch_start_prev_block_merkle_tree(&self) -> &PartialMerkleTree {
         match self {
             EpochData::V1(data) => &data.epoch_start_prev_block_merkle_tree,
+        }
+    }
+
+    pub fn epoch_start_prev_hash(&self) -> &CryptoHash {
+        match self {
+            EpochData::V1(data) => &data.epoch_start_prev_hash,
         }
     }
 }

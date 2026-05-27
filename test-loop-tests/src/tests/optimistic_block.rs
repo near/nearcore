@@ -17,6 +17,8 @@ use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "test_features")]
 use std::sync::Arc;
+#[cfg(feature = "test_features")]
+use std::sync::atomic::Ordering;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
@@ -340,4 +342,54 @@ fn test_optimistic_block_with_invalidated_outcome() {
         producer_node_hit_delta >= producer_node_height_delta,
         "Producer of the invalid OptimisticBlock must have all hits because it itself uses correct OptimisticBlock"
     );
+}
+
+/// Regression test for the optimistic-apply / memtrie GC race.
+///
+/// One validator's `apply_chunks_optimistic` spawner is given a virtual delay
+/// of several block intervals. While the apply task waits in the queue, the
+/// chain finalizes enough blocks that without the pin in `get_update_shard_job`,
+/// `delete_memtrie_roots_up_to_height` would evict the prev-state root the
+/// delayed apply needs and `NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES` would rise.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+#[cfg(feature = "test_features")]
+fn test_optimistic_apply_memtrie_gc_race() {
+    let num_shards = 3;
+
+    // Delay one node's `apply_chunks_optimistic` by several block intervals
+    // so `last_final_block` advances past the optimistic block's prev-height
+    // while the apply task is still queued.
+    let slow_node: AccountId = "account0".parse().unwrap();
+
+    // `skip_warmup`: default warmup asserts all chunks produced in the first
+    // few blocks, too tight while one node's optimistic-apply is slowed.
+    let mut env: TestLoopEnv = get_builder(num_shards)
+        .track_all_shards()
+        .task_delay_fn({
+            let slow_node = slow_node.clone();
+            move |account, task_name| {
+                (account == &slow_node && task_name == "apply_chunks_optimistic")
+                    .then(|| Duration::seconds(5))
+            }
+        })
+        .skip_warmup()
+        .build();
+
+    // `run_for` (not `run_until_head_height`): the bug is time-based — the
+    // 5s-delayed optimistic apply tasks need virtual time to fire after their
+    // memtrie roots are GC'd. A head-based condition would exit too soon.
+    env.test_loop.run_for(Duration::seconds(60));
+
+    let slow_node_handle = env.get_node_data_by_account_id(&slow_node).client_sender.actor_handle();
+    let failed_applies = env
+        .test_loop
+        .data
+        .get(&slow_node_handle)
+        .client
+        .chain
+        .failed_optimistic_block_applies
+        .load(Ordering::Relaxed);
+    assert_eq!(failed_applies, 0, "slow node had {failed_applies} failed optimistic-block applies",);
 }

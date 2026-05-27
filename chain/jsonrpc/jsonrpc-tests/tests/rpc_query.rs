@@ -25,6 +25,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use reqwest::StatusCode;
 use serde_json::Value;
+use std::num::NonZeroU32;
 use std::ops::ControlFlow;
 
 /// Retrieve blocks via json rpc
@@ -247,7 +248,7 @@ async fn test_query_by_path_access_keys() {
     };
     assert_eq!(access_keys.keys.len(), 1);
     assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(access_keys.keys[0].public_key, signer.public_key());
+    assert_eq!(access_keys.keys[0].public_key, (&signer.public_key()).into());
 }
 
 // here
@@ -274,7 +275,7 @@ async fn test_query_access_keys() {
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     assert_eq!(access_keys.keys.len(), 1);
     assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(access_keys.keys[0].public_key, signer.public_key());
+    assert_eq!(access_keys.keys[0].public_key, (&signer.public_key()).into());
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
@@ -341,6 +342,8 @@ async fn test_query_state() {
             request: QueryRequest::ViewState {
                 account_id: "test1".parse().unwrap(),
                 prefix: vec![].into(),
+                after_key: None,
+                limit: None,
                 include_proof: false,
             },
         })
@@ -358,8 +361,6 @@ async fn test_query_state() {
 
 /// Connect to json rpc and call function
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -393,8 +394,6 @@ async fn test_query_call_function() {
 
 /// query contract code
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_contract_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -745,15 +744,11 @@ async fn test_get_chunk_with_object_in_params() {
 }
 
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_hash() {
     test_query_global_contract_code(GlobalContractDeployMode::CodeHash).await;
 }
 
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_account_id() {
     test_query_global_contract_code(GlobalContractDeployMode::AccountId).await;
 }
@@ -953,8 +948,6 @@ async fn test_experimental_view_account_missing_account() {
 }
 
 /// Test EXPERIMENTAL_view_code method
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_view_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -1011,6 +1004,8 @@ async fn test_experimental_view_state() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
+            after_key: None,
+            limit: None,
             include_proof: false,
         })
         .await
@@ -1032,6 +1027,8 @@ async fn test_experimental_view_state_with_proof() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
+            after_key: None,
+            limit: None,
             include_proof: true,
         })
         .await
@@ -1039,6 +1036,91 @@ async fn test_experimental_view_state_with_proof() {
 
     assert!(response.block_height < 100);
     assert_ne!(response.block_hash, CryptoHash::default());
+}
+
+/// Test EXPERIMENTAL_view_state with pagination
+#[tokio::test]
+async fn test_experimental_view_state_paginated() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let response = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            after_key: None,
+            limit: Some(NonZeroU32::new(5).unwrap()),
+            include_proof: false,
+        })
+        .await
+        .unwrap();
+
+    // test1 has no contract data, so a single empty page with no cursor.
+    assert_eq!(response.state.values.len(), 0);
+    assert_eq!(response.state.last_key, None);
+}
+
+/// Test EXPERIMENTAL_view_state rejects include_proof combined with pagination
+#[tokio::test]
+async fn test_experimental_view_state_proof_with_pagination_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            after_key: None,
+            limit: Some(NonZeroU32::new(5).unwrap()),
+            include_proof: true,
+        })
+        .await;
+
+    result.expect_err("include_proof + pagination must be rejected");
+}
+
+/// Test `query` rejects ViewState combining include_proof with pagination.
+#[tokio::test]
+async fn test_query_view_state_proof_with_pagination_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewState {
+                account_id: "test1".parse().unwrap(),
+                prefix: vec![].into(),
+                after_key: None,
+                limit: Some(NonZeroU32::new(5).unwrap()),
+                include_proof: true,
+            },
+        })
+        .await;
+
+    result.expect_err("include_proof + pagination must be rejected");
+}
+
+/// Test EXPERIMENTAL_view_state rejects an after_key that doesn't start with prefix.
+#[tokio::test]
+async fn test_experimental_view_state_after_key_outside_prefix_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: b"aaa".to_vec().into(),
+            after_key: Some(b"bbb".to_vec().into()),
+            limit: None,
+            include_proof: false,
+        })
+        .await;
+
+    result.expect_err("after_key outside prefix range must be rejected");
 }
 
 /// Test EXPERIMENTAL_view_access_key method
@@ -1114,7 +1196,7 @@ async fn test_experimental_view_access_key_list() {
     assert_ne!(response.block_hash, CryptoHash::default());
     assert_eq!(response.access_key_list.keys.len(), 1);
     assert_eq!(response.access_key_list.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(response.access_key_list.keys[0].public_key, signer.public_key());
+    assert_eq!(response.access_key_list.keys[0].public_key, (&signer.public_key()).into());
 }
 
 /// Test EXPERIMENTAL_view_access_key_list error on unknown block
@@ -1134,8 +1216,6 @@ async fn test_experimental_view_access_key_list_unknown_block() {
 }
 
 /// Test EXPERIMENTAL_call_function method
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -1162,8 +1242,6 @@ async fn test_experimental_call_function() {
 }
 
 /// Test EXPERIMENTAL_call_function error on missing method (MethodNotFound)
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function_nonexisting_method() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);

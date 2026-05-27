@@ -10,7 +10,7 @@ pub(crate) fn hex_to_nibbles(hex: &str) -> Vec<u8> {
     if hex == "_" {
         return vec![];
     }
-    assert!(hex.len() % 2 == 0);
+    assert!(hex.len().is_multiple_of(2));
     hex::decode(hex).unwrap()
 }
 

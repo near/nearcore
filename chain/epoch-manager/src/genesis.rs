@@ -1,4 +1,5 @@
 use crate::EpochManager;
+use crate::shard_assignment::AssignmentStrategy;
 use crate::validator_selection::proposals_to_epoch_info;
 use itertools::Itertools;
 use near_primitives::chains::{MAINNET, TESTNET};
@@ -76,7 +77,7 @@ impl EpochManager {
                 Balance::ZERO,
                 genesis_protocol_version,
                 shard_layout,
-                false,
+                &AssignmentStrategy::Fresh,
                 None,
             )
         }

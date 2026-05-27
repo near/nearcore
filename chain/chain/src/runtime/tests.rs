@@ -1,7 +1,7 @@
 use super::*;
 use crate::types::{
-    BlockType, ChainConfig, RuntimeStorageConfig, StatePartValidationResult,
-    StateRootNodeValidationResult,
+    BlockType, ChainConfig, HasContract, MaybePinnedMemtrieRoot, RuntimeStorageConfig,
+    StatePartValidationResult, StateRootNodeValidationResult,
 };
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
@@ -27,6 +27,7 @@ use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionIn
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::receipt::{ActionReceipt, ReceiptV0};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
@@ -58,6 +59,9 @@ use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeSet, HashSet};
+
+const TEST_SEED: RngSeed = [3; 32];
+const NUM_TEST_SIGNERS: usize = 4;
 
 struct TestEnvConfig {
     epoch_length: BlockHeightDelta,
@@ -151,8 +155,7 @@ impl TestEnv {
             Default::default(),
             StateSnapshotConfig::enabled(dir.path().join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
-            false,
-            true,
+            RuntimeOptions::default(),
         );
         let state_roots = get_genesis_state_roots(&store).unwrap();
         let genesis_hash = hash(&[0]);
@@ -238,6 +241,7 @@ impl TestEnv {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let state_root = self.state_roots[shard_index];
         let gas_limit = Gas::MAX;
         let height = self.head.height + 1;
@@ -256,13 +260,14 @@ impl TestEnv {
                 RuntimeStorageConfig::new(state_root, true),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
-                    shard_id,
+                    shard_uid,
                     last_validator_proposals: ValidatorStakeIter::new(
                         self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
                     ),
                     gas_limit,
                     is_new_chunk: true,
                     on_post_state_ready: None,
+                    memtrie_pin: MaybePinnedMemtrieRoot::no_memtries(),
                 },
                 ApplyChunkBlockContext {
                     block_type: BlockType::Normal,
@@ -1548,13 +1553,13 @@ fn test_genesis_hash() {
 /// Creates a signed transaction between each pair of `signers`,
 /// where transaction outcomes from a single signer differ by nonce.
 /// The transactions are then shuffled and used to fill a transaction pool.
-fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> TransactionPool {
-    const TEST_SEED: RngSeed = [3; 32];
+fn generate_transaction_pool(signers: &[Signer], block_hash: CryptoHash) -> TransactionPool {
     let mut rng = StdRng::from_seed(TEST_SEED);
     let signer_count = signers.len();
+    let num_rounds = signer_count - 1;
 
     let mut transactions = vec![];
-    for round in 1..signer_count {
+    for round in 1..=num_rounds {
         for i in 0..signer_count {
             let transaction = SignedTransaction::send_money(
                 round.try_into().unwrap(),
@@ -1578,8 +1583,7 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
 }
 
 fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
-    let num_nodes = 4;
-    let validators = (0..num_nodes)
+    let validators = (0..NUM_TEST_SIGNERS)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
     let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
@@ -1618,7 +1622,6 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     env.step_default(vec![]);
 
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-
     let transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
     (env, chain, transaction_pool)
 }
@@ -1663,6 +1666,7 @@ fn prepare_transactions_extra(
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
+    check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     let prev_hash = env.head.prev_block_hash;
@@ -1695,6 +1699,7 @@ fn prepare_transactions_extra(
         },
         validate_tx_ttl,
         skip_tx_hashes,
+        check_pending,
         default_produce_chunk_add_transactions_time_limit(),
         cancel,
     )
@@ -1879,6 +1884,7 @@ fn test_prepare_transactions_extra() {
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
         validate_tx_ttl,
+        &mut PendingTxCheckResult::always_admit(),
         None,
     )
     .unwrap();
@@ -1901,6 +1907,7 @@ fn test_prepare_transactions_extra() {
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
         validate_tx_ttl,
+        &mut PendingTxCheckResult::always_admit(),
         Some(Arc::new(AtomicBool::new(false))),
     )
     .unwrap();
@@ -1919,6 +1926,7 @@ fn test_prepare_transactions_extra() {
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
         validate_tx_ttl,
+        &mut PendingTxCheckResult::always_admit(),
         Some(Arc::new(AtomicBool::new(true))),
     )
     .unwrap();
@@ -1935,6 +1943,7 @@ fn test_prepare_transactions_extra() {
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         skip_tx_hashes.clone(),
         validate_tx_ttl,
+        &mut PendingTxCheckResult::always_admit(),
         None,
     )
     .unwrap();
@@ -1948,6 +1957,142 @@ fn test_prepare_transactions_extra() {
     assert_eq!(skipped_hashes, skip_tx_hashes);
 
     assert_eq!(transaction_pool.len(), 0);
+}
+
+/// When check_pending returns Skip for a transaction, it should appear in
+/// skipped_transactions (for reintroduction to pool), not in prepared.
+#[test]
+fn test_prepare_transactions_pending_skip() {
+    let num_rounds = NUM_TEST_SIGNERS - 1;
+    let total_txs = NUM_TEST_SIGNERS * num_rounds;
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+
+    // Skip every other transaction.
+    let mut call_count = 0usize;
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        HashSet::new(),
+        &|_| true,
+        &mut |_, _| {
+            call_count += 1;
+            if call_count.is_multiple_of(2) {
+                PendingTxCheckResult::Skip
+            } else {
+                PendingTxCheckResult::Admit(PendingConstraints::default())
+            }
+        },
+        None,
+    )
+    .unwrap();
+
+    // No transactions should be lost: all are either prepared or skipped.
+    assert_eq!(prepared.transactions.len() + skipped.0.len(), total_txs);
+    assert_eq!(prepared.transactions.len(), total_txs / 2);
+    assert_eq!(skipped.0.len(), total_txs / 2);
+}
+
+/// When check_pending returns Admit with paid_from_balance, the available
+/// balance for validation is reduced. With a large enough paid_from_balance,
+/// subsequent transactions should fail balance validation.
+#[test]
+fn test_prepare_transactions_pending_balance_constraint() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+
+    // Create a pool with a small transfer from test1.
+    let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
+    let tx = SignedTransaction::send_money(
+        1,
+        signer.get_account_id(),
+        "test2".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        env.head.prev_block_hash,
+    );
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+
+    // Without pending constraints, the transfer should succeed.
+    let (prepared, _) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(prepared.transactions.len(), 1);
+
+    // Reinsert and try again with paid_from_balance consuming all balance.
+    pool.insert_transaction(prepared.transactions[0].clone());
+    let (prepared, _) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        &|_| true,
+        &mut |_, _| {
+            PendingTxCheckResult::Admit(PendingConstraints {
+                paid_from_balance: TESTING_INIT_BALANCE,
+                ..PendingConstraints::default()
+            })
+        },
+        None,
+    )
+    .unwrap();
+    // The transaction should fail balance validation (balance reduced to 0).
+    assert_eq!(prepared.transactions.len(), 0);
+}
+
+/// When check_pending returns Admit with max_nonce, the effective nonce
+/// floor is raised. Transactions with nonces <= max_nonce should be rejected.
+#[test]
+fn test_prepare_transactions_pending_nonce_constraint() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+
+    let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
+    // Create two transactions with nonces 1 and 2.
+    let tx1 = SignedTransaction::send_money(
+        1,
+        signer.get_account_id(),
+        "test2".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        env.head.prev_block_hash,
+    );
+    let tx2 = SignedTransaction::send_money(
+        2,
+        signer.get_account_id(),
+        "test2".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        env.head.prev_block_hash,
+    );
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(tx1));
+    pool.insert_transaction(ValidatedTransaction::new_for_test(tx2));
+
+    // With max_nonce=1, nonce 1 should be rejected (<=max_nonce), nonce 2 accepted.
+    let (prepared, _) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        &|_| true,
+        &mut |_, _| {
+            PendingTxCheckResult::Admit(PendingConstraints {
+                max_nonce: 1,
+                ..PendingConstraints::default()
+            })
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(prepared.transactions.len(), 1);
+    assert_eq!(prepared.transactions[0].nonce().nonce(), 2);
 }
 
 #[test]
@@ -1964,10 +2109,7 @@ fn test_strict_nonce_u64_max_not_included() {
     // Set the access key nonce to u64::MAX in the actual trie state so that
     // no strict-nonce tx can satisfy ak_nonce + 1 without overflow.
     let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
-    let ak_key = TrieKey::AccessKey {
-        account_id: "test1".parse().unwrap(),
-        public_key: signer.public_key(),
-    };
+    let ak_key = TrieKey::access_key("test1".parse().unwrap(), &signer.public_key());
     let ak_value =
         borsh::to_vec(&AccessKey { nonce: u64::MAX, permission: AccessKeyPermission::FullAccess })
             .unwrap();
@@ -2015,6 +2157,7 @@ fn test_strict_nonce_u64_max_not_included() {
             },
             &|_| true,
             HashSet::new(),
+            &mut PendingTxCheckResult::always_admit(),
             default_produce_chunk_add_transactions_time_limit(),
             None,
         )
@@ -2090,6 +2233,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
             &|_| true,
             &|_| true,
             HashSet::new(),
+            &mut PendingTxCheckResult::always_admit(),
             None,
             None,
         )
@@ -2153,6 +2297,7 @@ fn test_strict_nonce_gap_ttl_eviction() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &ttl_valid,
+        &mut PendingTxCheckResult::always_admit(),
         None,
     )
     .unwrap();
@@ -2168,6 +2313,7 @@ fn test_strict_nonce_gap_ttl_eviction() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &ttl_expired,
+        &mut PendingTxCheckResult::always_admit(),
         None,
     )
     .unwrap();
@@ -2289,7 +2435,7 @@ mod check_dynamic_resharding {
             memory_usage_threshold,
             min_child_memory_usage,
             max_number_of_shards,
-            min_epochs_between_resharding: 0,
+            min_epochs_between_resharding: 1.try_into().unwrap(),
             force_split_shards,
             block_split_shards,
         }

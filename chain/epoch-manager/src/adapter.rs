@@ -13,8 +13,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
-    ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
+    ShardIndex, ValidatorInfoIdentifier,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
@@ -128,11 +128,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
     /// to the current epoch), based on `min_epochs_between_resharding`.
     ///
-    /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
+    /// Returns `true` if no resharding occurred in the last `min_epochs_between_resharding`
+    /// epochs (including the next one). The cooldown is non-zero by type: allowing
+    /// back-to-back reshardings is unsafe (see `DynamicReshardingConfig`).
     fn can_reshard(
         &self,
         block_hash: &CryptoHash,
-        min_epochs_between_resharding: u64,
+        min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError>;
 
     /// Get epoch id given hash of previous block.
@@ -881,7 +883,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn can_reshard(
         &self,
         block_hash: &CryptoHash,
-        min_epochs_between_resharding: u64,
+        min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.can_reshard(block_hash, min_epochs_between_resharding)

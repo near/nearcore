@@ -13,6 +13,7 @@ use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender,
@@ -40,8 +41,8 @@ use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_chain::SpiceChainReader;
-use near_chain::spice_core_writer_actor::ProcessedBlock;
+use near_chain::spice::chain::SpiceChainReader;
+use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -144,6 +145,7 @@ fn wait_until_genesis(genesis_time: &Utc) {
 pub struct StartClientResult {
     pub client_actor: TokioRuntimeHandle<ClientActor>,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pub pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActor>,
 }
@@ -265,6 +267,8 @@ pub fn start_client(
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
+    let pending_transaction_queue =
+        client_actor_inner.client.chunk_producer.pending_transaction_queue.clone();
     let chunk_endorsement_tracker =
         Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
     let client_actor = actor_system.spawn_tokio_actor(client_actor_inner);
@@ -277,6 +281,7 @@ pub fn start_client(
     StartClientResult {
         client_actor,
         tx_pool,
+        pending_transaction_queue,
         chunk_endorsement_tracker,
         chunk_validation_actor: chunk_validation_actor_addr,
     }
@@ -786,7 +791,8 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
             if now > block_timestamp {
                 let elapsed = now - block_timestamp;
                 if elapsed
-                    > self.client.config.max_block_production_delay * STATUS_WAIT_TIME_MULTIPLIER
+                    > self.client.config.max_block_production_delay.get()
+                        * STATUS_WAIT_TIME_MULTIPLIER
                 {
                     return Err(StatusError::NoNewBlocks { elapsed });
                 }
@@ -853,6 +859,7 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
                     .client
                     .config
                     .min_block_production_delay
+                    .get()
                     .whole_milliseconds() as u64,
             })
         } else {
@@ -1332,7 +1339,7 @@ impl ClientActor {
             delay = std::cmp::min(delay, self.sync_timer_next_attempt - now);
 
             self.doomslug_timer_next_attempt = self.run_timer(
-                self.client.config.doomslug_step_period,
+                self.client.config.doomslug_step_period.get(),
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, _| act.try_doomslug_timer(),
@@ -1344,7 +1351,7 @@ impl ClientActor {
         let validator_signer = self.client.validator_signer.get();
         if validator_signer.is_some() {
             self.block_production_next_attempt = self.run_timer(
-                self.client.config.block_production_tracking_delay,
+                self.client.config.block_production_tracking_delay.get(),
                 self.block_production_next_attempt,
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
@@ -1352,7 +1359,7 @@ impl ClientActor {
             );
 
             let _ = self.client.check_head_progress_stalled(
-                self.client.config.max_block_production_delay * HEAD_STALL_MULTIPLIER,
+                self.client.config.max_block_production_delay.get() * HEAD_STALL_MULTIPLIER,
             );
 
             delay = core::cmp::min(delay, self.block_production_next_attempt - now)
@@ -1819,15 +1826,19 @@ impl ClientActor {
     /// This method performs whatever syncing technique is needed (epoch sync, header sync,
     /// state sync, block sync) to make progress towards bring the node up to date.
     fn handle_sync_needed(&mut self, highest_height: u64) {
-        let sync_step_result = self.client.sync_handler.handle_sync_needed(
+        let sync_step_result = match self.client.sync_handler.handle_sync_needed(
             &mut self.client.chain,
             &self.client.shard_tracker,
             highest_height,
             &self.network_info.highest_height_peers,
             Some(self.client.myself_sender.apply_chunks_done.clone()),
-        );
-        let Some(sync_step_result) = sync_step_result else {
-            return;
+        ) {
+            Ok(Some(request)) => request,
+            Ok(None) => return,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "sync: error in sync handler");
+                return;
+            }
         };
         match sync_step_result {
             SyncHandlerRequest::NeedRequestBlocks(blocks_to_request) => {

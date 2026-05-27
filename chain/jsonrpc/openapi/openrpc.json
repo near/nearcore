@@ -63,13 +63,13 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
-        "description": "Describes information about an access key including the public key.",
+        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest\n(the full pubkey is not stored on-chain).",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
           },
           "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "$ref": "#/components/schemas/PublicKeyHandle"
           }
         },
         "required": [
@@ -306,10 +306,6 @@
             "description": "The account ID of the account registrar. This account ID allowed to create top-level\naccounts of any valid length."
           }
         },
-        "required": [
-          "min_allowed_top_level_account_length",
-          "registrar_account_id"
-        ],
         "title": "AccountCreationConfigView",
         "type": "object"
       },
@@ -495,19 +491,6 @@
             "description": "Base cost of making a transfer."
           }
         },
-        "required": [
-          "create_account_cost",
-          "deploy_contract_cost",
-          "deploy_contract_cost_per_byte",
-          "function_call_cost",
-          "function_call_cost_per_byte",
-          "transfer_cost",
-          "stake_cost",
-          "add_key_cost",
-          "delete_key_cost",
-          "delete_account_cost",
-          "delegate_cost"
-        ],
         "title": "ActionCreationConfigView",
         "type": "object"
       },
@@ -2330,6 +2313,16 @@
               "null"
             ]
           },
+          "prev_last_certified_block_epoch_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EpochId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
           },
@@ -2576,10 +2569,6 @@
             "$ref": "#/components/schemas/ChunkDistributionUris"
           }
         },
-        "required": [
-          "enabled",
-          "uris"
-        ],
         "title": "ChunkDistributionNetworkConfig",
         "type": "object"
       },
@@ -2595,10 +2584,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "get",
-          "set"
-        ],
         "title": "ChunkDistributionUris",
         "type": "object"
       },
@@ -2914,20 +2899,6 @@
             "type": "number"
           }
         },
-        "required": [
-          "max_congestion_incoming_gas",
-          "max_congestion_outgoing_gas",
-          "max_congestion_memory_consumption",
-          "max_congestion_missed_chunks",
-          "max_outgoing_gas",
-          "min_outgoing_gas",
-          "allowed_shard_outgoing_gas",
-          "max_tx_gas",
-          "min_tx_gas",
-          "reject_tx_congestion_threshold",
-          "outgoing_receipts_usual_size_limit",
-          "outgoing_receipts_big_size_limit"
-        ],
         "title": "CongestionControlConfigView",
         "type": "object"
       },
@@ -3127,10 +3098,6 @@
             "description": "Additional cost per byte sent.\nBoth `send` and `exec` costs are burned when a function call finishes execution and returns\n`N` bytes of data to every output dependency. For each output dependency the cost is\n`(send(sir) + exec()) * N`."
           }
         },
-        "required": [
-          "base_cost",
-          "cost_per_byte"
-        ],
         "title": "DataReceiptCreationConfigView",
         "type": "object"
       },
@@ -3416,9 +3383,6 @@
             ]
           }
         },
-        "required": [
-          "location"
-        ],
         "title": "DumpConfig",
         "type": "object"
       },
@@ -3467,9 +3431,6 @@
             "description": "Timeout for epoch sync requests. The node will continue retrying indefinitely even\nif this timeout is exceeded."
           }
         },
-        "required": [
-          "timeout_for_epoch_sync"
-        ],
         "title": "EpochSyncConfig",
         "type": "object"
       },
@@ -4263,97 +4224,6 @@
             "description": "Per byte cost of resume payload."
           }
         },
-        "required": [
-          "base",
-          "contract_loading_base",
-          "contract_loading_bytes",
-          "read_memory_base",
-          "read_memory_byte",
-          "write_memory_base",
-          "write_memory_byte",
-          "read_register_base",
-          "read_register_byte",
-          "write_register_base",
-          "write_register_byte",
-          "utf8_decoding_base",
-          "utf8_decoding_byte",
-          "utf16_decoding_base",
-          "utf16_decoding_byte",
-          "sha256_base",
-          "sha256_byte",
-          "keccak256_base",
-          "keccak256_byte",
-          "keccak512_base",
-          "keccak512_byte",
-          "ripemd160_base",
-          "ripemd160_block",
-          "ed25519_verify_base",
-          "ed25519_verify_byte",
-          "ecrecover_base",
-          "p256_verify_base",
-          "p256_verify_byte",
-          "log_base",
-          "log_byte",
-          "storage_write_base",
-          "storage_write_key_byte",
-          "storage_write_value_byte",
-          "storage_write_evicted_byte",
-          "storage_read_base",
-          "storage_read_key_byte",
-          "storage_read_value_byte",
-          "storage_large_read_overhead_base",
-          "storage_large_read_overhead_byte",
-          "storage_remove_base",
-          "storage_remove_key_byte",
-          "storage_remove_ret_value_byte",
-          "storage_has_key_base",
-          "storage_has_key_byte",
-          "storage_iter_create_prefix_base",
-          "storage_iter_create_prefix_byte",
-          "storage_iter_create_range_base",
-          "storage_iter_create_from_byte",
-          "storage_iter_create_to_byte",
-          "storage_iter_next_base",
-          "storage_iter_next_key_byte",
-          "storage_iter_next_value_byte",
-          "touching_trie_node",
-          "read_cached_trie_node",
-          "promise_and_base",
-          "promise_and_per_promise",
-          "promise_return",
-          "validator_stake_base",
-          "validator_total_stake_base",
-          "contract_compile_base",
-          "contract_compile_bytes",
-          "alt_bn128_g1_multiexp_base",
-          "alt_bn128_g1_multiexp_element",
-          "alt_bn128_g1_sum_base",
-          "alt_bn128_g1_sum_element",
-          "alt_bn128_pairing_check_base",
-          "alt_bn128_pairing_check_element",
-          "yield_create_base",
-          "yield_create_byte",
-          "yield_resume_base",
-          "yield_resume_byte",
-          "bls12381_p1_sum_base",
-          "bls12381_p1_sum_element",
-          "bls12381_p2_sum_base",
-          "bls12381_p2_sum_element",
-          "bls12381_g1_multiexp_base",
-          "bls12381_g1_multiexp_element",
-          "bls12381_g2_multiexp_base",
-          "bls12381_g2_multiexp_element",
-          "bls12381_map_fp_to_g1_base",
-          "bls12381_map_fp_to_g1_element",
-          "bls12381_map_fp2_to_g2_base",
-          "bls12381_map_fp2_to_g2_element",
-          "bls12381_pairing_base",
-          "bls12381_pairing_element",
-          "bls12381_p1_decompress_base",
-          "bls12381_p1_decompress_element",
-          "bls12381_p2_decompress_base",
-          "bls12381_p2_decompress_element"
-        ],
         "title": "ExtCostsConfigView",
         "type": "object"
       },
@@ -4391,9 +4261,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "location"
-        ],
         "title": "ExternalStorageConfig",
         "type": "object"
       },
@@ -6681,6 +6548,31 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_operand_stack_bytes_per_function": {
+            "description": "If present, stores the max operand stack size (in bytes) at any point\nduring the execution of a single function. Per-function: not summed\nacross recursion. Computed by `finite_wasm::max_stack`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_params_per_contract": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_params_per_function": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "max_promises_per_function_call_action": {
             "description": "Max number of promises that a function call can create",
             "format": "uint64",
@@ -6734,6 +6626,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_types_per_contract": {
+            "description": "If present, stores max number of entries in the wasm type section that\na contract may declare.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "max_yield_payload_size": {
             "description": "Maximum number of bytes for payload passed over a yield resume.",
             "format": "uint64",
@@ -6759,34 +6660,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "max_gas_burnt",
-          "max_stack_height",
-          "initial_memory_pages",
-          "max_memory_pages",
-          "registers_memory_limit",
-          "max_register_size",
-          "max_number_registers",
-          "max_number_logs",
-          "max_total_log_length",
-          "max_total_prepaid_gas",
-          "max_actions_per_receipt",
-          "max_deploy_actions_per_receipt",
-          "max_number_bytes_method_names",
-          "max_length_method_name",
-          "max_arguments_length",
-          "max_length_returned_data",
-          "max_contract_size",
-          "max_transaction_size",
-          "max_receipt_size",
-          "max_length_storage_key",
-          "max_length_storage_value",
-          "max_promises_per_function_call_action",
-          "max_number_input_data_dependencies",
-          "yield_timeout_length_in_blocks",
-          "max_yield_payload_size",
-          "per_receipt_storage_proof_size_limit"
-        ],
         "title": "LimitConfig",
         "type": "object"
       },
@@ -7340,6 +7213,26 @@
             "const": "TooManyBlocksPerContract",
             "description": "A contract contains too many basic blocks.",
             "type": "string"
+          },
+          {
+            "const": "TooManyTypes",
+            "description": "Contract declares too many entries in the wasm type section.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyParamsPerFunction",
+            "description": "All contract functions combined have more than `max_params_per_contract` parameters.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyParamsPerContract",
+            "description": "A function has more than `max_params_per_function` parameters.",
+            "type": "string"
+          },
+          {
+            "const": "OperandStackTooLarge",
+            "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_bytes_per_function`.",
+            "type": "string"
           }
         ],
         "title": "PrepareError"
@@ -7355,6 +7248,10 @@
       },
       "PublicKey": {
         "title": "PublicKey",
+        "type": "string"
+      },
+      "PublicKeyHandle": {
+        "title": "PublicKeyHandle",
         "type": "string"
       },
       "ReceiptEnumView": {
@@ -8012,12 +7909,6 @@
             "description": "Not clear old data, set `true` for archive nodes.",
             "type": "boolean"
           },
-          "block_fetch_horizon": {
-            "description": "Horizon at which instead of fetching block, fetch full state.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "block_header_fetch_horizon": {
             "description": "Behind this horizon header fetch kicks in.",
             "format": "uint64",
@@ -8025,15 +7916,12 @@
             "type": "integer"
           },
           "block_production_tracking_delay": {
-            "description": "Duration to check for producing / skipping block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Duration to check for producing / skipping block."
           },
           "catchup_step_period": {
             "description": "Time between check to perform catchup.",
@@ -8079,14 +7967,12 @@
             "type": "integer"
           },
           "chunk_wait_mult": {
-            "description": "Multiplier for the wait time for all chunks to be received.",
-            "items": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
             "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
@@ -8111,20 +7997,29 @@
               }
             ]
           },
+          "contract_cache_warming_max_item_count": {
+            "description": "Max warming submissions allowed in the pool's queue. Submissions\nover the cap bump `near_contract_cache_warming_dropped_total`. `0`\ndisables warming (same as setting\n`contract_cache_warming_pool_thread_count` to 0).",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "contract_cache_warming_pool_thread_count": {
+            "description": "Number of worker threads in the contract cache-warming pool. The\npool runs at the lowest realtime priority of any near pool, so the\nthreads yield to chunk application and witness work. Setting this\nto 0 disables warming (the pool is never instantiated). See\n[`contract_cache_warming_max_item_count`] for the other disable knob.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
           "disable_tx_routing": {
             "description": "If true, the node won't forward transactions to next the chunk producers.",
             "type": "boolean"
           },
           "doomslug_step_period": {
-            "description": "Time between running doomslug timer.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Time between running doomslug timer."
           },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
@@ -8226,26 +8121,20 @@
             "description": "Enable coloring of the logs"
           },
           "max_block_production_delay": {
-            "description": "Maximum wait for approvals before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum wait for approvals before producing block."
           },
           "max_block_wait_delay": {
-            "description": "Maximum duration before skipping given height.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Maximum duration before skipping given height."
           },
           "max_gas_burnt_view": {
             "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain.",
@@ -8259,15 +8148,12 @@
             ]
           },
           "min_block_production_delay": {
-            "description": "Minimum duration before producing block.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "Minimum duration before producing block."
           },
           "min_num_peers": {
             "description": "Minimum number of peers to start syncing.",
@@ -8381,10 +8267,6 @@
               }
             ],
             "description": "Options for syncing state."
-          },
-          "state_sync_enabled": {
-            "description": "Whether to use the State Sync mechanism.\nIf disabled, the node will do Block Sync instead of State Sync.",
-            "type": "boolean"
           },
           "state_sync_external_backoff": {
             "description": "Additional waiting period after a failed request to external storage",
@@ -8528,73 +8410,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "version",
-          "chain_id",
-          "expected_shutdown",
-          "block_production_tracking_delay",
-          "min_block_production_delay",
-          "max_block_production_delay",
-          "max_block_wait_delay",
-          "chunk_wait_mult",
-          "skip_sync_wait",
-          "sync_check_period",
-          "sync_step_period",
-          "sync_height_threshold",
-          "sync_max_block_requests",
-          "header_sync_initial_timeout",
-          "header_sync_progress_timeout",
-          "header_sync_stall_ban_timeout",
-          "header_sync_expected_height_per_second",
-          "state_sync_external_timeout",
-          "state_sync_p2p_timeout",
-          "state_sync_retry_backoff",
-          "state_sync_external_backoff",
-          "min_num_peers",
-          "log_summary_period",
-          "log_summary_style",
-          "produce_empty_blocks",
-          "epoch_length",
-          "num_block_producer_seats",
-          "ttl_account_id_router",
-          "block_fetch_horizon",
-          "catchup_step_period",
-          "chunk_request_retry_period",
-          "doomslug_step_period",
-          "block_header_fetch_horizon",
-          "gc",
-          "tracked_shards_config",
-          "archive",
-          "save_trie_changes",
-          "save_tx_outcomes",
-          "save_receipt_to_tx",
-          "save_state_changes",
-          "save_untracked_partial_chunks_parts",
-          "view_client_threads",
-          "chunk_validation_threads",
-          "state_request_throttle_period",
-          "state_requests_per_throttle_period",
-          "state_request_server_threads",
-          "enable_statistics_export",
-          "client_background_migration_threads",
-          "state_sync_enabled",
-          "state_sync",
-          "epoch_sync",
-          "transaction_pool_strict_nonce_ttl_blocks",
-          "enable_multiline_logging",
-          "resharding_config",
-          "tx_routing_height_horizon",
-          "disable_tx_routing",
-          "produce_chunk_add_transactions_time_limit",
-          "orphan_state_witness_pool_size",
-          "orphan_state_witness_max_size",
-          "save_latest_witnesses",
-          "save_invalid_witnesses",
-          "transaction_request_handler_threads",
-          "protocol_version_check",
-          "enable_early_prepare_transactions",
-          "chunks_cache_height_horizon"
-        ],
         "title": "RpcClientConfigResponse",
         "type": "object"
       },
@@ -9243,39 +9058,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "protocol_version",
-          "genesis_time",
-          "chain_id",
-          "genesis_height",
-          "num_block_producer_seats",
-          "dynamic_resharding",
-          "protocol_upgrade_stake_threshold",
-          "epoch_length",
-          "gas_limit",
-          "min_gas_price",
-          "max_gas_price",
-          "block_producer_kickout_threshold",
-          "chunk_producer_kickout_threshold",
-          "chunk_validator_only_kickout_threshold",
-          "target_validator_mandates_per_shard",
-          "online_min_threshold",
-          "online_max_threshold",
-          "gas_price_adjustment_rate",
-          "runtime_config",
-          "transaction_validity_period",
-          "protocol_reward_rate",
-          "max_inflation_rate",
-          "num_blocks_per_year",
-          "protocol_treasury_account",
-          "fishermen_threshold",
-          "minimum_stake_divisor",
-          "max_kickout_stake_perc",
-          "minimum_stake_ratio",
-          "shuffle_shard_assignment_for_chunk_producers",
-          "minimum_validators_per_shard",
-          "shard_layout"
-        ],
         "title": "RpcProtocolConfigResponse",
         "type": "object"
       },
@@ -10278,12 +10060,32 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "block_id": {
                 "$ref": "#/components/schemas/BlockId"
               },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10302,12 +10104,32 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "finality": {
                 "$ref": "#/components/schemas/Finality"
               },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10326,9 +10148,29 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key_base64": {
+                "default": null,
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "include_proof": {
                 "default": false,
                 "type": "boolean"
+              },
+              "limit": {
+                "default": null,
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "prefix_base64": {
                 "$ref": "#/components/schemas/StoreKey"
@@ -10359,6 +10201,16 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "last_key": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "proof": {
             "items": {
@@ -10433,14 +10285,6 @@
             "description": "Configuration specific to ChunkStateWitness."
           }
         },
-        "required": [
-          "storage_amount_per_byte",
-          "transaction_costs",
-          "wasm_config",
-          "account_creation_config",
-          "congestion_control_config",
-          "witness_config"
-        ],
         "title": "RuntimeConfigView",
         "type": "object"
       },
@@ -10500,14 +10344,6 @@
             "description": "Describes fees for storage."
           }
         },
-        "required": [
-          "action_receipt_creation_config",
-          "data_receipt_creation_config",
-          "action_creation_config",
-          "storage_usage_config",
-          "burnt_gas_reward",
-          "pessimistic_gas_price_inflation_ratio"
-        ],
         "title": "RuntimeFeesConfigView",
         "type": "object"
       },
@@ -11276,7 +11112,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
@@ -11310,7 +11146,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
@@ -11354,7 +11190,7 @@
                     "type": "integer"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
@@ -11838,10 +11674,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "num_bytes_account",
-          "num_extra_bytes_record"
-        ],
         "title": "StorageUsageConfigView",
         "type": "object"
       },
@@ -11896,12 +11728,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "apply",
-          "apply_during_catchup",
-          "peer_downloads",
-          "per_shard"
-        ],
         "title": "SyncConcurrency",
         "type": "object"
       },
@@ -12185,10 +12011,6 @@
       },
       "VMConfigView": {
         "properties": {
-          "deterministic_account_ids": {
-            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
-            "type": "boolean"
-          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"
@@ -12286,27 +12108,6 @@
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
           }
         },
-        "required": [
-          "ext_costs",
-          "grow_mem_cost",
-          "regular_op_cost",
-          "linear_op_base_cost",
-          "linear_op_unit_cost",
-          "vm_kind",
-          "discard_custom_sections",
-          "global_contract_host_fns",
-          "reftypes_bulk_memory",
-          "deterministic_account_ids",
-          "gas_key_host_fns",
-          "one_yocto_on_promise",
-          "p256_verify_host_fn",
-          "storage_get_mode",
-          "fix_contract_loading_cost",
-          "implicit_account_creation",
-          "eth_implicit_accounts",
-          "eth_implicit_global_contract",
-          "limit_config"
-        ],
         "title": "VMConfigView",
         "type": "object"
       },
@@ -12705,11 +12506,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "main_storage_proof_size_soft_limit",
-          "combined_transactions_size_limit",
-          "new_transactions_validation_state_size_soft_limit"
-        ],
         "title": "WitnessConfigView",
         "type": "object"
       }
@@ -13777,6 +13573,21 @@
           }
         },
         {
+          "name": "after_key_base64",
+          "required": false,
+          "schema": {
+            "default": null,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "block_id",
           "required": false,
           "schema": {
@@ -13796,6 +13607,19 @@
           "schema": {
             "default": false,
             "type": "boolean"
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "default": null,
+            "format": "uint32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         {

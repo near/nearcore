@@ -228,7 +228,8 @@ fn check_meta_tx_fn_call(
                 .checked_mul(msg_len)
                 .unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
     // static execution gas burnt in the same receipt as the function calls but
     // it doesn't contribute to the contract reward
     let static_exec_gas = fee_helper
@@ -252,7 +253,8 @@ fn check_meta_tx_fn_call(
                 .checked_mul(msg_len)
                 .unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
     let gas_burnt_for_function_call =

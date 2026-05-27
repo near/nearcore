@@ -19,7 +19,7 @@ from rc import pmap
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
     reset_cmd, run_env_cmd, run_remote_cmd, run_remote_download_file, run_remote_upload_file, \
-    start_nodes_cmd, stop_nodes_cmd, update_binaries_cmd
+    start_nodes_cmd, stop_nodes_cmd, update_binaries_cmd, upload_local_neard
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
@@ -130,20 +130,6 @@ def upload_ft_contract(args):
     run_remote_cmd(CommandContext(run_cmd_args))
 
 
-def upload_local_neard(args):
-    """
-    uploads the local `neard` binary to every node to the ${BENCHNET_DIR}.
-    @return the absolute path (local to the remote node) to the uploaded `neard`
-
-    """
-    logger.info("uploading the neard ")
-    upload_file_args = copy.deepcopy(args)
-    upload_file_args.src = args.neard_binary_url
-    upload_file_args.dst = BENCHNET_DIR
-    run_remote_upload_file(CommandContext(upload_file_args))
-    return os.path.join(BENCHNET_DIR, "neard")
-
-
 def upload_json_patches(args):
     """Upload the json patches to the benchmark directory."""
     upload_file_args = copy.deepcopy(args)
@@ -181,8 +167,8 @@ def handle_init(args):
     is_local_neard = os.path.isfile(args.neard_binary_url)
     if is_local_neard:
         logger.info(f"handling local `neard` at {args.neard_binary_url}")
-        local_path_on_remote = upload_local_neard(args)
-        args.neard_binary_url = local_path_on_remote
+        args.neard_binary_url = upload_local_neard(args, args.neard_binary_url,
+                                                   BENCHNET_DIR)
         logger.info(f"`neard` local path on remote: {args.neard_binary_url}")
     else:
         logger.info("no local `neard` found, continue assuming the remote url")

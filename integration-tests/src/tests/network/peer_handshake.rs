@@ -96,7 +96,7 @@ async fn peers_connect_all() {
                 let flags1 = flags.clone();
                 let info = peers[i].send_async(GetInfo {}).await.unwrap();
                 if info.num_connected_peers > num_peers - 1
-                    && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
+                    && (flags1.load(Ordering::Relaxed) >> i).is_multiple_of(2)
                 {
                     flags1.fetch_add(1 << i, Ordering::Relaxed);
                 }

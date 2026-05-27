@@ -1654,6 +1654,8 @@ impl JsonRpcHandler {
                 QueryRequest::ViewState {
                     account_id: request_data.account_id,
                     prefix: request_data.prefix,
+                    after_key: request_data.after_key,
+                    limit: request_data.limit,
                     include_proof: request_data.include_proof,
                 },
             ))
@@ -2874,7 +2876,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsLayer {
     }
     cors.allow_methods([Method::GET, Method::POST])
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
-        .max_age(std::time::Duration::from_secs(3600))
+        .max_age(std::time::Duration::from_hours(1))
 }
 
 macro_rules! debug_page_string {

@@ -72,16 +72,9 @@ fn test_block_sync() {
     use near_primitives::utils::MaybeValidated;
 
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let block_fetch_horizon = 10;
     let max_block_requests = 10;
-    let mut block_sync = BlockSync::new(
-        Clock::real(),
-        network_adapter.as_multi_sender(),
-        block_fetch_horizon,
-        false,
-        true,
-        max_block_requests,
-    );
+    let mut block_sync =
+        BlockSync::new(Clock::real(), network_adapter.as_multi_sender(), false, max_block_requests);
     let mut env = test_env_with_epoch_length(100);
     let mut blocks = vec![];
     for i in 1..5 * max_block_requests + 1 {
@@ -152,16 +145,9 @@ fn test_block_sync() {
 #[test]
 fn test_block_sync_archival() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let block_fetch_horizon = 10;
     let max_block_requests = 10;
-    let mut block_sync = BlockSync::new(
-        Clock::real(),
-        network_adapter.as_multi_sender(),
-        block_fetch_horizon,
-        true,
-        true,
-        max_block_requests,
-    );
+    let mut block_sync =
+        BlockSync::new(Clock::real(), network_adapter.as_multi_sender(), true, max_block_requests);
     let mut env = test_env_with_epoch_length(5);
     let mut blocks = vec![];
     for i in 1..41 {

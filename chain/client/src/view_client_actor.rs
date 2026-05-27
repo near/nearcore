@@ -7,7 +7,7 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::spice_chain::SpiceChainReader;
+use near_chain::spice::chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,
@@ -325,17 +325,14 @@ impl ViewClientActor {
         for block_height in head.height..next_epoch_start_height {
             let bp = epoch_info.sample_block_producer(block_height);
             let bp = epoch_info.get_validator(bp).account_id().clone();
-            let cps: Vec<AccountId> = shard_ids
-                .iter()
-                .map(|&shard_id| {
-                    let cp = epoch_info
-                        .sample_chunk_producer(&shard_layout, shard_id, block_height)
-                        .unwrap();
-                    let cp = epoch_info.get_validator(cp).account_id().clone();
-                    cp
-                })
-                .collect();
-            if account_id != bp && !cps.iter().any(|a| *a == account_id) {
+            let mut cps = shard_ids.iter().map(|&shard_id| {
+                let cp = epoch_info
+                    .sample_chunk_producer(&shard_layout, shard_id, block_height)
+                    .unwrap();
+                let cp = epoch_info.get_validator(cp).account_id().clone();
+                cp
+            });
+            if account_id != bp && !cps.any(|a| *a == account_id) {
                 if let Some(start) = start_block_of_window {
                     if block_height == last_block_of_epoch {
                         windows.push(start..block_height + 1);

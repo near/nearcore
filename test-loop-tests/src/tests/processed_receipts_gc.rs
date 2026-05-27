@@ -163,7 +163,10 @@ fn test_receipt_to_tx_saved_and_gced() {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::single_shard())
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&[user_account.clone()], Balance::from_near(1_000_000))
+        .add_user_accounts_simple(
+            std::slice::from_ref(&user_account),
+            Balance::from_near(1_000_000),
+        )
         .build();
 
     let mut env = TestLoopBuilder::new()
@@ -268,7 +271,10 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(ShardLayout::single_shard())
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&[user_account.clone()], Balance::from_near(1_000_000))
+        .add_user_accounts_simple(
+            std::slice::from_ref(&user_account),
+            Balance::from_near(1_000_000),
+        )
         .build();
 
     let mut env = TestLoopBuilder::new()

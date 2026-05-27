@@ -3,11 +3,11 @@ use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
-use crate::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
+use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
-use near_crypto::PublicKey;
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -260,16 +260,16 @@ pub enum StateChangeValue {
     },
     AccessKeyUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         access_key: AccessKey,
     },
     AccessKeyDeletion {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         index: NonceIndex,
         nonce: Nonce,
     },
@@ -341,27 +341,27 @@ impl StateChanges {
                         },
                     },
                 )),
-                TrieKey::AccessKey { account_id, public_key } => {
+                TrieKey::AccessKey { account_id, key_handle } => {
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,
                             value: if let Some(change_data) = data {
                                 StateChangeValue::AccessKeyUpdate {
                                     account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
+                                    public_key: key_handle.clone(),
                                     access_key: <_>::try_from_slice(&change_data)
                                         .expect("Failed to parse internally stored access key"),
                                 }
                             } else {
                                 StateChangeValue::AccessKeyDeletion {
                                     account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
+                                    public_key: key_handle.clone(),
                                 }
                             },
                         },
                     ))
                 }
-                TrieKey::GasKeyNonce { account_id, public_key, index } => state_changes.extend(
+                TrieKey::GasKeyNonce { account_id, key_handle, index } => state_changes.extend(
                     // Deletion of a nonce can only be done with a corresponding
                     // deletion of the gas key, so we don't need to report these.
                     changes.into_iter().filter_map(|RawStateChange { cause, data }| {
@@ -369,7 +369,7 @@ impl StateChanges {
                             cause,
                             value: StateChangeValue::GasKeyNonceUpdate {
                                 account_id: account_id.clone(),
-                                public_key: public_key.clone(),
+                                public_key: key_handle.clone(),
                                 index,
                                 nonce: Nonce::try_from_slice(&change_data)
                                     .expect("Failed to parse internally stored gas key nonce"),
@@ -975,7 +975,7 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn validator_proposals(&self) -> ValidatorStakeIter {
+        pub fn validator_proposals(&self) -> ValidatorStakeIter<'_> {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
@@ -1316,6 +1316,18 @@ impl BlockExecutionResults {
     pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
         self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
             acc.checked_add(execution_result.chunk_extra.gas_limit())
+        })
+    }
+
+    pub fn compute_gas_used_checked(&self) -> Option<Gas> {
+        self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_used())
+        })
+    }
+
+    pub fn compute_balance_burnt_checked(&self) -> Option<Balance> {
+        self.0.iter().try_fold(Balance::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.balance_burnt())
         })
     }
 }

@@ -45,7 +45,7 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{PublicKey, PublicKeyHandle, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
@@ -60,6 +60,7 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -276,6 +277,8 @@ pub struct ViewStateResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_key: Option<StoreKey>,
 }
 
 /// A result returned by contract method
@@ -292,12 +295,26 @@ pub struct QueryError {
     pub logs: Vec<String>,
 }
 
-/// Describes information about an access key including the public key.
+/// Describes information about an access key including its on-trie
+/// identifier. For ed25519/secp256k1 access keys the `public_key` field
+/// is the full public key (string form unchanged from before); for
+/// ML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest
+/// (the full pubkey is not stored on-chain).
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyInfoView {
-    pub public_key: PublicKey,
+    pub public_key: PublicKeyHandle,
     pub access_key: AccessKeyView,
+}
+
+impl AccessKeyInfoView {
+    /// Build an `AccessKeyInfoView` from anything convertible into
+    /// `PublicKeyHandle` (notably `PublicKey`). Encapsulates the conversion
+    /// so call sites can pass a `PublicKey` directly without
+    /// remembering the `.into()`.
+    pub fn new(public_key: impl Into<PublicKeyHandle>, access_key: AccessKeyView) -> Self {
+        Self { public_key: public_key.into(), access_key }
+    }
 }
 
 /// Lists access keys
@@ -320,8 +337,6 @@ pub struct GasKeyNoncesView {
     pub nonces: Vec<Nonce>,
 }
 
-// cspell:words deepsize
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct KnownPeerStateView {
@@ -333,7 +348,6 @@ pub struct KnownPeerStateView {
     pub last_attempt: Option<(i64, String)>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ConnectionInfoView {
@@ -343,7 +357,6 @@ pub struct ConnectionInfoView {
     pub time_connected_until: i64,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SnapshotHostInfoView {
@@ -353,7 +366,6 @@ pub struct SnapshotHostInfoView {
     pub shards: Vec<u64>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -379,6 +391,10 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
+        #[serde(default, rename = "after_key_base64", skip_serializing_if = "Option::is_none")]
+        after_key: Option<StoreKey>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
         #[serde(default, skip_serializing_if = "is_false")]
         include_proof: bool,
     },
@@ -548,8 +564,6 @@ pub enum SyncStatusView {
     },
     /// State sync, with different states of state sync for different shards.
     StateSync(StateSyncStatusView),
-    /// Sync state across all shards is done.
-    StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
         start_height: BlockHeight,
@@ -909,6 +923,8 @@ pub struct BlockHeaderView {
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
     pub shard_split: Option<(ShardId, AccountId)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_last_certified_block_epoch_id: Option<EpochId>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -953,6 +969,9 @@ impl From<&BlockHeader> for BlockHeaderView {
             latest_protocol_version: header.latest_protocol_version(),
             chunk_endorsements: header.chunk_endorsements().map(|bitmap| bitmap.bytes()),
             shard_split: header.shard_split().cloned(),
+            prev_last_certified_block_epoch_id: header
+                .prev_last_certified_block_epoch_id()
+                .cloned(),
         }
     }
 }
@@ -989,6 +1008,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.prev_height.unwrap_or_default(),
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
             view.shard_split,
+            view.prev_last_certified_block_epoch_id,
         )
     }
 }
@@ -1982,7 +2002,6 @@ impl ExecutionOutcomeView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -2783,16 +2802,16 @@ pub enum StateChangeValueView {
     },
     AccessKeyUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         access_key: AccessKeyView,
     },
     AccessKeyDeletion {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         index: NonceIndex,
         nonce: Nonce,
     },

@@ -31,11 +31,12 @@ use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_crypto::PublicKey;
+use near_parameters::vm::Config as VmConfig;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
-use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
@@ -76,8 +77,8 @@ use near_store::{
     get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
     get_promise_yield_status, get_pure, get_received_data, has_received_data,
     remove_postponed_receipt, remove_promise_yield_receipt, remove_promise_yield_status, set,
-    set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data,
+    set_access_key, set_access_key_by_handle, set_account, set_gas_key_nonce,
+    set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -96,11 +97,13 @@ use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
 mod access_keys;
+mod action_validation;
 mod actions;
 #[cfg(test)]
 mod actions_test_utils;
 pub mod adapter;
 mod bandwidth_scheduler;
+pub mod cache_warming;
 pub mod config;
 mod congestion_control;
 mod contract_code;
@@ -183,6 +186,12 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// If `Some`, the next epoch's `wasm_config` differs from the current one
+    /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind
+    /// upgrade is scheduled for the next epoch boundary). Hooks throughout the
+    /// runtime use this to pre-warm the cache for the upcoming VM, so the boundary
+    /// doesn't trigger a re-compile avalanche. `None` in steady state.
+    pub next_wasm_config: Option<Arc<VmConfig>>,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Cache for trie node accesses.
@@ -229,6 +238,28 @@ pub struct ValidatorAccountsUpdate {
     pub protocol_treasury_account_id: Option<AccountId>,
 }
 
+/// Constraints from pending (included-but-not-yet-certified) transactions
+/// for balance and nonce validation during chunk production.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingConstraints {
+    /// Total balance already committed by this account's pending access key
+    /// transactions (total_cost) plus pending gas key deposit costs.
+    pub paid_from_balance: Balance,
+    /// Total gas key cost already committed by pending gas key transactions
+    /// signed with this key, plus any pending WithdrawFromGasKey amounts
+    /// targeting this key.
+    pub paid_from_gas_key: Balance,
+    /// Maximum nonce seen among pending transactions for this (account, key,
+    /// nonce_index) combination.
+    pub max_nonce: Nonce,
+}
+
+impl Default for PendingConstraints {
+    fn default() -> Self {
+        Self { paid_from_balance: Balance::ZERO, paid_from_gas_key: Balance::ZERO, max_nonce: 0 }
+    }
+}
+
 /// Outcome of transaction verification and charging.
 ///
 /// Returned by both `verify_and_charge_tx_ephemeral` and
@@ -253,6 +284,9 @@ pub enum TxVerdict {
 pub struct VerificationResult {
     /// The amount gas that was burnt to convert the transaction into a receipt and send it.
     pub gas_burnt: Gas,
+    /// Total amount of the compute budget of a chunk used by converting this
+    /// transaction into a receipt.
+    pub compute_burnt: Compute,
     /// The remaining amount of gas in the receipt.
     pub gas_remaining: Gas,
     /// The gas price at which the gas was purchased in the receipt.
@@ -309,7 +343,7 @@ pub struct ApplyResult {
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
-    pub stats: ChunkApplyStatsV0,
+    pub stats: ChunkApplyStatsV1,
     pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
@@ -445,10 +479,9 @@ impl Runtime {
     ) -> Result<ActionResult, RuntimeError> {
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
-        result.gas_used = exec_fees;
-        result.gas_burnt = exec_fees;
-        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees.as_gas();
+        result.gas_used = exec_fees.gas;
+        result.gas_burnt = exec_fees.gas;
+        result.compute_usage = exec_fees.compute;
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
@@ -491,6 +524,7 @@ impl Runtime {
                     account_id,
                     deploy_contract,
                     Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
@@ -674,7 +708,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
         epoch_info_provider: &dyn EpochInfoProvider,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
@@ -722,10 +756,9 @@ impl Runtime {
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionResult::default();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        result.gas_used = exec_fees;
-        result.gas_burnt = exec_fees;
-        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees.as_gas();
+        result.gas_used = exec_fees.gas;
+        result.gas_burnt = exec_fees.gas;
+        result.compute_usage = exec_fees.compute;
 
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions().iter().enumerate() {
@@ -1020,7 +1053,7 @@ impl Runtime {
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?.gas)
             .ok_or(IntegerOverflowError)?;
         let prepaid_exec_gas =
             total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
@@ -1029,13 +1062,13 @@ impl Runtime {
         let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
         let gross_gas_refund = if result.result.is_err() {
             prepaid_gas
-                .checked_add(prepaid_exec_gas)
+                .checked_add(prepaid_exec_gas.gas)
                 .ok_or(IntegerOverflowError)?
                 .checked_sub(result.gas_burnt)
                 .unwrap()
         } else {
             prepaid_gas
-                .checked_add(prepaid_exec_gas)
+                .checked_add(prepaid_exec_gas.gas)
                 .ok_or(IntegerOverflowError)?
                 .checked_sub(result.gas_used)
                 .unwrap()
@@ -1285,7 +1318,7 @@ impl Runtime {
                 }
             }
             VersionedReceiptEnum::GlobalContractDistribution(_) => {
-                apply_global_contract_distribution_receipt(
+                let compute = apply_global_contract_distribution_receipt(
                     receipt,
                     apply_state,
                     epoch_info_provider,
@@ -1293,6 +1326,7 @@ impl Runtime {
                     receipt_sink,
                     receipt_to_tx,
                 )?;
+                processing_state.total.add(0, compute)?;
                 return Ok(None);
             }
         };
@@ -1316,7 +1350,7 @@ impl Runtime {
         apply_state: &ApplyState,
         epoch_info_provider: &dyn EpochInfoProvider,
         pipeline_manager: &ReceiptPreparationPipeline,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
         account_id: &AccountId,
         action_receipt: VersionedActionReceipt<'_>,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
@@ -1621,7 +1655,7 @@ impl Runtime {
                     assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(state_update, account_id, public_key, &access_key);
+                    set_access_key_by_handle(state_update, account_id, public_key, &access_key);
                 }
                 _ => unimplemented!(
                     "patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord"
@@ -1878,6 +1912,7 @@ impl Runtime {
                     &tx.transaction,
                     &cost,
                     Some(block_height),
+                    &PendingConstraints::default(),
                 )
             } else {
                 // Regular access key transaction
@@ -1889,6 +1924,7 @@ impl Runtime {
                     &cost,
                     Some(block_height),
                     processing_state.protocol_version,
+                    &PendingConstraints::default(),
                 )
             };
 
@@ -1931,8 +1967,7 @@ impl Runtime {
                             logs: vec![],
                             receipt_ids: vec![*receipt.receipt_id()],
                             gas_burnt: result.gas_burnt,
-                            // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                            compute_usage: Some(result.gas_burnt.as_gas()),
+                            compute_usage: Some(result.compute_burnt),
                             tokens_burnt: result.burnt_amount,
                             executor_id: signer_id.clone(),
                             // TODO: profile data is only counted in apply_action, which only happened at process_receipt
@@ -2899,7 +2934,7 @@ struct ApplyProcessingState<'a> {
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
-    stats: ChunkApplyStatsV0,
+    stats: ChunkApplyStatsV1,
 }
 
 impl<'a> ApplyProcessingState<'a> {
@@ -2919,7 +2954,7 @@ impl<'a> ApplyProcessingState<'a> {
             gas: 0,
             compute: 0,
         };
-        let stats = ChunkApplyStatsV0::new(apply_state.block_height, apply_state.shard_id);
+        let stats = ChunkApplyStatsV1::new(apply_state.block_height, apply_state.shard_id);
         Self {
             protocol_version,
             apply_state,
@@ -2938,6 +2973,7 @@ impl<'a> ApplyProcessingState<'a> {
     ) -> ApplyProcessingReceiptState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
+            self.apply_state.next_wasm_config.clone(),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
@@ -2973,7 +3009,7 @@ struct ApplyProcessingReceiptState<'a> {
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
-    stats: ChunkApplyStatsV0,
+    stats: ChunkApplyStatsV1,
     outcomes: Vec<ExecutionOutcomeWithId>,
     metrics: ApplyMetrics,
     local_receipts: VecDeque<Receipt>,
@@ -3101,7 +3137,7 @@ pub mod estimator {
     use crate::congestion_control::ReceiptSinkV2WithInfo;
     use crate::pipelining::ReceiptPreparationPipeline;
     use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
-    use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats};
+    use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
@@ -3123,7 +3159,7 @@ pub mod estimator {
         outgoing_receipts: &mut Vec<Receipt>,
         instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
@@ -3158,6 +3194,7 @@ pub mod estimator {
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(&apply_state.config),
+            apply_state.next_wasm_config.clone(),
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),

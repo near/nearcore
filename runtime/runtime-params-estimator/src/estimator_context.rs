@@ -8,7 +8,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -28,8 +28,8 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, get_signer_and_access_key,
-    set_tx_state_changes, verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    get_signer_and_access_key, set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, VecDeque};
 use std::iter;
@@ -157,6 +157,7 @@ impl<'c> EstimatorContext<'c> {
             max_number_logs: u64::MAX,
 
             max_actions_per_receipt: u64::MAX,
+            max_deploy_actions_per_receipt: u64::MAX,
             max_promises_per_function_call_action: u64::MAX,
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,
@@ -188,6 +189,7 @@ impl<'c> EstimatorContext<'c> {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
+            next_wasm_config: None,
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -473,6 +475,7 @@ impl Testbed<'_> {
             &cost,
             block_height,
             PROTOCOL_VERSION,
+            &PendingConstraints::default(),
         ) else {
             panic!("tx verification should not fail in estimator");
         };
@@ -490,7 +493,7 @@ impl Testbed<'_> {
         let mut instant_receipts = VecDeque::new();
         let mut validator_proposals = vec![];
         let mut stats =
-            ChunkApplyStatsV0::new(self.apply_state.block_height, self.apply_state.shard_id);
+            ChunkApplyStatsV1::new(self.apply_state.block_height, self.apply_state.shard_id);
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);

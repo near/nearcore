@@ -40,7 +40,6 @@ pub mod adversarial;
 pub mod archive;
 mod chunk_distribution_network;
 mod chunk_endorsement_handler;
-pub mod chunk_executor_actor;
 mod chunk_inclusion_tracker;
 mod chunk_producer;
 mod client;
@@ -50,17 +49,13 @@ pub mod debug;
 pub mod gc_actor;
 mod info;
 pub mod metrics;
+pub mod pending_transaction_queue;
 mod prepare_transactions;
 mod rpc_handler;
-pub mod spice_chunk_validator_actor;
-pub mod spice_data_distributor_actor;
-mod spice_timer;
+pub mod spice;
 mod state_request_actor;
 pub mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;
 pub mod test_utils;
 mod view_client_actor;
-
-#[cfg(test)]
-mod tests;

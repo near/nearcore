@@ -348,14 +348,43 @@ fn add_title_to_allof(
     }
 }
 
+/// Schemas whose `required` list is stripped so generated clients stay
+/// compatible across networks (testnet/mainnet may expose different fields)
+/// and nearcore versions where fields may be added or removed.
+/// Shared between the OpenAPI and OpenRPC generators.
+pub(crate) const SCHEMAS_TO_REMOVE_REQUIRED_FROM: &[&str] = &[
+    "RpcClientConfigResponse",
+    "GCConfig",
+    "CloudArchivalWriterConfig",
+    "StateSyncConfig",
+    "DumpConfig",
+    "ExternalStorageConfig",
+    "SyncConcurrency",
+    "EpochSyncConfig",
+    "ChunkDistributionNetworkConfig",
+    "ChunkDistributionUris",
+    "RpcProtocolConfigResponse",
+    "RuntimeConfigView",
+    "RuntimeFeesConfigView",
+    "DataReceiptCreationConfigView",
+    "ActionCreationConfigView",
+    "StorageUsageConfigView",
+    "VMConfigView",
+    "LimitConfig",
+    "ExtCostsConfigView",
+    "AccountCreationConfigView",
+    "CongestionControlConfigView",
+    "WitnessConfigView",
+];
+
 /// Removes the "required" list from specific schemas
 #[derive(Debug, Clone)]
 pub struct RemoveRequiredFrom {
-    schemas: Vec<String>,
+    schemas: &'static [&'static str],
 }
 
 impl RemoveRequiredFrom {
-    pub fn new(schemas: Vec<String>) -> Self {
+    pub fn new(schemas: &'static [&'static str]) -> Self {
         Self { schemas }
     }
 }
@@ -364,8 +393,8 @@ impl schemars::transform::Transform for RemoveRequiredFrom {
     fn transform(&mut self, schema: &mut schemars::Schema) {
         // Check in $defs for all target schemas (schemas are in $defs at this point in the pipeline)
         if let Some(serde_json::Value::Object(defs)) = schema.get_mut("$defs") {
-            for schema_name in &self.schemas {
-                if let Some(target_schema) = defs.get_mut(schema_name) {
+            for schema_name in self.schemas {
+                if let Some(target_schema) = defs.get_mut(*schema_name) {
                     if let serde_json::Value::Object(schema_obj) = target_schema {
                         schema_obj.remove("required");
                     }
@@ -426,33 +455,8 @@ fn interchange_one_ofs_and_all_ofs(
 }
 
 fn schemas_map<T: JsonSchema>() -> SchemasMap {
-    let config_schemas_to_remove_required = vec![
-        "RpcClientConfigResponse".to_string(),
-        "GCConfig".to_string(),
-        "CloudArchivalWriterConfig".to_string(),
-        "StateSyncConfig".to_string(),
-        "DumpConfig".to_string(),
-        "ExternalStorageConfig".to_string(),
-        "SyncConcurrency".to_string(),
-        "EpochSyncConfig".to_string(),
-        "ChunkDistributionNetworkConfig".to_string(),
-        "ChunkDistributionUris".to_string(),
-        "RpcProtocolConfigResponse".to_string(),
-        "RuntimeConfigView".to_string(),
-        "RuntimeFeesConfigView".to_string(),
-        "DataReceiptCreationConfigView".to_string(),
-        "ActionCreationConfigView".to_string(),
-        "StorageUsageConfigView".to_string(),
-        "VMConfigView".to_string(),
-        "LimitConfig".to_string(),
-        "ExtCostsConfigView".to_string(),
-        "AccountCreationConfigView".to_string(),
-        "CongestionControlConfigView".to_string(),
-        "WitnessConfigView".to_string(),
-    ];
-
     let mut settings = schemars::generate::SchemaSettings::openapi3();
-    settings.transforms.push(Box::new(RemoveRequiredFrom::new(config_schemas_to_remove_required)));
+    settings.transforms.push(Box::new(RemoveRequiredFrom::new(SCHEMAS_TO_REMOVE_REQUIRED_FROM)));
 
     settings.transforms.insert(
         0,
@@ -639,7 +643,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.2.5".to_string(),
+            version: "1.2.7".to_string(),
             ..Default::default()
         },
         paths: all_paths,

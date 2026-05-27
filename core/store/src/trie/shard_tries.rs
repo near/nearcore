@@ -1,5 +1,5 @@
 use super::TrieRefcountSubtraction;
-use super::mem::memtries::MemTries;
+use super::mem::memtries::{MaybePinnedMemtrieRoot, MemTries};
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
@@ -620,6 +620,26 @@ impl ShardTries {
         guard.get(&shard_uid).cloned()
     }
 
+    /// Pins `state_root` in the shard's memtrie so `delete_until_height`
+    /// can't free it while the handle lives. Returns an unpinned handle if
+    /// no memtrie is loaded or if `state_root` is the default hash (an
+    /// empty trie never enters the memtrie, since `MemTries::insert_root`
+    /// asserts `state_root != default`). Errors if memtrie is loaded
+    /// but a non-default root is missing.
+    pub fn maybe_pin_memtrie_root(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+    ) -> Result<MaybePinnedMemtrieRoot, StorageError> {
+        if state_root == CryptoHash::default() {
+            return Ok(MaybePinnedMemtrieRoot::no_memtries());
+        }
+        let Some(memtries) = self.get_memtries(shard_uid) else {
+            return Ok(MaybePinnedMemtrieRoot::no_memtries());
+        };
+        MaybePinnedMemtrieRoot::acquire(&memtries, shard_uid, state_root)
+    }
+
     /// Finalize a completed background memtrie load: apply any remaining deltas
     /// accumulated since the background thread finished, then insert the memtrie
     /// into the active map. The caller is responsible for keeping the
@@ -675,6 +695,12 @@ impl ShardTries {
         let mut guard = memtries.write();
         let memtries = std::mem::replace(&mut *guard, MemTries::new(parent_shard_uid));
         let frozen_memtries = memtries.freeze();
+        // Put a clone of the frozen MemTries back into the *old* Arc so that any
+        // in-flight apply task that already cloned this Arc (before the new ones
+        // below are inserted) can still resolve its prev_state_root. Without this,
+        // such an apply would hit an empty MemTries and panic on `get_root`.
+        *guard = MemTries::from_frozen_memtries(parent_shard_uid, frozen_memtries.clone());
+        drop(guard);
 
         // Create hybrid memtrie for both parent and children shards.
         for shard_uid in [vec![parent_shard_uid], children_shard_uids.clone()].concat() {
@@ -946,10 +972,14 @@ impl KeyForStateChanges {
 mod test {
     use super::*;
     use crate::adapter::StoreAdapter;
+    use crate::test_utils::{TestTriesBuilder, test_populate_trie};
+    use crate::trie::AccessOptions;
     use crate::{
         TrieConfig, config::TrieCacheConfig, test_utils::create_test_store,
         trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
     };
+    use std::sync::mpsc::sync_channel;
+    use std::thread;
     use std::{assert_eq, str::FromStr};
 
     fn create_trie() -> ShardTries {
@@ -1101,5 +1131,49 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+    }
+
+    /// Holds a `Trie` for the parent shard, pauses between two reads while
+    /// the main thread runs `freeze_parent_memtrie`, and verifies that the
+    /// second read still succeeds. Without preserving the frozen data in the
+    /// old parent Arc, the second read would hit an empty MemTries and fail
+    /// with `StorageInconsistentState` (panicking in production via the
+    /// catch-all in `chain/chain/src/runtime/mod.rs`).
+    #[test]
+    fn test_freeze_during_apply_keeps_in_flight_reads_alive() {
+        let tries =
+            TestTriesBuilder::new().with_flat_storage(true).with_in_memory_tries(true).build();
+        let parent = ShardUId::single_shard();
+        let children =
+            vec![ShardUId { version: 2, shard_id: 0 }, ShardUId { version: 2, shard_id: 1 }];
+
+        let state_root = test_populate_trie(
+            &tries,
+            &Trie::EMPTY_ROOT,
+            parent,
+            vec![(b"key".to_vec(), Some(b"value".to_vec()))],
+        );
+
+        let (apply_paused_tx, apply_paused_rx) = sync_channel::<()>(0);
+        let (freeze_done_tx, freeze_done_rx) = sync_channel::<()>(0);
+
+        let tries_for_apply = tries.clone();
+        let apply_thread = thread::spawn(move || {
+            let trie = tries_for_apply.get_trie_for_shard(parent, state_root);
+            let first = trie.get(b"key", AccessOptions::DEFAULT).unwrap();
+            assert_eq!(first, Some(b"value".to_vec()));
+
+            apply_paused_tx.send(()).unwrap();
+            freeze_done_rx.recv().unwrap();
+
+            trie.get(b"key", AccessOptions::DEFAULT)
+        });
+
+        apply_paused_rx.recv().unwrap();
+        tries.freeze_parent_memtrie(parent, children).unwrap();
+        freeze_done_tx.send(()).unwrap();
+
+        let result = apply_thread.join().unwrap();
+        assert_eq!(result.unwrap(), Some(b"value".to_vec()));
     }
 }

@@ -14,9 +14,9 @@ use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
-use near_client::sync::SYNC_V2_ENABLED;
 use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
+use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::{InMemorySigner, KeyType, Signature};
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -34,7 +34,6 @@ use near_pool::types::TransactionGroupIterator;
 use near_primitives::block::Approval;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
-use near_primitives::genesis::GenesisId;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -1141,40 +1140,6 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
-fn slow_test_gc_after_state_sync() {
-    if SYNC_V2_ENABLED {
-        // Calls reset_data_pre_state_sync directly, which is dead code under SyncV2.
-        // Replaced by far_horizon tests in test-loop-tests.
-        return;
-    }
-    let epoch_length = 1024;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    let mut env =
-        TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
-    for i in 1..epoch_length * 4 + 2 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
-        env.process_block(1, block, Provenance::NONE);
-    }
-    let sync_height = epoch_length * 4 + 1;
-    let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap();
-    let sync_hash = *sync_block.hash();
-    let prev_block_hash = *sync_block.header().prev_hash();
-    // reset cache
-    for i in epoch_length * 3 - 1..sync_height - 1 {
-        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
-        assert!(env.clients[1].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
-    }
-    env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
-    // mimic what we do in possible_targets
-    assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    env.clients[1].chain.clear_data(&Default::default()).unwrap();
-}
-
-#[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_process_block_after_state_sync() {
@@ -1238,12 +1203,6 @@ fn slow_test_process_block_after_state_sync() {
         .runtime_adapter
         .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
         .unwrap();
-    // reset cache
-    for i in epoch_length * 3 - 1..sync_block.header().height() - 1 {
-        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
-        assert!(env.clients[0].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
-    }
-    env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
         .runtime_adapter
@@ -1433,30 +1392,7 @@ fn test_reject_block_headers_during_epoch_sync() {
     }
 
     let sync_client = &mut env.clients[1];
-    let status = &mut sync_client.sync_handler.sync_status;
-    let chain = &sync_client.chain;
-    let highest_height =
-        sync_client.config.epoch_sync.epoch_sync_horizon_num_epochs * epoch_length + 1;
-    let highest_height_peers = vec![HighestHeightPeerInfo {
-        archival: false,
-        genesis_id: GenesisId::default(),
-        highest_block_hash: *blocks.last().unwrap().hash(),
-        highest_block_height: blocks.len() as u64,
-        tracked_shards: vec![],
-        peer_info: PeerInfo::random(),
-    }];
-
-    // Running epoch sync, sets SyncStatus::EpochSync
-    assert_matches!(
-        sync_client.sync_handler.epoch_sync.run(
-            status,
-            chain,
-            highest_height,
-            &highest_height_peers
-        ),
-        Ok(()),
-        "Epoch sync failure"
-    );
+    sync_client.sync_handler.sync_status = SyncStatus::EpochSync(EpochSyncStatus::NotStarted);
 
     let headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     // actual attempt to sync headers during ongoing epoch sync
@@ -1492,7 +1428,6 @@ fn test_gc_tail_update() {
     let prev_sync_hash = *prev_sync_block.hash();
     let prev_sync_height = prev_sync_block.header().height();
     let sync_block = blocks[blocks.len() - 2].clone();
-    env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
     env.clients[1].chain.save_block(prev_prev_sync_block.into()).unwrap();
     env.clients[1].chain.save_block(prev_sync_block.into()).unwrap();
     let mut store_update = env.clients[1].chain.mut_chain_store().store_update();
@@ -1532,7 +1467,8 @@ fn test_gas_price_change() {
         .checked_add(transaction_costs.fee(ActionCosts::transfer).exec_fee())
         .unwrap()
         .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     let min_gas_price =
         target_num_tokens_left.checked_div(u128::from(send_money_total_gas.as_gas())).unwrap();
     let gas_limit = 1000000000000;
@@ -1715,71 +1651,6 @@ fn test_block_merkle_proof_same_hash() {
         )
         .unwrap();
     assert!(proof.is_empty());
-}
-
-#[test]
-fn test_data_reset_before_state_sync() {
-    if SYNC_V2_ENABLED {
-        // Calls reset_data_pre_state_sync directly, which is dead code under SyncV2.
-        // Replaced by far_horizon tests in test-loop-tests.
-        return;
-    }
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let epoch_length = 5;
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
-    let tx = SignedTransaction::create_account(
-        1,
-        "test0".parse().unwrap(),
-        "test_account".parse().unwrap(),
-        Balance::from_near(1),
-        signer.public_key(),
-        &signer,
-        genesis_hash,
-    );
-    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
-    for i in 1..5 {
-        env.produce_block(0, i);
-    }
-    // check that the new account exists
-    let head = env.clients[0].chain.head().unwrap();
-    let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let prev_chunk_extra = env.clients[0]
-        .chain
-        .get_chunk_extra(head_block.header().prev_hash(), &ShardUId::single_shard())
-        .unwrap();
-    let response = env.clients[0]
-        .runtime_adapter
-        .query(
-            ShardUId::single_shard(),
-            prev_chunk_extra.state_root(),
-            head.height,
-            0,
-            &head.prev_block_hash,
-            &head.last_block_hash,
-            head_block.header().epoch_id(),
-            &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
-        )
-        .unwrap();
-    assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
-    env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
-    // account should not exist after clearing state
-    let response = env.clients[0].runtime_adapter.query(
-        ShardUId::single_shard(),
-        prev_chunk_extra.state_root(),
-        head.height,
-        0,
-        &head.prev_block_hash,
-        &head.last_block_hash,
-        head_block.header().epoch_id(),
-        &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
-    );
-    // TODO(#3742): ViewClient still has data in cache by current design.
-    assert!(response.is_ok());
 }
 
 #[test]
@@ -2133,12 +2004,10 @@ fn slow_test_catchup_gas_price_change() {
                 .unwrap()
         );
         store_update.commit();
-        let protocol_version =
-            env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             let bytes = store.get(DBCol::StateParts, &key).unwrap();
-            let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
+            let part = StatePart::from_bytes(bytes.to_vec()).unwrap();
             env.clients[1]
                 .runtime_adapter
                 .apply_state_part(
@@ -2405,7 +2274,8 @@ fn test_execution_metadata() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .execution
-        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
+        .gas()
+        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee().gas)
         .unwrap()
         .checked_add(
             config
@@ -2413,7 +2283,8 @@ fn test_execution_metadata() {
                 .fee(ActionCosts::function_call_byte)
                 .exec_fee()
                 .checked_mul("main".len() as u64)
-                .unwrap(),
+                .unwrap()
+                .gas,
         )
         .unwrap()
         .as_gas();
@@ -2505,6 +2376,9 @@ fn test_epoch_protocol_version_change() {
         }
         for j in 0..2 {
             env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+            // TODO(spice): fold spice_execute_block into process_block_test so
+            // callers don't have to remember this pairing on spice chains.
+            env.spice_execute_block(j, *block.hash());
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap();
@@ -2683,8 +2557,12 @@ fn produce_block(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
     let block_producer = env.clients[0].epoch_manager.get_block_producer(epoch_id, height).unwrap();
     let index = if block_producer == "test0" { 0 } else { 1 };
     let block = env.clients[index].produce_block(height).unwrap().unwrap();
-    for client in &mut env.clients {
-        client.process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+    let block_hash = *block.hash();
+    for i in 0..env.clients.len() {
+        env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+        // TODO(spice): fold spice_execute_block into process_block_test so
+        // callers don't have to remember this pairing on spice chains.
+        env.spice_execute_block(i, block_hash);
     }
 }
 

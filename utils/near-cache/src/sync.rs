@@ -88,7 +88,7 @@ where
     }
 
     /// Returns the lock over underlying LRU cache.
-    pub fn lock(&self) -> MutexGuard<LruCache<K, V>> {
+    pub fn lock(&self) -> MutexGuard<'_, LruCache<K, V>> {
         self.inner.lock()
     }
 }

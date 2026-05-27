@@ -252,6 +252,13 @@ pub static NUM_FAILED_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(||
     )
     .unwrap()
 });
+pub static NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_num_failed_optimistic_block_applies",
+        "Number of per-shard optimistic apply tasks that returned an error",
+    )
+    .unwrap()
+});
 pub(crate) static SCHEDULED_CATCHUP_BLOCK: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_catchup_scheduled_block_height",

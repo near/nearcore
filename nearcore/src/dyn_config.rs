@@ -66,6 +66,12 @@ pub fn get_updatable_client_config(config: &Config) -> UpdatableClientConfig {
         expected_shutdown: config.expected_shutdown,
         resharding_config: config.resharding_config,
         produce_chunk_add_transactions_time_limit: config.produce_chunk_add_transactions_time_limit,
+        block_production_tracking_delay: config.consensus.block_production_tracking_delay,
+        min_block_production_delay: config.consensus.min_block_production_delay,
+        max_block_production_delay: config.consensus.max_block_production_delay,
+        max_block_wait_delay: config.consensus.max_block_wait_delay,
+        chunk_wait_mult: config.consensus.chunk_wait_mult,
+        doomslug_step_period: config.consensus.doomslug_step_period,
     }
 }
 

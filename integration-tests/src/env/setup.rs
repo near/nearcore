@@ -75,7 +75,6 @@ fn setup(
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     enable_doomslug: bool,
-    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     genesis_time: Utc,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
@@ -150,7 +149,6 @@ fn setup(
             max_block_prod_time,
             num_block_producer_seats: num_validator_seats,
             archive: false,
-            state_sync_enabled,
             transaction_pool_size_limit: None,
         });
         base.chunk_distribution_network = chunk_distribution_config;
@@ -203,6 +201,7 @@ fn setup(
     let StartClientResult {
         client_actor,
         tx_pool,
+        pending_transaction_queue,
         chunk_endorsement_tracker,
         chunk_validation_actor,
         ..
@@ -243,12 +242,14 @@ fn setup(
         epoch_length: config.epoch_length,
         transaction_validity_period,
         disable_tx_routing: config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: config.spice_pending_transaction_queue_enabled(),
     };
 
     let rpc_handler_addr = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         epoch_manager.clone(),
         shard_tracker.clone(),
         signer,
@@ -351,7 +352,6 @@ fn setup_mock_with_validity_period(
         MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         enable_doomslug,
-        true,
         network_adapter.as_multi_sender(),
         clock.now_utc(),
         None,
@@ -468,7 +468,6 @@ pub fn setup_client_with_runtime(
         max_block_prod_time: 20,
         num_block_producer_seats: num_validator_seats,
         archive: split_store_enabled,
-        state_sync_enabled: true,
         transaction_pool_size_limit,
     });
     config.save_tx_outcomes = save_tx_outcomes;
@@ -609,7 +608,6 @@ pub fn setup_tx_request_handler(
         max_block_prod_time: 20,
         num_block_producer_seats: 0,
         archive: true,
-        state_sync_enabled: true,
         transaction_pool_size_limit: None,
     });
     let config = RpcHandlerConfig {
@@ -618,11 +616,14 @@ pub fn setup_tx_request_handler(
         epoch_length: chain_genesis.epoch_length,
         transaction_validity_period: chain_genesis.transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: client_config
+            .spice_pending_transaction_queue_enabled(),
     };
 
     RpcHandlerActor::new(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
+        client.chunk_producer.pending_transaction_queue.clone(),
         epoch_manager,
         shard_tracker,
         client.validator_signer.clone(),

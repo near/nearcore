@@ -1,6 +1,3 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use crate::account::{Account, accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
@@ -10,11 +7,15 @@ use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
-use rand::distributions::{Alphanumeric, DistString};
+use rand::RngExt;
+use rand::distr::{Alphanumeric, SampleString};
+use rand::rng;
 use rand::rngs::ThreadRng;
-use rand::{Rng, thread_rng};
 use serde::Serialize;
 use serde_json::json;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time;
 
@@ -64,7 +65,7 @@ pub async fn benchmark_mpc_sign_impl(
 
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     // Before a request is made, a permit to send into the channel is awaited. Hence buffer size
     // limits the number of outstanding requests. This helps to avoid congestion.

@@ -71,7 +71,7 @@ impl<'a> Memory<'a> {
     }
 
     /// Like [`Self::view`] but does not pay gas fees.
-    pub(super) fn view_for_free(&self, slice: MemSlice) -> Result<Cow<[u8]>> {
+    pub(super) fn view_for_free(&self, slice: MemSlice) -> Result<Cow<'_, [u8]>> {
         self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
@@ -176,25 +176,19 @@ impl Registers {
         self.set_impl(gas_counter, config, register_id, data, true)
     }
 
-    /// Sets register with given index.
+    /// Sets register with given index from an existing `Rc<[u8]>` without
+    /// charging per-byte gas (the data is shared, not copied).
     ///
     /// Returns an error if (i) there’s not enough gas to perform the register
     /// write or (ii) if setting the register would violate configured limits.
-    ///
-    /// Specialized version of [`Self::set`] that's guaranteed to not copy and
-    /// therefore only needs to charge gas for for copying bytes to maintain
-    /// backwards compatibility.
-    ///
-    /// Once all places use `Rc` over `Vec`, this can entirely replace [`Self::set`].
     pub(crate) fn set_rc_data(
         &mut self,
         gas_counter: &mut GasCounter,
         config: &LimitConfig,
         register_id: u64,
         data: Rc<[u8]>,
-        charge_bytes_gas: bool,
     ) -> Result<()> {
-        self.set_impl(gas_counter, config, register_id, data, charge_bytes_gas)
+        self.set_impl(gas_counter, config, register_id, data, false)
     }
 
     fn set_impl<T>(

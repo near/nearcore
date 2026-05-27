@@ -178,7 +178,7 @@ impl NearVM {
                 tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
-        crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
+        crate::metrics::compilation_duration(start.elapsed());
 
         tracing::debug!(
             target: "vm",
@@ -546,7 +546,7 @@ impl near_vm_vm::Tunables for &NearVM {
     }
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<'_, Output = u64>> {
         Box::new(GasCostCfg(u64::from(self.config.regular_op_cost)))
     }
 }
@@ -590,6 +590,9 @@ struct GasCostCfg(u64);
 macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
+            // The macro produces many visitor functions with unused arguments, the easiest
+            // solution is to ignore the warnings.
+            #[allow(unused_variables)]
             fn $visit(&mut self $($(, $arg: $argty)*)?) -> u64 {
                 gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
             }
@@ -616,6 +619,10 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 }
 
 impl crate::runner::VM for NearVM {
+    fn vm_hash(&self) -> u64 {
+        near_vm_vm_hash()
+    }
+
     fn contract_cached(
         &self,
         cache: &dyn ContractRuntimeCache,
@@ -680,6 +687,19 @@ impl crate::runner::VM for NearVM {
             (_, Err(err)) => Ok(Err(err)),
             _ => Ok(Ok(ContractPrecompilatonResult::ContractCompiled)),
         }
+    }
+
+    /// NearVM doesn't use per-key compilation locks, so there's nothing to
+    /// "try" against — just delegate to `precompile`.
+    fn try_precompile(
+        &self,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
+        self.precompile(code, cache)
     }
 }
 

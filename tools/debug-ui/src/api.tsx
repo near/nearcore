@@ -138,7 +138,6 @@ export type SyncStatusView =
             computation_tasks: string[];
         };
     }
-    | 'StateSyncDone'
     | {
         BlockSync: {
             start_height: number;
@@ -417,27 +416,44 @@ export interface ChainProcessingStatusResponse {
     };
 }
 
-export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'status'));
-    return await response.json();
+export class HttpError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+        super(message);
+        this.status = status;
+    }
 }
 
-export async function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/status'));
-    return await response.json();
+export function isClientError(error: unknown): boolean {
+    return error instanceof HttpError && error.status >= 400 && error.status < 500;
 }
 
-export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/sync_status'));
-    return await response.json();
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new HttpError(response.status, body || response.statusText);
+    }
+    return response.json();
 }
 
-export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/tracked_shards'));
-    return await response.json();
+export function fetchBasicStatus(addr: string): Promise<StatusResponse> {
+    return fetchJson(getTargetUrl(addr, 'status'));
 }
 
-export async function fetchBlockStatus(
+export function fetchFullStatus(addr: string): Promise<StatusResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/status'));
+}
+
+export function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/sync_status'));
+}
+
+export function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/tracked_shards'));
+}
+
+export function fetchBlockStatus(
     addr: string,
     height: number | null,
     mode: string | null,
@@ -453,76 +469,61 @@ export async function fetchBlockStatus(
     if (numBlocks !== null) {
         params.append('num_blocks', numBlocks.toString());
     }
-    
-    const response = await fetch(getTargetUrl(addr, `debug/api/block_status${params.toString() ? '?' + params : ''}`));
-    return await response.json();
+    const query = params.toString() ? '?' + params : '';
+    return fetchJson(getTargetUrl(addr, `debug/api/block_status${query}`));
 }
 
-export async function fetchEpochInfo(
+export function fetchEpochInfo(
     addr: string,
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    const response = await fetch(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
-    if (!response.ok) {
-        throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
-    }
-
-    return await response.json();
+    return fetchJson(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
 }
 
-export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/peer_store'));
-    return await response.json();
+export function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/peer_store'));
 }
 
-export async function fetchRecentOutboundConnections(
+export function fetchRecentOutboundConnections(
     addr: string
-): Promise<RecentOutboundConnectionsResponse> {   
-    const response = await fetch(getTargetUrl(addr, 'debug/api/recent_outbound_connections'));
-    return await response.json();
+): Promise<RecentOutboundConnectionsResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/recent_outbound_connections'));
 }
 
-export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/snapshot_hosts'));
-    return await response.json();
+export function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/snapshot_hosts'));
 }
 
-export async function fetchChainProcessingStatus(
+export function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/chain_processing_status'));
-    return await response.json();
+    return fetchJson(getTargetUrl(addr, 'debug/api/chain_processing_status'));
 }
 
 export type ApiEntityDataEntryValue = string | ApiEntityData;
 export type ApiEntityData = { entries: ApiEntityDataEntry[] };
 export type ApiEntityDataEntry = { name: string; value: ApiEntityDataEntryValue };
 
-export async function fetchEntity(
+export function fetchEntity(
     addr: string,
     request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/entity'), {
+    return fetchJson(getTargetUrl(addr, 'debug/api/entity'), {
         body: JSON.stringify(request),
         headers: {
             'Content-Type': 'application/json',
         },
         method: 'POST',
     });
-    if (response.status !== 200) {
-        throw await response.text();
-    }
-    return response.json();
 }
 
 export const INSTRUMENTED_WINDOW_LEN_MS = 500;
 
-export async function fetchInstrumentedThreadsView(
+export function fetchInstrumentedThreadsView(
     addr: string
 ): Promise<InstrumentedThreadsViewResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/instrumented_threads'));
-    return await response.json();
+    return fetchJson(getTargetUrl(addr, 'debug/api/instrumented_threads'));
 }
 
 export interface InstrumentedThreadsViewResponse {

@@ -1,7 +1,55 @@
 use super::test_builder::test_builder;
+use crate::logic::errors::VMRunnerError;
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::runner::VMKindExt;
 use expect_test::expect;
+use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
+use near_primitives_core::code::ContractCode;
 use near_primitives_core::types::Gas;
 use std::fmt::Write;
+use std::sync::Arc;
+
+/// Compile and load a contract with 100k globals.
+///
+/// Each global produces 8 bytes of instance data, so globals alone add 800kB.
+/// In total, that breaches the (default) limit of 1MiB for
+/// `max_core_instance_size` for the Wasmtime pooling allocator.
+///
+/// This must return `VMRunnerError::LoadingError` and not panic / crash the node.
+///
+/// Other VM backends don't use a pooling allocator with this limit, so they should
+/// run the contract successfully.
+#[test]
+fn test_max_core_instance_size_breached() {
+    let wasm = near_test_contracts::contract_with_num_globals(100_000);
+
+    super::with_vm_variants(|vm_kind| {
+        let code = ContractCode::new(wasm.clone(), None);
+        let config = Arc::new(super::test_vm_config(Some(vm_kind)));
+        let fees = Arc::new(RuntimeFeesConfig::test());
+        let mut ext = MockedExternal::with_code(code.clone_for_tests());
+        let context = super::create_context(vec![]);
+        let gas_counter = context.make_gas_counter(&config);
+
+        let result = vm_kind
+            .runtime(config)
+            .unwrap()
+            .prepare(&ext, None, gas_counter, "main")
+            .run(&mut ext, &context, fees);
+
+        match vm_kind {
+            VMKind::Wasmtime => assert!(
+                matches!(result, Err(VMRunnerError::LoadingError(_))),
+                "Wasmtime: expected LoadingError for oversized instance, got: {result:?}",
+            ),
+            _ => assert!(
+                result.as_ref().is_ok_and(|outcome| outcome.aborted.is_none()),
+                "{vm_kind:?}: expected clean success for many-globals contract, got: {result:?}",
+            ),
+        }
+    });
+}
 
 const FIX_CONTRACT_LOADING_COST: u32 = 129;
 
@@ -307,6 +355,40 @@ fn test_guest_panic() {
                 Err: Smart contract panicked: explicit guest panic
             "#]],
         ]);
+}
+
+#[test]
+fn test_trampoline_only_start_section() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "panic" (func $panic))
+  (start $panic)
+  (export "main" (func $panic))
+)"#,
+        )
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 364482479 used gas 364482479
+            Err: Smart contract panicked: explicit guest panic
+        "#]]);
+}
+
+#[test]
+fn test_trampoline_only_remaining_gas_global() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "panic" (func $panic))
+  (global $g i32 (i32.const 0))
+  (export "main" (func $panic))
+)"#,
+        )
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 376464724 used gas 376464724
+            Err: Smart contract panicked: explicit guest panic
+        "#]]);
 }
 
 #[test]

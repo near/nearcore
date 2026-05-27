@@ -14,6 +14,8 @@
 //!
 //! [The Stack Clash]: https://blog.qualys.com/securitylabs/2017/06/19/the-stack-clash
 
+mod rust_lang_probestack;
+
 // A declaration for the stack probe function in Rust's standard library, for
 // catching callstack overflow.
 cfg_if::cfg_if! {
@@ -55,10 +57,10 @@ cfg_if::cfg_if! {
         /// A default probestack for other architectures
         pub const PROBESTACK: unsafe extern "C" fn() = empty_probestack;
     } else {
-        unsafe extern "C" {
-            pub fn __rust_probestack();
-        }
         /// The probestack based on the Rust probestack
-        pub static PROBESTACK: unsafe extern "C" fn() = __rust_probestack;
+        ///
+        /// Vendored in runtime/near-vm/vm/src/probestack/rust_lang_probestack.rs
+        /// because with Rust 1.91 the symbol is no longer exposed.
+        pub static PROBESTACK: unsafe extern "C" fn() = rust_lang_probestack::__private_rust_probestack;
     }
 }

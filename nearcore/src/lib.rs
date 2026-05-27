@@ -12,8 +12,8 @@ use near_async::thread_pool::{
 use near_async::time::Clock;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
+use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
@@ -26,11 +26,11 @@ use near_client::archive::cloud_archival_writer::{
     CloudArchivalWriterHandle, create_cloud_archival_writer,
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
-use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
-use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
@@ -608,6 +608,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let StartClientResult {
         client_actor,
         tx_pool,
+        pending_transaction_queue,
         chunk_endorsement_tracker,
         chunk_validation_actor,
     } = start_client(
@@ -690,12 +691,16 @@ pub async fn start_with_config_and_synchronization_impl(
         disable_tx_routing: config.client_config.disable_tx_routing,
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
+        spice_pending_transaction_queue_enabled: config
+            .client_config
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_shard_tracker = view_shard_tracker.clone();
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),

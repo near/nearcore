@@ -519,11 +519,11 @@ impl RunCmd {
             near_config.rpc_config = None;
         } else {
             if let Some(rpc_addr) = self.rpc_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).addr =
                     tcp::ListenerAddr::new(rpc_addr.parse().unwrap());
             }
             if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).prometheus_addr =
                     Some(rpc_prometheus_addr);
             }
         }
@@ -639,7 +639,7 @@ impl RunCmd {
 /// Archival nodes skip deletion to prevent accidental data loss.
 fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
     let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    if !near_client::sync::SYNC_V2_ENABLED || !marker_path.exists() {
+    if !marker_path.exists() {
         return;
     }
     if is_archival {
