@@ -317,6 +317,7 @@ fn spawn_spice_actors(
                 validator_signer.clone(),
                 network_adapter.clone(),
                 spice_core_writer_adapter.as_sender(),
+                spice_data_distributor_adapter.as_multi_sender(),
                 chunk_executor_coordinator_adapter.as_sender(),
                 self_adapter.as_sender(),
             );
@@ -330,7 +331,6 @@ fn spawn_spice_actors(
             runtime.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            spice_data_distributor_adapter.as_multi_sender(),
             mailboxes,
         );
         let addr = actor_system.spawn_tokio_actor(coordinator);

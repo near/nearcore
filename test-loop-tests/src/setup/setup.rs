@@ -526,6 +526,7 @@ pub fn setup_client(
                 validator_signer.clone(),
                 network_adapter.as_multi_sender(),
                 spice_core_writer_adapter.as_sender(),
+                spice_data_distributor_adapter.as_multi_sender(),
                 chunk_executor_coordinator_adapter.as_sender(),
                 self_adapter.as_sender(),
             );
@@ -539,7 +540,6 @@ pub fn setup_client(
             runtime_adapter.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            spice_data_distributor_adapter.as_multi_sender(),
             mailboxes,
         );
         test_loop.data.register_actor(

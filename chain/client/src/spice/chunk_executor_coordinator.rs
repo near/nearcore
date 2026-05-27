@@ -1,13 +1,10 @@
 use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::spice::data_distributor_actor::{
-    SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
-};
 use crate::spice::per_shard_executor::{
     CERCertified, IncomingBlock, IncomingReceipt, ReceiptSource,
 };
 use lru::LruCache;
 use near_async::futures::DelayedActionRunner;
-use near_async::messaging::{Actor, CanSend, Handler, IntoSender, Sender};
+use near_async::messaging::{Actor, Handler, IntoSender, Sender};
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -20,7 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::ShardId;
 use near_store::Store;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -77,7 +74,6 @@ pub struct ChunkExecutorCoordinator {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    data_distributor_adapter: SpiceDataDistributorAdapter,
     mailboxes: HashMap<ShardId, PerShardMailbox>,
     /// Soft cross-shard sanity check: block -> first-seen bandwidth scheduler
     /// state hash. Not completion state; losing it on restart only skips the
@@ -92,7 +88,6 @@ impl ChunkExecutorCoordinator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        data_distributor_adapter: SpiceDataDistributorAdapter,
         mailboxes: HashMap<ShardId, PerShardMailbox>,
     ) -> Self {
         let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period);
@@ -101,7 +96,6 @@ impl ChunkExecutorCoordinator {
             runtime_adapter,
             epoch_manager,
             shard_tracker,
-            data_distributor_adapter,
             mailboxes,
             bandwidth_hash_cache: LruCache::new(
                 NonZeroUsize::new(BANDWIDTH_HASH_CACHE_CAP).unwrap(),
@@ -251,11 +245,40 @@ impl ChunkExecutorCoordinator {
         }
         *header.hash()
     }
+
+    /// Bootstrap/catch-up: broadcast `IncomingBlock` for every block above the
+    /// execution head so per-shard actors apply any backlog. Bounded by the
+    /// execution-head-to-tip gap (small in steady state; non-trivial only after
+    /// a restart with execution lagging). Already-applied blocks are dropped by
+    /// the per-shard `AlreadyApplied` check.
+    fn replay_blocks_above_execution_head(&self) {
+        let head = match self.chain_store.spice_execution_head() {
+            Ok(tip) => tip.last_block_hash,
+            Err(Error::DBNotFoundErr(_)) => self.genesis_hash(),
+            Err(err) => {
+                tracing::error!(target: "chunk_executor", ?err, "failed reading spice execution head for replay");
+                return;
+            }
+        };
+        let mut queue: VecDeque<CryptoHash> =
+            self.chain_store.get_all_next_block_hashes(&head).into();
+        while let Some(block_hash) = queue.pop_front() {
+            for mailbox in self.mailboxes.values() {
+                mailbox.incoming_block.send(IncomingBlock { block_hash });
+            }
+            queue.extend(self.chain_store.get_all_next_block_hashes(&block_hash));
+        }
+    }
 }
 
 impl Actor for ChunkExecutorCoordinator {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
         tracing::info!(target: "chunk_executor", "ChunkExecutorCoordinator started (prototype)");
+        // Recover any applied-but-not-finalized backlog, then replay blocks above
+        // the execution head so the per-shard actors re-derive readiness and
+        // catch up (e.g. after a restart with execution lagging consensus).
+        self.advance_execution_head();
+        self.replay_blocks_above_execution_head();
     }
 }
 
@@ -288,7 +311,8 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
             }
         }
         // Wake local destination shards. The proofs are ALREADY on disk (sender
-        // wrote them), so LocallyVerified is a wake-up only.
+        // wrote them), so LocallyVerified is a wake-up only. Network distribution
+        // to the DataDistributor is done (producer-gated) by the per-shard actor.
         for proof in &outgoing_receipt_proofs {
             let to_shard_id = proof.1.to_shard_id;
             if let Some(mailbox) = self.mailboxes.get(&to_shard_id) {
@@ -299,13 +323,6 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
                 });
             }
         }
-        // Forward to the data distributor for network broadcast. Prototype:
-        // forwarded unconditionally (producer-gating is deferred — redundant
-        // sends are harmless here).
-        self.data_distributor_adapter.send(SpiceDistributorOutgoingReceipts {
-            block_hash,
-            receipt_proofs: outgoing_receipt_proofs,
-        });
         self.advance_execution_head();
     }
 }
