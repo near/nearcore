@@ -11,16 +11,12 @@ use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::hash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockReference, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_primitives::views::{QueryRequest, QueryResponseKind, TxExecutionStatus};
-use num_rational::Ratio;
 use std::sync::Arc;
 
 /// Query account from view client

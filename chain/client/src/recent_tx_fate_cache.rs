@@ -70,10 +70,9 @@ impl Default for RecentTxFateCache {
 
 #[cfg(test)]
 mod tests {
+    use super::{RecentTxFateCache, TransactionFate};
     use near_primitives::hash::CryptoHash;
     use std::num::NonZeroUsize;
-
-    use super::{RecentTxFateCache, TransactionFate};
 
     fn hash(n: u8) -> CryptoHash {
         let mut bytes = [0u8; 32];

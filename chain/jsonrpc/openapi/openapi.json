@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.6"
+    "version": "1.2.7"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -17455,6 +17455,20 @@
           },
           {
             "properties": {
+              "name": {
+                "enum": [
+                  "MEMPOOL_IS_FULL"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
               "info": {
                 "properties": {
                   "transaction_hash": {
@@ -17495,6 +17509,32 @@
               "name": {
                 "enum": [
                   "UNKNOWN_TRANSACTION"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "requested_transaction_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "requested_transaction_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "TRANSACTION_EXPIRED"
                 ],
                 "type": "string"
               }
