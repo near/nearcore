@@ -123,6 +123,9 @@ impl PerShardExecutor {
         shard_id: ShardId,
         store: Store,
         transaction_validity_period: NumBlocks,
+        save_trie_changes: bool,
+        save_tx_outcomes: bool,
+        save_receipt_to_tx: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         core_reader: SpiceCoreReader,
@@ -133,7 +136,9 @@ impl PerShardExecutor {
         coordinator_sender: Sender<PerShardChunkApplied>,
         myself_sender: Sender<AppliedContinue>,
     ) -> Self {
-        let chain_store = ChainStore::new(store, true, transaction_validity_period);
+        let chain_store = ChainStore::new(store, save_trie_changes, transaction_validity_period)
+            .with_save_tx_outcomes(save_tx_outcomes)
+            .with_save_receipt_to_tx(save_receipt_to_tx);
         Self {
             shard_id,
             chain_store,

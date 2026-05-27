@@ -512,6 +512,9 @@ pub fn setup_client(
         let deps = PerShardDeps {
             store: runtime_adapter.store().clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
+            save_trie_changes: client_config.save_trie_changes,
+            save_tx_outcomes: client_config.save_tx_outcomes,
+            save_receipt_to_tx: client_config.save_receipt_to_tx,
             runtime_adapter: runtime_adapter.clone(),
             epoch_manager: epoch_manager.clone(),
             core_reader: spice_core_reader,

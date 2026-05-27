@@ -301,6 +301,9 @@ fn spawn_spice_actors(
         let deps = PerShardDeps {
             store: runtime.store().clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
+            save_trie_changes: chunk_executor_config.save_trie_changes,
+            save_tx_outcomes: chunk_executor_config.save_tx_outcomes,
+            save_receipt_to_tx: chunk_executor_config.save_receipt_to_tx,
             runtime_adapter: runtime.clone(),
             epoch_manager: epoch_manager.clone(),
             core_reader: spice_core_reader.clone(),

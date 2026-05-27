@@ -41,6 +41,11 @@ pub trait PerShardSpawner: Send + Sync + 'static {
 pub struct PerShardDeps {
     pub store: Store,
     pub transaction_validity_period: NumBlocks,
+    /// Mirror the old `ChunkExecutorActor`: thread the client-config persistence
+    /// flags into each shard's `ChainStore` so disabled writes stay disabled.
+    pub save_trie_changes: bool,
+    pub save_tx_outcomes: bool,
+    pub save_receipt_to_tx: bool,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub core_reader: SpiceCoreReader,
@@ -63,6 +68,9 @@ impl PerShardDeps {
             shard_id,
             self.store.clone(),
             self.transaction_validity_period,
+            self.save_trie_changes,
+            self.save_tx_outcomes,
+            self.save_receipt_to_tx,
             self.runtime_adapter.clone(),
             self.epoch_manager.clone(),
             self.core_reader.clone(),
