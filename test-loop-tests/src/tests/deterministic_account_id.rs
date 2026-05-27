@@ -131,7 +131,7 @@ fn test_deterministic_state_init_via_meta_tx() {
 /// With the old (buggy) code, `validate_delegate_action` used
 /// `outer_tx.receiver_id` instead of `delegate_action.receiver_id` when
 /// checking inner actions. The exploit tx therefore passes initial tx
-/// validation. The exploit is prevent by a following `validate_receipt` check
+/// validation. The exploit is prevented by a following `validate_receipt` check
 /// when the meta transaction is unpacked.
 #[test]
 fn test_deterministic_state_init_meta_tx_receiver_check_pre_fix() {
@@ -941,6 +941,7 @@ struct TestEnv {
     user_account: AccountId,
     independent_account: AccountId,
     nonce: u64,
+    protocol_version: ProtocolVersion,
 }
 
 impl TestEnv {
@@ -990,6 +991,7 @@ impl TestEnv {
             global_contract_account,
             contract: ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
             nonce: 1,
+            protocol_version,
         }
     }
 
@@ -1313,7 +1315,7 @@ impl TestEnv {
     }
 
     fn balance_for_storage(&self, state_init: DeterministicAccountStateInit) -> Balance {
-        let runtime_config = self.runtime_config_store.get_config(PROTOCOL_VERSION);
+        let runtime_config = self.runtime_config_store.get_config(self.protocol_version);
         let storage_config = &runtime_config.fees.storage_usage_config;
         let num_records = state_init.data().len() as u64;
 
