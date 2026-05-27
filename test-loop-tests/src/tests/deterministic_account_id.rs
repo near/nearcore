@@ -242,7 +242,7 @@ fn try_meta_tx_deterministic_receiver_exploit(
     let delegate_nonce = env.next_nonce_for(&det_account_b);
     let delegate_action = DelegateAction {
         sender_id: det_account_b.clone(),
-        receiver_id: det_account_a.clone(),
+        receiver_id: det_account_a,
         actions: vec![NonDelegateAction::try_from(inner_action).unwrap()],
         nonce: delegate_nonce,
         max_block_height: 1_000_000,
@@ -253,7 +253,7 @@ fn try_meta_tx_deterministic_receiver_exploit(
     let tx = SignedTransaction::from_actions(
         env.next_nonce(),
         relayer,
-        det_account_b.clone(),
+        det_account_b,
         &relayer_signer,
         vec![Action::Delegate(Box::new(signed_delegate_action))],
         env.get_tx_block_hash(),
