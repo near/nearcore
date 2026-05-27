@@ -8,6 +8,11 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[package.metadata.cargo-udeps.ignore]
+# Used pervasively by the cfg(test) `tests/` modules; udeps only inspects the
+# (non-test) lib target, where it looks unused after the spice harness rewrite.
+normal = ["assert_matches"]
+
 [lints]
 workspace = true
 

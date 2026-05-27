@@ -2376,6 +2376,7 @@ fn test_epoch_protocol_version_change() {
         }
         for j in 0..2 {
             env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+            env.spice_execute_block(j, *block.hash());
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap();
@@ -2556,6 +2557,7 @@ fn produce_block(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
     let block = env.clients[index].produce_block(height).unwrap().unwrap();
     for i in 0..env.clients.len() {
         env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+        env.spice_execute_block(i, *block.hash());
     }
 }
 

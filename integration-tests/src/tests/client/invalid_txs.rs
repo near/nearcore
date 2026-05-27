@@ -129,6 +129,7 @@ fn test_invalid_transactions_no_panic() {
                         Provenance::NONE,
                     )
                     .unwrap();
+                env.spice_execute_block(i, *block.hash());
             }
         }
         start_height += 3;

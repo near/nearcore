@@ -1,5 +1,6 @@
 use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
+use crate::env::spice_harness::SpiceNode;
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, IntoMultiSender};
@@ -16,6 +17,8 @@ use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::ChunkValidationActor;
+use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use near_client::spice::executor_shared::ExecutorIncomingUnverifiedReceipts;
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -67,6 +70,9 @@ pub struct TestEnv {
     pub clients: Vec<Client>,
     pub chunk_validation_actors: Vec<ChunkValidationActor>,
     pub rpc_handlers: Vec<RpcHandlerActor>,
+    /// Synchronous SPICE per-shard chunk-execution drivers, one per client. Empty
+    /// unless the SPICE protocol feature is enabled. See [`crate::env::spice_harness`].
+    pub spice_nodes: Vec<SpiceNode>,
     pub(crate) account_indices: AccountIndices,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
@@ -101,6 +107,7 @@ impl TestEnv {
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     /// Runs garbage collection manually
     pub fn process_block(&mut self, id: usize, block: Arc<Block>, provenance: Provenance) {
+        let block_hash = *block.hash();
         self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
         // runs gc
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
@@ -141,6 +148,9 @@ impl TestEnv {
         }
         self.process_shards_manager_responses(id);
         self.propagate_chunk_state_witnesses_and_endorsements(false);
+        // Under SPICE, drive the per-shard chunk-execution subsystem for this block
+        // (no-op when SPICE is disabled — `spice_execute_block` self-guards).
+        self.spice_execute_block(id, block_hash);
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -853,6 +863,41 @@ impl TestEnv {
         let chunk_mask = block.header().chunk_mask();
 
         tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
+    }
+
+    /// Drive the SPICE per-shard chunk-execution subsystem for a freshly-processed
+    /// block on node `id`, then simulate cross-node propagation: feed this node's
+    /// endorsements to every node (so each reaches CER quorum and persists the CER),
+    /// and feed its produced receipt proofs to the other nodes.
+    pub fn spice_execute_block(&mut self, id: usize, block_hash: CryptoHash) {
+        if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        self.spice_nodes[id].process_block(block_hash);
+        // Endorsements: in tests every node receives every endorsement as soon as it
+        // is produced (as long as at least one chunk producer is a validator), so CER
+        // quorum is reached immediately.
+        while let Some(endorsement) = self.spice_nodes[id].pop_endorsement() {
+            for node in &mut self.spice_nodes {
+                node.record_endorsement(endorsement.clone());
+            }
+        }
+        // Outgoing receipts: deliver to every other node as network-path receipts.
+        while let Some(SpiceDistributorOutgoingReceipts { block_hash, receipt_proofs }) =
+            self.spice_nodes[id].pop_produced_receipts()
+        {
+            for (other_id, node) in self.spice_nodes.iter_mut().enumerate() {
+                if other_id == id {
+                    continue;
+                }
+                for receipt_proof in &receipt_proofs {
+                    node.feed_incoming_receipts(ExecutorIncomingUnverifiedReceipts {
+                        block_hash,
+                        receipt_proof: receipt_proof.clone(),
+                    });
+                }
+            }
+        }
     }
 }
 

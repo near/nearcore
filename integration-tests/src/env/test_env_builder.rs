@@ -2,6 +2,7 @@ use super::setup::{
     TEST_SEED, setup_client_with_runtime, setup_synchronous_shards_manager,
     setup_tx_request_handler,
 };
+use super::spice_harness::SpiceNode;
 use super::test_env::{AccountIndices, TestEnv};
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use itertools::{Itertools, multizip};
@@ -24,6 +25,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ShardIndex};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
@@ -607,6 +609,28 @@ impl TestEnvBuilder {
             })
             .collect();
 
+        // Under SPICE, build a synchronous per-shard chunk-execution driver per node;
+        // empty otherwise (TestEnv::spice_execute_block self-guards).
+        let spice_nodes = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            (0..num_clients)
+                .map(|i| {
+                    SpiceNode::new(
+                        clients[i].runtime_adapter.store().clone(),
+                        &chain_genesis,
+                        clients[i].runtime_adapter.clone(),
+                        clients[i].epoch_manager.clone(),
+                        clients[i].shard_tracker.clone(),
+                        validator_signers[i].clone(),
+                        self.save_trie_changes,
+                        self.save_tx_outcomes,
+                        self.save_receipt_to_tx,
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         TestEnv {
             clock,
             actor_system,
@@ -619,6 +643,7 @@ impl TestEnvBuilder {
             clients,
             chunk_validation_actors,
             rpc_handlers: tx_request_handlers,
+            spice_nodes,
             account_indices: AccountIndices(
                 self.clients
                     .into_iter()
