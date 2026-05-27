@@ -1,4 +1,4 @@
-use crate::spice::chunk_executor_coordinator::PerShardChunkApplied;
+use crate::spice::chunk_executor_coordinator::ChunkApplied;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
 };
@@ -6,8 +6,8 @@ use crate::spice::executor_shared::{
     ChunkExecutorConfig, distribute_witness, get_new_chunk_if_valid, get_receipt_proofs_for_shard,
     is_descendant_of_final_execution_head, optional, save_receipt_proof, send_chunk_endorsement,
 };
-use crate::spice::pending_receipts::PendingReceipts;
 use crate::spice::persist::commit_per_shard_outputs;
+use crate::spice::unverified_receipts::UnverifiedReceiptTracker;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -65,7 +65,7 @@ fn spice_compute_transaction_validity(
 /// runtime handle via `.as_multi_sender()`, so the coordinator is agnostic to
 /// how the actor was spawned (production tokio actor vs. test-loop).
 #[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct PerShardExecutorSender {
+pub struct ChunkExecutorActorSender {
     pub processed_block: Sender<ProcessedBlock>,
     pub incoming_receipt: Sender<IncomingReceipt>,
     pub execution_result_endorsed: Sender<ExecutionResultEndorsed>,
@@ -92,12 +92,12 @@ pub struct IncomingReceipt {
 
 /// Per-shard half of the per-shard SPICE chunk-execution subsystem: applies one
 /// shard's chunks inline on its own dedicated thread. One instance per tracked
-/// shard, spawned by [`super::chunk_executor_coordinator::ChunkExecutorCoordinator`].
+/// shard, spawned by [`super::chunk_executor_coordinator::ChunkExecutorCoordinatorActor`].
 ///
 /// Persistence is adapter-native: this shard's apply outputs are written via
 /// [`commit_per_shard_outputs`] (purpose-built SPICE store-adapter helpers). It
 /// holds a read-only [`ChainStoreAdapter`] (no `ChainStore`).
-pub struct PerShardExecutor {
+pub struct ChunkExecutorActor {
     /// This executor is bound to one shard for its whole life; we store the richer
     /// `ShardUId` so chunk-store reads need no per-call `epoch_manager → uid`
     /// conversion. A resharding event retires this executor and spawns fresh ones
@@ -115,13 +115,13 @@ pub struct PerShardExecutor {
     network_adapter: PeerManagerAdapter,
     core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
-    coordinator_sender: Sender<PerShardChunkApplied>,
+    coordinator_sender: Sender<ChunkApplied>,
     /// Blocks announced but not yet applied, ordered by `(height, block_hash)`
     /// so a fork (two blocks at one height) keeps both entries.
     pending: BTreeSet<(BlockHeight, CryptoHash)>,
     /// Network-path receipt proofs buffered until their source block's CER lands.
-    /// Local-path proofs never go here (already on disk). See [`PendingReceipts`].
-    pending_receipts: PendingReceipts,
+    /// Local-path proofs never go here (already on disk). See [`UnverifiedReceiptTracker`].
+    unverified_receipts: UnverifiedReceiptTracker,
 }
 
 enum ApplyOutcome {
@@ -130,7 +130,7 @@ enum ApplyOutcome {
     NotReady,
 }
 
-impl PerShardExecutor {
+impl ChunkExecutorActor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         shard_uid: ShardUId,
@@ -143,7 +143,7 @@ impl PerShardExecutor {
         network_adapter: PeerManagerAdapter,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
-        coordinator_sender: Sender<PerShardChunkApplied>,
+        coordinator_sender: Sender<ChunkApplied>,
     ) -> Self {
         let chain_store = store.chain_store();
         Self {
@@ -159,7 +159,7 @@ impl PerShardExecutor {
             data_distributor_adapter,
             coordinator_sender,
             pending: BTreeSet::new(),
-            pending_receipts: PendingReceipts::default(),
+            unverified_receipts: UnverifiedReceiptTracker::default(),
         }
     }
 
@@ -328,7 +328,7 @@ impl PerShardExecutor {
             self.config.save_receipt_to_tx,
         )?;
 
-        self.coordinator_sender.send(PerShardChunkApplied {
+        self.coordinator_sender.send(ChunkApplied {
             block_hash: *block_hash,
             shard_id,
             outgoing_receipt_proofs: receipt_proofs,
@@ -408,7 +408,7 @@ impl PerShardExecutor {
     }
 }
 
-impl Actor for PerShardExecutor {
+impl Actor for ChunkExecutorActor {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
         // Self-bootstrap: park every block above the execution head and start
         // applying. A freshly-spawned shard catches up from disk on its own, so
@@ -420,10 +420,10 @@ impl Actor for PerShardExecutor {
     }
 }
 
-impl PerShardExecutor {
+impl ChunkExecutorActor {
     fn bootstrap(&mut self) -> Result<(), Error> {
         // Always set: initialized to the genesis tip at genesis and advanced
-        // forward-only by the coordinator (see `ChunkExecutorCoordinator::execution_head`).
+        // forward-only by the coordinator (see `ChunkExecutorCoordinatorActor::execution_head`).
         let head = self.chain_store.spice_execution_head()?.last_block_hash;
         let mut queue: VecDeque<CryptoHash> =
             self.chain_store.get_all_next_block_hashes(&head).into();
@@ -437,7 +437,7 @@ impl PerShardExecutor {
     }
 }
 
-impl Handler<ProcessedBlock> for PerShardExecutor {
+impl Handler<ProcessedBlock> for ChunkExecutorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         // ProcessedBlock is routed by the coordinator, which already read this
         // header in dispatch_block — so it is always on disk by the time we get here.
@@ -451,14 +451,14 @@ impl Handler<ProcessedBlock> for PerShardExecutor {
     }
 }
 
-impl Handler<IncomingReceipt> for PerShardExecutor {
+impl Handler<IncomingReceipt> for ChunkExecutorActor {
     fn handle(&mut self, IncomingReceipt { block_hash, proof, source }: IncomingReceipt) {
         match source {
             // Sender already wrote the proof to disk; just re-check.
             ReceiptSource::LocallyVerified => {}
             ReceiptSource::FromNetwork => {
-                self.pending_receipts.buffer(block_hash, proof);
-                if let Err(err) = self.pending_receipts.try_drain(
+                self.unverified_receipts.buffer(block_hash, proof);
+                if let Err(err) = self.unverified_receipts.try_drain(
                     &self.chain_store,
                     &self.core_reader,
                     &block_hash,
@@ -471,10 +471,10 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
     }
 }
 
-impl Handler<ExecutionResultEndorsed> for PerShardExecutor {
+impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         if let Err(err) =
-            self.pending_receipts.try_drain(&self.chain_store, &self.core_reader, &block_hash)
+            self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, &block_hash)
         {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "receipt verification failed");
         }

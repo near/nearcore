@@ -1,7 +1,7 @@
-use crate::spice::chunk_executor_coordinator::PerShardChunkApplied;
+use crate::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorActorSender};
+use crate::spice::chunk_executor_coordinator::ChunkApplied;
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::executor_shared::ChunkExecutorConfig;
-use crate::spice::per_shard_executor::{PerShardExecutor, PerShardExecutorSender};
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::tokio::TokioRuntimeHandle;
@@ -21,16 +21,16 @@ use std::sync::Arc;
 /// same coordinator works in both runtimes: production spawns a dedicated tokio
 /// actor per shard, while test-loop registers actors with the loop. See
 /// `notes/14-dynamic-actor-integration.md`.
-pub trait PerShardSpawner: Send + Sync + 'static {
-    /// Build + run a `PerShardExecutor` for `shard_uid` and return the
+pub trait ChunkExecutorSpawner: Send + Sync + 'static {
+    /// Build + run a `ChunkExecutorActor` for `shard_uid` and return the
     /// coordinator's mailbox to it. `coordinator_sender` is the coordinator's own
-    /// `PerShardChunkApplied` sender (the cyclic dep). The coordinator computes the
-    /// `ShardUId` from the spawning epoch's layout (see `PerShardExecutor::shard_uid`).
+    /// `ChunkApplied` sender (the cyclic dep). The coordinator computes the
+    /// `ShardUId` from the spawning epoch's layout (see `ChunkExecutorActor::shard_uid`).
     fn spawn(
         &self,
         shard_uid: ShardUId,
-        coordinator_sender: Sender<PerShardChunkApplied>,
-    ) -> PerShardExecutorSender;
+        coordinator_sender: Sender<ChunkApplied>,
+    ) -> ChunkExecutorActorSender;
 
     /// Retire a shard's executor (production stops its runtime; test-loop is a
     /// no-op — an untracked shard self-drops in `try_apply`).
@@ -38,9 +38,9 @@ pub trait PerShardSpawner: Send + Sync + 'static {
 }
 
 /// Static read deps every per-shard executor needs, shared by all spawned
-/// actors. Cloned into each `PerShardExecutor`.
+/// actors. Cloned into each `ChunkExecutorActor`.
 #[derive(Clone)]
-pub struct PerShardDeps {
+pub struct ChunkExecutorDeps {
     pub store: Store,
     /// Scalar executor config (persistence flags + transaction validity period).
     pub config: ChunkExecutorConfig,
@@ -53,14 +53,14 @@ pub struct PerShardDeps {
     pub data_distributor_adapter: SpiceDataDistributorAdapter,
 }
 
-impl PerShardDeps {
-    /// Build (but don't run) a `PerShardExecutor`, wiring the coordinator callback.
+impl ChunkExecutorDeps {
+    /// Build (but don't run) a `ChunkExecutorActor`, wiring the coordinator callback.
     pub fn build(
         &self,
         shard_uid: ShardUId,
-        coordinator_sender: Sender<PerShardChunkApplied>,
-    ) -> PerShardExecutor {
-        PerShardExecutor::new(
+        coordinator_sender: Sender<ChunkApplied>,
+    ) -> ChunkExecutorActor {
+        ChunkExecutorActor::new(
             shard_uid,
             self.store.clone(),
             self.config.clone(),
@@ -77,24 +77,24 @@ impl PerShardDeps {
 }
 
 /// Production spawner: each shard runs as its own dedicated tokio actor.
-pub struct TokioPerShardSpawner {
+pub struct TokioChunkExecutorSpawner {
     actor_system: ActorSystem,
-    deps: PerShardDeps,
-    handles: Mutex<HashMap<ShardId, TokioRuntimeHandle<PerShardExecutor>>>,
+    deps: ChunkExecutorDeps,
+    handles: Mutex<HashMap<ShardId, TokioRuntimeHandle<ChunkExecutorActor>>>,
 }
 
-impl TokioPerShardSpawner {
-    pub fn new(actor_system: ActorSystem, deps: PerShardDeps) -> Self {
+impl TokioChunkExecutorSpawner {
+    pub fn new(actor_system: ActorSystem, deps: ChunkExecutorDeps) -> Self {
         Self { actor_system, deps, handles: Mutex::new(HashMap::new()) }
     }
 }
 
-impl PerShardSpawner for TokioPerShardSpawner {
+impl ChunkExecutorSpawner for TokioChunkExecutorSpawner {
     fn spawn(
         &self,
         shard_uid: ShardUId,
-        coordinator_sender: Sender<PerShardChunkApplied>,
-    ) -> PerShardExecutorSender {
+        coordinator_sender: Sender<ChunkApplied>,
+    ) -> ChunkExecutorActorSender {
         let actor = self.deps.build(shard_uid, coordinator_sender);
         let handle = self.actor_system.spawn_tokio_actor(actor);
         self.handles.lock().insert(shard_uid.shard_id(), handle.clone());

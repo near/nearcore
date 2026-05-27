@@ -16,11 +16,11 @@ use std::collections::HashMap;
 /// does: hold unverified proofs keyed by source block, and drain+verify a source
 /// block's batch once its CER is available.
 #[derive(Default)]
-pub(crate) struct PendingReceipts {
+pub(crate) struct UnverifiedReceiptTracker {
     by_source_block: HashMap<CryptoHash, Vec<ReceiptProof>>,
 }
 
-impl PendingReceipts {
+impl UnverifiedReceiptTracker {
     /// Buffer one unverified proof against the block it was produced in.
     pub fn buffer(&mut self, source_block: CryptoHash, proof: ReceiptProof) {
         self.by_source_block.entry(source_block).or_default().push(proof);

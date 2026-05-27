@@ -1,6 +1,6 @@
+use super::chunk_executor_spawner::TestLoopChunkExecutorSpawner;
 use super::drop_condition::ClientToShardsManagerSender;
 use super::peer_manager_actor::TestLoopPeerManagerActor;
-use super::per_shard_spawner::TestLoopPerShardSpawner;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use near_async::futures::FutureSpawnerExt;
@@ -23,11 +23,11 @@ use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ClientActor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
-use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
+use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinatorActor;
+use near_client::spice::chunk_executor_spawner::ChunkExecutorDeps;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::spice::executor_shared::ChunkExecutorConfig;
-use near_client::spice::per_shard_spawner::PerShardDeps;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
@@ -87,7 +87,7 @@ pub fn setup_client(
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
-    let chunk_executor_coordinator_adapter = LateBoundSender::new();
+    let chunk_executor_adapter = LateBoundSender::new();
 
     let homedir = NodeExecutionData::homedir(tempdir, identifier);
     std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
@@ -287,7 +287,7 @@ pub fn setup_client(
         client_config.orphan_state_witness_max_size.as_u64(),
     );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
-        chunk_executor_coordinator_adapter.as_sender()
+        chunk_executor_adapter.as_sender()
     } else {
         noop().into_sender()
     };
@@ -446,7 +446,7 @@ pub fn setup_client(
         runtime_adapter.store().chain_store(),
         epoch_manager.clone(),
         spice_core_reader.clone(),
-        chunk_executor_coordinator_adapter.as_sender(),
+        chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
 
@@ -457,7 +457,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         spice_core_reader.clone(),
         network_adapter.as_multi_sender(),
-        chunk_executor_coordinator_adapter.as_sender(),
+        chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -470,10 +470,10 @@ pub fn setup_client(
     );
 
     // The coordinator spawns/retires per-shard executors via a
-    // TestLoopPerShardSpawner (registers actors with the loop through a deferred
+    // TestLoopChunkExecutorSpawner (registers actors with the loop through a deferred
     // event — see notes/14). Mirrors nearcore/src/lib.rs.
     if cfg!(feature = "protocol_feature_spice") {
-        let deps = PerShardDeps {
+        let deps = ChunkExecutorDeps {
             store: runtime_adapter.store().clone(),
             config: ChunkExecutorConfig {
                 save_trie_changes: client_config.save_trie_changes,
@@ -490,24 +490,20 @@ pub fn setup_client(
             core_writer_sender: spice_core_writer_adapter.as_sender(),
             data_distributor_adapter: spice_data_distributor_adapter.as_multi_sender(),
         };
-        let spawner = Box::new(TestLoopPerShardSpawner {
+        let spawner = Box::new(TestLoopChunkExecutorSpawner {
             pending_events_sender: test_loop.future_spawner(identifier),
             identifier: identifier.to_string(),
             deps,
         });
-        let coordinator = ChunkExecutorCoordinator::new(
+        let coordinator = ChunkExecutorCoordinatorActor::new(
             runtime_adapter.store().clone(),
             runtime_adapter.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             spawner,
-            chunk_executor_coordinator_adapter.as_sender(),
+            chunk_executor_adapter.as_sender(),
         );
-        test_loop.data.register_actor(
-            identifier,
-            coordinator,
-            Some(chunk_executor_coordinator_adapter),
-        );
+        test_loop.data.register_actor(identifier, coordinator, Some(chunk_executor_adapter));
     }
 
     let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(

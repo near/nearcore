@@ -1,9 +1,9 @@
 use near_async::messaging::{IntoMultiSender, LateBoundSender, Sender};
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::pending_events_sender::PendingEventsSender;
-use near_client::spice::chunk_executor_coordinator::PerShardChunkApplied;
-use near_client::spice::per_shard_executor::PerShardExecutorSender;
-use near_client::spice::per_shard_spawner::{PerShardDeps, PerShardSpawner};
+use near_client::spice::chunk_executor_actor::ChunkExecutorActorSender;
+use near_client::spice::chunk_executor_coordinator::ChunkApplied;
+use near_client::spice::chunk_executor_spawner::{ChunkExecutorDeps, ChunkExecutorSpawner};
 use near_primitives::types::ShardId;
 use near_store::ShardUId;
 
@@ -15,18 +15,18 @@ use near_store::ShardUId;
 /// coordinator must not route to a freshly-spawned shard within the spawning
 /// handler — it self-bootstraps from disk on `start_actor` instead. See
 /// `notes/14-dynamic-actor-integration.md`.
-pub struct TestLoopPerShardSpawner {
+pub struct TestLoopChunkExecutorSpawner {
     pub pending_events_sender: PendingEventsSender,
     pub identifier: String,
-    pub deps: PerShardDeps,
+    pub deps: ChunkExecutorDeps,
 }
 
-impl PerShardSpawner for TestLoopPerShardSpawner {
+impl ChunkExecutorSpawner for TestLoopChunkExecutorSpawner {
     fn spawn(
         &self,
         shard_uid: ShardUId,
-        coordinator_sender: Sender<PerShardChunkApplied>,
-    ) -> PerShardExecutorSender {
+        coordinator_sender: Sender<ChunkApplied>,
+    ) -> ChunkExecutorActorSender {
         let actor = self.deps.build(shard_uid, coordinator_sender);
         // The coordinator's mailbox to this shard, bound once the register event runs.
         let actor_adapter = LateBoundSender::new();
@@ -34,7 +34,7 @@ impl PerShardSpawner for TestLoopPerShardSpawner {
         let identifier = self.identifier.clone();
         let shard_id = shard_uid.shard_id();
         self.pending_events_sender.send(
-            format!("RegisterPerShardExecutor({shard_id})"),
+            format!("RegisterChunkExecutorActor({shard_id})"),
             Box::new(move |data: &mut TestLoopData| {
                 let handle = data.register_actor(&identifier, actor, None);
                 actor_adapter.bind(handle);

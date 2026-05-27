@@ -66,7 +66,7 @@ pub struct ChunkExecutorConfig {
 
 /// Message with incoming unverified receipts corresponding to the block. Sent by
 /// `SpiceDataDistributorActor` to the chunk-executor coordinator, which routes it
-/// to the destination shard's `PerShardExecutor` for verification.
+/// to the destination shard's `ChunkExecutorActor` for verification.
 #[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
     pub block_hash: CryptoHash,

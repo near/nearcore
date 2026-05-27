@@ -1,6 +1,8 @@
+use crate::spice::chunk_executor_actor::{
+    ChunkExecutorActorSender, IncomingReceipt, ReceiptSource,
+};
+use crate::spice::chunk_executor_spawner::ChunkExecutorSpawner;
 use crate::spice::executor_shared::{ExecutorIncomingUnverifiedReceipts, optional};
-use crate::spice::per_shard_executor::{IncomingReceipt, PerShardExecutorSender, ReceiptSource};
-use crate::spice::per_shard_spawner::PerShardSpawner;
 use lru::LruCache;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
@@ -25,7 +27,7 @@ use std::sync::Arc;
 /// artifacts). Sent to the coordinator for receipt routing, the cross-shard
 /// sanity check, and to nudge the disk-driven head advance.
 #[derive(Debug)]
-pub struct PerShardChunkApplied {
+pub struct ChunkApplied {
     pub block_hash: CryptoHash,
     pub shard_id: ShardId,
     pub outgoing_receipt_proofs: Vec<ReceiptProof>,
@@ -37,36 +39,36 @@ pub struct PerShardChunkApplied {
 const BANDWIDTH_HASH_CACHE_CAP: usize = 256;
 
 /// Block-level half of the per-shard SPICE chunk-execution subsystem. Spawns and
-/// retires the per-shard executors (via the [`PerShardSpawner`]), fans block
+/// retires the per-shard executors (via the [`ChunkExecutorSpawner`]), fans block
 /// events out to them, routes cross-shard receipts, and drives the disk-driven
 /// execution-head advance. Wired only under the `protocol_feature_spice` feature.
-pub struct ChunkExecutorCoordinator {
+pub struct ChunkExecutorCoordinatorActor {
     chain_store: ChainStoreAdapter,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     /// Creates/retires per-shard executors; abstracts production (tokio actor)
-    /// vs. test-loop (registered actor) — see [`PerShardSpawner`].
-    spawner: Box<dyn PerShardSpawner>,
-    /// The coordinator's own `PerShardChunkApplied` sender, handed to each
+    /// vs. test-loop (registered actor) — see [`ChunkExecutorSpawner`].
+    spawner: Box<dyn ChunkExecutorSpawner>,
+    /// The coordinator's own `ChunkApplied` sender, handed to each
     /// spawned executor as its upstream channel.
-    self_sender: Sender<PerShardChunkApplied>,
+    self_sender: Sender<ChunkApplied>,
     /// Live per-shard mailboxes, grown/shrunk by `reconcile_tracked_shards`.
-    mailboxes: HashMap<ShardId, PerShardExecutorSender>,
+    mailboxes: HashMap<ShardId, ChunkExecutorActorSender>,
     /// Soft cross-shard sanity check: block -> first-seen bandwidth scheduler
     /// state hash. Not completion state; losing it on restart only skips the
     /// check (option (b) from the design).
     bandwidth_hash_cache: LruCache<CryptoHash, CryptoHash>,
 }
 
-impl ChunkExecutorCoordinator {
+impl ChunkExecutorCoordinatorActor {
     pub fn new(
         store: Store,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        spawner: Box<dyn PerShardSpawner>,
-        self_sender: Sender<PerShardChunkApplied>,
+        spawner: Box<dyn ChunkExecutorSpawner>,
+        self_sender: Sender<ChunkApplied>,
     ) -> Self {
         let chain_store = store.chain_store();
         Self {
@@ -220,16 +222,16 @@ impl ChunkExecutorCoordinator {
     }
 }
 
-impl Actor for ChunkExecutorCoordinator {
+impl Actor for ChunkExecutorCoordinatorActor {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
-        tracing::info!(target: "chunk_executor", "ChunkExecutorCoordinator started");
+        tracing::info!(target: "chunk_executor", "ChunkExecutorCoordinatorActor started");
         if let Err(err) = self.bootstrap() {
             tracing::error!(target: "chunk_executor", ?err, "coordinator bootstrap failed");
         }
     }
 }
 
-impl Handler<ProcessedBlock> for ChunkExecutorCoordinator {
+impl Handler<ProcessedBlock> for ChunkExecutorCoordinatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         if let Err(err) = self.dispatch_block(block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to dispatch processed block");
@@ -237,9 +239,9 @@ impl Handler<ProcessedBlock> for ChunkExecutorCoordinator {
     }
 }
 
-impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
-    fn handle(&mut self, msg: PerShardChunkApplied) {
-        let PerShardChunkApplied {
+impl Handler<ChunkApplied> for ChunkExecutorCoordinatorActor {
+    fn handle(&mut self, msg: ChunkApplied) {
+        let ChunkApplied {
             block_hash,
             shard_id: _,
             outgoing_receipt_proofs,
@@ -275,7 +277,7 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
     }
 }
 
-impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinator {
+impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinatorActor {
     fn handle(&mut self, msg: ExecutorIncomingUnverifiedReceipts) {
         let to_shard_id = msg.receipt_proof.1.to_shard_id;
         if let Some(mailbox) = self.mailboxes.get(&to_shard_id) {
@@ -288,7 +290,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinator {
     }
 }
 
-impl Handler<ExecutionResultEndorsed> for ChunkExecutorCoordinator {
+impl Handler<ExecutionResultEndorsed> for ChunkExecutorCoordinatorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         for mailbox in self.mailboxes.values() {
             mailbox.send(ExecutionResultEndorsed { block_hash });

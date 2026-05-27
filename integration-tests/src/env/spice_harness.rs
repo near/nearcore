@@ -1,8 +1,8 @@
 //! Synchronous driver for the SPICE per-shard chunk-execution subsystem inside
 //! the (synchronous) `TestEnv` integration-test framework.
 //!
-//! Production and test-loop run the `ChunkExecutorCoordinator` + per-shard
-//! `PerShardExecutor`s as async actors. `TestEnv` has no running actor system, so
+//! Production and test-loop run the `ChunkExecutorCoordinatorActor` + per-shard
+//! `ChunkExecutorActor`s as async actors. `TestEnv` has no running actor system, so
 //! this module drives the *real* actors synchronously: every inter-actor message
 //! is routed into a single FIFO queue of closures, and [`SpiceNode::pump`] drains
 //! it (plus deferred per-shard spawns) to quiescence after each step. This mirrors
@@ -21,19 +21,17 @@ use near_chain::spice::core_writer_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
-use near_client::spice::chunk_executor_coordinator::{
-    ChunkExecutorCoordinator, PerShardChunkApplied,
+use near_client::spice::chunk_executor_actor::{
+    ChunkExecutorActor, ChunkExecutorActorSender, IncomingReceipt,
 };
+use near_client::spice::chunk_executor_coordinator::{ChunkApplied, ChunkExecutorCoordinatorActor};
+use near_client::spice::chunk_executor_spawner::{ChunkExecutorDeps, ChunkExecutorSpawner};
 use near_client::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
 };
 use near_client::spice::executor_shared::{
     ChunkExecutorConfig, ExecutorIncomingUnverifiedReceipts,
 };
-use near_client::spice::per_shard_executor::{
-    IncomingReceipt, PerShardExecutor, PerShardExecutorSender,
-};
-use near_client::spice::per_shard_spawner::{PerShardDeps, PerShardSpawner};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -66,25 +64,25 @@ impl EventQueue {
 
 /// A per-shard executor the coordinator asked to spawn but which hasn't been built
 /// yet (built + bootstrapped by the pump, to avoid a re-entrant borrow of the node
-/// while the coordinator is mid-handler — mirrors `TestLoopPerShardSpawner`).
+/// while the coordinator is mid-handler — mirrors `TestLoopChunkExecutorSpawner`).
 struct DeferredSpawn {
     shard_uid: ShardUId,
-    coordinator_sender: Sender<PerShardChunkApplied>,
+    coordinator_sender: Sender<ChunkApplied>,
 }
 
 /// `TestEnv` spawner: records the spawn for the pump to build, and hands back a
 /// mailbox that routes messages to `node.per_shard[shard_id]` at drain time.
-struct TestEnvPerShardSpawner {
+struct TestEnvChunkExecutorSpawner {
     queue: EventQueue,
     deferred: Arc<Mutex<Vec<DeferredSpawn>>>,
 }
 
-impl PerShardSpawner for TestEnvPerShardSpawner {
+impl ChunkExecutorSpawner for TestEnvChunkExecutorSpawner {
     fn spawn(
         &self,
         shard_uid: ShardUId,
-        coordinator_sender: Sender<PerShardChunkApplied>,
-    ) -> PerShardExecutorSender {
+        coordinator_sender: Sender<ChunkApplied>,
+    ) -> ChunkExecutorActorSender {
         self.deferred.lock().push(DeferredSpawn { shard_uid, coordinator_sender });
         per_shard_mailbox(shard_uid.shard_id(), self.queue.clone())
     }
@@ -97,11 +95,11 @@ impl PerShardSpawner for TestEnvPerShardSpawner {
 /// Build a coordinator→per-shard mailbox whose sends enqueue a routing closure
 /// into `queue`; the closure dispatches to `node.per_shard[shard_id]` at drain time
 /// (by which point the deferred spawn has created the executor).
-fn per_shard_mailbox(shard_id: ShardId, queue: EventQueue) -> PerShardExecutorSender {
+fn per_shard_mailbox(shard_id: ShardId, queue: EventQueue) -> ChunkExecutorActorSender {
     let q_block = queue.clone();
     let q_receipt = queue.clone();
     let q_endorsed = queue;
-    PerShardExecutorSender {
+    ChunkExecutorActorSender {
         processed_block: Sender::from_fn(move |msg: ProcessedBlock| {
             q_block.push(Box::new(move |node| {
                 if let Some(executor) = node.per_shard.get_mut(&shard_id) {
@@ -130,12 +128,12 @@ fn per_shard_mailbox(shard_id: ShardId, queue: EventQueue) -> PerShardExecutorSe
 /// per-shard executors, and core-writer; outgoing endorsements / receipts are
 /// captured for the `TestEnv`-level cross-node feeding (see [`crate::env::test_env`]).
 pub struct SpiceNode {
-    coordinator: ChunkExecutorCoordinator,
-    per_shard: HashMap<ShardId, PerShardExecutor>,
+    coordinator: ChunkExecutorCoordinatorActor,
+    per_shard: HashMap<ShardId, ChunkExecutorActor>,
     core_writer: SpiceCoreWriterActor,
     queue: EventQueue,
     deferred: Arc<Mutex<Vec<DeferredSpawn>>>,
-    deps: PerShardDeps,
+    deps: ChunkExecutorDeps,
     produced_endorsements: Arc<Mutex<VecDeque<SpiceChunkEndorsementMessage>>>,
     produced_receipts: Arc<Mutex<VecDeque<SpiceDistributorOutgoingReceipts>>>,
 }
@@ -167,7 +165,7 @@ impl SpiceNode {
         // Per-shard executors' outbound senders: endorsements + receipts are captured
         // (fed cross-node by the harness); witness/network are dropped (the harness
         // short-circuits distribution, like the old TestonlySync harness).
-        let deps = PerShardDeps {
+        let deps = ChunkExecutorDeps {
             store: store.clone(),
             config: ChunkExecutorConfig {
                 save_trie_changes,
@@ -188,8 +186,9 @@ impl SpiceNode {
             },
         };
 
-        let spawner = TestEnvPerShardSpawner { queue: queue.clone(), deferred: deferred.clone() };
-        let coordinator = ChunkExecutorCoordinator::new(
+        let spawner =
+            TestEnvChunkExecutorSpawner { queue: queue.clone(), deferred: deferred.clone() };
+        let coordinator = ChunkExecutorCoordinatorActor::new(
             store.clone(),
             runtime_adapter,
             epoch_manager.clone(),
@@ -220,7 +219,7 @@ impl SpiceNode {
         };
         // Bootstrap the coordinator (spawns executors for genesis-epoch shards) and
         // drain to quiescence.
-        let mut runner = FakeDelayedActionRunner::<ChunkExecutorCoordinator>::default();
+        let mut runner = FakeDelayedActionRunner::<ChunkExecutorCoordinatorActor>::default();
         node.coordinator.start_actor(&mut runner);
         node.pump();
         node
@@ -235,7 +234,7 @@ impl SpiceNode {
             if !spawns.is_empty() {
                 for DeferredSpawn { shard_uid, coordinator_sender } in spawns {
                     let mut executor = self.deps.build(shard_uid, coordinator_sender);
-                    let mut runner = FakeDelayedActionRunner::<PerShardExecutor>::default();
+                    let mut runner = FakeDelayedActionRunner::<ChunkExecutorActor>::default();
                     executor.start_actor(&mut runner);
                     self.per_shard.insert(shard_uid.shard_id(), executor);
                 }
@@ -290,7 +289,7 @@ impl SpiceNode {
 fn to_coordinator_sender<M>(queue: EventQueue) -> Sender<M>
 where
     M: Send + 'static,
-    ChunkExecutorCoordinator: Handler<M>,
+    ChunkExecutorCoordinatorActor: Handler<M>,
 {
     Sender::from_fn(move |msg: M| {
         queue.push(Box::new(move |node| {
