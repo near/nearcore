@@ -5110,6 +5110,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-replay"
+version = "0.0.0"
+dependencies = [
+ "near-chain",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "node-runtime",
+ "tracing",
+]
+
+[[package]]
 name = "near-replay-archive-tool"
 version = "0.0.0"
 dependencies = [
@@ -5128,6 +5140,23 @@ dependencies = [
  "node-runtime",
  "parking_lot 0.12.1",
  "state-viewer",
+ "tracing",
+]
+
+[[package]]
+name = "near-replay-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "indicatif",
+ "near-chain",
+ "near-chain-configs",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-replay",
+ "near-store",
+ "nearcore",
  "tracing",
 ]
 
@@ -5695,6 +5724,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-replay-archive-tool",
+ "near-replay-tool",
  "near-state-parts",
  "near-state-parts-dump-check",
  "near-store",
@@ -8456,6 +8486,7 @@ dependencies = [
  "near-parameters",
  "near-primitives",
  "near-primitives-core",
+ "near-replay",
  "near-store",
  "near-test-contracts",
  "near-vm-runner",

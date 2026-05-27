@@ -280,6 +280,15 @@ pub static FUNCTION_CALL_PROCESSED_LOADING_ERRORS: LazyLock<IntCounter> = LazyLo
     )
     .unwrap()
 });
+pub static FUNCTION_CALL_PROCESSED_WASM_UNKNOWN_ERRORS: LazyLock<IntCounter> = LazyLock::new(
+    || {
+        try_create_int_counter(
+        "near_function_call_processed_wasm_unknown_errors",
+        "The number of function calls soft-failed due to an unknown VM runner error, since starting this node",
+    )
+    .unwrap()
+    },
+);
 pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_function_call_processed_cache_errors",
