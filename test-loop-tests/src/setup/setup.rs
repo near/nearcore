@@ -23,7 +23,7 @@ use near_client::client_actor::ClientActor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
-use near_client::spice::chunk_executor_coordinator::{ChunkExecutorCoordinator, per_shard_mailbox};
+use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::spice::per_shard_executor::PerShardExecutor;
@@ -521,7 +521,6 @@ pub fn setup_client(
                 &chain_genesis,
                 runtime_adapter.clone(),
                 epoch_manager.clone(),
-                shard_tracker.clone(),
                 spice_core_reader.clone(),
                 validator_signer.clone(),
                 network_adapter.as_multi_sender(),
@@ -532,7 +531,7 @@ pub fn setup_client(
             );
             let handle =
                 test_loop.data.register_actor(identifier, per_shard_actor, Some(self_adapter));
-            mailboxes.insert(shard_id, per_shard_mailbox(handle));
+            mailboxes.insert(shard_id, handle.into_multi_sender());
         }
         let coordinator = ChunkExecutorCoordinator::new(
             runtime_adapter.store().clone(),

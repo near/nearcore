@@ -29,7 +29,7 @@ use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
-use near_client::spice::chunk_executor_coordinator::{ChunkExecutorCoordinator, per_shard_mailbox};
+use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::spice::per_shard_executor::PerShardExecutor;
@@ -312,7 +312,6 @@ fn spawn_spice_actors(
                 chain_genesis,
                 runtime.clone(),
                 epoch_manager.clone(),
-                shard_tracker.clone(),
                 spice_core_reader.clone(),
                 validator_signer.clone(),
                 network_adapter.clone(),
@@ -323,7 +322,7 @@ fn spawn_spice_actors(
             );
             let handle = actor_system.spawn_tokio_actor(per_shard_actor);
             self_adapter.bind(handle.clone());
-            mailboxes.insert(shard_id, per_shard_mailbox(handle));
+            mailboxes.insert(shard_id, handle.clone().into_multi_sender());
         }
         let coordinator = ChunkExecutorCoordinator::new(
             runtime.store().clone(),

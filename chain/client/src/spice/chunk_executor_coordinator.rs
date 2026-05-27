@@ -1,10 +1,8 @@
 use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::spice::per_shard_executor::{
-    CERCertified, IncomingBlock, IncomingReceipt, ReceiptSource,
-};
+use crate::spice::per_shard_executor::{IncomingReceipt, PerShardExecutorSender, ReceiptSource};
 use lru::LruCache;
 use near_async::futures::DelayedActionRunner;
-use near_async::messaging::{Actor, Handler, IntoSender, Sender};
+use near_async::messaging::{Actor, CanSend, Handler};
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -15,6 +13,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::ShardId;
 use near_store::Store;
 use std::collections::{HashMap, VecDeque};
@@ -28,32 +27,8 @@ use std::sync::Arc;
 pub struct PerShardChunkApplied {
     pub block_hash: CryptoHash,
     pub shard_id: ShardId,
-    pub outgoing_receipt_proofs: Vec<near_primitives::sharding::ReceiptProof>,
+    pub outgoing_receipt_proofs: Vec<ReceiptProof>,
     pub bandwidth_scheduler_state_hash: CryptoHash,
-}
-
-/// The senders the coordinator uses to reach one per-shard executor. Built from
-/// either a production `TokioRuntimeHandle` or a test-loop `TestLoopSender` via
-/// [`per_shard_mailbox`], so the coordinator is agnostic to how the per-shard
-/// actors were spawned.
-pub struct PerShardMailbox {
-    pub incoming_block: Sender<IncomingBlock>,
-    pub incoming_receipt: Sender<IncomingReceipt>,
-    pub cer_certified: Sender<CERCertified>,
-}
-
-/// Build a [`PerShardMailbox`] from any per-shard actor handle (production
-/// `TokioRuntimeHandle` or test-loop `TestLoopSender`). The target field types
-/// drive `IntoSender` resolution for each message.
-pub fn per_shard_mailbox<H>(handle: H) -> PerShardMailbox
-where
-    H: Clone + IntoSender<IncomingBlock> + IntoSender<IncomingReceipt> + IntoSender<CERCertified>,
-{
-    PerShardMailbox {
-        incoming_block: handle.clone().into_sender(),
-        incoming_receipt: handle.clone().into_sender(),
-        cer_certified: handle.into_sender(),
-    }
 }
 
 /// Bound for the soft cross-shard sanity-check LRU. Skip-on-recovery, so a small
@@ -74,7 +49,7 @@ pub struct ChunkExecutorCoordinator {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    mailboxes: HashMap<ShardId, PerShardMailbox>,
+    mailboxes: HashMap<ShardId, PerShardExecutorSender>,
     /// Soft cross-shard sanity check: block -> first-seen bandwidth scheduler
     /// state hash. Not completion state; losing it on restart only skips the
     /// check (option (b) from the design).
@@ -88,7 +63,7 @@ impl ChunkExecutorCoordinator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        mailboxes: HashMap<ShardId, PerShardMailbox>,
+        mailboxes: HashMap<ShardId, PerShardExecutorSender>,
     ) -> Self {
         let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period);
         Self {
@@ -264,7 +239,7 @@ impl ChunkExecutorCoordinator {
             self.chain_store.get_all_next_block_hashes(&head).into();
         while let Some(block_hash) = queue.pop_front() {
             for mailbox in self.mailboxes.values() {
-                mailbox.incoming_block.send(IncomingBlock { block_hash });
+                mailbox.send(ProcessedBlock { block_hash });
             }
             queue.extend(self.chain_store.get_all_next_block_hashes(&block_hash));
         }
@@ -285,7 +260,7 @@ impl Actor for ChunkExecutorCoordinator {
 impl Handler<ProcessedBlock> for ChunkExecutorCoordinator {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         for mailbox in self.mailboxes.values() {
-            mailbox.incoming_block.send(IncomingBlock { block_hash });
+            mailbox.send(ProcessedBlock { block_hash });
         }
     }
 }
@@ -316,7 +291,7 @@ impl Handler<PerShardChunkApplied> for ChunkExecutorCoordinator {
         for proof in &outgoing_receipt_proofs {
             let to_shard_id = proof.1.to_shard_id;
             if let Some(mailbox) = self.mailboxes.get(&to_shard_id) {
-                mailbox.incoming_receipt.send(IncomingReceipt {
+                mailbox.send(IncomingReceipt {
                     block_hash,
                     proof: proof.clone(),
                     source: ReceiptSource::LocallyVerified,
@@ -331,7 +306,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinator {
     fn handle(&mut self, msg: ExecutorIncomingUnverifiedReceipts) {
         let to_shard_id = msg.receipt_proof.1.to_shard_id;
         if let Some(mailbox) = self.mailboxes.get(&to_shard_id) {
-            mailbox.incoming_receipt.send(IncomingReceipt {
+            mailbox.send(IncomingReceipt {
                 block_hash: msg.block_hash,
                 proof: msg.receipt_proof,
                 source: ReceiptSource::FromNetwork,
@@ -343,7 +318,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorCoordinator {
 impl Handler<ExecutionResultEndorsed> for ChunkExecutorCoordinator {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         for mailbox in self.mailboxes.values() {
-            mailbox.cer_certified.send(CERCertified { block_hash });
+            mailbox.send(ExecutionResultEndorsed { block_hash });
         }
     }
 }

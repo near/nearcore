@@ -7,10 +7,12 @@ use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
 use near_async::messaging::{Actor, CanSend, Handler, IntoSender, Sender};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::spice::chunk_application::build_spice_apply_chunk_block_context;
 use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::{ApplyChunkResult, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
@@ -18,10 +20,8 @@ use near_chain::{
     Error, collect_receipts, get_chunk_clone_from_header,
 };
 use near_chain_configs::MutableValidatorSigner;
-use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -39,15 +39,19 @@ use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use super::chunk_validator_actor::send_spice_chunk_endorsement;
 
-/// New block exists in the chain store; park it and try to apply.
-#[derive(Debug)]
-pub struct IncomingBlock {
-    pub block_hash: CryptoHash,
+/// The coordinator's handle to one per-shard executor. Built from the actor's
+/// runtime handle via `.as_multi_sender()`, so the coordinator is agnostic to
+/// how the actor was spawned (production tokio actor vs. test-loop).
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+pub struct PerShardExecutorSender {
+    pub processed_block: Sender<ProcessedBlock>,
+    pub incoming_receipt: Sender<IncomingReceipt>,
+    pub execution_result_endorsed: Sender<ExecutionResultEndorsed>,
 }
 
 /// Self-message after each successful apply; drives the next apply without
@@ -76,18 +80,6 @@ pub struct IncomingReceipt {
     pub source: ReceiptSource,
 }
 
-/// A source block's CER reached on-chain quorum: verify buffered network
-/// receipts from it and re-check parked children.
-#[derive(Debug)]
-pub struct CERCertified {
-    pub block_hash: CryptoHash,
-}
-
-struct ParkedBlock {
-    block_hash: CryptoHash,
-    height: BlockHeight,
-}
-
 /// Per-shard half of the per-shard SPICE chunk-execution subsystem: applies one
 /// shard's chunks inline on its own dedicated thread. One instance per tracked
 /// shard, spawned by [`super::chunk_executor_coordinator::ChunkExecutorCoordinator`].
@@ -101,7 +93,6 @@ pub struct PerShardExecutor {
     chain_store: ChainStore,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    shard_tracker: ShardTracker,
     core_reader: SpiceCoreReader,
     validator_signer: MutableValidatorSigner,
     network_adapter: PeerManagerAdapter,
@@ -109,7 +100,9 @@ pub struct PerShardExecutor {
     data_distributor_adapter: SpiceDataDistributorAdapter,
     coordinator_sender: Sender<PerShardChunkApplied>,
     myself_sender: Sender<AppliedContinue>,
-    pending: Vec<ParkedBlock>,
+    /// Blocks announced but not yet applied, ordered by `(height, block_hash)`
+    /// so a fork (two blocks at one height) keeps both entries.
+    pending: BTreeSet<(BlockHeight, CryptoHash)>,
     /// Network-path receipt proofs buffered until the source block's CER lands,
     /// keyed by source block. Local-path proofs are never buffered (already on
     /// disk). See `ReceiptSource`.
@@ -130,7 +123,6 @@ impl PerShardExecutor {
         genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
         core_reader: SpiceCoreReader,
         validator_signer: MutableValidatorSigner,
         network_adapter: PeerManagerAdapter,
@@ -145,7 +137,6 @@ impl PerShardExecutor {
             chain_store,
             runtime_adapter,
             epoch_manager,
-            shard_tracker,
             core_reader,
             validator_signer,
             network_adapter,
@@ -153,7 +144,7 @@ impl PerShardExecutor {
             data_distributor_adapter,
             coordinator_sender,
             myself_sender,
-            pending: Vec::new(),
+            pending: BTreeSet::new(),
             pending_unverified_receipts: HashMap::new(),
         }
     }
@@ -197,9 +188,12 @@ impl PerShardExecutor {
     /// correctness). Self-sends `AppliedContinue` after acting so other queued
     /// messages dispatch first.
     fn try_apply_one(&mut self) {
-        self.pending.sort_by_key(|parked| parked.height);
-        let hashes: Vec<CryptoHash> = self.pending.iter().map(|parked| parked.block_hash).collect();
-        for block_hash in hashes {
+        // `pending` is height-ordered (BTreeSet), so this scans low-to-high and
+        // acts on the first ready/droppable block, continuing past `NotReady`
+        // (a higher fork block can be ready while a lower one waits).
+        let parked: Vec<(BlockHeight, CryptoHash)> = self.pending.iter().copied().collect();
+        for entry in parked {
+            let (_, block_hash) = entry;
             let outcome = match self.try_apply(&block_hash) {
                 Ok(outcome) => outcome,
                 Err(err) => {
@@ -210,7 +204,7 @@ impl PerShardExecutor {
             match outcome {
                 ApplyOutcome::NotReady => continue,
                 ApplyOutcome::Applied | ApplyOutcome::Dropped => {
-                    self.pending.retain(|parked| parked.block_hash != block_hash);
+                    self.pending.remove(&entry);
                     self.myself_sender.send(AppliedContinue { just_applied: block_hash });
                     return;
                 }
@@ -237,15 +231,8 @@ impl PerShardExecutor {
             return Ok(ApplyOutcome::NotReady);
         };
 
-        if !self.shard_tracker.should_apply_chunk(
-            ApplyChunksMode::IsCaughtUp,
-            &prev_block_hash,
-            self.shard_id,
-        ) {
-            // This node doesn't track the shard at this block — nothing to do.
-            return Ok(ApplyOutcome::Dropped);
-        }
-
+        // The coordinator only spawns per-shard actors for shards this node
+        // tracks, so this actor always applies its shard's chunk.
         let Some(prev_chunk_extra) = self.get_chunk_extra(&prev_block_hash)? else {
             return Ok(ApplyOutcome::NotReady);
         };
@@ -558,18 +545,16 @@ impl PerShardExecutor {
 
 impl Actor for PerShardExecutor {}
 
-impl Handler<IncomingBlock> for PerShardExecutor {
-    fn handle(&mut self, IncomingBlock { block_hash }: IncomingBlock) {
-        if !self.pending.iter().any(|parked| parked.block_hash == block_hash) {
-            let height = match self.chain_store.get_block_header(&block_hash) {
-                Ok(header) => header.height(),
-                Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, %block_hash, "missing header for incoming block");
-                    return;
-                }
-            };
-            self.pending.push(ParkedBlock { block_hash, height });
-        }
+impl Handler<ProcessedBlock> for PerShardExecutor {
+    fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+        let height = match self.chain_store.get_block_header(&block_hash) {
+            Ok(header) => header.height(),
+            Err(err) => {
+                tracing::error!(target: "chunk_executor", ?err, %block_hash, "missing header for processed block");
+                return;
+            }
+        };
+        self.pending.insert((height, block_hash));
         self.try_apply_one();
     }
 }
@@ -594,8 +579,8 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
     }
 }
 
-impl Handler<CERCertified> for PerShardExecutor {
-    fn handle(&mut self, CERCertified { block_hash }: CERCertified) {
+impl Handler<ExecutionResultEndorsed> for PerShardExecutor {
+    fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         self.try_verify(&block_hash);
         self.try_apply_one();
     }
