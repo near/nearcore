@@ -91,7 +91,18 @@ impl ChunkExecutorCoordinator {
         &mut self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
-        let desired: HashSet<ShardId> = self.spawned_shard_ids(parent_hash)?.into_iter().collect();
+        // Spawn an executor for every shard tracked this *or* next epoch: the
+        // next-epoch shards (for a node joining at the boundary) are the ones being
+        // state-synced + caught up, so spawning early lets their executor run catchup
+        // ahead of the boundary, and keeping it for the trailing epoch lets a departing
+        // shard finish. This spawn/retire set must NOT gate finalization — a shard
+        // still syncing for next epoch has no current-epoch ChunkExtra and would stall
+        // the head; `executed_shard_uids` (current epoch only) is the gate set.
+        let desired: HashSet<ShardId> = self
+            .shard_tracker
+            .tracked_shard_ids_this_or_next_epoch(parent_hash)?
+            .into_iter()
+            .collect();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let mut newly_spawned = Vec::new();
         for &shard_id in &desired {
@@ -124,52 +135,28 @@ impl ChunkExecutorCoordinator {
         Ok(())
     }
 
-    /// Shards this node spawns an executor for at `parent_hash`'s epoch —
-    /// currently *or in the next epoch*. The next-epoch shards are (for a node
-    /// joining a shard at the boundary) the ones being state-synced + caught up:
-    /// spawning their executor early lets it run catchup ahead of the boundary,
-    /// and keeping it for the trailing epoch lets a departing shard finish.
-    ///
-    /// This is the spawn/retire set only. It must NOT be used to gate block-level
-    /// finalization — a shard still state-syncing for the next epoch has no
-    /// `ChunkExtra` for the current epoch and would stall the head. Use
-    /// `executed_shard_ids` for that. (Compatibility with future spice state sync.)
-    fn spawned_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
-        Ok(self.shard_tracker.tracked_shard_ids_this_or_next_epoch(parent_hash)?)
-    }
-
-    /// Shards this node *executes* at `parent_hash`'s epoch — current epoch only.
-    /// This is the set block-level finalization gates on: a shard being synced for
-    /// the next epoch is spawned (`spawned_shard_ids`) but not yet executed here,
-    /// so it must not block the current epoch's head advance.
-    fn executed_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
-        Ok(self.shard_tracker.tracked_shard_ids(parent_hash)?)
-    }
-
-    /// `ShardUId`s this node executes at `block_hash`'s epoch (the head-advance /
-    /// finalization gate set — current epoch only, see `executed_shard_ids`).
+    /// `ShardUId`s this node *executes* at `block_hash`'s epoch — current epoch
+    /// only. This is the head-advance / finalization gate set: a shard being synced
+    /// for the next epoch is spawned (see `reconcile_tracked_shards`) but has no
+    /// current-epoch `ChunkExtra`, so it must not block the head.
     fn executed_shard_uids(&self, block_hash: &CryptoHash) -> Result<Vec<ShardUId>, Error> {
         let prev_hash = *self.chain_store.get_block_header(block_hash)?.prev_hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-        self.executed_shard_ids(&prev_hash)?
+        self.shard_tracker
+            .tracked_shard_ids(&prev_hash)?
             .into_iter()
             .map(|shard_id| Ok(shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?))
             .collect()
     }
 
-    /// Current execution head, or the genesis hash if execution hasn't started.
-    fn execution_head_or_genesis(&self) -> Result<CryptoHash, Error> {
-        match optional(self.chain_store.spice_execution_head())? {
-            Some(tip) => Ok(tip.last_block_hash),
-            None => self.chain_store.genesis_hash(),
-        }
-    }
-
     /// Disk-driven, idempotent. From the current execution head, finalize each
-    /// next canonical block whose tracked shards are all applied on disk.
+    /// next canonical block whose tracked shards are all applied on disk. The
+    /// execution head is always set: initialized to the genesis tip at genesis (see
+    /// `genesis.rs`) and advanced forward-only by `block_level_finalize`. A protocol
+    /// upgrade that enables SPICE mid-chain must seed it as part of the upgrade.
     fn advance_execution_head(&self) -> Result<(), Error> {
         loop {
-            let head = self.execution_head_or_genesis()?;
+            let head = self.chain_store.spice_execution_head()?.last_block_hash;
             let Some(next) = optional(self.chain_store.get_next_block_hash(&head))? else {
                 return Ok(());
             };

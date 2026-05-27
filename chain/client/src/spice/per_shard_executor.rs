@@ -27,7 +27,7 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
-use near_primitives::types::{BlockHeight, NumBlocks, ShardId};
+use near_primitives::types::{BlockHeight, NumBlocks};
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
@@ -163,19 +163,6 @@ impl PerShardExecutor {
         }
     }
 
-    /// This executor's shard id (the `ShardUId`'s shard component). Used for the
-    /// `ShardId`-typed epoch-manager / shard-layout calls; chunk-store reads use the
-    /// `ShardUId` directly.
-    fn shard_id(&self) -> ShardId {
-        self.shard_uid.shard_id()
-    }
-
-    /// Verify any buffered `FromNetwork` receipts from `source_block` against its
-    /// CER and write the valid ones. No-op until the CER is on chain.
-    fn try_verify(&mut self, source_block: &CryptoHash) -> Result<(), Error> {
-        self.pending_receipts.try_drain(&self.chain_store, &self.core_reader, source_block)
-    }
-
     /// Apply every parked chunk that is ready, lowest height first. Applying a
     /// block can make the next height ready (its prev is now executed), and the
     /// forward scan picks that up in the same pass; a higher fork block can be
@@ -193,7 +180,7 @@ impl PerShardExecutor {
                     self.pending.remove(&entry);
                 }
                 Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, block_hash=%entry.1, shard_id=%self.shard_id(), "per-shard apply failed");
+                    tracing::error!(target: "chunk_executor", ?err, block_hash=%entry.1, shard_id=%self.shard_uid.shard_id(), "per-shard apply failed");
                     return;
                 }
             }
@@ -201,7 +188,7 @@ impl PerShardExecutor {
     }
 
     fn try_apply(&self, block_hash: &CryptoHash) -> Result<ApplyOutcome, Error> {
-        let shard_id = self.shard_id();
+        let shard_id = self.shard_uid.shard_id();
         let block = self.chain_store.get_block(block_hash)?;
         if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
             return Ok(ApplyOutcome::Dropped);
@@ -363,7 +350,7 @@ impl PerShardExecutor {
         let Some(my_signer) = self.validator_signer.get() else {
             return Ok(());
         };
-        let shard_id = self.shard_id();
+        let shard_id = self.shard_uid.shard_id();
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
 
         // Endorse if we are a chunk validator (regardless of producer status).
@@ -428,17 +415,16 @@ impl Actor for PerShardExecutor {
         // the coordinator never has to replay historical blocks to it (which
         // would block the test-loop thread on a not-yet-registered mailbox).
         if let Err(err) = self.bootstrap() {
-            tracing::error!(target: "chunk_executor", ?err, shard_id=%self.shard_id(), "per-shard bootstrap failed");
+            tracing::error!(target: "chunk_executor", ?err, shard_id=%self.shard_uid.shard_id(), "per-shard bootstrap failed");
         }
     }
 }
 
 impl PerShardExecutor {
     fn bootstrap(&mut self) -> Result<(), Error> {
-        let head = match optional(self.chain_store.spice_execution_head())? {
-            Some(tip) => tip.last_block_hash,
-            None => self.chain_store.genesis_hash()?,
-        };
+        // Always set: initialized to the genesis tip at genesis and advanced
+        // forward-only by the coordinator (see `ChunkExecutorCoordinator::execution_head`).
+        let head = self.chain_store.spice_execution_head()?.last_block_hash;
         let mut queue: VecDeque<CryptoHash> =
             self.chain_store.get_all_next_block_hashes(&head).into();
         while let Some(block_hash) = queue.pop_front() {
@@ -472,7 +458,11 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
             ReceiptSource::LocallyVerified => {}
             ReceiptSource::FromNetwork => {
                 self.pending_receipts.buffer(block_hash, proof);
-                if let Err(err) = self.try_verify(&block_hash) {
+                if let Err(err) = self.pending_receipts.try_drain(
+                    &self.chain_store,
+                    &self.core_reader,
+                    &block_hash,
+                ) {
                     tracing::error!(target: "chunk_executor", ?err, %block_hash, "receipt verification failed");
                 }
             }
@@ -483,7 +473,9 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
 
 impl Handler<ExecutionResultEndorsed> for PerShardExecutor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
-        if let Err(err) = self.try_verify(&block_hash) {
+        if let Err(err) =
+            self.pending_receipts.try_drain(&self.chain_store, &self.core_reader, &block_hash)
+        {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "receipt verification failed");
         }
         self.try_apply_pending();
