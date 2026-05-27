@@ -2,7 +2,7 @@ use crate::spice::chunk_executor_coordinator::PerShardChunkApplied;
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::per_shard_executor::{PerShardExecutor, PerShardExecutorSender};
 use near_async::ActorSystem;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::types::RuntimeAdapter;
@@ -56,13 +56,11 @@ pub struct PerShardDeps {
 }
 
 impl PerShardDeps {
-    /// Build (but don't run) a `PerShardExecutor`, wiring its self-sender and the
-    /// coordinator callback.
+    /// Build (but don't run) a `PerShardExecutor`, wiring the coordinator callback.
     pub fn build(
         &self,
         shard_id: ShardId,
         coordinator_sender: Sender<PerShardChunkApplied>,
-        myself_sender: Sender<crate::spice::per_shard_executor::AppliedContinue>,
     ) -> PerShardExecutor {
         PerShardExecutor::new(
             shard_id,
@@ -79,7 +77,6 @@ impl PerShardDeps {
             self.core_writer_sender.clone(),
             self.data_distributor_adapter.clone(),
             coordinator_sender,
-            myself_sender,
         )
     }
 }
@@ -103,11 +100,8 @@ impl PerShardSpawner for TokioPerShardSpawner {
         shard_id: ShardId,
         coordinator_sender: Sender<PerShardChunkApplied>,
     ) -> PerShardExecutorSender {
-        // The actor's AppliedContinue self-sender is late-bound to its own handle.
-        let myself_adapter = LateBoundSender::new();
-        let actor = self.deps.build(shard_id, coordinator_sender, myself_adapter.as_sender());
+        let actor = self.deps.build(shard_id, coordinator_sender);
         let handle = self.actor_system.spawn_tokio_actor(actor);
-        myself_adapter.bind(handle.clone());
         self.handles.lock().insert(shard_id, handle.clone());
         handle.into_multi_sender()
     }

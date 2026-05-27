@@ -56,13 +56,6 @@ pub struct PerShardExecutorSender {
     pub execution_result_endorsed: Sender<ExecutionResultEndorsed>,
 }
 
-/// Self-message after each successful apply; drives the next apply without
-/// starving the mailbox (goes to the back of the queue).
-#[derive(Debug)]
-pub struct AppliedContinue {
-    pub just_applied: CryptoHash,
-}
-
 /// How a receipt proof reached this shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiptSource {
@@ -101,7 +94,6 @@ pub struct PerShardExecutor {
     core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
     coordinator_sender: Sender<PerShardChunkApplied>,
-    myself_sender: Sender<AppliedContinue>,
     /// Blocks announced but not yet applied, ordered by `(height, block_hash)`
     /// so a fork (two blocks at one height) keeps both entries.
     pending: BTreeSet<(BlockHeight, CryptoHash)>,
@@ -134,7 +126,6 @@ impl PerShardExecutor {
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
         coordinator_sender: Sender<PerShardChunkApplied>,
-        myself_sender: Sender<AppliedContinue>,
     ) -> Self {
         let chain_store = ChainStore::new(store, save_trie_changes, transaction_validity_period)
             .with_save_tx_outcomes(save_tx_outcomes)
@@ -150,7 +141,6 @@ impl PerShardExecutor {
             core_writer_sender,
             data_distributor_adapter,
             coordinator_sender,
-            myself_sender,
             pending: BTreeSet::new(),
             pending_unverified_receipts: HashMap::new(),
         }
@@ -183,29 +173,24 @@ impl PerShardExecutor {
         Ok(())
     }
 
-    /// Apply at most one parked chunk. Scans in height order and acts on the
-    /// first ready/droppable block; continues past `NotReady` (fork
-    /// correctness). Self-sends `AppliedContinue` after acting so other queued
-    /// messages dispatch first.
-    fn try_apply_one(&mut self) {
-        // `pending` is height-ordered (BTreeSet), so this scans low-to-high and
-        // acts on the first ready/droppable block, continuing past `NotReady`
-        // (a higher fork block can be ready while a lower one waits).
+    /// Apply every parked chunk that is ready, lowest height first. Applying a
+    /// block can make the next height ready (its prev is now executed), and the
+    /// forward scan picks that up in the same pass; a higher fork block can be
+    /// ready while a lower one waits, so we continue past `NotReady`. Cross-shard
+    /// dependencies (a sibling's receipts, a prev block's CER) are re-driven by
+    /// the next `IncomingReceipt` / `ExecutionResultEndorsed`, which re-enters here.
+    fn try_apply_pending(&mut self) {
+        // `pending` is height-ordered (BTreeSet); scan low-to-high. Snapshot it so
+        // we can remove applied entries from `pending` while iterating.
         let parked: Vec<(BlockHeight, CryptoHash)> = self.pending.iter().copied().collect();
         for entry in parked {
-            let (_, block_hash) = entry;
-            let outcome = match self.try_apply(&block_hash) {
-                Ok(outcome) => outcome,
-                Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, %block_hash, shard_id=%self.shard_id, "per-shard apply failed");
-                    return;
-                }
-            };
-            match outcome {
-                ApplyOutcome::NotReady => continue,
-                ApplyOutcome::Applied | ApplyOutcome::Dropped => {
+            match self.try_apply(&entry.1) {
+                Ok(ApplyOutcome::NotReady) => continue,
+                Ok(ApplyOutcome::Applied | ApplyOutcome::Dropped) => {
                     self.pending.remove(&entry);
-                    self.myself_sender.send(AppliedContinue { just_applied: block_hash });
+                }
+                Err(err) => {
+                    tracing::error!(target: "chunk_executor", ?err, block_hash=%entry.1, shard_id=%self.shard_id, "per-shard apply failed");
                     return;
                 }
             }
@@ -581,28 +566,22 @@ impl PerShardExecutor {
             self.pending.insert((height, block_hash));
             queue.extend(self.chain_store.get_all_next_block_hashes(&block_hash));
         }
-        self.try_apply_one();
+        self.try_apply_pending();
         Ok(())
     }
 }
 
 impl Handler<ProcessedBlock> for PerShardExecutor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
-        let height = match self.chain_store.get_block_header(&block_hash) {
-            Ok(header) => header.height(),
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, %block_hash, "missing header for processed block");
-                return;
-            }
-        };
+        // ProcessedBlock is routed by the coordinator, which already read this
+        // header in dispatch_block — so it is always on disk by the time we get here.
+        let height = self
+            .chain_store
+            .get_block_header(&block_hash)
+            .expect("block header must be stored before ProcessedBlock is routed")
+            .height();
         self.pending.insert((height, block_hash));
-        self.try_apply_one();
-    }
-}
-
-impl Handler<AppliedContinue> for PerShardExecutor {
-    fn handle(&mut self, _msg: AppliedContinue) {
-        self.try_apply_one();
+        self.try_apply_pending();
     }
 }
 
@@ -618,7 +597,7 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
                 }
             }
         }
-        self.try_apply_one();
+        self.try_apply_pending();
     }
 }
 
@@ -627,6 +606,6 @@ impl Handler<ExecutionResultEndorsed> for PerShardExecutor {
         if let Err(err) = self.try_verify(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "receipt verification failed");
         }
-        self.try_apply_one();
+        self.try_apply_pending();
     }
 }

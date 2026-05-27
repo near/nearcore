@@ -1,4 +1,4 @@
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{IntoMultiSender, LateBoundSender, Sender};
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::pending_events_sender::PendingEventsSender;
 use near_client::spice::chunk_executor_coordinator::PerShardChunkApplied;
@@ -26,8 +26,7 @@ impl PerShardSpawner for TestLoopPerShardSpawner {
         shard_id: ShardId,
         coordinator_sender: Sender<PerShardChunkApplied>,
     ) -> PerShardExecutorSender {
-        let self_adapter = LateBoundSender::new();
-        let actor = self.deps.build(shard_id, coordinator_sender, self_adapter.as_sender());
+        let actor = self.deps.build(shard_id, coordinator_sender);
         // The coordinator's mailbox to this shard, bound once the register event runs.
         let actor_adapter = LateBoundSender::new();
         let mailbox = actor_adapter.as_multi_sender();
@@ -35,7 +34,7 @@ impl PerShardSpawner for TestLoopPerShardSpawner {
         self.pending_events_sender.send(
             format!("RegisterPerShardExecutor({shard_id})"),
             Box::new(move |data: &mut TestLoopData| {
-                let handle = data.register_actor(&identifier, actor, Some(self_adapter));
+                let handle = data.register_actor(&identifier, actor, None);
                 actor_adapter.bind(handle);
             }),
         );
