@@ -95,9 +95,8 @@ pub struct IncomingReceipt {
 /// shard, spawned by [`super::chunk_executor_coordinator::ChunkExecutorCoordinator`].
 ///
 /// Persistence is adapter-native: this shard's apply outputs are written via
-/// [`commit_per_shard_outputs`] (purpose-built SPICE store-adapter helpers), not
-/// the monolithic `ChainUpdate` / `apply_chunk_postprocessing` path. It holds a
-/// read-only [`ChainStoreAdapter`] (no `ChainStore`).
+/// [`commit_per_shard_outputs`] (purpose-built SPICE store-adapter helpers). It
+/// holds a read-only [`ChainStoreAdapter`] (no `ChainStore`).
 pub struct PerShardExecutor {
     shard_id: ShardId,
     chain_store: ChainStoreAdapter,
@@ -231,9 +230,8 @@ impl PerShardExecutor {
         // keeps the height scan from computing `ShardUId(self.shard_id, block.epoch)`
         // below, which would panic in `from_shard_id_and_layout`.
         // NOTE(spice-resharding): execution actually crossing the boundary (a child
-        // shard inheriting parent state via `prev_chunk_extra`) is still a follow-up
-        // — see the old executor's `TODO(spice-resharding)`; today's test relies on
-        // execution lagging behind the boundary.
+        // shard inheriting parent state via `prev_chunk_extra`) is still a follow-up;
+        // today's test relies on execution lagging behind the boundary.
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
         if !shard_layout.shard_ids().any(|id| id == self.shard_id) {
             return Ok(ApplyOutcome::Dropped);
@@ -290,8 +288,7 @@ impl PerShardExecutor {
             block.chunks().get(shard_index).ok_or(Error::InvalidShardId(self.shard_id))?.clone();
         let shard_uid = ShardUId::from_shard_id_and_layout(self.shard_id, &shard_layout);
 
-        // Inline apply (mirrors ChunkExecutorActor::get_update_shard_job, but
-        // run synchronously on this shard's own thread — no spawner).
+        // Inline apply, run synchronously on this shard's own thread (no spawner).
         let block_context = build_spice_apply_chunk_block_context(
             block.header(),
             &prev_block_execution_results,

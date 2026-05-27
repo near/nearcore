@@ -41,8 +41,8 @@ pub trait PerShardSpawner: Send + Sync + 'static {
 pub struct PerShardDeps {
     pub store: Store,
     pub transaction_validity_period: NumBlocks,
-    /// Mirror the old `ChunkExecutorActor`: thread the client-config persistence
-    /// flags into each shard's `ChainStore` so disabled writes stay disabled.
+    /// Client-config persistence flags, threaded into each shard's writes so
+    /// disabled columns stay disabled.
     pub save_trie_changes: bool,
     pub save_tx_outcomes: bool,
     pub save_receipt_to_tx: bool,

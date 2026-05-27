@@ -8,10 +8,8 @@ use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 
 /// SPICE-only per-shard persistence: commit one shard's apply outputs for `block`
-/// in a single atomic `StoreUpdate`, replacing the monolithic
-/// `ChainUpdate::apply_chunk_postprocessing` + `ChainStoreUpdate` path the
-/// prototype used to hack-reuse. Mirrors the columns written by the `NewChunk`
-/// arm of `process_apply_chunk_result` + `ChainStoreUpdate::finalize`.
+/// in a single atomic `StoreUpdate`, via the store adapters directly (no
+/// `ChainUpdate`). Writes the same columns the non-spice `NewChunk` apply does.
 ///
 /// Replay safety (findings.md #2): the `ChunkExtra` sentinel, the refcounted
 /// `State` trie insertions, and the refcounted `Receipts` writes all land in the

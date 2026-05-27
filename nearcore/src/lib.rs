@@ -302,7 +302,6 @@ fn spawn_spice_actors(
     let spawner = Box::new(TokioPerShardSpawner::new(actor_system.clone(), deps));
     let coordinator = ChunkExecutorCoordinator::new(
         runtime.store().clone(),
-        chain_genesis,
         runtime.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),

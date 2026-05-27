@@ -247,7 +247,6 @@ pub fn create_test_setup_with_accounts_and_validity(
         let spawner = Box::new(TokioPerShardSpawner::new(actor_system.clone(), deps));
         let coordinator = ChunkExecutorCoordinator::new(
             runtime.store().clone(),
-            &chain_genesis,
             runtime.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),

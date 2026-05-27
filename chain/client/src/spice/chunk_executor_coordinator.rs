@@ -6,7 +6,7 @@ use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Block, ChainGenesis, Error};
+use near_chain::{Block, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -39,7 +39,7 @@ const BANDWIDTH_HASH_CACHE_CAP: usize = 256;
 /// Block-level half of the per-shard SPICE chunk-execution subsystem. Spawns and
 /// retires the per-shard executors (via the [`PerShardSpawner`]), fans block
 /// events out to them, routes cross-shard receipts, and drives the disk-driven
-/// execution-head advance. Gated behind [`super::SPICE_PER_SHARD_EXECUTOR`].
+/// execution-head advance. Wired only under the `protocol_feature_spice` feature.
 pub struct ChunkExecutorCoordinator {
     chain_store: ChainStoreAdapter,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -62,9 +62,6 @@ pub struct ChunkExecutorCoordinator {
 impl ChunkExecutorCoordinator {
     pub fn new(
         store: Store,
-        // The coordinator does only block-level reads/writes through the store
-        // adapters, so it no longer needs the genesis transaction-validity period.
-        _genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -285,7 +282,7 @@ impl ChunkExecutorCoordinator {
 
 impl Actor for ChunkExecutorCoordinator {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
-        tracing::info!(target: "chunk_executor", "ChunkExecutorCoordinator started (prototype)");
+        tracing::info!(target: "chunk_executor", "ChunkExecutorCoordinator started");
         if let Err(err) = self.bootstrap() {
             tracing::error!(target: "chunk_executor", ?err, "coordinator bootstrap failed");
         }

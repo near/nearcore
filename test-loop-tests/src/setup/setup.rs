@@ -493,7 +493,6 @@ pub fn setup_client(
         });
         let coordinator = ChunkExecutorCoordinator::new(
             runtime_adapter.store().clone(),
-            &chain_genesis,
             runtime_adapter.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
