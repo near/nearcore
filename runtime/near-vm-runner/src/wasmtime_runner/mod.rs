@@ -407,7 +407,9 @@ impl IntoVMError for wasmtime::Error {
                     }
                 }));
             };
-            return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
+            return Err(VMRunnerError::WasmUnknownError {
+                debug_message: format!("nondeterministic trap: {}", nondeterministic_message),
+            });
         }
         let description = if cause.is::<wasmtime::UnknownImportError>() {
             "unknown or invalid import".to_string()

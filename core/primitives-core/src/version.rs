@@ -399,6 +399,9 @@ pub enum ProtocolFeature {
     /// transaction or `AddKey` action carrying an ML-DSA-65 key/signature, so
     /// post-feature there is no question of grandfathered keys.
     PostQuantumSignatures,
+    /// Allow creating `DeterministicStateInitAction` from a delegated action by
+    /// fixing the receiver id check.
+    FixDelegatedDeterministicStateInit,
     /// Fix BLS12-381 sum/multiexp/decompress host functions to accept points that
     /// are on the curve but not in the G1/G2 subgroup, as required by NEP-488.
     /// Previously such points (e.g. (0, ±2)) returned an error instead of the
@@ -515,6 +518,7 @@ impl ProtocolFeature {
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
+            | ProtocolFeature::FixDelegatedDeterministicStateInit
             | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:

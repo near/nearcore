@@ -176,7 +176,25 @@ fn validate_delegate_action(
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     let actions = signed_delegate_action.delegate_action.get_actions();
-    validate_actions_with_mode(limit_config, &actions, receiver, current_protocol_version, mode)?;
+    let inner_receiver =
+        if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
+            // This is the correct receiver id to use for the check.
+            &signed_delegate_action.delegate_action.receiver_id
+        } else {
+            // This is a bug fixed with `FixDelegatedDeterministicStateInit` that
+            // validated against the wrong id. This makes it impossible to
+            // initialize deterministic accounts from meta transactions.
+            // The bug cannot be abused, if someone crafts a state init that passes
+            // validation here, it will fail when it is checked as incoming receipt.
+            receiver
+        };
+    validate_actions_with_mode(
+        limit_config,
+        &actions,
+        inner_receiver,
+        current_protocol_version,
+        mode,
+    )?;
     Ok(())
 }
 

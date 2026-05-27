@@ -62,7 +62,7 @@ pub(crate) mod split;
 mod state_parts;
 mod state_snapshot;
 mod trie_recording;
-mod trie_storage;
+pub mod trie_storage;
 pub mod trie_storage_update;
 #[cfg(test)]
 mod trie_tests;
