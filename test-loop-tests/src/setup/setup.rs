@@ -1,5 +1,6 @@
 use super::drop_condition::ClientToShardsManagerSender;
 use super::peer_manager_actor::TestLoopPeerManagerActor;
+use super::per_shard_spawner::TestLoopPerShardSpawner;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use near_async::futures::FutureSpawnerExt;
@@ -26,7 +27,7 @@ use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutor
 use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
-use near_client::spice::per_shard_executor::PerShardExecutor;
+use near_client::spice::per_shard_spawner::PerShardDeps;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
@@ -36,21 +37,18 @@ use near_client::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
 };
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc::client::RpcTransport;
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::EpochId;
 use near_store::adapter::StoreAdapter;
 use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 use parking_lot::RwLock;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use tokio::sync::broadcast;
@@ -507,39 +505,34 @@ pub fn setup_client(
 
     test_loop.data.register_actor(identifier, chunk_executor_actor, Some(chunk_executor_adapter));
 
-    // Prototype: build the per-shard subsystem (one PerShardExecutor per shard +
-    // the coordinator) up-front and register each, mirroring nearcore/src/lib.rs.
-    // The coordinator does not spawn — test-loop can't register actors mid-run.
+    // Prototype: the coordinator spawns/retires per-shard executors via a
+    // TestLoopPerShardSpawner (registers actors with the loop through a deferred
+    // event — see notes/14). Mirrors nearcore/src/lib.rs.
     if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
-        let shard_ids = epoch_manager.shard_ids(&EpochId::default()).expect("genesis shard ids");
-        let mut mailboxes = HashMap::new();
-        for shard_id in shard_ids {
-            let self_adapter = LateBoundSender::new();
-            let per_shard_actor = PerShardExecutor::new(
-                shard_id,
-                runtime_adapter.store().clone(),
-                &chain_genesis,
-                runtime_adapter.clone(),
-                epoch_manager.clone(),
-                spice_core_reader.clone(),
-                validator_signer.clone(),
-                network_adapter.as_multi_sender(),
-                spice_core_writer_adapter.as_sender(),
-                spice_data_distributor_adapter.as_multi_sender(),
-                chunk_executor_coordinator_adapter.as_sender(),
-                self_adapter.as_sender(),
-            );
-            let handle =
-                test_loop.data.register_actor(identifier, per_shard_actor, Some(self_adapter));
-            mailboxes.insert(shard_id, handle.into_multi_sender());
-        }
+        let deps = PerShardDeps {
+            store: runtime_adapter.store().clone(),
+            transaction_validity_period: chain_genesis.transaction_validity_period,
+            runtime_adapter: runtime_adapter.clone(),
+            epoch_manager: epoch_manager.clone(),
+            core_reader: spice_core_reader,
+            validator_signer: validator_signer.clone(),
+            network_adapter: network_adapter.as_multi_sender(),
+            core_writer_sender: spice_core_writer_adapter.as_sender(),
+            data_distributor_adapter: spice_data_distributor_adapter.as_multi_sender(),
+        };
+        let spawner = Box::new(TestLoopPerShardSpawner {
+            pending_events_sender: test_loop.future_spawner(identifier),
+            identifier: identifier.to_string(),
+            deps,
+        });
         let coordinator = ChunkExecutorCoordinator::new(
             runtime_adapter.store().clone(),
             &chain_genesis,
             runtime_adapter.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            mailboxes,
+            spawner,
+            chunk_executor_coordinator_adapter.as_sender(),
         );
         test_loop.data.register_actor(
             identifier,

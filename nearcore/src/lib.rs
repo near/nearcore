@@ -32,7 +32,7 @@ use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutor
 use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
-use near_client::spice::per_shard_executor::PerShardExecutor;
+use near_client::spice::per_shard_spawner::{PerShardDeps, TokioPerShardSpawner};
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
@@ -54,7 +54,6 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -294,43 +293,31 @@ fn spawn_spice_actors(
     );
 
     // Prototype: when enabled, run the new per-shard subsystem instead of the
-    // monolithic executor. Build one PerShardExecutor per shard up-front (each on
-    // its own dedicated tokio thread) and hand the coordinator their mailboxes;
-    // the coordinator never spawns (keeps it spawn-agnostic so test-loop can
-    // build the same topology via register_actor). The coordinator receives
-    // ProcessedBlock (re-pointed in new_spice_client_config).
+    // monolithic executor. The coordinator spawns/retires one PerShardExecutor
+    // per tracked shard (each on its own dedicated tokio thread) via the
+    // TokioPerShardSpawner. The coordinator receives ProcessedBlock (re-pointed
+    // in new_spice_client_config).
     if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
-        // Prototype: spawn for every genesis shard (no dynamic reconcile /
-        // tracker filtering); untracked shards self-drop in try_apply.
-        let shard_ids = epoch_manager.shard_ids(&EpochId::default()).expect("genesis shard ids");
-        let mut mailboxes = HashMap::new();
-        for shard_id in shard_ids {
-            let self_adapter = LateBoundSender::new();
-            let per_shard_actor = PerShardExecutor::new(
-                shard_id,
-                runtime.store().clone(),
-                chain_genesis,
-                runtime.clone(),
-                epoch_manager.clone(),
-                spice_core_reader.clone(),
-                validator_signer.clone(),
-                network_adapter.clone(),
-                spice_core_writer_adapter.as_sender(),
-                spice_data_distributor_adapter.as_multi_sender(),
-                chunk_executor_coordinator_adapter.as_sender(),
-                self_adapter.as_sender(),
-            );
-            let handle = actor_system.spawn_tokio_actor(per_shard_actor);
-            self_adapter.bind(handle.clone());
-            mailboxes.insert(shard_id, handle.clone().into_multi_sender());
-        }
+        let deps = PerShardDeps {
+            store: runtime.store().clone(),
+            transaction_validity_period: chain_genesis.transaction_validity_period,
+            runtime_adapter: runtime.clone(),
+            epoch_manager: epoch_manager.clone(),
+            core_reader: spice_core_reader.clone(),
+            validator_signer: validator_signer.clone(),
+            network_adapter: network_adapter.clone(),
+            core_writer_sender: spice_core_writer_adapter.as_sender(),
+            data_distributor_adapter: spice_data_distributor_adapter.as_multi_sender(),
+        };
+        let spawner = Box::new(TokioPerShardSpawner::new(actor_system.clone(), deps));
         let coordinator = ChunkExecutorCoordinator::new(
             runtime.store().clone(),
             chain_genesis,
             runtime.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            mailboxes,
+            spawner,
+            chunk_executor_coordinator_adapter.as_sender(),
         );
         let addr = actor_system.spawn_tokio_actor(coordinator);
         chunk_executor_coordinator_adapter.bind(addr);

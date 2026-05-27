@@ -1,8 +1,9 @@
 use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::per_shard_executor::{IncomingReceipt, PerShardExecutorSender, ReceiptSource};
+use crate::spice::per_shard_spawner::PerShardSpawner;
 use lru::LruCache;
 use near_async::futures::DelayedActionRunner;
-use near_async::messaging::{Actor, CanSend, Handler};
+use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{
@@ -15,7 +16,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::ShardId;
 use near_store::{ShardUId, Store};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -34,20 +35,22 @@ pub struct PerShardChunkApplied {
 /// window is enough.
 const BANDWIDTH_HASH_CACHE_CAP: usize = 256;
 
-/// Block-level half of the per-shard SPICE chunk-execution subsystem. Fans block
-/// events out to the per-shard executors, routes cross-shard receipts, and drives
-/// the disk-driven execution-head advance.
-///
-/// Prototype: the per-shard actors are spawned/registered up-front by the setup
-/// site (which differs between a real node and test-loop) and handed in as
-/// `mailboxes`; the coordinator does not spawn them. Dynamic shard reconcile
-/// (spawn-early / retire-late) is deferred. Gated behind
-/// [`super::SPICE_PER_SHARD_EXECUTOR`].
+/// Block-level half of the per-shard SPICE chunk-execution subsystem. Spawns and
+/// retires the per-shard executors (via the [`PerShardSpawner`]), fans block
+/// events out to them, routes cross-shard receipts, and drives the disk-driven
+/// execution-head advance. Gated behind [`super::SPICE_PER_SHARD_EXECUTOR`].
 pub struct ChunkExecutorCoordinator {
     chain_store: ChainStore,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
+    /// Creates/retires per-shard executors; abstracts production (tokio actor)
+    /// vs. test-loop (registered actor) — see [`PerShardSpawner`].
+    spawner: Box<dyn PerShardSpawner>,
+    /// The coordinator's own `PerShardChunkApplied` sender, handed to each
+    /// spawned executor as its upstream channel.
+    self_sender: Sender<PerShardChunkApplied>,
+    /// Live per-shard mailboxes, grown/shrunk by `reconcile_tracked_shards`.
     mailboxes: HashMap<ShardId, PerShardExecutorSender>,
     /// Soft cross-shard sanity check: block -> first-seen bandwidth scheduler
     /// state hash. Not completion state; losing it on restart only skips the
@@ -62,7 +65,8 @@ impl ChunkExecutorCoordinator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        mailboxes: HashMap<ShardId, PerShardExecutorSender>,
+        spawner: Box<dyn PerShardSpawner>,
+        self_sender: Sender<PerShardChunkApplied>,
     ) -> Self {
         let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period);
         Self {
@@ -70,11 +74,52 @@ impl ChunkExecutorCoordinator {
             runtime_adapter,
             epoch_manager,
             shard_tracker,
-            mailboxes,
+            spawner,
+            self_sender,
+            mailboxes: HashMap::new(),
             bandwidth_hash_cache: LruCache::new(
                 NonZeroUsize::new(BANDWIDTH_HASH_CACHE_CAP).unwrap(),
             ),
         }
+    }
+
+    /// Spawn executors for newly-tracked shards and retire ones no longer
+    /// tracked, returning the shards spawned in this call (which self-bootstrap
+    /// from disk and must NOT be routed to within the same handler — their
+    /// test-loop mailbox isn't registered yet).
+    fn reconcile_tracked_shards(
+        &mut self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ShardId>, Error> {
+        let desired: HashSet<ShardId> = self.tracked_shard_ids(parent_hash)?.into_iter().collect();
+        let mut newly_spawned = Vec::new();
+        for &shard_id in &desired {
+            if !self.mailboxes.contains_key(&shard_id) {
+                let mailbox = self.spawner.spawn(shard_id, self.self_sender.clone());
+                self.mailboxes.insert(shard_id, mailbox);
+                newly_spawned.push(shard_id);
+            }
+        }
+        let gone: Vec<ShardId> =
+            self.mailboxes.keys().copied().filter(|shard_id| !desired.contains(shard_id)).collect();
+        for shard_id in gone {
+            self.spawner.retire(shard_id);
+            self.mailboxes.remove(&shard_id);
+        }
+        Ok(newly_spawned)
+    }
+
+    /// Reconcile the tracked-shard set for `block_hash`, then route the block to
+    /// every shard that was already live (freshly-spawned shards self-bootstrap).
+    fn dispatch_block(&mut self, block_hash: CryptoHash) -> Result<(), Error> {
+        let parent_hash = *self.chain_store.get_block_header(&block_hash)?.prev_hash();
+        let newly_spawned = self.reconcile_tracked_shards(&parent_hash)?;
+        for (shard_id, mailbox) in &self.mailboxes {
+            if !newly_spawned.contains(shard_id) {
+                mailbox.send(ProcessedBlock { block_hash });
+            }
+        }
+        Ok(())
     }
 
     /// Shards this node tracks at `parent_hash`'s epoch — currently or in the
@@ -174,34 +219,21 @@ impl ChunkExecutorCoordinator {
         Ok(())
     }
 
-    /// Bootstrap/catch-up: broadcast `ProcessedBlock` for every block above the
-    /// execution head so per-shard actors apply any backlog. Bounded by the
-    /// execution-head-to-tip gap (small in steady state; non-trivial only after
-    /// a restart with execution lagging). Already-applied blocks are dropped by
-    /// the per-shard `AlreadyApplied` check.
-    fn replay_blocks_above_execution_head(&self) -> Result<(), Error> {
-        let head = self.execution_head_or_genesis()?;
-        let mut queue: VecDeque<CryptoHash> =
-            self.chain_store.get_all_next_block_hashes(&head).into();
-        while let Some(block_hash) = queue.pop_front() {
-            for mailbox in self.mailboxes.values() {
-                mailbox.send(ProcessedBlock { block_hash });
-            }
-            queue.extend(self.chain_store.get_all_next_block_hashes(&block_hash));
-        }
-        Ok(())
+    /// On start: spawn executors for the currently-tracked shards (they
+    /// self-bootstrap from disk) and finalize any applied-but-not-finalized
+    /// backlog. No block replay — each per-shard executor catches up on its own
+    /// `start_actor`.
+    fn bootstrap(&mut self) -> Result<(), Error> {
+        let head = self.chain_store.head()?.last_block_hash;
+        self.reconcile_tracked_shards(&head)?;
+        self.advance_execution_head()
     }
 }
 
 impl Actor for ChunkExecutorCoordinator {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
         tracing::info!(target: "chunk_executor", "ChunkExecutorCoordinator started (prototype)");
-        // Recover any applied-but-not-finalized backlog, then replay blocks above
-        // the execution head so the per-shard actors re-derive readiness and
-        // catch up (e.g. after a restart with execution lagging consensus).
-        let result =
-            self.advance_execution_head().and_then(|()| self.replay_blocks_above_execution_head());
-        if let Err(err) = result {
+        if let Err(err) = self.bootstrap() {
             tracing::error!(target: "chunk_executor", ?err, "coordinator bootstrap failed");
         }
     }
@@ -209,8 +241,8 @@ impl Actor for ChunkExecutorCoordinator {
 
 impl Handler<ProcessedBlock> for ChunkExecutorCoordinator {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
-        for mailbox in self.mailboxes.values() {
-            mailbox.send(ProcessedBlock { block_hash });
+        if let Err(err) = self.dispatch_block(block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to dispatch processed block");
         }
     }
 }

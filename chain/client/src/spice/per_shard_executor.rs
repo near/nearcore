@@ -7,6 +7,7 @@ use crate::spice::chunk_executor_coordinator::PerShardChunkApplied;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
+use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, IntoSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
@@ -17,8 +18,8 @@ use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlo
 use near_chain::types::{ApplyChunkResult, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
-    Block, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode,
-    Error, collect_receipts, get_chunk_clone_from_header,
+    Block, Chain, ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode, Error,
+    collect_receipts, get_chunk_clone_from_header,
 };
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
@@ -35,12 +36,14 @@ use near_primitives::spice::state_witness::{
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ChunkExecutionResultHash, ShardId, SpiceChunkId};
+use near_primitives::types::{
+    BlockHeight, ChunkExecutionResultHash, NumBlocks, ShardId, SpiceChunkId,
+};
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 /// The coordinator's handle to one per-shard executor. Built from the actor's
@@ -119,7 +122,7 @@ impl PerShardExecutor {
     pub fn new(
         shard_id: ShardId,
         store: Store,
-        genesis: &ChainGenesis,
+        transaction_validity_period: NumBlocks,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         core_reader: SpiceCoreReader,
@@ -130,7 +133,7 @@ impl PerShardExecutor {
         coordinator_sender: Sender<PerShardChunkApplied>,
         myself_sender: Sender<AppliedContinue>,
     ) -> Self {
-        let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period);
+        let chain_store = ChainStore::new(store, true, transaction_validity_period);
         Self {
             shard_id,
             chain_store,
@@ -535,7 +538,36 @@ impl PerShardExecutor {
     }
 }
 
-impl Actor for PerShardExecutor {}
+impl Actor for PerShardExecutor {
+    fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
+        // Self-bootstrap: park every block above the execution head and start
+        // applying. A freshly-spawned shard catches up from disk on its own, so
+        // the coordinator never has to replay historical blocks to it (which
+        // would block the test-loop thread on a not-yet-registered mailbox).
+        if let Err(err) = self.bootstrap() {
+            tracing::error!(target: "chunk_executor", ?err, shard_id=%self.shard_id, "per-shard bootstrap failed");
+        }
+    }
+}
+
+impl PerShardExecutor {
+    fn bootstrap(&mut self) -> Result<(), Error> {
+        let head = match self.chain_store.spice_execution_head() {
+            Ok(tip) => tip.last_block_hash,
+            Err(Error::DBNotFoundErr(_)) => self.chain_store.genesis_hash()?,
+            Err(err) => return Err(err),
+        };
+        let mut queue: VecDeque<CryptoHash> =
+            self.chain_store.get_all_next_block_hashes(&head).into();
+        while let Some(block_hash) = queue.pop_front() {
+            let height = self.chain_store.get_block_header(&block_hash)?.height();
+            self.pending.insert((height, block_hash));
+            queue.extend(self.chain_store.get_all_next_block_hashes(&block_hash));
+        }
+        self.try_apply_one();
+        Ok(())
+    }
+}
 
 impl Handler<ProcessedBlock> for PerShardExecutor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
