@@ -15,10 +15,7 @@ mod tests;
 /// instead of the monolithic `ChunkExecutorActor`. A plain global const (not a
 /// config field) keeps the prototype's diff small.
 ///
-/// It is `false` unless the `protocol_feature_spice` build is active, so non-SPICE
-/// builds and tests (Linux, Linux Nightly) are entirely unaffected — only the
-/// SPICE build exercises the new path.
-#[cfg(feature = "protocol_feature_spice")]
+/// The per-shard subsystem is a SPICE-only concern: every wiring site is also
+/// guarded by `cfg!(feature = "protocol_feature_spice")`, so non-SPICE builds and
+/// tests (Linux, Linux Nightly) never activate it regardless of this const.
 pub const SPICE_PER_SHARD_EXECUTOR: bool = true;
-#[cfg(not(feature = "protocol_feature_spice"))]
-pub const SPICE_PER_SHARD_EXECUTOR: bool = false;

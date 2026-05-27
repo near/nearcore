@@ -23,6 +23,7 @@ use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ClientActor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
+use near_client::spice::SPICE_PER_SHARD_EXECUTOR;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
@@ -288,7 +289,7 @@ pub fn setup_client(
         client_config.orphan_state_witness_max_size.as_u64(),
     );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
-        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        if SPICE_PER_SHARD_EXECUTOR {
             chunk_executor_coordinator_adapter.as_sender()
         } else {
             chunk_executor_adapter.as_sender()
@@ -452,7 +453,7 @@ pub fn setup_client(
         runtime_adapter.store().chain_store(),
         epoch_manager.clone(),
         spice_core_reader.clone(),
-        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        if cfg!(feature = "protocol_feature_spice") && SPICE_PER_SHARD_EXECUTOR {
             chunk_executor_coordinator_adapter.as_sender()
         } else {
             chunk_executor_adapter.as_sender()
@@ -467,7 +468,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         spice_core_reader.clone(),
         network_adapter.as_multi_sender(),
-        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        if cfg!(feature = "protocol_feature_spice") && SPICE_PER_SHARD_EXECUTOR {
             chunk_executor_coordinator_adapter.as_sender()
         } else {
             chunk_executor_adapter.as_sender()
@@ -508,7 +509,7 @@ pub fn setup_client(
     // Prototype: the coordinator spawns/retires per-shard executors via a
     // TestLoopPerShardSpawner (registers actors with the loop through a deferred
     // event — see notes/14). Mirrors nearcore/src/lib.rs.
-    if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+    if cfg!(feature = "protocol_feature_spice") && SPICE_PER_SHARD_EXECUTOR {
         let deps = PerShardDeps {
             store: runtime_adapter.store().clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,

@@ -28,6 +28,7 @@ use near_client::archive::cloud_archival_writer::{
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
+use near_client::spice::SPICE_PER_SHARD_EXECUTOR;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
@@ -243,7 +244,7 @@ fn new_spice_client_config(
     let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
         // Prototype: route ProcessedBlock to the new coordinator when the
         // per-shard subsystem is enabled, otherwise to the monolithic executor.
-        let chunk_executor_sender = if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        let chunk_executor_sender = if SPICE_PER_SHARD_EXECUTOR {
             chunk_executor_coordinator_adapter.as_sender()
         } else {
             chunk_executor_adapter.as_sender()
@@ -297,7 +298,7 @@ fn spawn_spice_actors(
     // per tracked shard (each on its own dedicated tokio thread) via the
     // TokioPerShardSpawner. The coordinator receives ProcessedBlock (re-pointed
     // in new_spice_client_config).
-    if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+    if SPICE_PER_SHARD_EXECUTOR {
         let deps = PerShardDeps {
             store: runtime.store().clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
@@ -331,7 +332,7 @@ fn spawn_spice_actors(
         runtime.store().chain_store(),
         epoch_manager.clone(),
         spice_core_reader.clone(),
-        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        if SPICE_PER_SHARD_EXECUTOR {
             chunk_executor_coordinator_adapter.as_sender()
         } else {
             chunk_executor_adapter.as_sender()
@@ -348,7 +349,7 @@ fn spawn_spice_actors(
         shard_tracker.clone(),
         spice_core_reader,
         network_adapter.clone(),
-        if near_client::spice::SPICE_PER_SHARD_EXECUTOR {
+        if SPICE_PER_SHARD_EXECUTOR {
             chunk_executor_coordinator_adapter.as_sender()
         } else {
             chunk_executor_adapter.as_sender()
