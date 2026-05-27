@@ -1,6 +1,7 @@
 use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::chunk_executor_actor::{
-    ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
+    ChunkExecutorActor, ChunkExecutorConfig, chunk_extra_exists, get_chunk_extra,
+    is_descendant_of_final_execution_head,
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
@@ -356,7 +357,14 @@ fn block_executed(actor: &TestActor, block: &Block) -> bool {
         if !actor.actor.shard_tracker.cares_about_shard(block.hash(), shard_id) {
             continue;
         }
-        if !actor.actor.chunk_extra_exists(block.header().hash(), shard_id).unwrap() {
+        if !chunk_extra_exists(
+            &actor.actor.chain_store,
+            actor.actor.epoch_manager.as_ref(),
+            block.header().hash(),
+            shard_id,
+        )
+        .unwrap()
+        {
             return false;
         }
     }
@@ -413,7 +421,14 @@ fn find_chunk_execution_result(
     shard_id: ShardId,
 ) -> ChunkExecutionResult {
     for actor in actors {
-        if let Some(chunk_extra) = actor.actor.get_chunk_extra(block_hash, shard_id).unwrap() {
+        if let Some(chunk_extra) = get_chunk_extra(
+            &actor.actor.chain_store,
+            actor.actor.epoch_manager.as_ref(),
+            block_hash,
+            shard_id,
+        )
+        .unwrap()
+        {
             let outgoing_receipts =
                 actor.actor.chain_store.get_outgoing_receipts(block_hash, shard_id).unwrap();
             let (outgoing_receipts_root, _receipt_proofs) =
@@ -909,7 +924,13 @@ fn test_tracking_several_shards() {
         let shard_ids = actors[0].actor.epoch_manager.shard_ids(epoch_id).unwrap();
         for shard_id in shard_ids {
             assert!(
-                actors[0].actor.chunk_extra_exists(block.header().hash(), shard_id).unwrap(),
+                chunk_extra_exists(
+                    &actors[0].actor.chain_store,
+                    actors[0].actor.epoch_manager.as_ref(),
+                    block.header().hash(),
+                    shard_id,
+                )
+                .unwrap(),
                 "no execution results for block #{} shard_id={shard_id} block_hash {}",
                 i + 1,
                 block.hash(),

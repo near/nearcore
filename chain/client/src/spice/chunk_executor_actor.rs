@@ -88,12 +88,6 @@ impl Default for ChunkExecutorConfig {
     }
 }
 
-/// Data required for validators to initiate the chunk application
-struct ChunkExecutionData {
-    pub witness: SpiceChunkStateWitness,
-    pub code_accesses: HashSet<CodeHash>,
-}
-
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStore,
     pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -449,12 +443,21 @@ impl ChunkExecutorActor {
                 continue;
             }
             // Existing chunk extra means that the chunk for that shard was already applied
-            if self.chunk_extra_exists(block_hash, current_block_shard_id)? {
+            if chunk_extra_exists(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                block_hash,
+                current_block_shard_id,
+            )? {
                 return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
             }
 
-            let Some(prev_chunk_chunk_extra) =
-                self.get_chunk_extra(prev_block_hash, prev_block_shard_id)?
+            let Some(prev_chunk_chunk_extra) = get_chunk_extra(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                prev_block_hash,
+                prev_block_shard_id,
+            )?
             else {
                 return Ok(TryApplyChunksOutcome::previous_block_is_not_executed(
                     *prev_block_hash,
@@ -669,10 +672,16 @@ impl ChunkExecutorActor {
                 block.header().height(),
             )?;
             if validators_at_height.contains(my_signer.validator_id()) {
-                self.send_chunk_endorsement(
-                    &block,
+                let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+                send_chunk_endorsement(
+                    self.epoch_manager.as_ref(),
+                    &self.network_adapter,
+                    &self.core_writer_sender,
                     &my_signer,
-                    new_chunk_result,
+                    &block,
+                    apply_result,
+                    *gas_limit,
+                    shard_uid.shard_id(),
                     outgoing_receipts_root,
                 );
             }
@@ -682,7 +691,17 @@ impl ChunkExecutorActor {
                 self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
             if epoch_producers.contains(my_signer.validator_id()) {
                 self.send_outgoing_receipts(&block, receipt_proofs);
-                self.distribute_witness(&block, new_chunk_result, outgoing_receipts_root)?;
+                let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+                distribute_witness(
+                    &self.chain_store,
+                    self.epoch_manager.as_ref(),
+                    &self.data_distributor_adapter,
+                    &block,
+                    apply_result,
+                    *gas_limit,
+                    shard_uid.shard_id(),
+                    outgoing_receipts_root,
+                )?;
             }
         }
 
@@ -703,155 +722,6 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    fn send_chunk_endorsement(
-        &self,
-        block: &Block,
-        my_signer: &ValidatorSigner,
-        new_chunk_result: &NewChunkResult,
-        outgoing_receipts_root: CryptoHash,
-    ) {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
-        let shard_id = shard_uid.shard_id();
-        let execution_result =
-            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
-        let endorsement = SpiceChunkEndorsement::new(
-            SpiceChunkId { block_hash: *block.hash(), shard_id },
-            execution_result,
-            my_signer,
-        );
-        send_spice_chunk_endorsement(
-            endorsement.clone(),
-            self.epoch_manager.as_ref(),
-            &self.network_adapter.clone().into_sender(),
-            my_signer,
-        );
-        self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
-    }
-
-    fn distribute_witness(
-        &self,
-        block: &Block,
-        new_chunk_result: &NewChunkResult,
-        outgoing_receipts_root: CryptoHash,
-    ) -> Result<(), Error> {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
-        let shard_id = shard_uid.shard_id();
-
-        let execution_result =
-            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
-        let execution_result_hash = execution_result.compute_hash();
-
-        let ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses } =
-            self.create_chunk_execution_data(block, apply_result, shard_id, execution_result_hash)?;
-
-        save_witness_and_contract_accesses(
-            &self.chain_store,
-            block.hash(),
-            shard_id,
-            &state_witness,
-            &contract_accesses,
-        );
-        self.data_distributor_adapter
-            .send(SpiceDistributorStateWitness { state_witness, contract_accesses });
-
-        Ok(())
-    }
-
-    fn create_chunk_execution_data(
-        &self,
-        block: &Block,
-        apply_result: &ApplyChunkResult,
-        shard_id: ShardId,
-        execution_result_hash: ChunkExecutionResultHash,
-    ) -> Result<ChunkExecutionData, Error> {
-        let block_hash = block.header().hash();
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
-        let (transactions, proof_of_invalid_chunk) = {
-            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-            let chunk_headers = block.chunks();
-            let chunk_header = chunk_headers.get(shard_index).unwrap();
-            match self.get_new_chunk_if_valid(chunk_header, block.header().height()).unwrap() {
-                Some(chunk) => (chunk.into_transactions(), None),
-                None => {
-                    let proof = if chunk_header.is_new_chunk(block.header().height()) {
-                        // Chunk is new but invalid (malicious producer): include proof.
-                        self.chain_store
-                            .is_invalid_chunk(chunk_header.chunk_hash())
-                            .map(|enc| Box::new(enc.content().clone()))
-                    } else {
-                        None
-                    };
-                    (vec![], proof)
-                }
-            }
-        };
-
-        let applied_receipts_hash = apply_result.applied_receipts_hash;
-        let ContractUpdates { contract_accesses, contract_deploys: _ } =
-            apply_result.contract_updates.clone();
-
-        let main_transition = {
-            let PartialState::TrieValues(base_state_values) =
-                apply_result.proof.clone().unwrap().nodes;
-            // Contract bytecodes are not included in the witness. They are sent
-            // separately via SpiceChunkContractAccesses so that validators can
-            // check their compiled contract cache and only request missing ones.
-            SpiceChunkStateTransition {
-                base_state: PartialState::TrieValues(base_state_values),
-                post_state_root: apply_result.new_root,
-            }
-        };
-        let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = {
-            let prev_block_hash = block.header().prev_hash();
-            let (_, prev_block_shard_id, _) =
-                self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
-            let receipt_proofs = get_receipt_proofs_for_shard(
-                &self.chain_store.store(),
-                prev_block_hash,
-                prev_block_shard_id,
-            );
-            receipt_proofs
-                .into_iter()
-                .map(|proof| -> Result<_, Error> { Ok((proof.1.from_shard_id, proof)) })
-                .collect::<Result<_, Error>>()?
-        };
-        // TODO(spice-resharding): Handle witness validation when resharding.
-        let contract_accesses_hash = compute_contract_accesses_hash(&contract_accesses);
-        let state_witness = SpiceChunkStateWitness::new(
-            near_primitives::types::SpiceChunkId { block_hash: *block_hash, shard_id },
-            main_transition,
-            source_receipt_proofs,
-            applied_receipts_hash,
-            transactions,
-            execution_result_hash,
-            contract_accesses_hash,
-            proof_of_invalid_chunk,
-        );
-        Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
-    }
-
-    /// Returns the chunk if it is a new, valid chunk. Returns `None` if the
-    /// chunk is not new, or if the chunk is invalid (malicious chunk producer).
-    fn get_new_chunk_if_valid(
-        &self,
-        chunk_header: &ShardChunkHeader,
-        height: BlockHeight,
-    ) -> Result<Option<ShardChunk>, Error> {
-        if !chunk_header.is_new_chunk(height) {
-            return Ok(None);
-        }
-        match get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header) {
-            Ok(chunk) => Ok(Some(chunk)),
-            Err(Error::ChunkMissing(_))
-                if self.chain_store.is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
-            {
-                Ok(None)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
     #[instrument(
         level = "debug",
         target = "chunk_executor",
@@ -870,20 +740,22 @@ impl ChunkExecutorActor {
     ) -> Result<UpdateShardJob, Error> {
         let receipts = collect_receipts(&chunk_context.incoming_receipts);
         let chunk_header = chunk_context.chunk_header;
-        let (transactions, chunk_hash) = match self
-            .get_new_chunk_if_valid(chunk_header, block_context.height)?
-        {
-            Some(chunk) => {
-                let chunk_hash = chunk.chunk_hash().clone();
-                let tx_valid_list =
-                    self.chain_store.compute_transaction_validity(prev_block_header, &chunk);
-                (
-                    SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list),
-                    Some(chunk_hash),
-                )
-            }
-            None => (SignedValidPeriodTransactions::new(vec![], vec![]), None),
-        };
+        let (transactions, chunk_hash) =
+            match get_new_chunk_if_valid(&self.chain_store, chunk_header, block_context.height)? {
+                Some(chunk) => {
+                    let chunk_hash = chunk.chunk_hash().clone();
+                    let tx_valid_list =
+                        self.chain_store.compute_transaction_validity(prev_block_header, &chunk);
+                    (
+                        SignedValidPeriodTransactions::new(
+                            chunk.into_transactions(),
+                            tx_valid_list,
+                        ),
+                        Some(chunk_hash),
+                    )
+                }
+                None => (SignedValidPeriodTransactions::new(vec![], vec![]), None),
+            };
 
         let prev_chunk_chunk_extra = chunk_context.prev_chunk_chunk_extra;
         let prev_validator_proposals = self.core_reader.prev_validator_proposals(
@@ -921,28 +793,6 @@ impl ChunkExecutorActor {
                 )?)
             }),
         ))
-    }
-
-    pub(crate) fn get_chunk_extra(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<Option<Arc<ChunkExtra>>, Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
-        match self.chain_store.get_chunk_extra(block_hash, &shard_uid) {
-            Ok(chunk_extra) => Ok(Some(chunk_extra)),
-            Err(Error::DBNotFoundErr(_)) => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-
-    pub(crate) fn chunk_extra_exists(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        self.get_chunk_extra(block_hash, shard_id).map(|option| option.is_some())
     }
 
     fn chain_update(&mut self) -> ChainUpdate<'_> {
@@ -1091,6 +941,192 @@ pub(crate) fn new_execution_result(
 ) -> ChunkExecutionResult {
     let chunk_extra = apply_result.to_chunk_extra(gas_limit);
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
+}
+
+// Shared SPICE executor helpers (A4): one body each, called by both the
+// monolithic `ChunkExecutorActor` and the per-shard `PerShardExecutor`. They take
+// low-level params (`&ChainStoreAdapter`, `shard_id`, …) so both the old actor's
+// `self.shard_id`-free call sites and the per-shard actor's `self.shard_id` sites
+// work. (At rollout, when the old actor is deleted, these move to a dedicated
+// `spice/executor_shared.rs`.)
+
+pub(crate) fn get_chunk_extra(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Result<Option<Arc<ChunkExtra>>, Error> {
+    let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
+    match chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid) {
+        Ok(chunk_extra) => Ok(Some(chunk_extra)),
+        Err(Error::DBNotFoundErr(_)) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+pub(crate) fn chunk_extra_exists(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Result<bool, Error> {
+    get_chunk_extra(chain_store, epoch_manager, block_hash, shard_id).map(|option| option.is_some())
+}
+
+/// Returns the chunk if it is a new, valid chunk. Returns `None` if the chunk is
+/// not new, or if the chunk is invalid (malicious chunk producer).
+pub(crate) fn get_new_chunk_if_valid(
+    chain_store: &ChainStoreAdapter,
+    chunk_header: &ShardChunkHeader,
+    height: BlockHeight,
+) -> Result<Option<ShardChunk>, Error> {
+    if !chunk_header.is_new_chunk(height) {
+        return Ok(None);
+    }
+    match get_chunk_clone_from_header(&chain_store.chunk_store(), chunk_header) {
+        Ok(chunk) => Ok(Some(chunk)),
+        Err(Error::ChunkMissing(_))
+            if chain_store.chunk_store().is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
+        {
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Builds the state witness + contract accesses for a shard's chunk.
+pub(crate) fn create_chunk_execution_data(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    apply_result: &ApplyChunkResult,
+    shard_id: ShardId,
+    execution_result_hash: ChunkExecutionResultHash,
+) -> Result<(SpiceChunkStateWitness, HashSet<CodeHash>), Error> {
+    let block_hash = block.header().hash();
+    let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
+    let (transactions, proof_of_invalid_chunk) = {
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let chunk_headers = block.chunks();
+        let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
+        match get_new_chunk_if_valid(chain_store, chunk_header, block.header().height())? {
+            Some(chunk) => (chunk.into_transactions(), None),
+            None => {
+                let proof = if chunk_header.is_new_chunk(block.header().height()) {
+                    // Chunk is new but invalid (malicious producer): include proof.
+                    chain_store
+                        .chunk_store()
+                        .is_invalid_chunk(chunk_header.chunk_hash())
+                        .map(|enc| Box::new(enc.content().clone()))
+                } else {
+                    None
+                };
+                (vec![], proof)
+            }
+        }
+    };
+
+    let applied_receipts_hash = apply_result.applied_receipts_hash;
+    let ContractUpdates { contract_accesses, contract_deploys: _ } =
+        apply_result.contract_updates.clone();
+
+    let PartialState::TrieValues(base_state_values) = apply_result.proof.clone().unwrap().nodes;
+    // Contract bytecodes are not included in the witness. They are sent separately
+    // via SpiceChunkContractAccesses so validators can check their compiled
+    // contract cache and only request missing ones.
+    let main_transition = SpiceChunkStateTransition {
+        base_state: PartialState::TrieValues(base_state_values),
+        post_state_root: apply_result.new_root,
+    };
+
+    let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = {
+        let prev_block_hash = block.header().prev_hash();
+        let (_, prev_block_shard_id, _) =
+            epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
+        get_receipt_proofs_for_shard(&chain_store.store(), prev_block_hash, prev_block_shard_id)
+            .into_iter()
+            .map(|proof| (proof.1.from_shard_id, proof))
+            .collect()
+    };
+
+    // TODO(spice-resharding): Handle witness validation when resharding.
+    let contract_accesses_hash = compute_contract_accesses_hash(&contract_accesses);
+    let state_witness = SpiceChunkStateWitness::new(
+        SpiceChunkId { block_hash: *block_hash, shard_id },
+        main_transition,
+        source_receipt_proofs,
+        applied_receipts_hash,
+        transactions,
+        execution_result_hash,
+        contract_accesses_hash,
+        proof_of_invalid_chunk,
+    );
+    Ok((state_witness, contract_accesses))
+}
+
+/// Builds and durably saves this shard's state witness + contract accesses, then
+/// hands them to the data distributor.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn distribute_witness(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    data_distributor_adapter: &SpiceDataDistributorAdapter,
+    block: &Block,
+    apply_result: &ApplyChunkResult,
+    gas_limit: Gas,
+    shard_id: ShardId,
+    outgoing_receipts_root: CryptoHash,
+) -> Result<(), Error> {
+    let execution_result = new_execution_result(gas_limit, apply_result, outgoing_receipts_root);
+    let execution_result_hash = execution_result.compute_hash();
+    let (state_witness, contract_accesses) = create_chunk_execution_data(
+        chain_store,
+        epoch_manager,
+        block,
+        apply_result,
+        shard_id,
+        execution_result_hash,
+    )?;
+    save_witness_and_contract_accesses(
+        chain_store,
+        block.hash(),
+        shard_id,
+        &state_witness,
+        &contract_accesses,
+    );
+    data_distributor_adapter
+        .send(SpiceDistributorStateWitness { state_witness, contract_accesses });
+    Ok(())
+}
+
+/// Builds this shard's chunk endorsement and sends it to peers + the core writer.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_chunk_endorsement(
+    epoch_manager: &dyn EpochManagerAdapter,
+    network_adapter: &PeerManagerAdapter,
+    core_writer_sender: &Sender<SpiceChunkEndorsementMessage>,
+    my_signer: &ValidatorSigner,
+    block: &Block,
+    apply_result: &ApplyChunkResult,
+    gas_limit: Gas,
+    shard_id: ShardId,
+    outgoing_receipts_root: CryptoHash,
+) {
+    let execution_result = new_execution_result(gas_limit, apply_result, outgoing_receipts_root);
+    let endorsement = SpiceChunkEndorsement::new(
+        SpiceChunkId { block_hash: *block.hash(), shard_id },
+        execution_result,
+        my_signer,
+    );
+    send_spice_chunk_endorsement(
+        endorsement.clone(),
+        epoch_manager,
+        &network_adapter.clone().into_sender(),
+        my_signer,
+    );
+    core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
 }
 
 // We depend on stored receipts for distribution, so we need to store receipt proof and not only
