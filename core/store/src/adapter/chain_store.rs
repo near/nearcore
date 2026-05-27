@@ -506,6 +506,31 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         }
     }
 
+    pub fn set_spice_final_execution_head(&mut self, tip: &Tip) {
+        self.store_update.set_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY, tip);
+    }
+
+    /// Forward-only: writes the SPICE execution head only when `tip` is higher
+    /// than the current head (or none is set). The execution-head scan only moves
+    /// forward by construction, so this is belt-and-suspenders against an
+    /// out-of-order / fork re-run — and unlike the old unconditional
+    /// `save_spice_execution_head` it can never regress the head.
+    pub fn set_spice_execution_head(&mut self, tip: &Tip) -> Result<(), Error> {
+        let current_height = match self.store_update.store.chain_store().spice_execution_head() {
+            Ok(head) => Some(head.height),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        let should_write = match current_height {
+            None => true,
+            Some(height) => height < tip.height,
+        };
+        if should_write {
+            self.store_update.set_ser(DBCol::BlockMisc, SPICE_EXECUTION_HEAD_KEY, tip);
+        }
+        Ok(())
+    }
+
     /// This function is normally clubbed with set_block_header_only
     /// This is a primitive function and changing only the HeaderHashesByHeight column can lead to inconsistencies
     pub fn update_block_header_hashes_by_height(&mut self, header: &BlockHeader) {

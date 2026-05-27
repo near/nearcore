@@ -6,15 +6,16 @@ use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{
-    ChainGenesis, ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode, Error,
-};
+use near_chain::{Block, ChainGenesis, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::ShardId;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreUpdateAdapter};
 use near_store::{ShardUId, Store};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -40,7 +41,7 @@ const BANDWIDTH_HASH_CACHE_CAP: usize = 256;
 /// events out to them, routes cross-shard receipts, and drives the disk-driven
 /// execution-head advance. Gated behind [`super::SPICE_PER_SHARD_EXECUTOR`].
 pub struct ChunkExecutorCoordinator {
-    chain_store: ChainStore,
+    chain_store: ChainStoreAdapter,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -61,14 +62,16 @@ pub struct ChunkExecutorCoordinator {
 impl ChunkExecutorCoordinator {
     pub fn new(
         store: Store,
-        genesis: &ChainGenesis,
+        // The coordinator does only block-level reads/writes through the store
+        // adapters, so it no longer needs the genesis transaction-validity period.
+        _genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         spawner: Box<dyn PerShardSpawner>,
         self_sender: Sender<PerShardChunkApplied>,
     ) -> Self {
-        let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period);
+        let chain_store = store.chain_store();
         Self {
             chain_store,
             runtime_adapter,
@@ -158,7 +161,7 @@ impl ChunkExecutorCoordinator {
 
     /// Disk-driven, idempotent. From the current execution head, finalize each
     /// next canonical block whose tracked shards are all applied on disk.
-    fn advance_execution_head(&mut self) -> Result<(), Error> {
+    fn advance_execution_head(&self) -> Result<(), Error> {
         loop {
             let head = self.execution_head_or_genesis()?;
             let next = match self.chain_store.get_next_block_hash(&head) {
@@ -175,7 +178,7 @@ impl ChunkExecutorCoordinator {
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
         for shard_uid in self.tracked_shard_uids(block_hash)? {
-            match self.chain_store.get_chunk_extra(block_hash, &shard_uid) {
+            match self.chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid) {
                 Ok(_) => {}
                 Err(Error::DBNotFoundErr(_)) => return Ok(false),
                 Err(err) => return Err(err),
@@ -184,20 +187,48 @@ impl ChunkExecutorCoordinator {
         Ok(true)
     }
 
+    /// Adapter-native twin of `ChainUpdate::update_spice_final_execution_head`:
+    /// reads the current SPICE final execution head, advances it (writing via
+    /// `store_update`) when `block`'s last final block is higher, and returns the
+    /// (possibly advanced) head. Forward-only by the height comparison.
+    fn advance_spice_final_execution_head(
+        &self,
+        store_update: &mut ChainStoreUpdateAdapter<'static>,
+        block: &Block,
+    ) -> Result<Option<Tip>, Error> {
+        let current = match self.chain_store.spice_final_execution_head() {
+            Ok(head) => Some(Tip::clone(&head)),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        if block.header().last_final_block() == &CryptoHash::default() {
+            return Ok(current);
+        }
+        let last_final_header =
+            self.chain_store.get_block_header(block.header().last_final_block())?;
+        let advance = match &current {
+            None => true,
+            Some(head) => head.height < last_final_header.height(),
+        };
+        if advance {
+            let tip = Tip::from_header(&last_final_header);
+            store_update.set_spice_final_execution_head(&tip);
+            return Ok(Some(tip));
+        }
+        Ok(current)
+    }
+
     /// Idempotent block-level finalize: advance the spice heads, then (once a new
     /// final execution head lands) the flat-storage head and memtrie GC over this
     /// node's tracked shards. Per-shard artifacts are already on disk.
-    fn block_level_finalize(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+    fn block_level_finalize(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
-        let mut chain_update = ChainUpdate::new(
-            &mut self.chain_store,
-            self.epoch_manager.clone(),
-            self.runtime_adapter.clone(),
-            DoomslugThresholdMode::NoApprovals,
-        );
-        let final_execution_head = chain_update.update_spice_final_execution_head(&block)?;
-        chain_update.save_spice_execution_head(block.header())?;
-        chain_update.commit()?;
+        let mut store_update = self.chain_store.store_update();
+        let final_execution_head =
+            self.advance_spice_final_execution_head(&mut store_update, &block)?;
+        // Forward-only; replaces the old unconditional save_spice_execution_head.
+        store_update.set_spice_execution_head(&Tip::from_header(block.header()))?;
+        store_update.commit()?;
         let Some(final_execution_head) = final_execution_head else {
             return Ok(());
         };
