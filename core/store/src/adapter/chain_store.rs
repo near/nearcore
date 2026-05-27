@@ -510,6 +510,36 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY, tip);
     }
 
+    /// Forward-only: advance the SPICE final execution head to `block`'s last final
+    /// block when that is higher than the current head (or none is set), writing via
+    /// this update, and return the (possibly advanced) head. Adapter-native twin of
+    /// `ChainUpdate::update_spice_final_execution_head`.
+    pub fn update_spice_final_execution_head(
+        &mut self,
+        block: &Block,
+    ) -> Result<Option<Arc<Tip>>, Error> {
+        let chain_store = self.store_update.store.chain_store();
+        let current = match chain_store.spice_final_execution_head() {
+            Ok(head) => Some(head),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        if block.header().last_final_block() == &CryptoHash::default() {
+            return Ok(current);
+        }
+        let last_final_header = chain_store.get_block_header(block.header().last_final_block())?;
+        let advance = match &current {
+            None => true,
+            Some(head) => head.height < last_final_header.height(),
+        };
+        if advance {
+            let tip = Arc::new(Tip::from_header(&last_final_header));
+            self.set_spice_final_execution_head(&tip);
+            return Ok(Some(tip));
+        }
+        Ok(current)
+    }
+
     /// Forward-only: writes the SPICE execution head only when `tip` is higher
     /// than the current head (or none is set). The execution-head scan only moves
     /// forward by construction, so this is belt-and-suspenders against an

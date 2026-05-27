@@ -1,5 +1,6 @@
 use crate::spice::chunk_executor_coordinator::PerShardChunkApplied;
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice::executor_shared::ChunkExecutorConfig;
 use crate::spice::per_shard_executor::{PerShardExecutor, PerShardExecutorSender};
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, Sender};
@@ -10,8 +11,8 @@ use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
-use near_primitives::types::{NumBlocks, ShardId};
-use near_store::Store;
+use near_primitives::types::ShardId;
+use near_store::{ShardUId, Store};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,12 +22,13 @@ use std::sync::Arc;
 /// actor per shard, while test-loop registers actors with the loop. See
 /// `notes/14-dynamic-actor-integration.md`.
 pub trait PerShardSpawner: Send + Sync + 'static {
-    /// Build + run a `PerShardExecutor` for `shard_id` and return the
+    /// Build + run a `PerShardExecutor` for `shard_uid` and return the
     /// coordinator's mailbox to it. `coordinator_sender` is the coordinator's own
-    /// `PerShardChunkApplied` sender (the cyclic dep).
+    /// `PerShardChunkApplied` sender (the cyclic dep). The coordinator computes the
+    /// `ShardUId` from the spawning epoch's layout (see `PerShardExecutor::shard_uid`).
     fn spawn(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         coordinator_sender: Sender<PerShardChunkApplied>,
     ) -> PerShardExecutorSender;
 
@@ -40,12 +42,8 @@ pub trait PerShardSpawner: Send + Sync + 'static {
 #[derive(Clone)]
 pub struct PerShardDeps {
     pub store: Store,
-    pub transaction_validity_period: NumBlocks,
-    /// Client-config persistence flags, threaded into each shard's writes so
-    /// disabled columns stay disabled.
-    pub save_trie_changes: bool,
-    pub save_tx_outcomes: bool,
-    pub save_receipt_to_tx: bool,
+    /// Scalar executor config (persistence flags + transaction validity period).
+    pub config: ChunkExecutorConfig,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub core_reader: SpiceCoreReader,
@@ -59,16 +57,13 @@ impl PerShardDeps {
     /// Build (but don't run) a `PerShardExecutor`, wiring the coordinator callback.
     pub fn build(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         coordinator_sender: Sender<PerShardChunkApplied>,
     ) -> PerShardExecutor {
         PerShardExecutor::new(
-            shard_id,
+            shard_uid,
             self.store.clone(),
-            self.transaction_validity_period,
-            self.save_trie_changes,
-            self.save_tx_outcomes,
-            self.save_receipt_to_tx,
+            self.config.clone(),
             self.runtime_adapter.clone(),
             self.epoch_manager.clone(),
             self.core_reader.clone(),
@@ -97,12 +92,12 @@ impl TokioPerShardSpawner {
 impl PerShardSpawner for TokioPerShardSpawner {
     fn spawn(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         coordinator_sender: Sender<PerShardChunkApplied>,
     ) -> PerShardExecutorSender {
-        let actor = self.deps.build(shard_id, coordinator_sender);
+        let actor = self.deps.build(shard_uid, coordinator_sender);
         let handle = self.actor_system.spawn_tokio_actor(actor);
-        self.handles.lock().insert(shard_id, handle.clone());
+        self.handles.lock().insert(shard_uid.shard_id(), handle.clone());
         handle.into_multi_sender()
     }
 

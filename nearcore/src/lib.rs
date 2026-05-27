@@ -287,10 +287,7 @@ fn spawn_spice_actors(
     // / ExecutorIncomingUnverifiedReceipts (routed below).
     let deps = PerShardDeps {
         store: runtime.store().clone(),
-        transaction_validity_period: chain_genesis.transaction_validity_period,
-        save_trie_changes: chunk_executor_config.save_trie_changes,
-        save_tx_outcomes: chunk_executor_config.save_tx_outcomes,
-        save_receipt_to_tx: chunk_executor_config.save_receipt_to_tx,
+        config: chunk_executor_config,
         runtime_adapter: runtime.clone(),
         epoch_manager: epoch_manager.clone(),
         core_reader: spice_core_reader.clone(),
@@ -678,6 +675,7 @@ pub async fn start_with_config_and_synchronization_impl(
                 save_tx_outcomes: config.client_config.save_tx_outcomes,
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,
                 save_state_changes: config.client_config.save_state_changes,
+                transaction_validity_period: chain_genesis.transaction_validity_period,
             },
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,

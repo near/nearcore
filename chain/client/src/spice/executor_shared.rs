@@ -8,7 +8,6 @@ use near_chain::BlockHeader;
 use near_chain::types::ApplyChunkResult;
 use near_chain::{Block, Error, get_chunk_clone_from_header};
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -24,8 +23,8 @@ use near_primitives::stateless_validation::contract_distribution::{CodeHash, Con
 use near_primitives::types::BlockHeight;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::ChunkExecutionResultHash;
+use near_primitives::types::NumBlocks;
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId};
 use near_primitives::utils::get_contract_accesses_key;
 use near_primitives::utils::get_receipt_proof_key;
@@ -41,25 +40,28 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Per-shard persistence feature flags, sourced from the client config. They gate
-/// optional column writes that back RPC / GC features.
+/// Map a `DBNotFoundErr` to `None` and any other error through, so a "read that
+/// may be absent" reads as `Result<Option<T>>` and composes with `?`. Lets the
+/// executor/coordinator drop the repetitive `match … Err(DBNotFoundErr) => …` ladders.
+pub(crate) fn optional<T>(res: Result<T, Error>) -> Result<Option<T>, Error> {
+    match res {
+        Ok(value) => Ok(Some(value)),
+        Err(Error::DBNotFoundErr(_)) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// Scalar config a per-shard executor needs. The `save_*` flags are persistence
+/// feature flags from the client config (they gate optional column writes backing
+/// RPC / GC features); `transaction_validity_period` comes from the genesis config
+/// and bounds how stale a transaction's `block_hash` may be.
 #[derive(Clone, Debug)]
 pub struct ChunkExecutorConfig {
     pub save_trie_changes: bool,
     pub save_tx_outcomes: bool,
     pub save_receipt_to_tx: bool,
     pub save_state_changes: bool,
-}
-
-impl Default for ChunkExecutorConfig {
-    fn default() -> Self {
-        Self {
-            save_trie_changes: true,
-            save_tx_outcomes: true,
-            save_receipt_to_tx: true,
-            save_state_changes: true,
-        }
-    }
+    pub transaction_validity_period: NumBlocks,
 }
 
 /// Message with incoming unverified receipts corresponding to the block. Sent by
@@ -78,30 +80,6 @@ pub(crate) fn new_execution_result(
 ) -> ChunkExecutionResult {
     let chunk_extra = apply_result.to_chunk_extra(gas_limit);
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
-}
-
-pub(crate) fn get_chunk_extra(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
-    shard_id: ShardId,
-) -> Result<Option<Arc<ChunkExtra>>, Error> {
-    let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
-    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
-    match chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid) {
-        Ok(chunk_extra) => Ok(Some(chunk_extra)),
-        Err(Error::DBNotFoundErr(_)) => Ok(None),
-        Err(err) => Err(err),
-    }
-}
-
-pub(crate) fn chunk_extra_exists(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
-    shard_id: ShardId,
-) -> Result<bool, Error> {
-    get_chunk_extra(chain_store, epoch_manager, block_hash, shard_id).map(|option| option.is_some())
 }
 
 /// Returns the chunk if it is a new, valid chunk. Returns `None` if the chunk is

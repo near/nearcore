@@ -287,6 +287,34 @@ impl ShardTracker {
             || self.will_care_about_shard(parent_hash, shard_id)
     }
 
+    /// All shard ids this client tracks in the current epoch at `parent_hash` —
+    /// the set whose chunks this node executes (the SPICE head-advance gate set).
+    pub fn tracked_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, EpochError> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+        Ok(self
+            .epoch_manager
+            .shard_ids(&epoch_id)?
+            .into_iter()
+            .filter(|&shard_id| self.cares_about_shard(parent_hash, shard_id))
+            .collect())
+    }
+
+    /// All shard ids this client tracks in this or the next epoch at `parent_hash`
+    /// — the SPICE spawn/retire set (next-epoch shards are spawned early so their
+    /// executor can run catchup ahead of the boundary).
+    pub fn tracked_shard_ids_this_or_next_epoch(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ShardId>, EpochError> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+        Ok(self
+            .epoch_manager
+            .shard_ids(&epoch_id)?
+            .into_iter()
+            .filter(|&shard_id| self.cares_about_shard_this_or_next_epoch(parent_hash, shard_id))
+            .collect())
+    }
+
     /// Whether some client tracking account_id cares about shard_id in this or next epoch.
     ///
     /// Note that `shard_id` always refers to a shard in the current epoch. If shard layout will

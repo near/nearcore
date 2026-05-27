@@ -3,10 +3,10 @@ use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
 };
 use crate::spice::executor_shared::{
-    chunk_extra_exists, distribute_witness, get_chunk_extra, get_new_chunk_if_valid,
-    get_receipt_proofs_for_shard, is_descendant_of_final_execution_head, save_receipt_proof,
-    send_chunk_endorsement,
+    ChunkExecutorConfig, distribute_witness, get_new_chunk_if_valid, get_receipt_proofs_for_shard,
+    is_descendant_of_final_execution_head, optional, save_receipt_proof, send_chunk_endorsement,
 };
+use crate::spice::pending_receipts::PendingReceipts;
 use crate::spice::persist::commit_per_shard_outputs;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
@@ -33,7 +33,7 @@ use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
 
 /// SPICE-only twin of `ChainStore::compute_transaction_validity`, derived off the
@@ -98,14 +98,16 @@ pub struct IncomingReceipt {
 /// [`commit_per_shard_outputs`] (purpose-built SPICE store-adapter helpers). It
 /// holds a read-only [`ChainStoreAdapter`] (no `ChainStore`).
 pub struct PerShardExecutor {
-    shard_id: ShardId,
+    /// This executor is bound to one shard for its whole life; we store the richer
+    /// `ShardUId` so chunk-store reads need no per-call `epoch_manager → uid`
+    /// conversion. A resharding event retires this executor and spawns fresh ones
+    /// for the child shards (lifecycle handles it), so the stored value stays valid.
+    shard_uid: ShardUId,
     chain_store: ChainStoreAdapter,
-    transaction_validity_period: NumBlocks,
-    /// Persistence config flags threaded into [`commit_per_shard_outputs`]; back
-    /// trie-replay/GC and RPC features (see #34).
-    save_trie_changes: bool,
-    save_tx_outcomes: bool,
-    save_receipt_to_tx: bool,
+    /// Scalar executor config: persistence flags (threaded into
+    /// [`commit_per_shard_outputs`], backing trie-replay/GC and RPC features, see
+    /// #34) plus the transaction validity period.
+    config: ChunkExecutorConfig,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     core_reader: SpiceCoreReader,
@@ -117,10 +119,9 @@ pub struct PerShardExecutor {
     /// Blocks announced but not yet applied, ordered by `(height, block_hash)`
     /// so a fork (two blocks at one height) keeps both entries.
     pending: BTreeSet<(BlockHeight, CryptoHash)>,
-    /// Network-path receipt proofs buffered until the source block's CER lands,
-    /// keyed by source block. Local-path proofs are never buffered (already on
-    /// disk). See `ReceiptSource`.
-    pending_unverified_receipts: HashMap<CryptoHash, Vec<ReceiptProof>>,
+    /// Network-path receipt proofs buffered until their source block's CER lands.
+    /// Local-path proofs never go here (already on disk). See [`PendingReceipts`].
+    pending_receipts: PendingReceipts,
 }
 
 enum ApplyOutcome {
@@ -132,12 +133,9 @@ enum ApplyOutcome {
 impl PerShardExecutor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         store: Store,
-        transaction_validity_period: NumBlocks,
-        save_trie_changes: bool,
-        save_tx_outcomes: bool,
-        save_receipt_to_tx: bool,
+        config: ChunkExecutorConfig,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         core_reader: SpiceCoreReader,
@@ -149,12 +147,9 @@ impl PerShardExecutor {
     ) -> Self {
         let chain_store = store.chain_store();
         Self {
-            shard_id,
+            shard_uid,
             chain_store,
-            transaction_validity_period,
-            save_trie_changes,
-            save_tx_outcomes,
-            save_receipt_to_tx,
+            config,
             runtime_adapter,
             epoch_manager,
             core_reader,
@@ -164,35 +159,21 @@ impl PerShardExecutor {
             data_distributor_adapter,
             coordinator_sender,
             pending: BTreeSet::new(),
-            pending_unverified_receipts: HashMap::new(),
+            pending_receipts: PendingReceipts::default(),
         }
+    }
+
+    /// This executor's shard id (the `ShardUId`'s shard component). Used for the
+    /// `ShardId`-typed epoch-manager / shard-layout calls; chunk-store reads use the
+    /// `ShardUId` directly.
+    fn shard_id(&self) -> ShardId {
+        self.shard_uid.shard_id()
     }
 
     /// Verify any buffered `FromNetwork` receipts from `source_block` against its
     /// CER and write the valid ones. No-op until the CER is on chain.
     fn try_verify(&mut self, source_block: &CryptoHash) -> Result<(), Error> {
-        let header = self.chain_store.get_block_header(source_block)?;
-        let Some(cer) = self.core_reader.get_block_execution_results(&header)? else {
-            return Ok(()); // CER not on chain yet — wait for ExecutionResultEndorsed.
-        };
-        let Some(proofs) = self.pending_unverified_receipts.remove(source_block) else {
-            return Ok(());
-        };
-        let store = self.chain_store.store();
-        let mut store_update = store.store_update();
-        for proof in proofs {
-            let from_shard_id = proof.1.from_shard_id;
-            let Some(result) = cer.0.get(&from_shard_id) else {
-                continue;
-            };
-            if proof.verify_against_receipt_root(result.outgoing_receipts_root) {
-                save_receipt_proof(&mut store_update, source_block, &proof);
-            } else {
-                tracing::warn!(target: "chunk_executor", %source_block, ?from_shard_id, "dropping invalid network receipt proof");
-            }
-        }
-        store_update.commit();
-        Ok(())
+        self.pending_receipts.try_drain(&self.chain_store, &self.core_reader, source_block)
     }
 
     /// Apply every parked chunk that is ready, lowest height first. Applying a
@@ -212,7 +193,7 @@ impl PerShardExecutor {
                     self.pending.remove(&entry);
                 }
                 Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, block_hash=%entry.1, shard_id=%self.shard_id, "per-shard apply failed");
+                    tracing::error!(target: "chunk_executor", ?err, block_hash=%entry.1, shard_id=%self.shard_id(), "per-shard apply failed");
                     return;
                 }
             }
@@ -220,28 +201,23 @@ impl PerShardExecutor {
     }
 
     fn try_apply(&self, block_hash: &CryptoHash) -> Result<ApplyOutcome, Error> {
+        let shard_id = self.shard_id();
         let block = self.chain_store.get_block(block_hash)?;
         if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
             return Ok(ApplyOutcome::Dropped);
         }
         // Resharding: this shard may be absent from `block`'s layout — split/merged
         // away at an epoch boundary, or (for a child shard) not yet existent before
-        // it. Such a block carries no chunk for this shard, so drop it. This also
-        // keeps the height scan from computing `ShardUId(self.shard_id, block.epoch)`
-        // below, which would panic in `from_shard_id_and_layout`.
+        // it. Such a block carries no chunk for this shard, so drop it.
         // NOTE(spice-resharding): execution actually crossing the boundary (a child
         // shard inheriting parent state via `prev_chunk_extra`) is still a follow-up;
         // today's test relies on execution lagging behind the boundary.
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
-        if !shard_layout.shard_ids().any(|id| id == self.shard_id) {
+        if !shard_layout.shard_ids().any(|id| id == shard_id) {
             return Ok(ApplyOutcome::Dropped);
         }
-        if chunk_extra_exists(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            block_hash,
-            self.shard_id,
-        )? {
+        let chunk_store = self.chain_store.chunk_store();
+        if optional(chunk_store.get_chunk_extra(block_hash, &self.shard_uid))?.is_some() {
             return Ok(ApplyOutcome::Dropped);
         }
 
@@ -257,12 +233,8 @@ impl PerShardExecutor {
 
         // The coordinator only spawns per-shard actors for shards this node
         // tracks, so this actor always applies its shard's chunk.
-        let Some(prev_chunk_extra) = get_chunk_extra(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            &prev_block_hash,
-            self.shard_id,
-        )?
+        let Some(prev_chunk_extra) =
+            optional(chunk_store.get_chunk_extra(&prev_block_hash, &self.shard_uid))?
         else {
             return Ok(ApplyOutcome::NotReady);
         };
@@ -272,21 +244,18 @@ impl PerShardExecutor {
         let mut incoming_receipts = if prev_block.header().is_genesis() {
             vec![]
         } else {
-            let proofs = get_receipt_proofs_for_shard(
-                &self.chain_store.store(),
-                &prev_block_hash,
-                self.shard_id,
-            );
+            let proofs =
+                get_receipt_proofs_for_shard(&self.chain_store.store(), &prev_block_hash, shard_id);
             if proofs.len() != prev_block_shard_ids.len() {
                 return Ok(ApplyOutcome::NotReady);
             }
             proofs
         };
 
-        let shard_index = shard_layout.get_shard_index(self.shard_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_header =
-            block.chunks().get(shard_index).ok_or(Error::InvalidShardId(self.shard_id))?.clone();
-        let shard_uid = ShardUId::from_shard_id_and_layout(self.shard_id, &shard_layout);
+            block.chunks().get(shard_index).ok_or(Error::InvalidShardId(shard_id))?.clone();
+        let shard_uid = self.shard_uid;
 
         // Inline apply, run synchronously on this shard's own thread (no spawner).
         let block_context = build_spice_apply_chunk_block_context(
@@ -303,7 +272,7 @@ impl PerShardExecutor {
                     let chunk_hash = chunk.chunk_hash().clone();
                     let tx_valid_list = spice_compute_transaction_validity(
                         &self.chain_store,
-                        self.transaction_validity_period,
+                        self.config.transaction_validity_period,
                         &prev_block_header,
                         &chunk,
                     );
@@ -318,7 +287,7 @@ impl PerShardExecutor {
                 None => (SignedValidPeriodTransactions::new(vec![], vec![]), None),
             };
         let prev_validator_proposals =
-            self.core_reader.prev_validator_proposals(&prev_block_hash, self.shard_id)?;
+            self.core_reader.prev_validator_proposals(&prev_block_hash, shard_id)?;
         let memtrie_pin = self
             .runtime_adapter
             .get_tries()
@@ -348,7 +317,7 @@ impl PerShardExecutor {
         let (outgoing_receipts_root, receipt_proofs) =
             Chain::create_receipts_proofs_from_outgoing_receipts(
                 &shard_layout,
-                self.shard_id,
+                shard_id,
                 new_chunk_result.apply_result.outgoing_receipts.clone(),
             )?;
         let bandwidth_scheduler_state_hash =
@@ -367,14 +336,14 @@ impl PerShardExecutor {
             self.runtime_adapter.as_ref(),
             &block,
             new_chunk_result,
-            self.save_trie_changes,
-            self.save_tx_outcomes,
-            self.save_receipt_to_tx,
+            self.config.save_trie_changes,
+            self.config.save_tx_outcomes,
+            self.config.save_receipt_to_tx,
         )?;
 
         self.coordinator_sender.send(PerShardChunkApplied {
             block_hash: *block_hash,
-            shard_id: self.shard_id,
+            shard_id,
             outgoing_receipt_proofs: receipt_proofs,
             bandwidth_scheduler_state_hash,
         });
@@ -394,12 +363,13 @@ impl PerShardExecutor {
         let Some(my_signer) = self.validator_signer.get() else {
             return Ok(());
         };
+        let shard_id = self.shard_id();
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
 
         // Endorse if we are a chunk validator (regardless of producer status).
         let validators = self.epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
-            self.shard_id,
+            shard_id,
             block.header().height(),
         )?;
         if validators.contains(my_signer.validator_id()) {
@@ -412,7 +382,7 @@ impl PerShardExecutor {
                 block,
                 apply_result,
                 *gas_limit,
-                self.shard_id,
+                shard_id,
                 outgoing_receipts_root,
             );
         }
@@ -420,7 +390,7 @@ impl PerShardExecutor {
         // Distribute the witness + outgoing receipts only if we are the chunk
         // producer for this shard (the data distributor asserts this).
         let producers =
-            self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, self.shard_id)?;
+            self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
         if producers.contains(my_signer.validator_id()) {
             self.data_distributor_adapter.send(SpiceDistributorOutgoingReceipts {
                 block_hash: *block.hash(),
@@ -434,7 +404,7 @@ impl PerShardExecutor {
                 block,
                 apply_result,
                 *gas_limit,
-                self.shard_id,
+                shard_id,
                 outgoing_receipts_root,
             )?;
         }
@@ -458,17 +428,16 @@ impl Actor for PerShardExecutor {
         // the coordinator never has to replay historical blocks to it (which
         // would block the test-loop thread on a not-yet-registered mailbox).
         if let Err(err) = self.bootstrap() {
-            tracing::error!(target: "chunk_executor", ?err, shard_id=%self.shard_id, "per-shard bootstrap failed");
+            tracing::error!(target: "chunk_executor", ?err, shard_id=%self.shard_id(), "per-shard bootstrap failed");
         }
     }
 }
 
 impl PerShardExecutor {
     fn bootstrap(&mut self) -> Result<(), Error> {
-        let head = match self.chain_store.spice_execution_head() {
-            Ok(tip) => tip.last_block_hash,
-            Err(Error::DBNotFoundErr(_)) => self.chain_store.genesis_hash()?,
-            Err(err) => return Err(err),
+        let head = match optional(self.chain_store.spice_execution_head())? {
+            Some(tip) => tip.last_block_hash,
+            None => self.chain_store.genesis_hash()?,
         };
         let mut queue: VecDeque<CryptoHash> =
             self.chain_store.get_all_next_block_hashes(&head).into();
@@ -502,7 +471,7 @@ impl Handler<IncomingReceipt> for PerShardExecutor {
             // Sender already wrote the proof to disk; just re-check.
             ReceiptSource::LocallyVerified => {}
             ReceiptSource::FromNetwork => {
-                self.pending_unverified_receipts.entry(block_hash).or_default().push(proof);
+                self.pending_receipts.buffer(block_hash, proof);
                 if let Err(err) = self.try_verify(&block_hash) {
                     tracing::error!(target: "chunk_executor", ?err, %block_hash, "receipt verification failed");
                 }

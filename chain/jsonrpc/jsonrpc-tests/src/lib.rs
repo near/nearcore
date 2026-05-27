@@ -229,13 +229,15 @@ pub fn create_test_setup_with_accounts_and_validity(
             actor_system.spawn_tokio_actor(spice_data_distributor_actor);
         spice_data_distributor_adapter.bind(spice_data_distributor_addr);
 
-        let config = ChunkExecutorConfig::default();
         let deps = PerShardDeps {
             store: runtime.store().clone(),
-            transaction_validity_period: chain_genesis.transaction_validity_period,
-            save_trie_changes: config.save_trie_changes,
-            save_tx_outcomes: config.save_tx_outcomes,
-            save_receipt_to_tx: config.save_receipt_to_tx,
+            config: ChunkExecutorConfig {
+                save_trie_changes: true,
+                save_tx_outcomes: true,
+                save_receipt_to_tx: true,
+                save_state_changes: true,
+                transaction_validity_period: chain_genesis.transaction_validity_period,
+            },
             runtime_adapter: runtime.clone(),
             epoch_manager: epoch_manager.clone(),
             core_reader: spice_core_reader,

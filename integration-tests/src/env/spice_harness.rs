@@ -27,7 +27,9 @@ use near_client::spice::chunk_executor_coordinator::{
 use near_client::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
 };
-use near_client::spice::executor_shared::ExecutorIncomingUnverifiedReceipts;
+use near_client::spice::executor_shared::{
+    ChunkExecutorConfig, ExecutorIncomingUnverifiedReceipts,
+};
 use near_client::spice::per_shard_executor::{
     IncomingReceipt, PerShardExecutor, PerShardExecutorSender,
 };
@@ -37,8 +39,8 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
-use near_store::Store;
 use near_store::adapter::StoreAdapter;
+use near_store::{ShardUId, Store};
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -66,7 +68,7 @@ impl EventQueue {
 /// yet (built + bootstrapped by the pump, to avoid a re-entrant borrow of the node
 /// while the coordinator is mid-handler — mirrors `TestLoopPerShardSpawner`).
 struct DeferredSpawn {
-    shard_id: ShardId,
+    shard_uid: ShardUId,
     coordinator_sender: Sender<PerShardChunkApplied>,
 }
 
@@ -80,11 +82,11 @@ struct TestEnvPerShardSpawner {
 impl PerShardSpawner for TestEnvPerShardSpawner {
     fn spawn(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         coordinator_sender: Sender<PerShardChunkApplied>,
     ) -> PerShardExecutorSender {
-        self.deferred.lock().push(DeferredSpawn { shard_id, coordinator_sender });
-        per_shard_mailbox(shard_id, self.queue.clone())
+        self.deferred.lock().push(DeferredSpawn { shard_uid, coordinator_sender });
+        per_shard_mailbox(shard_uid.shard_id(), self.queue.clone())
     }
 
     fn retire(&self, _shard_id: ShardId) {
@@ -167,10 +169,13 @@ impl SpiceNode {
         // short-circuits distribution, like the old TestonlySync harness).
         let deps = PerShardDeps {
             store: store.clone(),
-            transaction_validity_period: chain_genesis.transaction_validity_period,
-            save_trie_changes,
-            save_tx_outcomes,
-            save_receipt_to_tx,
+            config: ChunkExecutorConfig {
+                save_trie_changes,
+                save_tx_outcomes,
+                save_receipt_to_tx,
+                save_state_changes: true,
+                transaction_validity_period: chain_genesis.transaction_validity_period,
+            },
             runtime_adapter: runtime_adapter.clone(),
             epoch_manager: epoch_manager.clone(),
             core_reader: core_reader.clone(),
@@ -228,11 +233,11 @@ impl SpiceNode {
         loop {
             let spawns = std::mem::take(&mut *self.deferred.lock());
             if !spawns.is_empty() {
-                for DeferredSpawn { shard_id, coordinator_sender } in spawns {
-                    let mut executor = self.deps.build(shard_id, coordinator_sender);
+                for DeferredSpawn { shard_uid, coordinator_sender } in spawns {
+                    let mut executor = self.deps.build(shard_uid, coordinator_sender);
                     let mut runner = FakeDelayedActionRunner::<PerShardExecutor>::default();
                     executor.start_actor(&mut runner);
-                    self.per_shard.insert(shard_id, executor);
+                    self.per_shard.insert(shard_uid.shard_id(), executor);
                 }
                 continue;
             }

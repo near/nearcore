@@ -26,6 +26,7 @@ use near_client::gc_actor::GCActor;
 use near_client::spice::chunk_executor_coordinator::ChunkExecutorCoordinator;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::executor_shared::ChunkExecutorConfig;
 use near_client::spice::per_shard_spawner::PerShardDeps;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
@@ -474,10 +475,13 @@ pub fn setup_client(
     if cfg!(feature = "protocol_feature_spice") {
         let deps = PerShardDeps {
             store: runtime_adapter.store().clone(),
-            transaction_validity_period: chain_genesis.transaction_validity_period,
-            save_trie_changes: client_config.save_trie_changes,
-            save_tx_outcomes: client_config.save_tx_outcomes,
-            save_receipt_to_tx: client_config.save_receipt_to_tx,
+            config: ChunkExecutorConfig {
+                save_trie_changes: client_config.save_trie_changes,
+                save_tx_outcomes: client_config.save_tx_outcomes,
+                save_receipt_to_tx: client_config.save_receipt_to_tx,
+                save_state_changes: client_config.save_state_changes,
+                transaction_validity_period: chain_genesis.transaction_validity_period,
+            },
             runtime_adapter: runtime_adapter.clone(),
             epoch_manager: epoch_manager.clone(),
             core_reader: spice_core_reader,

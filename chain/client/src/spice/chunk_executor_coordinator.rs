@@ -1,12 +1,12 @@
-use crate::spice::executor_shared::ExecutorIncomingUnverifiedReceipts;
+use crate::spice::executor_shared::{ExecutorIncomingUnverifiedReceipts, optional};
 use crate::spice::per_shard_executor::{IncomingReceipt, PerShardExecutorSender, ReceiptSource};
 use crate::spice::per_shard_spawner::PerShardSpawner;
 use lru::LruCache;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
+use near_chain::Error;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Block, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::ShardId;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreUpdateAdapter};
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, Store};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -92,10 +92,12 @@ impl ChunkExecutorCoordinator {
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
         let desired: HashSet<ShardId> = self.spawned_shard_ids(parent_hash)?.into_iter().collect();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let mut newly_spawned = Vec::new();
         for &shard_id in &desired {
             if !self.mailboxes.contains_key(&shard_id) {
-                let mailbox = self.spawner.spawn(shard_id, self.self_sender.clone());
+                let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+                let mailbox = self.spawner.spawn(shard_uid, self.self_sender.clone());
                 self.mailboxes.insert(shard_id, mailbox);
                 newly_spawned.push(shard_id);
             }
@@ -133,15 +135,7 @@ impl ChunkExecutorCoordinator {
     /// `ChunkExtra` for the current epoch and would stall the head. Use
     /// `executed_shard_ids` for that. (Compatibility with future spice state sync.)
     fn spawned_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        Ok(self
-            .epoch_manager
-            .shard_ids(&epoch_id)?
-            .into_iter()
-            .filter(|&shard_id| {
-                self.shard_tracker.cares_about_shard_this_or_next_epoch(parent_hash, shard_id)
-            })
-            .collect())
+        Ok(self.shard_tracker.tracked_shard_ids_this_or_next_epoch(parent_hash)?)
     }
 
     /// Shards this node *executes* at `parent_hash`'s epoch — current epoch only.
@@ -149,13 +143,7 @@ impl ChunkExecutorCoordinator {
     /// the next epoch is spawned (`spawned_shard_ids`) but not yet executed here,
     /// so it must not block the current epoch's head advance.
     fn executed_shard_ids(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        Ok(self
-            .epoch_manager
-            .shard_ids(&epoch_id)?
-            .into_iter()
-            .filter(|&shard_id| self.shard_tracker.cares_about_shard(parent_hash, shard_id))
-            .collect())
+        Ok(self.shard_tracker.tracked_shard_ids(parent_hash)?)
     }
 
     /// `ShardUId`s this node executes at `block_hash`'s epoch (the head-advance /
@@ -171,10 +159,9 @@ impl ChunkExecutorCoordinator {
 
     /// Current execution head, or the genesis hash if execution hasn't started.
     fn execution_head_or_genesis(&self) -> Result<CryptoHash, Error> {
-        match self.chain_store.spice_execution_head() {
-            Ok(tip) => Ok(tip.last_block_hash),
-            Err(Error::DBNotFoundErr(_)) => self.chain_store.genesis_hash(),
-            Err(err) => Err(err),
+        match optional(self.chain_store.spice_execution_head())? {
+            Some(tip) => Ok(tip.last_block_hash),
+            None => self.chain_store.genesis_hash(),
         }
     }
 
@@ -183,10 +170,8 @@ impl ChunkExecutorCoordinator {
     fn advance_execution_head(&self) -> Result<(), Error> {
         loop {
             let head = self.execution_head_or_genesis()?;
-            let next = match self.chain_store.get_next_block_hash(&head) {
-                Ok(next) => next,
-                Err(Error::DBNotFoundErr(_)) => return Ok(()),
-                Err(err) => return Err(err),
+            let Some(next) = optional(self.chain_store.get_next_block_hash(&head))? else {
+                return Ok(());
             };
             if !self.all_tracked_shards_applied(&next)? {
                 return Ok(());
@@ -197,44 +182,13 @@ impl ChunkExecutorCoordinator {
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
         for shard_uid in self.executed_shard_uids(block_hash)? {
-            match self.chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid) {
-                Ok(_) => {}
-                Err(Error::DBNotFoundErr(_)) => return Ok(false),
-                Err(err) => return Err(err),
+            let chunk_extra =
+                optional(self.chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid))?;
+            if chunk_extra.is_none() {
+                return Ok(false);
             }
         }
         Ok(true)
-    }
-
-    /// Adapter-native twin of `ChainUpdate::update_spice_final_execution_head`:
-    /// reads the current SPICE final execution head, advances it (writing via
-    /// `store_update`) when `block`'s last final block is higher, and returns the
-    /// (possibly advanced) head. Forward-only by the height comparison.
-    fn advance_spice_final_execution_head(
-        &self,
-        store_update: &mut ChainStoreUpdateAdapter<'static>,
-        block: &Block,
-    ) -> Result<Option<Tip>, Error> {
-        let current = match self.chain_store.spice_final_execution_head() {
-            Ok(head) => Some(Tip::clone(&head)),
-            Err(Error::DBNotFoundErr(_)) => None,
-            Err(err) => return Err(err),
-        };
-        if block.header().last_final_block() == &CryptoHash::default() {
-            return Ok(current);
-        }
-        let last_final_header =
-            self.chain_store.get_block_header(block.header().last_final_block())?;
-        let advance = match &current {
-            None => true,
-            Some(head) => head.height < last_final_header.height(),
-        };
-        if advance {
-            let tip = Tip::from_header(&last_final_header);
-            store_update.set_spice_final_execution_head(&tip);
-            return Ok(Some(tip));
-        }
-        Ok(current)
     }
 
     /// Idempotent block-level finalize: advance the spice heads, then (once a new
@@ -243,8 +197,7 @@ impl ChunkExecutorCoordinator {
     fn block_level_finalize(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         let mut store_update = self.chain_store.store_update();
-        let final_execution_head =
-            self.advance_spice_final_execution_head(&mut store_update, &block)?;
+        let final_execution_head = store_update.update_spice_final_execution_head(&block)?;
         // Forward-only; replaces the old unconditional save_spice_execution_head.
         store_update.set_spice_execution_head(&Tip::from_header(block.header()))?;
         store_update.commit()?;

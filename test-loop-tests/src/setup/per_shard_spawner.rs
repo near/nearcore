@@ -5,6 +5,7 @@ use near_client::spice::chunk_executor_coordinator::PerShardChunkApplied;
 use near_client::spice::per_shard_executor::PerShardExecutorSender;
 use near_client::spice::per_shard_spawner::{PerShardDeps, PerShardSpawner};
 use near_primitives::types::ShardId;
+use near_store::ShardUId;
 
 /// Test-loop spawner: registers each per-shard executor with the loop.
 ///
@@ -23,14 +24,15 @@ pub struct TestLoopPerShardSpawner {
 impl PerShardSpawner for TestLoopPerShardSpawner {
     fn spawn(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         coordinator_sender: Sender<PerShardChunkApplied>,
     ) -> PerShardExecutorSender {
-        let actor = self.deps.build(shard_id, coordinator_sender);
+        let actor = self.deps.build(shard_uid, coordinator_sender);
         // The coordinator's mailbox to this shard, bound once the register event runs.
         let actor_adapter = LateBoundSender::new();
         let mailbox = actor_adapter.as_multi_sender();
         let identifier = self.identifier.clone();
+        let shard_id = shard_uid.shard_id();
         self.pending_events_sender.send(
             format!("RegisterPerShardExecutor({shard_id})"),
             Box::new(move |data: &mut TestLoopData| {
