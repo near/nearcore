@@ -2431,15 +2431,11 @@ mod test {
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
-    use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
-    use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
-    use near_network::test_utils::MockPeerManagerAdapter;
+    use near_chain_configs::MutableConfigValue;
     use near_network::types::NetworkRequests;
-    use near_primitives::block::Tip;
-    use near_primitives::hash::{CryptoHash, hash};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
-    use near_store::test_utils::create_test_store;
     use std::sync::Arc;
 
     fn mutable_validator_signer(account_id: &AccountId) -> MutableValidatorSigner {
@@ -2452,83 +2448,45 @@ mod test {
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
-        let epoch_id = EpochId::default();
-        let next_epoch_id = EpochId::default();
-        let mock_tip = Tip {
-            height: 0,
-            last_block_hash: CryptoHash::default(),
-            prev_block_hash: CryptoHash::default(),
-            epoch_id,
-            next_epoch_id,
-        };
-        let store = create_test_store();
-        let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
-            store.clone(),
-            vec!["test".parse().unwrap()],
-            vec![],
-            1,
-            2,
-        );
-        let epoch_manager = Arc::new(epoch_manager.into_handle());
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        let shard_id = shard_layout.shard_ids().next().unwrap();
-
-        // Populate ChunkProducers DB column so get_chunk_producer_info_db works
-        // on nightly (strict-on-miss when EarlyKickout is enabled).
-        #[cfg(feature = "nightly")]
-        {
-            use near_primitives::utils::get_block_shard_id;
-            use near_store::DBCol;
-
-            let mut store_update = store.store_update();
-            for sid in shard_layout.shard_ids() {
-                let chunk_producer = epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id,
-                        height_created: 1,
-                        shard_id: sid,
-                    })
-                    .unwrap();
-                store_update.insert_ser(
-                    DBCol::ChunkProducers,
-                    &get_block_shard_id(&CryptoHash::default(), sid),
-                    &chunk_producer,
-                );
-            }
-            store_update.commit();
-        }
-
-        let validator_signer = mutable_validator_signer(&"test".parse().unwrap());
-        let shard_tracker = ShardTracker::new(
-            TrackedShardsConfig::AllShards,
-            epoch_manager.clone(),
-            validator_signer.clone(),
-        );
-        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-        let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
+        let fixture = ChunkTestFixture::default();
         let clock = FakeClock::default();
+
+        // `me` = chunk producer for the mock chunk's shard and height.
+        // The point of the test: requests for that chunk's parts must never
+        // target self; fallback selection should pick a different BP target.
+        let me = fixture
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: EpochId::default(),
+                height_created: fixture.mock_chunk_header.height_created(),
+                shard_id: fixture.mock_chunk_header.shard_id(),
+            })
+            .unwrap()
+            .take_account_id();
+
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            validator_signer,
-            epoch_manager.clone(),
-            epoch_manager,
-            shard_tracker,
-            network_adapter.as_sender(),
-            client_adapter.as_sender(),
-            store.chunk_store(),
-            mock_tip.clone(),
-            mock_tip,
+            mutable_validator_signer(&me),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
             Duration::hours(1),
             DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
+
         let added = clock.now().into();
         shards_manager.requested_partial_encoded_chunks.insert(
-            ChunkHash(hash(&[1])),
+            fixture.mock_chunk_header.chunk_hash().clone(),
             ChunkRequestInfo {
-                height: 0,
-                ancestor_hash: Default::default(),
-                prev_block_hash: Default::default(),
-                shard_id,
+                height: fixture.mock_chunk_header.height_created(),
+                ancestor_hash: *fixture.mock_chunk_header.prev_block_hash(),
+                prev_block_hash: *fixture.mock_chunk_header.prev_block_hash(),
+                shard_id: fixture.mock_chunk_header.shard_id(),
                 added,
                 last_requested: added,
             },
@@ -2536,16 +2494,31 @@ mod test {
         clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
 
-        // For the chunks that would otherwise be requested from self we expect a request to be
-        // sent to any peer tracking shard
-
-        let msg = network_adapter.requests.read()[0].as_network_requests_ref().clone();
-        if let NetworkRequests::PartialEncodedChunkRequest { target, .. } = msg {
-            assert!(target.account_id == None);
-        } else {
-            println!("{:?}", network_adapter.requests.read());
-            assert!(false);
-        };
+        // Inspect ALL emitted PartialEncodedChunkRequest messages: none should
+        // target `me`, and at least one should have a non-None targeted
+        // account (proving the BP-fallback path fired).
+        let mut request_count = 0;
+        let mut had_targeted_account = false;
+        while let Some(msg) = fixture.mock_network.pop() {
+            if let NetworkRequests::PartialEncodedChunkRequest { target, .. } =
+                msg.as_network_requests_ref()
+            {
+                request_count += 1;
+                assert_ne!(
+                    target.account_id.as_ref(),
+                    Some(&me),
+                    "should not request chunk parts from self"
+                );
+                if target.account_id.is_some() {
+                    had_targeted_account = true;
+                }
+            }
+        }
+        assert!(request_count > 0, "expected at least one PartialEncodedChunkRequest");
+        assert!(
+            had_targeted_account,
+            "expected at least one request to target a non-self block producer (fallback path)"
+        );
     }
 
     #[test]
@@ -3516,6 +3489,30 @@ mod test {
             Ok(false),
             "should return false when `me` isn't the next chunk producer"
         );
+
+        // Symmetric positive case: when `me` IS the next chunk producer, returns Ok(true).
+        let next_chunk_producer = fixture
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: fixture.mock_chunk_header.height_created() + 1,
+                shard_id: fixture.mock_chunk_header.shard_id(),
+            })
+            .unwrap()
+            .take_account_id();
+        // Sanity: next chunk producer must be chunk-only, otherwise the BP
+        // short-circuit fires first and Ok(true) doesn't prove the CPK lookup ran.
+        assert!(
+            !bps.iter().any(|bp| bp.account_id() == &next_chunk_producer),
+            "next chunk producer must be chunk-only to exercise the CPK lookup; got {next_chunk_producer}"
+        );
+        let result = shards_manager.should_wait_for_chunk_forwarding(
+            &ancestor_hash,
+            fixture.mock_chunk_header.height_created(),
+            fixture.mock_chunk_header.shard_id(),
+            Some(&next_chunk_producer),
+        );
+        assert_eq!(result, Ok(true), "next chunk producer should wait for forwarding");
 
         // Process a partial chunk first to insert the header into the cache. Without this,
         // request_chunk_single returns early ("already complete and GC-ed").
