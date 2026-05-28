@@ -147,6 +147,11 @@ struct TestReshardingParameters {
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     #[builder(setter(custom))]
     deploy_test_contract: Vec<AccountId>,
+    /// When true, `deploy_test_contract` deploys the nightly-only build of the test contract
+    /// (`near_test_contracts::nightly_rs_contract()`) instead of the backwards-compatible
+    /// build. Required when the test invokes host functions gated on nightly-only
+    /// protocol features.
+    deploy_nightly_test_contract: bool,
     /// Optionally deploy and use test global contracts
     #[builder(setter(custom))]
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
@@ -300,6 +305,7 @@ impl TestReshardingParametersBuilder {
             loop_actions,
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
+            deploy_nightly_test_contract: self.deploy_nightly_test_contract.unwrap_or(false),
             deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
             use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
             gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
@@ -724,7 +730,18 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
     for contract_id in &params.deploy_test_contract {
         let node = env.node_for_account(&client_account_id);
-        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let code = if params.deploy_nightly_test_contract {
+            #[cfg(feature = "nightly")]
+            {
+                near_test_contracts::nightly_rs_contract().into()
+            }
+            #[cfg(not(feature = "nightly"))]
+            {
+                unreachable!("deploy_nightly_test_contract requires the `nightly` cargo feature")
+            }
+        } else {
+            near_test_contracts::backwards_compatible_rs_contract().into()
+        };
         let tx = node.tx_deploy_contract(contract_id, code);
         test_setup_transactions.push(node.submit_tx(tx));
     }
@@ -1862,6 +1879,9 @@ fn slow_test_resharding_v3_yield_resume_with_id() {
     let params = TestReshardingParametersBuilder::default()
         .deploy_test_contract(account_in_left_child.clone())
         .deploy_test_contract(account_in_right_child.clone())
+        // yield_create_with_id / yield_resume_with_yield_id are gated on the
+        // `YieldWithId` nightly feature, so we need the nightly contract build.
+        .deploy_nightly_test_contract(true)
         .add_loop_action(call_promise_yield_with_id(
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
             vec![account_in_left_child.clone(), account_in_right_child.clone()],

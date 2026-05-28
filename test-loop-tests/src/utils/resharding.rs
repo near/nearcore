@@ -678,7 +678,6 @@ pub(crate) fn call_promise_yield_with_id(
 
     let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
     let make_create_args = {
-        let b64 = b64.clone();
         let yield_payload = yield_payload.clone();
         move |yield_id: &[u8; 32]| -> Vec<u8> {
             let args = serde_json::json!([{
@@ -695,15 +694,15 @@ pub(crate) fn call_promise_yield_with_id(
         }
     };
     let make_resume_args = {
-        let b64 = b64;
-        let yield_payload = yield_payload.clone();
         move |yield_id: &[u8; 32]| -> Vec<u8> {
+            // `promise_yield_resume_with_yield_id` returns 1 on success and the
+            // test contract's `call_promise` dispatcher asserts it matches `"id"`.
             let args = serde_json::json!([{
                 "yield_resume_with_yield_id": {
                     "yield_id": b64(yield_id),
                     "payload": b64(&yield_payload),
                 },
-                "id": 0,
+                "id": 1,
             }]);
             serde_json::to_vec(&args).unwrap()
         }
