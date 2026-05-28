@@ -73,6 +73,32 @@ pub(crate) fn validate_actions_with_mode(
         });
     }
 
+    // Centralized post-quantum gate. Mirrors the tx-admission gate in
+    // `check_valid_for_config`, and is load-bearing for actions emitted by
+    // contracts via host functions: those actions create new receipts that
+    // never go through tx admission, so on a pre-feature protocol they must
+    // be rejected here. The exhaustive match in
+    // `Action::post_quantum_signatures_required` (including the recursive
+    // walk into `Delegate`) forces every future action variant to make an
+    // explicit decision at compile time.
+    //
+    // TODO(post-quantum): see the matching note in
+    // `ValidatedTransaction::check_valid_for_config`. This gate doesn't
+    // close the "implicit protocol upgrade" divergence at the wire-decode
+    // layer: a pre-feature old binary rejects the whole chunk/receipt on
+    // borsh-decode of an unknown variant, while a new binary decodes it
+    // and rejects only the action here. Needs a systemic fix (forward-
+    // compat envelope around `Action`/`SignedTransaction`), not per-
+    // feature mitigation.
+    if !ProtocolFeature::PostQuantumSignatures.enabled(current_protocol_version)
+        && actions.iter().any(Action::post_quantum_signatures_required)
+    {
+        return Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "PostQuantumSignatures".to_owned(),
+            version: current_protocol_version,
+        });
+    }
+
     if mode == ValidateReceiptMode::NewReceipt {
         validate_number_of_deploy_actions(actions, limit_config.max_deploy_actions_per_receipt)?;
     }
@@ -150,7 +176,25 @@ fn validate_delegate_action(
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     let actions = signed_delegate_action.delegate_action.get_actions();
-    validate_actions_with_mode(limit_config, &actions, receiver, current_protocol_version, mode)?;
+    let inner_receiver =
+        if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
+            // This is the correct receiver id to use for the check.
+            &signed_delegate_action.delegate_action.receiver_id
+        } else {
+            // This is a bug fixed with `FixDelegatedDeterministicStateInit` that
+            // validated against the wrong id. This makes it impossible to
+            // initialize deterministic accounts from meta transactions.
+            // The bug cannot be abused, if someone crafts a state init that passes
+            // validation here, it will fail when it is checked as incoming receipt.
+            receiver
+        };
+    validate_actions_with_mode(
+        limit_config,
+        &actions,
+        inner_receiver,
+        current_protocol_version,
+        mode,
+    )?;
     Ok(())
 }
 
@@ -232,6 +276,12 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 
 /// Validates `AddKeyAction`. Checks validity of the access key permission.
 /// If adding a gas key, validates gas key specific constraints.
+///
+/// Note: ML-DSA-65 keys are gated centrally via
+/// `Action::post_quantum_signatures_required`, called both from
+/// `validate_actions_with_mode` (covers receipts emitted by contracts) and
+/// from `check_valid_for_config` (covers tx admission). An exhaustive match
+/// in that predicate guarantees no action variant slips through unchecked.
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
@@ -460,6 +510,32 @@ mod tests {
         let limit_config = test_limit_config();
         let receiver = "alice.near".parse().unwrap();
         validate_actions(&limit_config, &[], &receiver, PROTOCOL_VERSION).expect("empty actions");
+    }
+
+    /// Receipt-level gate: contract-emitted receipts carrying an ML-DSA-65
+    /// `AddKey` must be rejected pre-PostQuantumSignatures. The tx-admission
+    /// gate in `check_valid_for_config` doesn't cover this path because the
+    /// receipt is created by the runtime host functions, not by a user
+    /// transaction.
+    #[test]
+    fn test_validate_actions_ml_dsa_add_key_gated() {
+        let limit_config = test_limit_config();
+        let receiver: AccountId = "alice.near".parse().unwrap();
+        let pq_pubkey = near_crypto::SecretKey::from_seed(KeyType::MLDSA65, "victim").public_key();
+        let actions = [Action::AddKey(Box::new(AddKeyAction {
+            public_key: pq_pubkey,
+            access_key: AccessKey::full_access(),
+        }))];
+
+        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
+        let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
+
+        assert!(matches!(
+            validate_actions(&limit_config, &actions, &receiver, pre),
+            Err(ActionsValidationError::UnsupportedProtocolFeature { .. })
+        ));
+        validate_actions(&limit_config, &actions, &receiver, post)
+            .expect("ML-DSA-65 AddKey accepted post-feature");
     }
 
     #[test]

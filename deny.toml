@@ -126,6 +126,12 @@ skip = [
     { name = "windows-registry", version = "^0.4" },
     { name = "windows-strings", version = "^0.3" },
 
+    # ring and rustls pull in untrusted 0.7; aws-lc-rs (and other newer crates)
+    # pull in untrusted 0.9. Both are tiny and serve the same purpose; the
+    # ecosystem hasn't fully migrated yet.
+    { name = "untrusted", version = "=0.7.1" },
+    { name = "untrusted", version = "=0.9.0" },
+
     # okApi uses mostly schemars 0.8 for now, though it's not necessary
     { name = "schemars", version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },

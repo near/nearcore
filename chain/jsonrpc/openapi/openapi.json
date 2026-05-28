@@ -1138,7 +1138,7 @@
             "$ref": "#/components/schemas/AccessKeyView"
           },
           "public_key": {
-            "$ref": "#/components/schemas/KeyHandle"
+            "$ref": "#/components/schemas/PublicKeyHandle"
           }
         },
         "required": [
@@ -11072,9 +11072,6 @@
         "title": "JsonRpcResponse_for_RpcViewStateResponse_and_RpcViewStateError",
         "type": "object"
       },
-      "KeyHandle": {
-        "type": "string"
-      },
       "KnownProducerView": {
         "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
         "properties": {
@@ -11983,6 +11980,9 @@
         "type": "string"
       },
       "PublicKey": {
+        "type": "string"
+      },
+      "PublicKeyHandle": {
         "type": "string"
       },
       "Range_of_uint64": {
@@ -19885,7 +19885,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/KeyHandle"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
@@ -19916,7 +19916,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/KeyHandle"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [
@@ -19957,7 +19957,7 @@
                     "type": "integer"
                   },
                   "public_key": {
-                    "$ref": "#/components/schemas/KeyHandle"
+                    "$ref": "#/components/schemas/PublicKeyHandle"
                   }
                 },
                 "required": [

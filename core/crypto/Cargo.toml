@@ -12,9 +12,11 @@ publish = true
 workspace = true
 
 [dependencies]
+aws-lc-rs.workspace = true
 blake2.workspace = true
 borsh.workspace = true
 bs58.workspace = true
+sha3.workspace = true
 curve25519-dalek = { workspace = true, features = [
     "precomputed-tables",
     "alloc",
