@@ -26,13 +26,13 @@ mod hint;
 
 pub(super) const EPOCH_LENGTH: u64 = 5;
 
-/// Build a column-only `GetReceiptToTx` message (no hint). Most of the
-/// pre-hint tests only ever exercise the column path.
+/// Column-only `GetReceiptToTx` message (no hint). Most pre-hint tests
+/// exercise the column path only.
 pub(super) fn receipt_to_tx_req(receipt_id: CryptoHash) -> GetReceiptToTx {
     GetReceiptToTx { receipt_id, block_height: None, shard_id: None, window: None }
 }
 
-/// Build a column-only `RpcReceiptToTxRequest` (no hint).
+/// Column-only `RpcReceiptToTxRequest` (no hint).
 pub(super) fn receipt_to_tx_rpc_req(receipt_id: CryptoHash) -> RpcReceiptToTxRequest {
     RpcReceiptToTxRequest {
         receipt_reference: ReceiptReference { receipt_id },
@@ -90,5 +90,5 @@ pub(super) fn shard_containing_outcome(
                 .get_outcomes_by_block_hash_and_shard_id(&block_hash, *shard_id)
                 .contains(&outcome_id)
         })
-        .expect("outcome should exist on one of the expected shards")
+        .expect("outcome exists on one of expected shards")
 }

@@ -1,9 +1,9 @@
-//! Column-only path: tests that exercise the `DBCol::ReceiptToTx` column
-//! without using the hint fallback.
+//! Column-only path: tests exercising `DBCol::ReceiptToTx` column without
+//! hint fallback.
 
 use super::*;
 
-/// When `save_receipt_to_tx` is false, no ReceiptToTx entries should be written.
+/// `save_receipt_to_tx=false` → no ReceiptToTx entries written.
 #[test]
 fn test_save_receipt_to_tx_false() {
     init_test_logger();
@@ -31,33 +31,33 @@ fn test_save_receipt_to_tx_false() {
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
 
-    // Run enough blocks and wait for execution to complete.
+    // Run blocks + wait for execution.
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
     env.validator_runner().run_until_executed_height(target_height);
 
-    // Get receipt ID from the transaction outcome.
+    // Receipt ID from tx outcome.
     let outcome = env.validator().client().chain.get_execution_outcome(&tx_hash).unwrap();
     let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
 
-    // Verify ReceiptToTx entry does NOT exist.
+    // ReceiptToTx entry must NOT exist.
     let store = env.validator().store();
     assert!(
         store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
-        "receipt_to_tx should not be saved when save_receipt_to_tx is false"
+        "receipt_to_tx must not be saved when save_receipt_to_tx=false"
     );
 
-    // Verify no ReceiptToTxGc entries in ProcessedReceiptIds.
+    // No ReceiptToTxGc entries in ProcessedReceiptIds.
     let has_receipt_to_tx_gc = store
         .iter_ser::<Vec<ProcessedReceiptMetadata>>(DBCol::ProcessedReceiptIds)
         .flat_map(|(_, entries)| entries)
         .any(|entry| matches!(entry.source(), ReceiptSource::ReceiptToTxGc));
     assert!(
         !has_receipt_to_tx_gc,
-        "ProcessedReceiptIds should not contain ReceiptToTxGc entries when save_receipt_to_tx is false"
+        "ProcessedReceiptIds must not contain ReceiptToTxGc when save_receipt_to_tx=false"
     );
 }
 
-/// ReceiptToTx data persists to disk and survives a client restart.
+/// ReceiptToTx persists to disk + survives client restart.
 #[test]
 fn test_receipt_to_tx_persists_across_restart() {
     init_test_logger();
@@ -87,40 +87,39 @@ fn test_receipt_to_tx_persists_across_restart() {
         block_hash,
     );
 
-    // Use execute_tx to submit and wait for the transaction to complete.
-    // This is more reliable than submit_tx + run_until_executed_height in
-    // multi-validator setups because it polls until the result is available.
+    // execute_tx polls until result available. More reliable than
+    // submit_tx + run_until_executed_height in multi-validator setups.
     let outcome =
         env.runner_for_account(&restart_account).execute_tx(tx, Duration::seconds(10)).unwrap();
     let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
 
-    // Verify ReceiptToTx entry exists before restart.
+    // ReceiptToTx entry exists before restart.
     let info_before = env
         .node_for_account(&restart_account)
         .store()
         .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
-        .expect("receipt_to_tx entry should exist before restart");
+        .expect("receipt_to_tx entry exists before restart");
     let ReceiptToTxInfo::V1(v1) = &info_before;
-    assert_eq!(v1.shard_id, ShardId::new(0), "shard_id should be 0 in single-shard setup");
+    assert_eq!(v1.shard_id, ShardId::new(0), "shard_id == 0 in single-shard setup");
 
-    // Kill and restart the node.
+    // Kill + restart node.
     let killed_node_state = env.kill_node(&restart_identifier);
     env.node_runner(stable_node_idx).run_for_number_of_blocks(5);
     let new_identifier = format!("{}-restart", restart_identifier);
     env.restart_node(&new_identifier, killed_node_state);
 
-    // Verify ReceiptToTx entry still exists after restart and matches.
+    // ReceiptToTx entry exists after restart + matches.
     let info_after = env
         .node_for_account(&restart_account)
         .store()
         .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
-        .expect("receipt_to_tx entry should persist across restart");
-    assert_eq!(info_before, info_after, "receipt_to_tx entry should be identical after restart");
+        .expect("receipt_to_tx entry persists across restart");
+    assert_eq!(info_before, info_after, "receipt_to_tx entry identical after restart");
 }
 
-/// `save_receipt_to_tx` works independently from `save_tx_outcomes`.
-/// When `save_tx_outcomes = false` but `save_receipt_to_tx = true`, ReceiptToTx entries
-/// should still be written.
+/// `save_receipt_to_tx` independent of `save_tx_outcomes`.
+/// `save_tx_outcomes=false` + `save_receipt_to_tx=true` → ReceiptToTx
+/// entries still written.
 #[test]
 fn test_save_receipt_to_tx_independent_of_outcomes() {
     init_test_logger();
@@ -148,18 +147,18 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
 
-    // Run enough blocks and wait for execution to complete.
+    // Run blocks + wait for execution.
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
     env.validator_runner().run_until_executed_height(target_height);
 
-    // Verify: outcome NOT saved (save_tx_outcomes=false).
+    // Outcome NOT saved (save_tx_outcomes=false).
     assert!(
         env.validator().client().chain.get_execution_outcome(&tx_hash).is_err(),
-        "outcomes should not be saved when save_tx_outcomes is false"
+        "outcomes must not be saved when save_tx_outcomes=false"
     );
 
-    // Find receipt IDs by iterating ReceiptToTx entries whose origin
-    // is FromTransaction with matching tx_hash.
+    // Iterate ReceiptToTx entries; find FromTransaction with matching
+    // tx_hash.
     let store = env.validator().store();
     let found_receipt =
         store.iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx).any(|(_, info)| match &info {
@@ -168,11 +167,11 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
                 ReceiptOrigin::FromTransaction(origin) if origin.tx_hash == tx_hash
             ),
         });
-    assert!(found_receipt, "receipt_to_tx entry should exist even when save_tx_outcomes is false");
+    assert!(found_receipt, "receipt_to_tx entry exists even when save_tx_outcomes=false");
 }
 
-/// When both save_receipt_to_tx and save_tx_outcomes are false, neither
-/// OutcomeIds nor ReceiptToTx entries should be written.
+/// `save_receipt_to_tx=false` + `save_tx_outcomes=false` → neither
+/// OutcomeIds nor ReceiptToTx entries written.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_no_index_when_both_disabled() {
@@ -189,7 +188,7 @@ fn test_no_index_when_both_disabled() {
         })
         .build();
 
-    // Capture baselines before sending the transaction.
+    // Capture baselines before tx.
     let outcome_ids_before = env.validator().store().iter(DBCol::OutcomeIds).count();
     let receipt_to_tx_before = env.validator().store().iter(DBCol::ReceiptToTx).count();
 
@@ -197,7 +196,7 @@ fn test_no_index_when_both_disabled() {
     let nonce_before = env
         .validator()
         .view_access_key_query(&user_account, &signer.public_key())
-        .expect("access key should exist")
+        .expect("access key exists")
         .nonce;
 
     let block_hash = env.validator().head().last_block_hash;
@@ -212,34 +211,34 @@ fn test_no_index_when_both_disabled() {
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
 
-    // Run enough blocks and wait for execution to complete.
+    // Run blocks + wait for execution.
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
     env.validator_runner().run_until_executed_height(target_height);
 
-    // Verify outcomes are NOT saved (save_tx_outcomes=false).
+    // Outcomes NOT saved (save_tx_outcomes=false).
     assert!(
         env.validator().client().chain.get_execution_outcome(&tx_hash).is_err(),
-        "outcomes should not be saved when save_tx_outcomes is false"
+        "outcomes must not be saved when save_tx_outcomes=false"
     );
 
-    // Verify the transaction actually executed by checking the nonce advanced.
+    // Confirm tx executed via nonce advance.
     let nonce_after = env
         .validator()
         .view_access_key_query(&user_account, &signer.public_key())
-        .expect("access key should exist")
+        .expect("access key exists")
         .nonce;
-    assert!(nonce_after > nonce_before, "nonce should have advanced after tx execution");
+    assert!(nonce_after > nonce_before, "nonce advanced after tx execution");
 
     let store = env.validator().store();
 
-    // No new OutcomeIds should be written.
+    // No new OutcomeIds.
     assert_eq!(
         store.iter(DBCol::OutcomeIds).count(),
         outcome_ids_before,
         "no new OutcomeIds when both save_tx_outcomes and save_receipt_to_tx are false"
     );
 
-    // No new ReceiptToTx should be written.
+    // No new ReceiptToTx.
     assert_eq!(
         store.iter(DBCol::ReceiptToTx).count(),
         receipt_to_tx_before,
@@ -247,8 +246,8 @@ fn test_no_index_when_both_disabled() {
     );
 }
 
-/// Restart persistence in index-only mode
-/// (save_tx_outcomes=false, save_receipt_to_tx=true).
+/// Restart persistence in index-only mode (save_tx_outcomes=false,
+/// save_receipt_to_tx=true).
 #[test]
 fn test_receipt_to_tx_persists_across_restart_index_only() {
     init_test_logger();
@@ -283,8 +282,8 @@ fn test_receipt_to_tx_persists_across_restart_index_only() {
     let tx_hash = tx.get_hash();
     env.node_for_account(&restart_account).submit_tx(tx);
 
-    // Run until ReceiptToTx entries for our tx appear. We can't use execute_tx
-    // or get_execution_outcome since save_tx_outcomes=false.
+    // Run until ReceiptToTx entries for tx appear. Can't use execute_tx
+    // or get_execution_outcome — save_tx_outcomes=false.
     let tx_hash_copy = tx_hash;
     env.runner_for_account(&restart_account).run_until(
         |node| {
@@ -300,7 +299,7 @@ fn test_receipt_to_tx_persists_across_restart_index_only() {
         Duration::seconds(10),
     );
 
-    // Collect the ReceiptToTx entries for verification after restart.
+    // Collect ReceiptToTx entries for post-restart check.
     let our_entries: Vec<(CryptoHash, ReceiptToTxInfo)> = env
         .node_for_account(&restart_account)
         .store()
@@ -321,34 +320,31 @@ fn test_receipt_to_tx_persists_across_restart_index_only() {
     let receipt_ids: Vec<CryptoHash> = our_entries.iter().map(|(id, _)| *id).collect();
     let infos_before: Vec<&ReceiptToTxInfo> = our_entries.iter().map(|(_, info)| info).collect();
 
-    // Kill and restart the node.
+    // Kill + restart node.
     let killed_node_state = env.kill_node(&restart_identifier);
     env.node_runner(stable_node_idx).run_for_number_of_blocks(5);
     let new_identifier = format!("{}-restart", restart_identifier);
     env.restart_node(&new_identifier, killed_node_state);
 
-    // Verify entries persist after restart.
+    // Entries persist after restart.
     let store = env.node_for_account(&restart_account).store();
     for (i, receipt_id) in receipt_ids.iter().enumerate() {
         let info_after = store
             .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
-            .expect("receipt_to_tx should persist across restart in index-only mode");
-        assert_eq!(
-            infos_before[i], &info_after,
-            "receipt_to_tx entry should be identical after restart"
-        );
+            .expect("receipt_to_tx persists across restart in index-only mode");
+        assert_eq!(infos_before[i], &info_after, "receipt_to_tx entry identical after restart");
     }
 }
 
-/// Refund receipts (from unspent gas) should get a ReceiptToTx entry with
-/// `ReceiptOrigin::FromReceipt` pointing to the parent action receipt.
+/// Refund receipts (from unspent gas) get ReceiptToTx entry with
+/// `ReceiptOrigin::FromReceipt` → parent action receipt.
 #[test]
 fn test_refund_receipt_has_receipt_to_tx() {
     init_test_logger();
 
     let user_account = create_account_id("account0");
 
-    // Use a non-zero gas price so that unspent gas generates a balance refund receipt.
+    // Non-zero gas price → unspent gas generates balance refund receipt.
     let min_gas_price = Balance::from_yoctonear(100_000_000);
     let mut env = TestLoopBuilder::new()
         .add_user_account(&user_account, Balance::from_near(1_000_000))
@@ -358,7 +354,7 @@ fn test_refund_receipt_has_receipt_to_tx() {
 
     let signer = create_user_test_signer(&user_account);
 
-    // Deploy the test contract.
+    // Deploy test contract.
     let deploy_tx = SignedTransaction::deploy_contract(
         1,
         &user_account,
@@ -368,7 +364,7 @@ fn test_refund_receipt_has_receipt_to_tx() {
     );
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    // Call a cheap method with 300 TGas — most gas is unused, generating a refund.
+    // Cheap method, 300 TGas — most unused → refund.
     let call_tx = SignedTransaction::call(
         2,
         user_account.clone(),
@@ -382,48 +378,48 @@ fn test_refund_receipt_has_receipt_to_tx() {
     );
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
 
-    // The action receipt is the first receipt spawned by the transaction.
+    // Action receipt = first receipt spawned by tx.
     let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
 
-    // The action receipt should have spawned a gas refund receipt as its child.
-    // Since log_something doesn't create any promises, the only child is the refund.
+    // Action receipt spawns gas refund receipt as child. log_something
+    // creates no promises → only child is the refund.
     let action_outcome = outcome
         .receipts_outcome
         .iter()
         .find(|r| r.id == action_receipt_id)
-        .expect("action receipt outcome should exist");
+        .expect("action receipt outcome exists");
     assert!(
         !action_outcome.outcome.receipt_ids.is_empty(),
-        "action receipt should have spawned a refund receipt from unspent gas"
+        "action receipt spawns refund from unspent gas"
     );
     let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
 
-    // Verify the refund receipt has a ReceiptToTx entry with FromReceipt origin.
+    // Refund receipt has ReceiptToTx entry with FromReceipt origin.
     let store = env.validator().store();
     let info = store
         .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, refund_receipt_id.as_ref())
-        .expect("refund receipt should have a ReceiptToTx entry");
+        .expect("refund receipt has ReceiptToTx entry");
 
     let ReceiptToTxInfo::V1(v1) = &info;
-    assert_eq!(v1.shard_id, ShardId::new(0), "shard_id should be 0 in single-shard setup");
-    assert_eq!(v1.receiver_account_id, user_account, "receiver should be the user account");
+    assert_eq!(v1.shard_id, ShardId::new(0), "shard_id == 0 in single-shard setup");
+    assert_eq!(v1.receiver_account_id, user_account, "receiver == user account");
     match &v1.origin {
         ReceiptOrigin::FromReceipt(origin) => {
             assert_eq!(
                 origin.parent_receipt_id, action_receipt_id,
-                "refund receipt's parent should be the action receipt"
+                "refund receipt parent == action receipt"
             );
             assert_eq!(
                 origin.parent_predecessor_id, user_account,
-                "parent_predecessor_id should be the user account"
+                "parent_predecessor_id == user account"
             );
         }
-        other => panic!("expected FromReceipt origin for refund receipt, got {other:?}"),
+        other => panic!("expected FromReceipt origin for refund, got {other:?}"),
     }
 }
 
-/// RPC: Send a transaction, get the receipt_id from the outcome, call
-/// EXPERIMENTAL_receipt_to_tx, and verify the response matches.
+/// RPC: send tx, get receipt_id from outcome, call
+/// EXPERIMENTAL_receipt_to_tx, verify response matches.
 #[test]
 fn test_receipt_to_tx_rpc_direct() {
     init_test_logger();
@@ -461,9 +457,9 @@ fn test_receipt_to_tx_rpc_direct() {
     assert_eq!(response.sender_account_id, user_account);
 }
 
-/// RPC: Deploy a contract, call a method that generates a refund receipt
-/// (depth=2: tx → action receipt → refund receipt). Query the refund
-/// receipt_id and verify it resolves back to the original transaction.
+/// RPC: deploy contract, call method that generates refund receipt
+/// (depth=2: tx → action → refund). Query refund receipt_id, verify
+/// resolves back to original tx.
 #[test]
 fn test_receipt_to_tx_rpc_chain_walk() {
     init_test_logger();
@@ -480,7 +476,7 @@ fn test_receipt_to_tx_rpc_chain_walk() {
 
     let signer = create_user_test_signer(&user_account);
 
-    // Deploy the test contract.
+    // Deploy test contract.
     let deploy_tx = SignedTransaction::deploy_contract(
         1,
         &user_account,
@@ -490,7 +486,7 @@ fn test_receipt_to_tx_rpc_chain_walk() {
     );
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    // Call a cheap method with 300 TGas — most gas is unused, generating a refund.
+    // Cheap method, 300 TGas — most unused → refund.
     let call_tx = SignedTransaction::call(
         2,
         user_account.clone(),
@@ -505,20 +501,20 @@ fn test_receipt_to_tx_rpc_chain_walk() {
     let call_tx_hash = call_tx.get_hash();
     let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
 
-    // Find the refund receipt: the action receipt's child.
+    // Refund receipt = action receipt's child.
     let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
     let action_outcome = outcome
         .receipts_outcome
         .iter()
         .find(|r| r.id == action_receipt_id)
-        .expect("action receipt outcome should exist");
+        .expect("action receipt outcome exists");
     assert!(
         !action_outcome.outcome.receipt_ids.is_empty(),
-        "action receipt should have spawned a refund receipt"
+        "action receipt spawned refund receipt"
     );
     let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
 
-    // Query the refund receipt — should resolve through the chain back to the tx.
+    // Query refund receipt — resolves through chain back to tx.
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
@@ -531,7 +527,7 @@ fn test_receipt_to_tx_rpc_chain_walk() {
     assert_eq!(response.sender_account_id, user_account);
 }
 
-/// RPC: Query a random receipt_id that doesn't exist. Verify error.
+/// RPC: query nonexistent receipt_id. Verify error.
 #[test]
 fn test_receipt_to_tx_rpc_unknown_receipt() {
     init_test_logger();
@@ -549,8 +545,7 @@ fn test_receipt_to_tx_rpc_unknown_receipt() {
     assert!(err_str.contains("UNKNOWN_RECEIPT"), "expected UNKNOWN_RECEIPT error, got: {err_str}");
 }
 
-/// RPC: When save_receipt_to_tx=false, verify that the endpoint returns
-/// an Unsupported error.
+/// RPC: save_receipt_to_tx=false → endpoint returns Unsupported.
 #[test]
 fn test_receipt_to_tx_rpc_unsupported_disabled() {
     init_test_logger();
@@ -574,43 +569,40 @@ fn test_receipt_to_tx_rpc_unsupported_disabled() {
     assert!(err_str.contains("UNSUPPORTED"), "expected UNSUPPORTED error, got: {err_str}");
     assert!(
         err_str.contains("save_receipt_to_tx"),
-        "error should mention save_receipt_to_tx, got: {err_str}"
+        "error mentions save_receipt_to_tx, got: {err_str}"
     );
 }
 
-/// When tracked_shards_config is not AllShards, the handler should return
-/// Unsupported. Since enable_rpc() forces AllShards on the RPC node, we
-/// send the GetReceiptToTx message directly to a validator node's
-/// ViewClientActor which has partial shard tracking.
+/// tracked_shards_config != AllShards → handler returns Unsupported.
+/// enable_rpc() forces AllShards on RPC node, so send GetReceiptToTx
+/// directly to a validator's ViewClientActor (partial tracking).
 #[test]
 fn test_receipt_to_tx_unsupported_partial_tracking() {
     init_test_logger();
 
     let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).build();
 
-    // The validator node has TrackedShardsConfig::NoShards (single-shard tracking),
-    // not AllShards. Send GetReceiptToTx directly to its ViewClientActor.
+    // Validator has TrackedShardsConfig::NoShards (single-shard), not
+    // AllShards. Send GetReceiptToTx direct to its ViewClientActor.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
     let result = view_client.handle(receipt_to_tx_req(CryptoHash::hash_bytes(b"any")));
 
     match result {
         Err(GetReceiptToTxError::Unsupported(msg)) => {
-            assert!(msg.contains("all shards"), "error should mention all shards, got: {msg}");
+            assert!(msg.contains("all shards"), "error mentions all shards, got: {msg}");
         }
         other => panic!("expected Unsupported error, got: {other:?}"),
     }
 }
 
-/// RPC: Insert synthetic ReceiptToTx entries forming a chain of depth 4
-/// (receipt_0 → receipt_1 → receipt_2 → receipt_3 → tx) into the RPC node's
-/// store, then query receipt_0 through the RPC endpoint. This validates
-/// the recursive loop beyond just the first parent hop.
+/// RPC: insert synthetic ReceiptToTx chain depth 4 (receipt_0 → receipt_1
+/// → receipt_2 → receipt_3 → tx) into RPC node's store, query receipt_0
+/// via RPC. Validates recursive loop beyond first parent hop.
 ///
-/// Natural receipt chains deeper than 2 are hard to capture in
+/// Natural receipt chains > depth 2 hard to capture in
 /// FinalExecutionOutcomeView (promise callbacks not returned via
-/// promise_return aren't tracked). Synthetic entries let us test the loop
-/// cleanly.
+/// promise_return are untracked). Synthetic entries test loop cleanly.
 #[test]
 fn test_receipt_to_tx_rpc_deep_chain_walk() {
     init_test_logger();
@@ -620,14 +612,14 @@ fn test_receipt_to_tx_rpc_deep_chain_walk() {
     let tx_hash = CryptoHash::hash_bytes(b"deep_tx");
     let sender: AccountId = "sender.near".parse().unwrap();
 
-    // Build a chain of 4 receipts: receipt_0 → receipt_1 → receipt_2 → receipt_3 → tx.
+    // Chain of 4 receipts: receipt_0 → ... → receipt_3 → tx.
     let receipt_ids: Vec<CryptoHash> =
         (0..4).map(|i| CryptoHash::hash_bytes(&(i as u32).to_le_bytes())).collect();
 
     let store = env.rpc_node().store();
     let mut store_update = store.store_update();
 
-    // Terminal node: receipt_3 → FromTransaction.
+    // Terminal: receipt_3 → FromTransaction.
     store_update.insert_ser(
         DBCol::ReceiptToTx,
         receipt_ids[3].as_ref(),
@@ -641,7 +633,7 @@ fn test_receipt_to_tx_rpc_deep_chain_walk() {
         }),
     );
 
-    // Intermediate nodes: receipt_i → FromReceipt(receipt_{i+1}).
+    // Intermediates: receipt_i → FromReceipt(receipt_{i+1}).
     for i in 0..3 {
         store_update.insert_ser(
             DBCol::ReceiptToTx,
@@ -659,7 +651,7 @@ fn test_receipt_to_tx_rpc_deep_chain_walk() {
 
     store_update.commit();
 
-    // Query receipt_0 via RPC — should walk 4 hops to resolve back to tx_hash.
+    // Query receipt_0 via RPC — walks 4 hops back to tx_hash.
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
@@ -672,11 +664,10 @@ fn test_receipt_to_tx_rpc_deep_chain_walk() {
     assert_eq!(response.sender_account_id, sender);
 }
 
-/// Handler-level test: construct a receipt chain in the store where a parent
-/// is missing mid-walk. Verify that UnknownReceipt is returned with the
-/// missing parent's receipt_id (not the originally queried receipt).
-/// This locks in the semantics: both start-missing and parent-missing
-/// map to UnknownReceipt with the specific receipt_id that was not found.
+/// Handler-level: construct receipt chain in store with parent missing
+/// mid-walk. UnknownReceipt returned with missing parent's receipt_id
+/// (not originally queried receipt). Locks semantics: start-missing and
+/// parent-missing both map to UnknownReceipt with the missing id.
 #[test]
 fn test_receipt_to_tx_unknown_parent_mid_walk() {
     init_test_logger();
@@ -686,7 +677,7 @@ fn test_receipt_to_tx_unknown_parent_mid_walk() {
     let child_receipt_id = CryptoHash::hash_bytes(b"child");
     let missing_parent_id = CryptoHash::hash_bytes(b"missing_parent");
 
-    // Write a single ReceiptToTx entry that points to a parent that doesn't exist.
+    // ReceiptToTx entry pointing to nonexistent parent.
     let store = env.validator().store();
     let mut store_update = store.store_update();
     store_update.insert_ser(
@@ -703,7 +694,7 @@ fn test_receipt_to_tx_unknown_parent_mid_walk() {
     );
     store_update.commit();
 
-    // Query the child receipt — the handler should walk to missing_parent and fail.
+    // Query child receipt — handler walks to missing_parent, fails.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
     let result = view_client.handle(receipt_to_tx_req(child_receipt_id));
@@ -712,25 +703,24 @@ fn test_receipt_to_tx_unknown_parent_mid_walk() {
         Err(GetReceiptToTxError::UnknownReceipt(id)) => {
             assert_eq!(
                 id, missing_parent_id,
-                "error should report the missing parent, not the originally queried receipt"
+                "error reports missing parent, not originally queried receipt"
             );
         }
         other => panic!("expected UnknownReceipt for missing parent, got: {other:?}"),
     }
 }
 
-/// RPC cross-shard chain-walk: 2-shard setup, send a cross-shard transfer,
-/// query the child receipt on the receiving shard, verify it resolves
-/// back to the original transaction.
+/// RPC cross-shard chain-walk: 2-shard setup, cross-shard transfer.
+/// Query child receipt on receiving shard, verify resolves back to tx.
 #[test]
 fn test_receipt_to_tx_rpc_cross_shard() {
     init_test_logger();
 
-    // Two accounts that will land on different shards with multi_shard(2).
-    // multi_shard(2) creates boundary at "test1", so:
-    //   shard 0: accounts < "test1" (e.g. "account0")
-    //   shard 1: accounts >= "test1" (e.g. "test1", "validator0")
-    // We use create_account_id which creates "accountN" names.
+    // Two accounts on different shards with multi_shard(2). Boundary at
+    // "test1":
+    //   shard 0: < "test1" (e.g. "account0")
+    //   shard 1: >= "test1" (e.g. "test1", "validator0")
+    // create_account_id makes "accountN" names.
     let sender_account = create_account_id("account0");
     let receiver_account: AccountId = "test1".parse().unwrap();
 
@@ -746,7 +736,7 @@ fn test_receipt_to_tx_rpc_cross_shard() {
 
     let signer = create_user_test_signer(&sender_account);
 
-    // Send money cross-shard: sender_account (shard 0) → receiver_account (shard 1).
+    // Cross-shard transfer: sender (shard 0) → receiver (shard 1).
     let tx = SignedTransaction::send_money(
         1,
         sender_account.clone(),
@@ -758,10 +748,10 @@ fn test_receipt_to_tx_rpc_cross_shard() {
     let tx_hash = tx.get_hash();
     let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
 
-    // The tx creates an action receipt that crosses shards.
+    // Tx spawns action receipt crossing shards.
     let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
 
-    // Query via RPC — should resolve the cross-shard receipt back to the original tx.
+    // Query via RPC — resolves cross-shard receipt back to original tx.
     let response = env
         .rpc_runner()
         .run_with_jsonrpc_client(
@@ -773,12 +763,12 @@ fn test_receipt_to_tx_rpc_cross_shard() {
     assert_eq!(response.transaction_hash, tx_hash);
     assert_eq!(response.sender_account_id, sender_account);
 
-    // Also verify a refund receipt (depth 2 cross-shard) resolves correctly.
+    // Refund receipt (depth 2 cross-shard) resolves correctly.
     let action_outcome = outcome
         .receipts_outcome
         .iter()
         .find(|r| r.id == receipt_id)
-        .expect("action receipt outcome should exist");
+        .expect("action receipt outcome exists");
     if !action_outcome.outcome.receipt_ids.is_empty() {
         let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
         let refund_response = env
@@ -795,8 +785,7 @@ fn test_receipt_to_tx_rpc_cross_shard() {
     }
 }
 
-/// Regression: the column-only path with no hint must keep behaving exactly
-/// as it did before the hint extension landed.
+/// Regression: column-only path (no hint) keeps exact pre-hint behavior.
 #[test]
 fn test_column_unaffected_without_hint() {
     init_test_logger();

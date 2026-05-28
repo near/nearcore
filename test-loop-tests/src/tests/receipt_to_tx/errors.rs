@@ -3,14 +3,14 @@
 
 use super::*;
 
-/// `window > receipt_to_tx_max_hint_window` is rejected up front with
+/// `window > receipt_to_tx_max_hint_window` rejected up front with
 /// `WindowTooLarge`.
 #[test]
 fn test_hint_fallback_window_too_large() {
     init_test_logger();
     let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
 
-    // ClientConfig::test() seeds receipt_to_tx_max_hint_window to 20.
+    // ClientConfig::test() seeds receipt_to_tx_max_hint_window = 20.
     let configured_max: BlockHeightDelta = 20;
     let result = handle(
         &mut env,
@@ -30,8 +30,8 @@ fn test_hint_fallback_window_too_large() {
     }
 }
 
-/// `block_height` near 0 + a wide window must not panic on underflow. The
-/// center-out iterator saturates at 0; receipt lookup just misses.
+/// `block_height` near 0 + wide window must not panic on underflow.
+/// Center-out iterator saturates at 0; receipt lookup misses cleanly.
 #[test]
 fn test_hint_fallback_window_underflow() {
     init_test_logger();
@@ -48,12 +48,12 @@ fn test_hint_fallback_window_underflow() {
     );
     assert!(
         matches!(result, Err(GetReceiptToTxError::UnknownReceipt(_))),
-        "underflow-safe scan should miss cleanly, got {result:?}"
+        "underflow-safe scan misses cleanly, got {result:?}"
     );
 }
 
 /// `save_receipt_to_tx=false`, `save_tx_outcomes=false`, hint provided →
-/// `OutcomesNotStored` (fires only because the scan was attempted).
+/// `OutcomesNotStored` (fires only because scan was attempted).
 #[test]
 fn test_hint_fallback_outcomes_not_stored_only_on_scan() {
     init_test_logger();
@@ -121,9 +121,9 @@ fn test_hint_malformed_window_without_height() {
     );
 }
 
-/// Hint height past the chain head (not locally resolvable) must surface as
-/// `UnknownReceipt`. The handler must not fall back to the head epoch's
-/// shard layout, which could scan the wrong shards on a post-resharding node.
+/// Hint height past chain head (not locally resolvable) surfaces as
+/// `UnknownReceipt`. Handler must not fall back to head epoch's shard
+/// layout — would scan wrong shards on post-resharding node.
 #[test]
 fn test_hint_height_unresolvable_returns_unknown_receipt() {
     init_test_logger();
@@ -136,8 +136,8 @@ fn test_hint_height_unresolvable_returns_unknown_receipt() {
         .build();
 
     let head_height = env.validator().head().height;
-    // Height that doesn't exist locally (well past the head). The handler
-    // should not silently fall back to head_header.
+    // Height past head, not locally resolvable. Handler must not silently
+    // fall back to head_header.
     let bogus_height = head_height + 1_000_000;
     let result = handle(
         &mut env,
@@ -150,13 +150,13 @@ fn test_hint_height_unresolvable_returns_unknown_receipt() {
     );
     match result {
         Err(GetReceiptToTxError::UnknownReceipt(_)) => {}
-        other => panic!("expected UnknownReceipt for unresolvable hint height, got {other:?}"),
+        other => panic!("expected UnknownReceipt for unresolvable height, got {other:?}"),
     }
 }
 
-/// Handler-level test: write synthetic ReceiptToTx rows forming a chain of
-/// 1001 FromReceipt entries (exceeding the MAX_DEPTH=1000 limit). Verify
-/// that DepthExceeded is returned with the originally queried receipt_id.
+/// Handler-level: write synthetic ReceiptToTx rows forming chain of 1001
+/// FromReceipt entries (exceeds MAX_DEPTH=1000). Verify DepthExceeded
+/// returned with originally queried receipt_id.
 #[test]
 fn test_receipt_to_tx_depth_exceeded() {
     init_test_logger();
@@ -166,14 +166,14 @@ fn test_receipt_to_tx_depth_exceeded() {
     let store = env.validator().store();
     let mut store_update = store.store_update();
 
-    // Build a chain of 1002 receipt IDs: receipt_0 → receipt_1 → ... → receipt_1001.
-    // receipt_0 through receipt_1000 are FromReceipt pointing to the next.
-    // receipt_1001 is FromTransaction (the terminal node — but we'll never reach it).
+    // Chain of 1002 receipt IDs: receipt_0 → receipt_1 → ... → receipt_1001.
+    // receipt_0..receipt_1000 are FromReceipt → next. receipt_1001 is
+    // FromTransaction (terminal — never reached).
     let chain_len = 1002usize;
     let receipt_ids: Vec<CryptoHash> =
         (0..chain_len).map(|i| CryptoHash::hash_bytes(&(i as u32).to_le_bytes())).collect();
 
-    // Write the terminal node (receipt_101 → tx).
+    // Terminal node: receipt_1001 → tx.
     store_update.insert_ser(
         DBCol::ReceiptToTx,
         receipt_ids[chain_len - 1].as_ref(),
@@ -187,7 +187,7 @@ fn test_receipt_to_tx_depth_exceeded() {
         }),
     );
 
-    // Write each intermediate node (receipt_i → receipt_{i+1}).
+    // Intermediates: receipt_i → receipt_{i+1}.
     for i in 0..chain_len - 1 {
         store_update.insert_ser(
             DBCol::ReceiptToTx,
@@ -205,26 +205,23 @@ fn test_receipt_to_tx_depth_exceeded() {
 
     store_update.commit();
 
-    // Query receipt_0 — needs 1001 hops to reach the tx, exceeding MAX_DEPTH=1000.
+    // Query receipt_0 — needs 1001 hops, exceeds MAX_DEPTH=1000.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
     let result = view_client.handle(receipt_to_tx_req(receipt_ids[0]));
 
     match result {
         Err(GetReceiptToTxError::DepthExceeded { receipt_id, limit }) => {
-            assert_eq!(
-                receipt_id, receipt_ids[0],
-                "error should report the originally queried receipt"
-            );
-            assert_eq!(limit, 1000, "limit should be MAX_DEPTH=1000");
+            assert_eq!(receipt_id, receipt_ids[0], "error reports originally queried receipt");
+            assert_eq!(limit, 1000, "limit == MAX_DEPTH=1000");
         }
         other => panic!("expected DepthExceeded error, got: {other:?}"),
     }
 
-    // Sanity check: querying receipt_2 (999 FromReceipt hops + 1 terminal lookup
-    // = 1000 iterations) should succeed since it's exactly at the limit.
+    // Sanity: receipt_2 (999 FromReceipt + 1 terminal = 1000 iter) succeeds
+    // — exactly at limit.
     let result = view_client.handle(receipt_to_tx_req(receipt_ids[2]));
-    assert!(result.is_ok(), "100 hops should succeed, got: {result:?}");
+    assert!(result.is_ok(), "1000 hops succeed, got: {result:?}");
     let response = result.unwrap();
     assert_eq!(response.transaction_hash, CryptoHash::hash_bytes(b"tx"));
     assert_eq!(response.sender_account_id.as_str(), "sender");

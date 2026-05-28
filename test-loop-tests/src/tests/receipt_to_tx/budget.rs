@@ -2,9 +2,8 @@
 
 use super::*;
 
-/// Synthetic stress case: a single OutcomeIds row has more entries than the
-/// per-request hint-scan budget. The resolver should stop mid-scan and return
-/// `BudgetExceeded` instead of scanning the whole row.
+/// Synthetic stress: single OutcomeIds row > per-request budget. Resolver
+/// stops mid-scan, returns `BudgetExceeded` instead of scanning whole row.
 #[test]
 fn test_hint_budget_exceeded_in_scan() {
     init_test_logger();
@@ -45,17 +44,15 @@ fn test_hint_budget_exceeded_in_scan() {
     }
 }
 
-/// All-shards budget drain: a height-only hint (no `shard_id`) makes the
-/// handler enumerate every shard at the hint height. Inject `limit / 4`
-/// synthetic `OutcomeIds` entries on each of five shards — total
-/// `5 * limit / 4`, comfortably above the per-request budget regardless of
-/// the shard-iteration order. The shared budget exhausts mid-scan and the
-/// handler returns `BudgetExceeded { scanned, limit }`, proving the budget
-/// is shared across the all-shards enumeration rather than being applied
-/// per shard.
+/// All-shards budget drain: height-only hint (no `shard_id`) → handler
+/// enumerates every shard at hint height. Inject `limit / 4` synthetic
+/// `OutcomeIds` on each of five shards — `5 * limit / 4` total, over budget
+/// regardless of shard-iteration order. Shared budget exhausts mid-scan,
+/// handler returns `BudgetExceeded { scanned, limit }`, proving budget is
+/// shared across enumeration, not per-shard.
 ///
-/// Numbers derived from `config.receipt_to_tx_max_outcomes_per_request`
-/// so a future default change doesn't silently invalidate the test.
+/// Numbers derived from `config.receipt_to_tx_max_outcomes_per_request` so
+/// a future default change can't silently invalidate the test.
 #[test]
 fn test_hint_budget_exceeded_all_shards_drain() {
     init_test_logger();

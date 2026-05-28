@@ -1,13 +1,12 @@
-//! Hint-fallback walks: tests that exercise the optional
-//! `(block_height, shard_id, window)` hint parameters of
-//! `EXPERIMENTAL_receipt_to_tx`. The column path remains the source of truth
-//! when the column is populated; the hint scan is the fallback.
+//! Hint-fallback walks: tests exercising optional `(block_height,
+//! shard_id, window)` hint params of `EXPERIMENTAL_receipt_to_tx`. Column
+//! path is source of truth when populated; hint scan is fallback.
 
 use super::*;
 
-/// `save_receipt_to_tx=false`, hint pointed at the tx execution height →
-/// terminal tx returned. The single-hop column miss falls back to the scan
-/// and walks the same outcome locally.
+/// `save_receipt_to_tx=false`, hint at tx execution height → terminal tx
+/// returned. Single-hop column miss falls back to scan, walks same outcome
+/// locally.
 #[test]
 fn test_hint_fallback_resolves_tx_origin() {
     init_test_logger();
@@ -32,18 +31,17 @@ fn test_hint_fallback_resolves_tx_origin() {
             window: None,
         },
     )
-    .expect("hint should resolve to tx origin");
+    .expect("hint resolves to tx origin");
     assert_eq!(response.transaction_hash, tx_hash);
     assert_eq!(response.sender_account_id, user_account);
 }
 
-/// `save_receipt_to_tx=false`, height-only hint in a 2-shard setup. The
-/// handler does not know the creating shard, so hop 1 enumerates all shards
-/// at the hinted height and finds the transaction outcome.
+/// `save_receipt_to_tx=false`, height-only hint, 2-shard setup. Handler
+/// doesn't know creating shard → hop 1 enumerates all shards at hint
+/// height + finds tx outcome.
 ///
-/// Gated off under spice: the spice execution model places the cross-shard
-/// transaction outcome on a different block than the receipt's hinted height,
-/// so the scan window misses.
+/// Gated off under spice: spice execution model places cross-shard tx
+/// outcome on different block than receipt's hint height; scan misses.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_height_only_resolves_all_shards() {
@@ -85,18 +83,18 @@ fn test_hint_height_only_resolves_all_shards() {
         &mut env,
         GetReceiptToTx { receipt_id, block_height: Some(tx_height), shard_id: None, window: None },
     )
-    .expect("height-only hint should scan all shards and resolve to tx origin");
+    .expect("height-only hint scans all shards, resolves to tx origin");
     assert_eq!(response.transaction_hash, tx_hash);
     assert_eq!(response.sender_account_id, sender_account);
 }
 
-/// `save_receipt_to_tx=false`, contract refund chain (depth 2). Hint at the
-/// action receipt's execution height. The handler walks both hops server-side
+/// `save_receipt_to_tx=false`, contract refund chain (depth 2). Hint at
+/// action receipt's execution height. Handler walks both hops server-side
 /// via repeated hint scans.
 ///
-/// Gated off under spice: the spice execution model produces the refund and
-/// action receipts on different blocks than the standard model, so the
-/// computed hint coordinates don't match the outcome rows the scan inspects.
+/// Gated off under spice: spice model produces refund + action receipts
+/// on different blocks than standard model; computed hint coords don't
+/// match outcome rows scan inspects.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_fallback_resolves_through_refund_chain() {
@@ -157,22 +155,21 @@ fn test_hint_fallback_resolves_through_refund_chain() {
             window: None,
         },
     )
-    .expect("hint walk should resolve refund → action receipt → tx");
+    .expect("hint walk resolves refund → action receipt → tx");
     assert_eq!(response.transaction_hash, call_tx_hash);
     assert_eq!(response.sender_account_id, user_account);
 }
 
-/// Cross-shard depth-2 walk with `save_receipt_to_tx=false`. Hop 1 uses the
-/// supplied action shard to resolve refund → action receipt. The hop-2 scan
-/// is shard-narrowed via the handler's predecessor-account derivation: the
-/// action receipt's `parent_predecessor_id` resolves to the sender shard, so
-/// the ancestor scan goes straight to shard 0 and finds the originating
-/// transaction without enumerating all shards.
+/// Cross-shard depth-2 walk, `save_receipt_to_tx=false`. Hop 1 uses
+/// supplied action shard to resolve refund → action receipt. Hop-2 scan
+/// shard-narrowed via handler's predecessor-account derivation: action
+/// receipt's `parent_predecessor_id` resolves to sender shard, ancestor
+/// scan goes straight to shard 0 + finds originating tx without enumerating
+/// all shards.
 ///
-/// Gated off under spice: the spice execution model lands the cross-shard
-/// refund / action receipts on different blocks than the standard model, so
-/// the hint coordinates this test computes don't line up with the outcome
-/// rows that the resolver scans.
+/// Gated off under spice: spice model lands cross-shard refund / action
+/// receipts on different blocks than standard; hint coords don't line up
+/// with outcome rows resolver scans.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_cross_shard_walk_resolves_via_predecessor_shard() {
@@ -243,14 +240,14 @@ fn test_hint_cross_shard_walk_resolves_via_predecessor_shard() {
             window: None,
         },
     )
-    .expect("cross-shard refund chain should resolve via all-shards ancestor scan");
+    .expect("cross-shard refund chain resolves via all-shards ancestor scan");
     assert_eq!(response.transaction_hash, call_tx_hash);
     assert_eq!(response.sender_account_id, sender_account);
 }
 
 /// `save_receipt_to_tx=true`, `save_tx_outcomes=false`, hint supplied but
-/// never used because the column resolves every hop. Must succeed —
-/// `OutcomesNotStored` should only fire when a scan is actually needed.
+/// unused — column resolves every hop. Must succeed; `OutcomesNotStored`
+/// fires only when scan is needed.
 #[test]
 fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
     init_test_logger();
@@ -278,7 +275,7 @@ fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
     env.validator_runner().run_until_executed_height(target_height);
 
-    // Find the receipt_id from the ReceiptToTx column directly (outcomes are not stored).
+    // Find receipt_id from ReceiptToTx column directly — outcomes not stored.
     let store = env.validator().store();
     let (receipt_id, _) = store
         .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
@@ -290,10 +287,10 @@ fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
                 _ => None,
             },
         })
-        .expect("column entry should exist");
+        .expect("column entry exists");
 
-    // Supply a hint that, if it triggered, would hit OutcomesNotStored. The
-    // column path should answer first and ignore the hint.
+    // Hint that, if triggered, would hit OutcomesNotStored. Column path
+    // answers first, ignores hint.
     let response = handle(
         &mut env,
         GetReceiptToTx {
@@ -307,7 +304,7 @@ fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
     assert_eq!(response.transaction_hash, tx_hash);
 }
 
-/// Hint far outside the receipt's window → `UnknownReceipt` (no column entry,
+/// Hint far outside receipt's window → `UnknownReceipt` (no column entry,
 /// scan window exhausted).
 #[test]
 fn test_hint_fallback_wrong_height() {
@@ -335,16 +332,16 @@ fn test_hint_fallback_wrong_height() {
     );
     match result {
         Err(GetReceiptToTxError::UnknownReceipt(id)) => {
-            assert_eq!(id, receipt_id, "should report the queried receipt that couldn't be found");
+            assert_eq!(id, receipt_id, "reports queried receipt that wasn't found");
         }
         other => panic!("expected UnknownReceipt, got {other:?}"),
     }
 }
 
-/// Synthetic chain: column has child → FromReceipt(P), but the column entry
-/// for P is absent. Hint supplied. The next iteration's column-miss scan
-/// should pick up P's coordinates and resolve terminally. Regression guard
-/// for mixed column-hit / hint-fallback walks.
+/// Synthetic chain: column has child → FromReceipt(P), column entry for P
+/// absent. Hint supplied. Next iter's column-miss scan picks up P's coords
+/// + resolves terminally. Regression guard for mixed column-hit /
+/// hint-fallback walks.
 #[test]
 fn test_hint_column_then_fallback_boundary() {
     init_test_logger();
@@ -392,8 +389,8 @@ fn test_hint_column_then_fallback_boundary() {
         .unwrap()
         .height();
 
-    // Delete the column entry for the parent (action_receipt_id) so the next
-    // iteration column-misses and must fall back to the hint scan.
+    // Delete column entry for parent (action_receipt_id) → next iter
+    // column-misses, falls back to hint scan.
     let store = env.validator().store();
     let mut store_update = store.store_update();
     store_update.delete(DBCol::ReceiptToTx, action_receipt_id.as_ref());
@@ -412,29 +409,27 @@ fn test_hint_column_then_fallback_boundary() {
             window: None,
         },
     )
-    .expect("column hit then next-hop column-miss scan should resolve to terminal tx");
+    .expect("column hit then next-hop column-miss scan resolves to terminal tx");
     assert_eq!(response.transaction_hash, call_tx_hash);
     assert_eq!(response.sender_account_id, user_account);
 }
 
 /// Cross-shard hint walk: 2-shard setup, `save_receipt_to_tx=false`,
-/// cross-shard transfer (sender on shard 0, receiver on shard 1).
+/// cross-shard transfer (sender shard 0, receiver shard 1).
 ///
-/// The action receipt produced by the tx executes on the *receiver's* shard;
-/// the tx itself executes on the *sender's* shard. A hint pointing at the
-/// action receipt's execution shard cannot find the tx outcome on the
-/// originating shard — the center-out scan walks the wrong shard's
+/// Action receipt executes on *receiver's* shard; tx executes on
+/// *sender's* shard. Hint at action receipt's execution shard can't find
+/// tx outcome on originating shard — center-out scan walks wrong shard's
 /// `OutcomeIds` rows.
 ///
-/// We hint exactly at the action receipt's execution coordinates. The hint
-/// scan misses (the tx outcome is on the other shard), no column entry
-/// exists, and the handler returns `UnknownReceipt` at the cross-shard
-/// boundary rather than fabricating a result.
+/// Hint exactly at action receipt's execution coords. Hint scan misses
+/// (tx outcome on other shard), no column entry, handler returns
+/// `UnknownReceipt` at cross-shard boundary rather than fabricating.
 ///
-/// Regression guard for the documented best-effort failure mode. If a
-/// future change adds shard-aware hint derivation (e.g. via
-/// `parent.predecessor_id() -> account_id_to_shard_id`), this test should
-/// be updated to reflect the new contract.
+/// Regression guard for documented best-effort failure mode. Future
+/// shard-aware hint derivation (e.g. via
+/// `parent.predecessor_id() -> account_id_to_shard_id`) → update test
+/// to reflect new contract.
 #[test]
 fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
     init_test_logger();
@@ -468,7 +463,7 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
         .receipts_outcome
         .iter()
         .find(|r| r.id == action_receipt_id)
-        .expect("action receipt outcome should exist");
+        .expect("action receipt outcome exists");
     let action_height = env
         .validator()
         .client()
@@ -477,10 +472,9 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
         .unwrap()
         .height();
 
-    // Identify which shard the action receipt actually executed on. We don't
-    // hardcode the layout — multi_shard(2) puts the boundary at "test1" but a
-    // future layout change should still leave this test exercising the
-    // cross-shard scenario.
+    // Identify which shard action receipt executed on. Don't hardcode
+    // layout — multi_shard(2) puts boundary at "test1" but future layout
+    // change still leaves test exercising cross-shard scenario.
     let action_shard = shard_containing_outcome(
         &env,
         action_height,
@@ -488,9 +482,9 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
         &[ShardId::new(0), ShardId::new(1)],
     );
 
-    // Query the action receipt itself with the hint pointed at *its* execution
-    // shard. The tx outcome that produced this receipt lives on the *other*
-    // shard, so the hint scan walks the wrong shard's outcomes and misses.
+    // Query action receipt itself, hint at *its* execution shard. Tx
+    // outcome that produced this receipt lives on the *other* shard,
+    // so hint scan walks wrong shard's outcomes + misses.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
     let result = view_client.handle(GetReceiptToTx {
@@ -514,12 +508,11 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
     }
 }
 
-/// Stale-hint fall-through: the next-hop column-miss scan misses AND no
-/// later column entry hits, so the walk falls through to `UnknownReceipt`
-/// rather than fabricating a result.
+/// Stale-hint fall-through: next-hop column-miss scan misses AND no later
+/// column entry hits → walk returns `UnknownReceipt` rather than fabricate.
 ///
-/// The sibling scenario (refresh misses, column hits, terminal Ok) is
-/// already covered by `test_hint_column_then_fallback_boundary`.
+/// Sibling scenario (refresh misses, column hits, terminal Ok) covered by
+/// `test_hint_column_then_fallback_boundary`.
 #[test]
 fn test_hint_stale_then_column_miss_returns_unknown() {
     init_test_logger();
@@ -566,11 +559,10 @@ fn test_hint_stale_then_column_miss_returns_unknown() {
         .unwrap()
         .height();
 
-    // Delete the column entry for action_receipt_id (the parent the walk
-    // recurses on). With save_receipt_to_tx still on, hop 1 column-hits for
-    // refund_receipt_id and returns FromReceipt(action_receipt_id). Hop 2
-    // column-misses for the parent; with a wildly stale hint, the scan also
-    // misses and the walk surfaces UnknownReceipt.
+    // Delete column entry for action_receipt_id (parent walk recurses on).
+    // save_receipt_to_tx still on → hop 1 column-hits for refund_receipt_id,
+    // returns FromReceipt(action_receipt_id). Hop 2 column-misses parent;
+    // with wildly stale hint, scan also misses → walk surfaces UnknownReceipt.
     let store = env.validator().store();
     let mut store_update = store.store_update();
     store_update.delete(DBCol::ReceiptToTx, action_receipt_id.as_ref());
@@ -596,13 +588,12 @@ fn test_hint_stale_then_column_miss_returns_unknown() {
     }
 }
 
-/// 2-hop self-call walk with the ancestor scan distance pinned to 0. The hint
-/// resolver visits only the anchor height for hop 1+, so the test only passes
-/// if the producing outcome of the parent receipt lives at the anchor itself.
-/// For a same-account self-call, `process_local_receipts` runs the action
-/// receipt within the same `apply()` call as its emitting tx, so both
-/// outcomes share a block. Locks the anchor-inclusion invariant in the
-/// integration layer.
+/// 2-hop self-call walk with ancestor scan distance pinned to 0. Hint
+/// resolver visits only anchor height for hop 1+ → test passes only if
+/// producing outcome of parent receipt lives at the anchor itself. For
+/// same-account self-call, `process_local_receipts` runs action receipt
+/// in same `apply()` call as emitting tx → both outcomes share a block.
+/// Locks anchor-inclusion invariant at integration layer.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_ancestor_includes_anchor() {
@@ -616,9 +607,8 @@ fn test_hint_ancestor_includes_anchor() {
         .gas_prices(min_gas_price, min_gas_price)
         .config_modifier(|config, _| {
             config.save_receipt_to_tx = false;
-            // Anchor-only: hop 1+ may only inspect the resolved parent's
-            // own execution block. A successful walk proves the anchor is
-            // visited.
+            // Anchor-only: hop 1+ inspects only resolved parent's own
+            // execution block. Successful walk proves anchor visited.
             config.receipt_to_tx_max_hop_distance = 0;
         })
         .build();
@@ -667,17 +657,16 @@ fn test_hint_ancestor_includes_anchor() {
             window: None,
         },
     )
-    .expect("anchor-only ancestor scan should still resolve local same-shard receipts");
+    .expect("anchor-only ancestor scan resolves local same-shard receipts");
     assert_eq!(response.transaction_hash, call_tx_hash);
     assert_eq!(response.sender_account_id, user_account);
 }
 
-/// Inject an emit→execute delay larger than `receipt_to_tx_max_hop_distance`
-/// via a cross-shard transfer. With `max_hop_distance=0` and the caller's
-/// `window=0`, the next-iteration column-miss scan in Ancestor mode cannot
-/// reach the tx's producing block. The walk surfaces
-/// `UnknownReceipt`, documenting the fail-fast contract: ancestor misses
-/// when configured distance is too tight for the actual emit-to-execute
+/// Inject emit→execute delay > `receipt_to_tx_max_hop_distance` via
+/// cross-shard transfer. `max_hop_distance=0`, caller `window=0` →
+/// next-iter column-miss scan in Ancestor mode can't reach tx's producing
+/// block. Walk surfaces `UnknownReceipt`. Documents fail-fast: ancestor
+/// misses when configured distance is too tight for actual emit-to-execute
 /// delay.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -695,7 +684,7 @@ fn test_hint_ancestor_distance_misses_when_delay_exceeds_config() {
         .gas_prices(min_gas_price, min_gas_price)
         .config_modifier(|config, _| {
             config.save_receipt_to_tx = false;
-            // Distance 0 collapses the ancestor scan to anchor-only.
+            // Distance 0 collapses ancestor scan to anchor-only.
             config.receipt_to_tx_max_hop_distance = 0;
         })
         .build();
@@ -727,9 +716,9 @@ fn test_hint_ancestor_distance_misses_when_delay_exceeds_config() {
         &[ShardId::new(0), ShardId::new(1)],
     );
 
-    // window=0 forces hop 0 to inspect only the anchor height too; combined
-    // with max_hop_distance=0 the walk has zero slack to reach the
-    // cross-shard tx outcome which executed a block earlier.
+    // window=0 forces hop 0 to inspect anchor height only; combined with
+    // max_hop_distance=0 walk has zero slack to reach cross-shard tx
+    // outcome (executed a block earlier).
     let result = handle(
         &mut env,
         GetReceiptToTx {
@@ -747,10 +736,9 @@ fn test_hint_ancestor_distance_misses_when_delay_exceeds_config() {
     }
 }
 
-/// Operator override: raise `receipt_to_tx_max_hint_window` past the default
-/// and verify that a `window` value over the old default is accepted instead
-/// of being rejected by the up-front cap check. Locks the contract that the
-/// new field is operator-tunable.
+/// Operator override: raise `receipt_to_tx_max_hint_window` past default,
+/// verify `window` over old default is accepted instead of rejected by
+/// up-front cap check. Locks operator-tunable contract on new field.
 #[test]
 fn test_hint_window_config_override() {
     init_test_logger();
@@ -762,9 +750,9 @@ fn test_hint_window_config_override() {
         })
         .build();
 
-    // 30 > default cap (20) but < operator-raised cap (50). The handler must
-    // accept it; with no matching receipt anywhere the walk terminates in
-    // UnknownReceipt, not WindowTooLarge.
+    // 30 > default cap (20), < operator-raised cap (50). Handler accepts;
+    // no matching receipt → walk terminates UnknownReceipt, not
+    // WindowTooLarge.
     let result = handle(
         &mut env,
         GetReceiptToTx {
@@ -780,22 +768,21 @@ fn test_hint_window_config_override() {
     );
 }
 
-/// Pin the load-bearing band for hop-1+ ancestor scan width:
+/// Pin load-bearing band for hop-1+ ancestor scan width:
 /// `d ∈ (effective_window, max_hop_distance]` where
 /// `d = parent_execution_height − grandparent_execution_height`.
 ///
 /// Setup mirrors `test_hint_cross_shard_walk_resolves_via_predecessor_shard`
-/// (cross-shard contract call producing a refund chain) but tightens the
-/// caller's window to 0 so `effective_window = 0 < d ≤ max_hop_distance = 20`.
-/// The natural cross-shard delay puts the producing tx outcome a block earlier
-/// than the action receipt on the sender shard.
+/// (cross-shard contract call producing refund chain) but tightens caller's
+/// window to 0 so `effective_window = 0 < d ≤ max_hop_distance = 20`.
+/// Natural cross-shard delay puts producing tx outcome a block earlier
+/// than action receipt on sender shard.
 ///
-/// Hop 0 finds the action receipt at `(action_height, action_shard)` with
-/// `window = 0` (anchor only). Without the hop-1+ ancestor scan width
-/// (`max_hop_distance = 20`) covering the gap between the action receipt and
-/// its producing tx, the walk would terminate `UnknownReceipt`. This test pins
-/// the load-bearing claim so any future restructure that preserves the same
-/// coverage continues to pass.
+/// Hop 0 finds action receipt at `(action_height, action_shard)` with
+/// `window = 0` (anchor only). Without hop-1+ ancestor scan width
+/// (`max_hop_distance = 20`) covering gap between action receipt and its
+/// producing tx, walk would terminate `UnknownReceipt`. Pins load-bearing
+/// claim so future restructure preserving same coverage keeps passing.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_ancestor_gap_band() {
@@ -857,9 +844,9 @@ fn test_hint_ancestor_gap_band() {
         &[ShardId::new(0), ShardId::new(1)],
     );
 
-    // window=0 forces effective_window=0 < d on hop 1+. Walk only succeeds
-    // because the hop-1+ ancestor scan width (max_hop_distance default 20)
-    // reaches the producing tx outcome a block earlier on the sender shard.
+    // window=0 → effective_window=0 < d on hop 1+. Walk succeeds only
+    // because hop-1+ ancestor scan width (max_hop_distance default 20)
+    // reaches producing tx outcome a block earlier on sender shard.
     let response = handle(
         &mut env,
         GetReceiptToTx {

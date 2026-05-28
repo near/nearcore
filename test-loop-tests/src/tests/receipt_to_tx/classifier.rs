@@ -2,9 +2,8 @@
 
 use super::*;
 
-/// (true, true) origin-row collision: outcome id present in both Transactions
-/// and Receipts. The classifier skips, the scan exhausts, terminal error is
-/// `UnknownReceipt`.
+/// (true, true) origin-row collision: outcome id in both Transactions and
+/// Receipts. Classifier skips, scan exhausts, terminal error `UnknownReceipt`.
 #[test]
 fn test_hint_classifier_skips_on_both_origin_rows_present() {
     init_test_logger();
@@ -20,9 +19,8 @@ fn test_hint_classifier_skips_on_both_origin_rows_present() {
 
     let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account, 1);
 
-    // Force the (true, true) ambiguity by writing a fake receipt row at the
-    // tx hash. The resolver must skip the ambiguous candidate; the scan
-    // exhausts the window and returns `UnknownReceipt`.
+    // Force (true, true) by writing fake receipt row at tx hash. Resolver
+    // skips ambiguous candidate; scan exhausts window → `UnknownReceipt`.
     let store = env.validator().store();
     let mut update = store.store_update();
     let fake_receipt_bytes = vec![0u8; 64];
@@ -40,6 +38,6 @@ fn test_hint_classifier_skips_on_both_origin_rows_present() {
     );
     assert!(
         matches!(result, Err(GetReceiptToTxError::UnknownReceipt(_))),
-        "ambiguous candidate must be skipped and the scan exhausted; got {result:?}"
+        "ambiguous candidate must be skipped, scan exhausted; got {result:?}"
     );
 }
