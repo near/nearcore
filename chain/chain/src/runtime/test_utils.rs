@@ -85,6 +85,8 @@ impl NightshadeRuntime {
                 "contract.cache",
                 1,
                 None,
+                // Test runtime never evicts.
+                FilesystemContractRuntimeCache::MAX_DISK_CACHE_BYTES,
             )
             .expect("filesystem contract cache")
             .handle(),

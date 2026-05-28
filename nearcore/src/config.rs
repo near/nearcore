@@ -418,6 +418,8 @@ pub struct Config {
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
+    /// Maximum allowed total size of the on-disk compiled-contract cache entries.
+    pub contract_cache_max_size: ByteSize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
     /// This option can cause extra load on the database and is not recommended for production use.
@@ -532,6 +534,7 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
+            contract_cache_max_size: ByteSize::gb(128),
             contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
@@ -955,6 +958,7 @@ impl NightshadeRuntime {
             &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
             Some("filesystem".to_string()),
+            config.config.contract_cache_max_size.as_u64(),
         )?;
         Ok(NightshadeRuntime::new(
             store,

@@ -28,6 +28,8 @@ use std::fmt;
 #[cfg(not(windows))]
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
+#[cfg(not(windows))]
+use std::str::FromStr;
 use std::sync::Arc;
 #[cfg(not(windows))]
 use std::time::SystemTime;
@@ -144,6 +146,10 @@ pub trait ContractRuntimeCache: Send + Sync {
     /// Things to be performed on protocol version change. The default is a no-op.
     fn on_protocol_version_update(&self, _new_protocol_version: ProtocolVersion) {}
 
+    /// Notify the cache that `key` has been touched.
+    /// The default is a no-op; only [`FilesystemContractRuntimeCache`] implements it.
+    fn touch(&self, _key: &CryptoHash) {}
+
     /// TESTING ONLY: Clears the cache including in-memory and persistent data (if any).
     ///
     /// This should be used only for testing, since the implementations may not provide
@@ -183,6 +189,10 @@ impl ContractRuntimeCache for Box<dyn ContractRuntimeCache> {
     fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
         <dyn ContractRuntimeCache>::on_protocol_version_update(&**self, new_protocol_version)
     }
+
+    fn touch(&self, key: &CryptoHash) {
+        <dyn ContractRuntimeCache>::touch(&**self, key)
+    }
 }
 
 impl<C: ContractRuntimeCache> ContractRuntimeCache for &C {
@@ -204,6 +214,10 @@ impl<C: ContractRuntimeCache> ContractRuntimeCache for &C {
 
     fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
         <C as ContractRuntimeCache>::on_protocol_version_update(self, new_protocol_version)
+    }
+
+    fn touch(&self, key: &CryptoHash) {
+        <C as ContractRuntimeCache>::touch(self, key)
     }
 }
 
@@ -285,21 +299,36 @@ pub struct FilesystemContractRuntimeCache {
 struct FilesystemContractRuntimeCacheState {
     dir: OwnedFd,
     any_cache: AnyCache,
+    /// Tracks files present in `dir`, keyed by the same `CryptoHash` as the
+    /// on-disk filename, weighted by on-disk byte size.
+    disk_index: Mutex<LruWeightedCache<CryptoHash, ()>>,
     test_temp_dir: Option<tempfile::TempDir>,
 }
 
 #[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
+    /// Largest accepted value for the on-disk cache size limit
+    pub const MAX_DISK_CACHE_BYTES: u64 = LruWeightedCache::<CryptoHash, ()>::MAX_WEIGHT;
+
+    /// `max_disk_cache_bytes` is the maximum total size of compiled-contract files kept on disk
     pub fn new<StorePath, ContractCachePath>(
         home_dir: &std::path::Path,
         store_path: Option<&StorePath>,
         contract_cache_path: &ContractCachePath,
+        max_disk_cache_bytes: u64,
     ) -> std::io::Result<Self>
     where
         StorePath: AsRef<std::path::Path> + ?Sized,
         ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
-        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0, None)
+        Self::with_memory_cache(
+            home_dir,
+            store_path,
+            contract_cache_path,
+            0,
+            None,
+            max_disk_cache_bytes,
+        )
     }
 
     /// When setting up a cache of compiled contracts, also set-up a `size` element in-memory
@@ -310,17 +339,32 @@ impl FilesystemContractRuntimeCache {
     ///
     /// Note though, that this memory cache is *not* used to additionally cache files from the
     /// filesystem – OS page cache already does that for us transparently.
+    ///
+    /// `max_disk_cache_bytes` maximum total size of compiled-contract files kept on disk
     pub fn with_memory_cache<StorePath, ContractCachePath>(
         home_dir: &std::path::Path,
         store_path: Option<&StorePath>,
         contract_cache_path: &ContractCachePath,
         memcache_expected_item_count: usize,
         memcache_metrics_identifier: Option<String>,
+        max_disk_cache_bytes: u64,
     ) -> std::io::Result<Self>
     where
         StorePath: AsRef<std::path::Path> + ?Sized,
         ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
+        // Reject configs the on-disk LRU index can't represent before they
+        // reach the internal assertion, so a bad value is a clean error rather
+        // than a startup panic.
+        if max_disk_cache_bytes > Self::MAX_DISK_CACHE_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "contract_cache_max_size must be at most {} bytes",
+                    Self::MAX_DISK_CACHE_BYTES
+                ),
+            ));
+        }
         let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
         let legacy_path: std::path::PathBuf =
             [home_dir, store_path, "contracts".as_ref()].into_iter().collect();
@@ -371,18 +415,30 @@ impl FilesystemContractRuntimeCache {
             "memcache_metrics_identifier is only supported with the `metrics` feature"
         );
 
+        let disk_index = Mutex::new(build_disk_index(&dir, max_disk_cache_bytes)?);
+
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
                 dir,
                 any_cache,
+                disk_index,
                 test_temp_dir: None,
             }),
         })
     }
 
     pub fn test() -> std::io::Result<Self> {
+        // Tests that don't exercise eviction want no effective limit.
+        Self::test_with_disk_cache_bytes(Self::MAX_DISK_CACHE_BYTES)
+    }
+
+    /// Like [`Self::test`], but with the on-disk eviction limit set explicitly.
+    /// Tests for the eviction feature use this; everything else stays on
+    /// [`Self::test`].
+    pub fn test_with_disk_cache_bytes(max_disk_cache_bytes: u64) -> std::io::Result<Self> {
         let tempdir = tempfile::TempDir::new()?;
-        let mut cache = Self::new(tempdir.path(), None::<&str>, "contract.cache")?;
+        let mut cache =
+            Self::new(tempdir.path(), None::<&str>, "contract.cache", max_disk_cache_bytes)?;
         Arc::get_mut(&mut cache.state).unwrap().test_temp_dir = Some(tempdir);
         Ok(cache)
     }
@@ -413,6 +469,9 @@ impl FilesystemContractRuntimeCache {
         };
 
         let mut removed = 0usize;
+        // Keys whose files we unlinked, so we can drop them from the on-disk
+        // index afterwards and keep its weight accounting honest.
+        let mut removed_keys: Vec<CryptoHash> = Vec::new();
         for entry in dir {
             let entry = match entry {
                 Ok(e) => e,
@@ -443,7 +502,14 @@ impl FilesystemContractRuntimeCache {
             }
 
             match unlinkat(&self.state.dir, entry.file_name(), AtFlags::empty()) {
-                Ok(()) => removed += 1,
+                Ok(()) => {
+                    removed += 1;
+                    if let Some(key) =
+                        entry.file_name().to_str().ok().and_then(|s| CryptoHash::from_str(s).ok())
+                    {
+                        removed_keys.push(key);
+                    }
+                }
                 Err(Errno::NOENT) => {}
                 Err(err) => tracing::warn!(
                     target: "vm",
@@ -451,6 +517,12 @@ impl FilesystemContractRuntimeCache {
                     err = &err as &dyn std::error::Error,
                     "failed to remove old contract cache file",
                 ),
+            }
+        }
+        if !removed_keys.is_empty() {
+            let mut index = self.state.disk_index.lock();
+            for key in removed_keys {
+                index.remove(&key);
             }
         }
         removed
@@ -468,6 +540,89 @@ const ERROR_TAG: u8 = 0b00001010;
 /// [`ERROR_TAG`].
 #[cfg(not(windows))]
 const CODE_TAG: u8 = 0b10010101;
+
+/// Total bytes [`FilesystemContractRuntimeCache::put`] writes for `value`,
+/// including the trailing tag and the `wasm_bytes` length suffix. Used to
+/// weight the on-disk LRU index.
+#[cfg(not(windows))]
+fn entry_disk_size(value: &CompiledContractInfo) -> u64 {
+    // Trailer `put` appends after the payload: one tag byte ([`CODE_TAG`] or
+    // [`ERROR_TAG`]) plus 8 bytes of little-endian `wasm_bytes`.
+    const PUT_TRAILER_BYTES: u64 = 1 + 8;
+    let payload_bytes = match &value.compiled {
+        CompiledContract::Code(code) => code.len() as u64,
+        CompiledContract::CompileModuleError(err) => borsh::object_length(err)
+            .expect("CompilationError serialization length should be infallible")
+            as u64,
+    };
+    payload_bytes + PUT_TRAILER_BYTES
+}
+
+/// Scan `dir` and build an [`LruWeightedCache`] tracking each on-disk
+/// cache file by its byte size, ordered from least- to most-recently-
+/// accessed (by `st_atime`, with all associated limitations).
+///
+/// Files whose names don't parse as a [`CryptoHash`] are skipped.
+/// If the scanned valid total already exceeds `max_bytes`, the oldest
+/// tracked entries are unlinked until the index fits.
+#[cfg(not(windows))]
+fn build_disk_index(
+    dir: &rustix::fd::OwnedFd,
+    max_bytes: u64,
+) -> std::io::Result<LruWeightedCache<CryptoHash, ()>> {
+    let mut index = LruWeightedCache::<CryptoHash, ()>::without_item_cap(max_bytes);
+    let mut entries: Vec<(CryptoHash, u64, i64, i64)> = Vec::new();
+
+    let read_dir = Dir::read_from(dir)?;
+    for entry in read_dir {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let filename = entry.file_name();
+        let filename_bytes = filename.to_bytes();
+        if filename_bytes == b"." || filename_bytes == b".." {
+            continue;
+        }
+        // Skip anything we don't recognize as a valid cache file
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Some(key) = filename.to_str().ok().and_then(|s| CryptoHash::from_str(s).ok()) else {
+            continue;
+        };
+        let stat = match statat(dir, filename, AtFlags::empty()) {
+            Ok(s) => s,
+            // Missing/unreadable: leave it alone for now; `get` will treat
+            // it as a miss and the next compile will overwrite it.
+            Err(_) => continue,
+        };
+        let size = u64::try_from(stat.st_size).unwrap_or(0);
+        entries.push((key, size, stat.st_atime as i64, stat.st_atime_nsec as i64));
+    }
+
+    // Ascending by atime: most-recently-accessed ends up MRU.
+    entries.sort_unstable_by_key(|(_, _, sec, nsec)| (*sec, *nsec));
+
+    let mut over_limit_trimmed: usize = 0;
+    for (key, size, _, _) in entries {
+        for (victim, ()) in index.insert(key, size, ()) {
+            let _ = unlinkat(dir, victim.to_string(), AtFlags::empty());
+            over_limit_trimmed += 1;
+        }
+    }
+
+    if 0 < over_limit_trimmed {
+        tracing::info!(
+            target: "vm",
+            trimmed = over_limit_trimmed,
+            max_bytes,
+            "compiled-contract cache exceeded its on-disk size limit at startup; trimmed oldest entries"
+        );
+    }
+
+    Ok(index)
+}
 
 /// Cache for compiled contracts code in plain filesystem.
 #[cfg(not(windows))]
@@ -488,6 +643,8 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         fields(key = key.to_string(), value.len = value.compiled.debug_len()),
     )]
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
+        let weight = entry_disk_size(&value);
+
         const MAX_ATTEMPTS: u32 = 5;
         let final_filename = key.to_string();
         let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
@@ -527,8 +684,24 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         file.write_all(&value.wasm_bytes.to_le_bytes())?;
         file.sync_data()?;
         drop(file);
-        // This is atomic, so there wouldn't be instances where getters see an intermediate state.
-        renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
+        // Rename, index update, and victim unlinks share one lock, so a
+        // concurrent `put` of a victim key can't rename a fresh file into place
+        // before our unlink and have us delete it. The write above is outside
+        // the lock.
+        {
+            let mut index = self.state.disk_index.lock();
+            renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
+            let evicted = index.insert(*key, weight, ());
+            // `insert` returns `key` for a same-key replacement (keep our file)
+            // and for an oversized reject (remove it); `contains` tells them apart.
+            let key_stored = index.contains(key);
+            for (victim, ()) in evicted {
+                if &victim == key && key_stored {
+                    continue;
+                }
+                let _ = unlinkat(&self.state.dir, victim.to_string(), AtFlags::empty());
+            }
+        }
 
         // NOTE: we do not remove the temporary file in case of failure in many of the
         // intermediate steps above. This is not considered to be a significant risk: any failure
@@ -570,14 +743,14 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         let wasm_bytes = u64::from_le_bytes(buffer[buffer.len() - 8..].try_into().unwrap());
         let tag = buffer[buffer.len() - 9];
         buffer.truncate(buffer.len() - 9);
-        Ok(match tag {
+        let value = match tag {
             CODE_TAG => {
-                Some(CompiledContractInfo { wasm_bytes, compiled: CompiledContract::Code(buffer) })
+                CompiledContractInfo { wasm_bytes, compiled: CompiledContract::Code(buffer) }
             }
-            ERROR_TAG => Some(CompiledContractInfo {
+            ERROR_TAG => CompiledContractInfo {
                 wasm_bytes,
                 compiled: CompiledContract::CompileModuleError(borsh::from_slice(&buffer)?),
-            }),
+            },
             // File is malformed? For this code, since we're talking about a cache lets just treat
             // it as if there is no cached file as well. The cached file may eventually be
             // overwritten with a valid copy. And since we can compile a new copy, there doesn't
@@ -588,16 +761,15 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                     message = "cached contract executable was found to be malformed",
                     key = %key
                 );
-                None
+                return Ok(None);
             }
-        })
+        };
+        // Real cache hit: refresh recency so eviction doesn't drop it next.
+        self.touch(key);
+        Ok(Some(value))
     }
 
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
-        // Existence-only check: avoids `get`'s full file read + `Vec`
-        // allocation for the cached artifact. Used on hot paths
-        // (e.g. `VM::contract_cached`) where the caller only needs to know
-        // whether the entry exists, not its bytes.
         let filename = key.to_string();
         match accessat(&self.state.dir, &filename, Access::EXISTS, AtFlags::empty()) {
             Ok(()) => Ok(true),
@@ -620,7 +792,12 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         }
     }
 
-    /// Clears the in-memory cache and files in the cache directory.
+    fn touch(&self, key: &CryptoHash) {
+        self.state.disk_index.lock().touch(key);
+    }
+
+    /// Clears the in-memory cache, the on-disk LRU index, and the files in the
+    /// cache directory.
     ///
     /// The cache must be created using `test` method, otherwise this method will panic.
     #[cfg(feature = "test_features")]
@@ -629,6 +806,8 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             panic!("must be called for testing only");
         };
         self.memory_cache().clear();
+        // Drop the index along with the files it mirrors.
+        self.state.disk_index.lock().clear();
         for entry in Dir::read_from(&self.state.dir).unwrap() {
             if let Ok(entry) = entry {
                 let filename_bytes = entry.file_name().to_bytes();
@@ -668,37 +847,75 @@ struct LruWeightedCache<K, V> {
 type LruWeightedCacheEntry<V> = (u64, V);
 
 impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
+    /// Largest accepted `max_weight`. Capped one below `u64::MAX / 2` so the
+    /// transient `current_weight + weight` sum in `insert` can never overflow.
+    const MAX_WEIGHT: u64 = u64::MAX / 2 - 1;
+
     fn new(item_capacity: NonZeroUsize, max_weight: u64) -> Self {
+        Self::with_lru(max_weight, lru::LruCache::new(item_capacity))
+    }
+
+    /// Like [`Self::new`], but with no item-count cap — eviction is driven
+    /// purely by `max_weight`.
+    fn without_item_cap(max_weight: u64) -> Self {
+        Self::with_lru(max_weight, lru::LruCache::unbounded())
+    }
+
+    fn with_lru(max_weight: u64, cache: lru::LruCache<K, LruWeightedCacheEntry<V>>) -> Self {
         assert!(
-            max_weight < u64::MAX / 2,
-            "cache weight must be capped at u64::MAX / 2 to avoid overflows"
+            max_weight <= Self::MAX_WEIGHT,
+            "max_weight must be at most {} to avoid overflows",
+            Self::MAX_WEIGHT
         );
-        Self { current_weight: 0, max_weight, cache: lru::LruCache::new(item_capacity) }
+        Self { current_weight: 0, max_weight, cache }
     }
 
     fn get(&mut self, key: &K) -> Option<&(u64, V)> {
         self.cache.get(key)
     }
 
-    fn put(&mut self, key: K, weight: u64, value: V) {
+    /// Promote `key` to most-recently-used; returns whether it was present.
+    fn touch(&mut self, key: &K) -> bool {
+        self.cache.promote(key)
+    }
+
+    /// Insert `key` with `weight` and `value` as MRU. Returns the entries
+    /// that were evicted as a result, in eviction order.
+    fn insert(&mut self, key: K, weight: u64, value: V) -> Vec<(K, V)> {
+        // Too big to ever fit: don't store it. Also evict any existing entry
+        // for this key so an oversized replacement can't leave a stale one.
         if self.max_weight < weight {
-            return;
+            if let Some((old_weight, _)) = self.cache.pop(&key) {
+                self.current_weight -= old_weight;
+            }
+            return vec![(key, value)];
         }
 
+        let mut evicted = Vec::new();
         // `push` (unlike `put`) returns any evicted entry, whether it was a
         // same-key replacement or the LRU entry dropped due to item_capacity.
-        if let Some((_, (evicted_weight, _))) = self.cache.push(key, (weight, value)) {
+        if let Some((evicted_key, (evicted_weight, evicted_value))) =
+            self.cache.push(key, (weight, value))
+        {
             self.current_weight -= evicted_weight;
+            evicted.push((evicted_key, evicted_value));
         }
         self.current_weight += weight;
 
         while self.max_weight < self.current_weight {
-            let (_, (evicted_weight, _)) = self
+            let (evicted_key, (evicted_weight, evicted_value)) = self
                 .cache
                 .pop_lru()
                 .expect("current_weight >= max_weight implies cache is not empty");
             self.current_weight -= evicted_weight;
+            evicted.push((evicted_key, evicted_value));
         }
+
+        evicted
+    }
+
+    fn put(&mut self, key: K, weight: u64, value: V) {
+        let _ = self.insert(key, weight, value);
     }
 
     #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
@@ -714,6 +931,15 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
     fn clear(&mut self) {
         self.current_weight = 0;
         self.cache.clear();
+    }
+
+    /// Drop `key` from the index if present, reclaiming its tracked weight.
+    /// Used to keep the index consistent when a file is removed out-of-band
+    /// (e.g. the protocol-version sweep unlinks directly on disk).
+    fn remove(&mut self, key: &K) {
+        if let Some((weight, _)) = self.cache.pop(key) {
+            self.current_weight -= weight;
+        }
     }
 
     fn contains(&self, key: &K) -> bool {
@@ -1175,6 +1401,114 @@ mod tests {
         assert!(cache.contains(&"b"), "item 'b' should still be in cache");
     }
 
+    #[test]
+    fn lru_weighted_cache_insert_returns_weight_evictions_in_order() {
+        // Item cap is generous; eviction must be weight-driven.
+        let item_capacity = NonZeroUsize::new(10).unwrap();
+        let max_weight = 10;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        assert!(cache.insert("a", 4, 1).is_empty());
+        assert!(cache.insert("b", 4, 2).is_empty()); // current_weight = 8
+        // Touch "a" so "b" is LRU.
+        cache.touch(&"a");
+
+        // Inserting "c" (weight 4) pushes current_weight to 12, must evict
+        // exactly the LRU entry "b".
+        let evicted = cache.insert("c", 4, 3);
+        assert_eq!(evicted, vec![("b", 2)]);
+        assert!(cache.contains(&"a"));
+        assert!(!cache.contains(&"b"));
+        assert!(cache.contains(&"c"));
+    }
+
+    #[test]
+    fn lru_weighted_cache_insert_oversized_returns_self() {
+        let item_capacity = NonZeroUsize::new(10).unwrap();
+        let max_weight = 5;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        // weight > max_weight: entry must not be stored, and must be returned
+        // so the caller can clean up any side effect.
+        let evicted = cache.insert("too_big", 100, 42);
+        assert_eq!(evicted, vec![("too_big", 42)]);
+        assert!(!cache.contains(&"too_big"));
+        assert_eq!(cache.current_weight(), 0);
+    }
+
+    #[test]
+    fn lru_weighted_cache_insert_oversized_drops_existing_entry() {
+        let item_capacity = NonZeroUsize::new(10).unwrap();
+        let max_weight = 10;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        assert!(cache.insert("a", 5, 1).is_empty());
+        assert!(cache.contains(&"a"));
+
+        // An oversized replacement for an existing key must drop the old entry
+        // (and reclaim its weight), not leave it tracked.
+        let evicted = cache.insert("a", 100, 2);
+        assert_eq!(evicted, vec![("a", 2)]);
+        assert!(!cache.contains(&"a"), "old entry must be dropped");
+        assert_eq!(cache.current_weight(), 0, "old entry's weight must be reclaimed");
+    }
+
+    #[test]
+    fn lru_weighted_cache_insert_same_key_replace_returns_old() {
+        let item_capacity = NonZeroUsize::new(10).unwrap();
+        let max_weight = 100;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        assert!(cache.insert("a", 10, 1).is_empty());
+        // Replacing "a" must report the previous value and weight, and must
+        // not cascade into a weight eviction because the new weight fits.
+        let evicted = cache.insert("a", 20, 2);
+        assert_eq!(evicted, vec![("a", 1)]);
+        assert!(cache.contains(&"a"));
+        assert_eq!(cache.current_weight(), 20);
+    }
+
+    #[test]
+    fn lru_weighted_cache_insert_item_capacity_eviction_returned() {
+        // When `lru::LruCache` drops the LRU entry due to item_capacity (not
+        // weight), `insert` must still surface it so callers can clean up.
+        let item_capacity = NonZeroUsize::new(2).unwrap();
+        let max_weight = 100;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        assert!(cache.insert("a", 1, 1).is_empty());
+        assert!(cache.insert("b", 1, 2).is_empty());
+        let evicted = cache.insert("c", 1, 3);
+        assert_eq!(evicted, vec![("a", 1)]);
+    }
+
+    #[test]
+    fn lru_weighted_cache_unbounded_evicts_only_on_weight() {
+        // With an unbounded item cap, only weight should trigger eviction.
+        let max_weight = 10;
+        let mut cache = LruWeightedCache::<&str, u32>::without_item_cap(max_weight);
+
+        // Many small entries fit despite there being no item cap.
+        for i in 0..10 {
+            let evicted = cache.insert(NAMES[i], 1, i as u32);
+            assert!(evicted.is_empty(), "insert {i} should not evict");
+        }
+        assert_eq!(cache.len(), 10);
+        assert_eq!(cache.current_weight(), 10);
+
+        // Touch "n0" so it is MRU; "n1" becomes LRU.
+        cache.touch(&"n0");
+
+        // Inserting one more entry must evict exactly one LRU.
+        let evicted = cache.insert("extra", 1, 99);
+        assert_eq!(evicted, vec![("n1", 1)]);
+        assert!(cache.contains(&"n0"));
+        assert!(!cache.contains(&"n1"));
+        assert!(cache.contains(&"extra"));
+    }
+
+    const NAMES: [&str; 10] = ["n0", "n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8", "n9"];
+
     #[cfg(feature = "test_features")]
     #[test]
     fn test_clear_compiled_contract_cache() {
@@ -1213,5 +1547,233 @@ mod tests {
 
         // Insert the keys again and assert that the cache can be updated after clear.
         insert_and_assert_keys_exist();
+    }
+
+    // ----- on-disk eviction feature tests -----
+
+    #[cfg(not(windows))]
+    const TEST_PAYLOAD_LEN: usize = 100;
+
+    #[cfg(not(windows))]
+    fn make_test_entry(filler: u8) -> CompiledContractInfo {
+        CompiledContractInfo {
+            wasm_bytes: TEST_PAYLOAD_LEN as u64,
+            compiled: CompiledContract::Code(vec![filler; TEST_PAYLOAD_LEN]),
+        }
+    }
+
+    /// Bytes a single test entry occupies in the on-disk index — exactly what
+    /// `put` writes for a `Code(vec![..; TEST_PAYLOAD_LEN])` entry.
+    #[cfg(not(windows))]
+    fn test_entry_weight() -> u64 {
+        entry_disk_size(&make_test_entry(0))
+    }
+
+    #[cfg(not(windows))]
+    fn cache_dir_path(cache: &FilesystemContractRuntimeCache) -> std::path::PathBuf {
+        cache.state.test_temp_dir.as_ref().unwrap().path().join("contract.cache")
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn touch_keeps_hot_key_from_eviction() {
+        // Limit holds exactly 5 entries; the 6th `put` must evict the LRU.
+        let cache =
+            FilesystemContractRuntimeCache::test_with_disk_cache_bytes(5 * test_entry_weight())
+                .unwrap();
+
+        let target = CryptoHash::hash_bytes(b"target");
+        cache.put(&target, make_test_entry(0xAA)).unwrap();
+
+        // `touch` before each cold put keeps the target MRU, so the LRU drop
+        // falls on the oldest cold key.
+        for i in 0..5 {
+            cache.touch(&target);
+            let cold = CryptoHash::hash_bytes(format!("cold{i}").as_bytes());
+            cache.put(&cold, make_test_entry(0xBB)).unwrap();
+        }
+
+        assert!(cache.has(&target).unwrap(), "target should survive — touch kept it MRU");
+        assert!(
+            !cache.has(&CryptoHash::hash_bytes(b"cold0")).unwrap(),
+            "cold0 (the LRU after the promotions) should have been evicted"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn without_touch_oldest_is_evicted() {
+        // Sanity: same workload, no `touch` — the target (oldest) goes.
+        let cache =
+            FilesystemContractRuntimeCache::test_with_disk_cache_bytes(5 * test_entry_weight())
+                .unwrap();
+
+        let target = CryptoHash::hash_bytes(b"target");
+        cache.put(&target, make_test_entry(0xAA)).unwrap();
+
+        for i in 0..5 {
+            let cold = CryptoHash::hash_bytes(format!("cold{i}").as_bytes());
+            cache.put(&cold, make_test_entry(0xBB)).unwrap();
+        }
+
+        assert!(
+            !cache.has(&target).unwrap(),
+            "target should be evicted: it was LRU without touch protection"
+        );
+        // The most-recent cold survives.
+        assert!(cache.has(&CryptoHash::hash_bytes(b"cold4")).unwrap());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn eviction_unlinks_file_from_disk() {
+        // Holds exactly 2 entries; the 3rd `put` must unlink the LRU's file.
+        let cache =
+            FilesystemContractRuntimeCache::test_with_disk_cache_bytes(2 * test_entry_weight())
+                .unwrap();
+        let dir = cache_dir_path(&cache);
+
+        let k1 = CryptoHash::hash_bytes(b"k1");
+        let k2 = CryptoHash::hash_bytes(b"k2");
+        let k3 = CryptoHash::hash_bytes(b"k3");
+        cache.put(&k1, make_test_entry(0x11)).unwrap();
+        cache.put(&k2, make_test_entry(0x22)).unwrap();
+        cache.put(&k3, make_test_entry(0x33)).unwrap();
+
+        assert!(!dir.join(k1.to_string()).exists(), "k1 file must be unlinked");
+        assert!(dir.join(k2.to_string()).exists());
+        assert!(dir.join(k3.to_string()).exists());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn oversized_replacement_of_tracked_key_is_evicted() {
+        // Budget holds exactly one normal entry, so a larger payload for the
+        // same key is oversized: the entry must be dropped and its file
+        // unlinked, not retained under the stale weight.
+        let cache = FilesystemContractRuntimeCache::test_with_disk_cache_bytes(test_entry_weight())
+            .unwrap();
+        let dir = cache_dir_path(&cache);
+        let k = CryptoHash::hash_bytes(b"k");
+
+        cache.put(&k, make_test_entry(0x11)).unwrap();
+        assert!(cache.has(&k).unwrap(), "first (fitting) put should be tracked");
+
+        let oversized = CompiledContractInfo {
+            wasm_bytes: 2 * TEST_PAYLOAD_LEN as u64,
+            compiled: CompiledContract::Code(vec![0x22; 2 * TEST_PAYLOAD_LEN]),
+        };
+        cache.put(&k, oversized).unwrap();
+
+        assert!(
+            !dir.join(k.to_string()).exists(),
+            "oversized replacement file must be unlinked, not retained over budget"
+        );
+        assert!(!cache.has(&k).unwrap(), "oversized replacement must not stay tracked");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn disk_limit_at_or_above_cap_is_a_clean_error() {
+        // A limit the LRU index can't represent must surface as an `Err`, not a
+        // panic, so a bad config doesn't crash the node at startup.
+        let too_big = FilesystemContractRuntimeCache::MAX_DISK_CACHE_BYTES + 1;
+        match FilesystemContractRuntimeCache::test_with_disk_cache_bytes(too_big) {
+            Err(err) => assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput),
+            Ok(_) => panic!("limit above the cap must be rejected"),
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn oversized_artifact_is_not_left_on_disk() {
+        // A disk budget smaller than a single entry makes every `put`
+        // oversized: `insert` refuses to track it, so `put` must unlink the
+        // file it just wrote rather than leave an untracked artifact on disk,
+        // permanently over the configured bound.
+        let cache = FilesystemContractRuntimeCache::test_with_disk_cache_bytes(1).unwrap();
+        let dir = cache_dir_path(&cache);
+
+        let k = CryptoHash::hash_bytes(b"too_big");
+        cache.put(&k, make_test_entry(0x55)).unwrap();
+
+        assert!(
+            !dir.join(k.to_string()).exists(),
+            "oversized artifact's file must be unlinked, not left on disk"
+        );
+        assert!(!cache.has(&k).unwrap(), "oversized artifact must not be reported as cached");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn startup_scan_trims_over_limit_oldest_first() {
+        let tempdir = tempfile::TempDir::new().unwrap();
+        let cache_dir = tempdir.path().join("contract.cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        // Three equally-sized files; explicit atimes (via `set_times`) make
+        // the test deterministic regardless of the mount's atime mode.
+        let payload = vec![0u8; TEST_PAYLOAD_LEN];
+        let k_old = CryptoHash::hash_bytes(b"old");
+        let k_mid = CryptoHash::hash_bytes(b"mid");
+        let k_new = CryptoHash::hash_bytes(b"new");
+        for k in [&k_old, &k_mid, &k_new] {
+            std::fs::write(cache_dir.join(k.to_string()), &payload).unwrap();
+        }
+        let set_atime = |k: &CryptoHash, secs: u64| {
+            use std::time::{Duration, UNIX_EPOCH};
+            let t = UNIX_EPOCH + Duration::from_secs(secs);
+            let times = std::fs::FileTimes::new().set_accessed(t).set_modified(t);
+            let f = std::fs::File::open(cache_dir.join(k.to_string())).unwrap();
+            f.set_times(times).unwrap();
+        };
+        set_atime(&k_old, 1_000);
+        set_atime(&k_mid, 2_000);
+        set_atime(&k_new, 3_000);
+
+        // Cap holds 2 of these 100-byte files; the oldest must be trimmed.
+        let cache = FilesystemContractRuntimeCache::with_memory_cache(
+            tempdir.path(),
+            None::<&str>,
+            "contract.cache",
+            0,
+            None,
+            2 * TEST_PAYLOAD_LEN as u64,
+        )
+        .unwrap();
+
+        assert!(!cache_dir.join(k_old.to_string()).exists(), "oldest atime should be trimmed");
+        assert!(cache_dir.join(k_mid.to_string()).exists());
+        assert!(cache_dir.join(k_new.to_string()).exists());
+        // And the survivors should be visible through the cache API.
+        assert!(!cache.has(&k_old).unwrap());
+        assert!(cache.has(&k_mid).unwrap());
+        assert!(cache.has(&k_new).unwrap());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn self_heals_when_file_externally_removed() {
+        let cache = FilesystemContractRuntimeCache::test_with_disk_cache_bytes(1 << 20).unwrap();
+        let dir = cache_dir_path(&cache);
+
+        let k = CryptoHash::hash_bytes(b"foo");
+        cache.put(&k, make_test_entry(0xAB)).unwrap();
+        assert!(cache.has(&k).unwrap());
+
+        // Operator (or anything else) removes the file out from under us.
+        std::fs::remove_file(dir.join(k.to_string())).unwrap();
+        assert!(cache.get(&k).unwrap().is_none(), "missing file must surface as a miss");
+        assert!(!cache.has(&k).unwrap());
+
+        // Re-`put` rebuilds the file (and refreshes the index).
+        cache.put(&k, make_test_entry(0xCD)).unwrap();
+        let value = cache.get(&k).unwrap().expect("entry must be back");
+        match value.compiled {
+            CompiledContract::Code(bytes) => {
+                assert_eq!(bytes, vec![0xCD; TEST_PAYLOAD_LEN], "should be the re-put content")
+            }
+            _ => panic!("expected Code"),
+        }
     }
 }
