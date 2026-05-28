@@ -8,9 +8,19 @@ use crate::logic::errors::{CacheError, CompilationError};
 use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::version::ProtocolFeature;
 use parking_lot::Mutex;
 #[cfg(not(windows))]
 use rand::Rng as _;
+#[cfg(not(windows))]
+use rustix::fd::OwnedFd;
+#[cfg(not(windows))]
+use rustix::fs::{
+    Access, AtFlags, Dir, Mode, OFlags, accessat, fstat, open, openat, renameat, statat, unlinkat,
+};
+#[cfg(not(windows))]
+use rustix::io::Errno;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
@@ -18,6 +28,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 #[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
 // FIXME(ProtocolSchema): this isn't really part of the protocol schema??
@@ -127,6 +138,10 @@ pub trait ContractRuntimeCache: Send + Sync {
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
         self.get(key).map(|entry| entry.is_some())
     }
+
+    /// Things to be performed on protocol version change. The default is a no-op.
+    fn on_protocol_version_update(&self, _new_protocol_version: ProtocolVersion) {}
+
     /// TESTING ONLY: Clears the cache including in-memory and persistent data (if any).
     ///
     /// This should be used only for testing, since the implementations may not provide
@@ -162,6 +177,10 @@ impl ContractRuntimeCache for Box<dyn ContractRuntimeCache> {
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
         <dyn ContractRuntimeCache>::has(&**self, key)
     }
+
+    fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
+        <dyn ContractRuntimeCache>::on_protocol_version_update(&**self, new_protocol_version)
+    }
 }
 
 impl<C: ContractRuntimeCache> ContractRuntimeCache for &C {
@@ -179,6 +198,10 @@ impl<C: ContractRuntimeCache> ContractRuntimeCache for &C {
 
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
         <C as ContractRuntimeCache>::has(self, key)
+    }
+
+    fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
+        <C as ContractRuntimeCache>::on_protocol_version_update(self, new_protocol_version)
     }
 }
 
@@ -258,7 +281,7 @@ pub struct FilesystemContractRuntimeCache {
 
 #[cfg(not(windows))]
 struct FilesystemContractRuntimeCacheState {
-    dir: rustix::fd::OwnedFd,
+    dir: OwnedFd,
     any_cache: AnyCache,
     test_temp_dir: Option<tempfile::TempDir>,
 }
@@ -314,8 +337,7 @@ impl FilesystemContractRuntimeCache {
             );
         }
         std::fs::create_dir_all(&path)?;
-        let dir =
-            rustix::fs::open(&path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
+        let dir = open(&path, OFlags::DIRECTORY, Mode::empty())?;
         tracing::debug!(
             target: "vm",
             path = %path.display(),
@@ -362,6 +384,75 @@ impl FilesystemContractRuntimeCache {
         Arc::get_mut(&mut cache.state).unwrap().test_temp_dir = Some(tempdir);
         Ok(cache)
     }
+
+    /// Remove cache files whose last-modification time is older than `max_age`,
+    /// i.e. files compiled more than `max_age` ago. Returns the number of
+    /// files removed.
+    pub fn evict_files_older_than(&self, max_age: std::time::Duration) -> usize {
+        let Ok(now_since_epoch) = SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+            tracing::warn!(target: "vm", "system clock issue; skipping age-based cleanup");
+            return 0;
+        };
+        let Some(cutoff) = now_since_epoch.checked_sub(max_age) else {
+            return 0;
+        };
+        let cutoff_secs = cutoff.as_secs() as i64;
+
+        let dir = match Dir::read_from(&self.state.dir) {
+            Ok(dir) => dir,
+            Err(err) => {
+                tracing::warn!(
+                    target: "vm",
+                    err = &err as &dyn std::error::Error,
+                    "failed to read contract cache directory; skipping age-based cleanup",
+                );
+                return 0;
+            }
+        };
+
+        let mut removed = 0usize;
+        for entry in dir {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    tracing::warn!(
+                        target: "vm",
+                        err = &err as &dyn std::error::Error,
+                        "failed to read contract cache directory entry; skipping age-based cleanup",
+                    );
+                    continue;
+                }
+            };
+            let filename_bytes = entry.file_name().to_bytes();
+            if filename_bytes == b"." || filename_bytes == b".." {
+                continue;
+            }
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            let stat = match statat(&self.state.dir, entry.file_name(), AtFlags::empty()) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            if (stat.st_mtime as i64) >= cutoff_secs {
+                continue;
+            }
+
+            match unlinkat(&self.state.dir, entry.file_name(), AtFlags::empty()) {
+                Ok(()) => removed += 1,
+                Err(Errno::NOENT) => {}
+                Err(err) => tracing::warn!(
+                    target: "vm",
+                    file_name = ?entry.file_name(),
+                    err = &err as &dyn std::error::Error,
+                    "failed to remove old contract cache file",
+                ),
+            }
+        }
+        removed
+    }
 }
 
 /// Byte added after a serialized payload representing a compilation failure.
@@ -396,7 +487,6 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     )]
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
         const MAX_ATTEMPTS: u32 = 5;
-        use rustix::fs::{Mode, OFlags};
         let final_filename = key.to_string();
         let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
         let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
@@ -409,7 +499,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                 temporary_filename.push(b as char);
             }
             temporary_filename.push_str(".temp");
-            match rustix::fs::openat(&self.state.dir, &temporary_filename, flags, mode) {
+            match openat(&self.state.dir, &temporary_filename, flags, mode) {
                 Ok(f) => break (temporary_filename, std::fs::File::from(f)),
                 Err(e) if attempt > MAX_ATTEMPTS => return Err(e.into()),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -436,7 +526,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         file.sync_data()?;
         drop(file);
         // This is atomic, so there wouldn't be instances where getters see an intermediate state.
-        rustix::fs::renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
+        renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
 
         // NOTE: we do not remove the temporary file in case of failure in many of the
         // intermediate steps above. This is not considered to be a significant risk: any failure
@@ -455,17 +545,16 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         fields(key = key.to_string()),
     )]
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContractInfo>> {
-        use rustix::fs::{Mode, OFlags};
         let filename = key.to_string();
         let mode = Mode::empty();
         let flags = OFlags::RDONLY;
-        let file = rustix::fs::openat(&self.state.dir, &filename, flags, mode);
+        let file = openat(&self.state.dir, &filename, flags, mode);
         let file = match file {
-            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(Errno::NOENT) => return Ok(None),
             Err(e) => return Err(e.into()),
             Ok(file) => file,
         };
-        let stat = rustix::fs::fstat(&file)?;
+        let stat = fstat(&file)?;
         // TODO: explore mmap-ing the file and lending the map to the caller via a closure callback.
         // This would require some additional refactor work, but would likely help us to reduce the
         // system call overhead in this area.
@@ -508,15 +597,24 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         // (e.g. `VM::contract_cached`) where the caller only needs to know
         // whether the entry exists, not its bytes.
         let filename = key.to_string();
-        match rustix::fs::accessat(
-            &self.state.dir,
-            &filename,
-            rustix::fs::Access::EXISTS,
-            rustix::fs::AtFlags::empty(),
-        ) {
+        match accessat(&self.state.dir, &filename, Access::EXISTS, AtFlags::empty()) {
             Ok(()) => Ok(true),
-            Err(rustix::io::Errno::NOENT) => Ok(false),
+            Err(Errno::NOENT) => Ok(false),
             Err(e) => Err(e.into()),
+        }
+    }
+
+    fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
+        // Sweep at the wasmtime-VM cutover
+        if new_protocol_version == ProtocolFeature::Wasmtime.protocol_version() {
+            const MAX_AGE: std::time::Duration = std::time::Duration::from_hours(24);
+            let removed = self.evict_files_older_than(MAX_AGE);
+            tracing::info!(
+                target: "vm",
+                new_protocol_version,
+                removed,
+                "swept contract cache after protocol-version update",
+            );
         }
     }
 
@@ -525,12 +623,11 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     /// The cache must be created using `test` method, otherwise this method will panic.
     #[cfg(feature = "test_features")]
     fn test_only_clear(&self) -> std::io::Result<()> {
-        use rustix::fs::AtFlags;
         let Some(_temp_dir) = &self.state.test_temp_dir else {
             panic!("must be called for testing only");
         };
         self.memory_cache().clear();
-        for entry in rustix::fs::Dir::read_from(&self.state.dir).unwrap() {
+        for entry in Dir::read_from(&self.state.dir).unwrap() {
             if let Ok(entry) = entry {
                 let filename_bytes = entry.file_name().to_bytes();
                 if filename_bytes == b"." || filename_bytes == b".." {
@@ -542,8 +639,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                         entry.file_name()
                     );
                 } else {
-                    if let Err(err) =
-                        rustix::fs::unlinkat(&self.state.dir, entry.file_name(), AtFlags::empty())
+                    if let Err(err) = unlinkat(&self.state.dir, entry.file_name(), AtFlags::empty())
                     {
                         tracing::error!(
                             file_name = ?entry.file_name(),
