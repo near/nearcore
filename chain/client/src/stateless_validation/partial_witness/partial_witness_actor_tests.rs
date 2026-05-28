@@ -63,7 +63,7 @@ fn inserts_group_by_prev_block_hash() {
         drained_a.iter().all(|e| e.witness.prev_block_hash() == Some(&block_a)),
         "drained witnesses must all point to block_a",
     );
-    // Both origins are preserved so replay can dispatch correctly.
+    // Origins preserved so replay dispatches correctly.
     assert!(drained_a.iter().any(|e| e.origin == DeferOrigin::InitEmit), "init-emit entry present",);
     assert!(drained_a.iter().any(|e| e.origin == DeferOrigin::Forwarded), "forward entry present",);
 
@@ -86,7 +86,7 @@ fn drain_unknown_block_is_empty() {
 fn capacity_cap_evicts_oldest_block() {
     let signer = create_test_signer("test_account");
     let mut cache = PendingV2WitnessCache::new();
-    // Insert one entry per block hash until we overflow the cap.
+    // One entry per block hash until cap overflows.
     let total = PENDING_V2_WITNESS_CACHE_SIZE + 2;
     let hashes: Vec<CryptoHash> =
         (0..total).map(|i| CryptoHash::hash_bytes(format!("blk_{i}").as_bytes())).collect();
@@ -105,10 +105,9 @@ fn capacity_cap_evicts_oldest_block() {
     }
 }
 
-/// V1 witnesses never carry a `prev_block_hash`, so they are never inserted
-/// into the pending pool. This test guards the invariant that V1
-/// discriminants can't accidentally slip through the cache if a caller
-/// mistakenly routes them here.
+/// V1 witnesses never carry `prev_block_hash`, so never inserted into pending
+/// pool. Guards invariant that V1 discriminants cannot slip through cache
+/// if caller misroutes.
 #[test]
 fn prev_block_hash_absent_for_v1() {
     let signer = create_test_signer("test_account");
@@ -119,10 +118,9 @@ fn prev_block_hash_absent_for_v1() {
     assert_eq!(v2.prev_block_hash(), Some(&block));
 }
 
-/// `drain_all` is the scan-on-notification replay primitive. It must
-/// return every entry across every bucket (preserving the
-/// `prev_block_hash` key so the caller can re-insert transient ones),
-/// and leave the cache empty.
+/// `drain_all` is the scan-on-notification replay primitive. Returns every
+/// entry across every bucket (preserving `prev_block_hash` key so caller
+/// can re-insert transient), leaves cache empty.
 #[test]
 fn drain_all_returns_every_entry_and_empties_cache() {
     let signer = create_test_signer("test_account");
@@ -155,8 +153,8 @@ fn drain_all_returns_every_entry_and_empties_cache() {
     assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::InitEmit));
     assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::Forwarded));
 
-    // Each entry is paired with its source prev_block_hash — required by
-    // the scan-on-notification caller to re-insert transient entries.
+    // Each entry paired with source prev_block_hash — required by
+    // scan-on-notification caller to re-insert transient entries.
     for (hash, entry) in &drained {
         assert_eq!(
             entry.witness.prev_block_hash(),
@@ -165,13 +163,13 @@ fn drain_all_returns_every_entry_and_empties_cache() {
         );
     }
 
-    // Draining an already-empty cache is safe and returns nothing.
+    // Draining empty cache is safe, returns nothing.
     assert!(cache.drain_all().is_empty());
 }
 
-// Kickout gate symmetry tests. The gate is a pure function so the
-// security boundary (which witness variants are dropped at which
-// kickout state) is directly testable without standing up an actor.
+// Kickout gate symmetry tests. Pure function: security boundary (which
+// witness variants drop at which kickout state) directly testable without
+// standing up an actor.
 
 fn v1_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
     make_witness(signer, CryptoHash::hash_bytes(b"v1_block"), pre_kickout_version())
@@ -195,12 +193,11 @@ fn witness_kicked_out_post_kickout_drops_v1_proceeds_v2() {
     assert!(!witness_kicked_out(Some(post_kickout_version()), &v2_witness(&signer)));
 }
 
-/// Unknown epoch (header-sync lag at epoch boundary) must NOT drop
-/// either variant. Dropping V2 here would discard legitimate
-/// post-kickout traffic whose epoch info hasn't landed yet — there is
-/// no part-retransmission loop, so the loss is permanent. The
-/// downstream producer lookup will return `MissingBlock` and defer
-/// V2 into the pending cache.
+/// Unknown epoch (header-sync lag at epoch boundary) must NOT drop either
+/// variant. Dropping V2 here discards legitimate post-kickout traffic whose
+/// epoch info hasn't landed — no part-retransmission loop, loss permanent.
+/// Downstream producer lookup returns `MissingBlock` and defers V2 into
+/// pending cache.
 #[test]
 fn witness_kicked_out_unknown_epoch_proceeds_both_variants() {
     let signer = create_test_signer("test_account");
