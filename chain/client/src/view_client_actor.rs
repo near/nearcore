@@ -8,7 +8,7 @@ use crate::{
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::receipt_to_tx::{
-    DEFAULT_HINT_WINDOW, HintResolution, HintScanStats, ResolveHintError, ScanDirection,
+    DEFAULT_HINT_WINDOW, HintResolution, HintScanStats, ResolveHintError, Scan,
     resolve_receipt_via_hint,
 };
 use near_chain::spice::chain::SpiceChainReader;
@@ -50,8 +50,8 @@ use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin,
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference, EpochHeight, EpochId,
-    EpochReference, Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
+    Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -1353,18 +1353,17 @@ fn handle_receipt_to_tx(
                 if !actor.config.save_tx_outcomes {
                     return Err(GetReceiptToTxError::OutcomesNotStored);
                 }
-                let (direction, window) = if have_scanned {
-                    (ScanDirection::Ancestor, max_hop_distance)
+                let scan = if have_scanned {
+                    Scan::Ancestor { max_distance: max_hop_distance }
                 } else {
-                    (ScanDirection::CenterOut, effective_window)
+                    Scan::CenterOut { window: effective_window }
                 };
                 match scan_with_optional_shard_enumeration(
                     actor,
                     current_receipt_id,
                     height,
                     current_shard,
-                    window,
-                    direction,
+                    scan,
                     &mut remaining_budget,
                 )? {
                     Some(res) => {
@@ -1445,35 +1444,20 @@ fn scan_with_optional_shard_enumeration(
     receipt_id: CryptoHash,
     block_height: BlockHeight,
     shard_id: Option<ShardId>,
-    window: BlockHeightDelta,
-    direction: ScanDirection,
+    scan: Scan,
     remaining_budget: &mut u64,
 ) -> Result<Option<HintResolution>, GetReceiptToTxError> {
     if let Some(shard_id) = shard_id {
-        return run_hint_scan(
-            actor,
-            receipt_id,
-            block_height,
-            shard_id,
-            window,
-            direction,
-            remaining_budget,
-        );
+        return run_hint_scan(actor, receipt_id, block_height, shard_id, scan, remaining_budget);
     }
 
     let Some(shard_ids) = shard_ids_for_hint_height(actor, block_height)? else {
         return Err(GetReceiptToTxError::UnknownReceipt(receipt_id));
     };
     for shard_id in shard_ids {
-        if let Some(resolution) = run_hint_scan(
-            actor,
-            receipt_id,
-            block_height,
-            shard_id,
-            window,
-            direction,
-            remaining_budget,
-        )? {
+        if let Some(resolution) =
+            run_hint_scan(actor, receipt_id, block_height, shard_id, scan, remaining_budget)?
+        {
             return Ok(Some(resolution));
         }
     }
@@ -1520,9 +1504,9 @@ fn shard_for_account_at_height(
 }
 
 /// Run one hint-fallback scan and unconditionally record its stats.
-/// Used by the column-miss branch in both `ScanDirection::CenterOut`
+/// Used by the column-miss branch in both `Scan::CenterOut`
 /// (pre-first-scan, anchor is the caller's literal hint) and
-/// `ScanDirection::Ancestor` (any prior hop in the walk has been
+/// `Scan::Ancestor` (any prior hop in the walk has been
 /// scan-resolved, anchor has upper-bound provenance), so neither path
 /// can drop metric accounting on an error return.
 fn run_hint_scan(
@@ -1530,8 +1514,7 @@ fn run_hint_scan(
     receipt_id: CryptoHash,
     block_height: BlockHeight,
     shard_id: ShardId,
-    window: BlockHeightDelta,
-    direction: ScanDirection,
+    scan: Scan,
     remaining_budget: &mut u64,
 ) -> Result<Option<HintResolution>, GetReceiptToTxError> {
     let mut stats = HintScanStats::default();
@@ -1540,8 +1523,7 @@ fn run_hint_scan(
         receipt_id,
         block_height,
         shard_id,
-        window,
-        direction,
+        scan,
         &mut stats,
         remaining_budget,
     );

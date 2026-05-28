@@ -1,19 +1,19 @@
 //! Hint-fallback resolver for the receipt-to-tx walk.
 //!
 //! `resolve_receipt_via_hint` is a single entry point with two scan
-//! modes selected by `ScanDirection`. The handler picks the mode based
+//! modes selected by `Scan`. The handler picks the mode based
 //! on whether any prior hop in this walk has been scan-resolved
 //! (monotonic — set once, never reset):
 //!
-//! * **`ScanDirection::CenterOut`** — anchor is the caller's literal
+//! * **`Scan::CenterOut`** — anchor is the caller's literal
 //!   hint (no scan has run yet). The resolver visits `h, h-1, h+1,
 //!   h-2, h+2, ...` up to `±window` because the anchor could be off
 //!   either side of the producing outcome.
-//! * **`ScanDirection::Ancestor`** — any prior hop in this walk was
+//! * **`Scan::Ancestor`** — any prior hop in this walk was
 //!   scan-resolved, so the anchor has upper-bound provenance via
 //!   causality (receipts emit before they execute; later ancestors
 //!   cannot execute past a refreshed anchor). Subsequent ancestor
-//!   scans reach `max_hop_distance` backward from the anchor
+//!   scans reach `max_distance` backward from the anchor
 //!   regardless of intervening column hits. The anchor itself stays in
 //!   the iteration because same-shard local receipts can execute in
 //!   the same block as their producing outcome (`process_local_receipts`
@@ -31,28 +31,28 @@ use near_primitives::receipt::{
     ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptToTxInfo,
     ReceiptToTxInfoV1,
 };
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_store::DBCol;
 
-/// Default scan window (in blocks) for `ScanDirection::CenterOut` when the
+/// Default scan window (in blocks) for `Scan::CenterOut` when the
 /// caller does not specify one. The scan inspects heights
-/// `[h-window, h+window]`. `ScanDirection::Ancestor` uses its own width
+/// `[h-window, h+window]`. `Scan::Ancestor` uses its own width
 /// set by the node's `receipt_to_tx_max_hop_distance` config, not this
 /// default.
 pub const DEFAULT_HINT_WINDOW: BlockHeightDelta = 5;
 
-/// Direction of the hint scan around an anchor block height. The handler
-/// picks the variant based on whether any prior hop in the walk was
-/// scan-resolved (`Ancestor`) or not (`CenterOut`). The flag is monotonic
-/// — once set on the first scan-resolve it stays set for the rest of the
-/// walk; intervening column hits do not flip it back.
+/// Hint scan mode + width. Handler picks the variant based on whether any
+/// prior hop in the walk was scan-resolved (`Ancestor`) or not
+/// (`CenterOut`). The flag is monotonic — once set on the first
+/// scan-resolve it stays set for the rest of the walk; intervening column
+/// hits do not flip it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScanDirection {
+pub enum Scan {
     /// Center-out `±window` scan. Used when no scan has run yet, so the
     /// anchor is the caller's literal hint and could be off either side
     /// of the producing outcome.
-    CenterOut,
-    /// Anchor-inclusive backward scan: `h, h-1, ..., h-window`. The
+    CenterOut { window: BlockHeightDelta },
+    /// Anchor-inclusive backward scan: `h, h-1, ..., h-max_distance`. The
     /// anchor is included because same-shard local receipts can execute
     /// in the same block as their producing outcome
     /// (`process_local_receipts` runs within the same `apply()` call as
@@ -60,18 +60,7 @@ pub enum ScanDirection {
     /// Used once any prior hop has been scan-resolved: causality
     /// guarantees later ancestors execute at or before the most-recent
     /// scan-refreshed anchor, regardless of column hits walked between.
-    Ancestor,
-}
-
-/// Versioned constructor for `ReceiptToTxInfo`. Used by the RPC hint-scan
-/// resolver (`resolve_receipt_via_hint`) when synthesizing origin info
-/// from chain data on the fly.
-pub fn build_receipt_to_tx_info(
-    origin: ReceiptOrigin,
-    receiver_account_id: AccountId,
-    shard_id: ShardId,
-) -> ReceiptToTxInfo {
-    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 { origin, receiver_account_id, shard_id })
+    Ancestor { max_distance: BlockHeightDelta },
 }
 
 /// Iterate heights center-out around `block_height` up to `±window`, saturating at 0.
@@ -146,13 +135,13 @@ pub enum ResolveHintError {
 
 /// Attempt to resolve the immediate parent of `receipt_id` by scanning
 /// `OutcomeIds` / `TransactionResultForBlock` rows in a block range
-/// around `block_height` on `shard_id`. The scan direction is set by
-/// the caller-supplied `direction`: `CenterOut` (`±window` around the
+/// around `block_height` on `shard_id`. The scan mode is set by
+/// the caller-supplied `scan`: `CenterOut { window }` (`±window` around the
 /// anchor) when the anchor is the caller's literal hint and no prior
-/// scan has run, `Ancestor` (`h, h-1, ..., h-window` backward from the
-/// anchor) once any prior hop in the walk has been scan-resolved. The
-/// handler in `chain/client` picks the direction based on whether
-/// **any** prior hop in this walk was scan-resolved (monotonic).
+/// scan has run, `Ancestor { max_distance }` (`h, h-1, ..., h-max_distance`
+/// backward from the anchor) once any prior hop in the walk has been
+/// scan-resolved. The handler in `chain/client` picks the mode based on
+/// whether **any** prior hop in this walk was scan-resolved (monotonic).
 ///
 /// `Ok(Some(_))` — parent located, info synthesized in-flight.
 /// `Ok(None)` — window exhausted without finding the receipt.
@@ -168,16 +157,15 @@ pub fn resolve_receipt_via_hint(
     receipt_id: CryptoHash,
     block_height: BlockHeight,
     shard_id: ShardId,
-    window: BlockHeightDelta,
-    direction: ScanDirection,
+    scan: Scan,
     stats: &mut HintScanStats,
     remaining_budget: &mut u64,
 ) -> Result<Option<HintResolution>, ResolveHintError> {
     let store = chain_store.store();
 
-    let heights: Box<dyn Iterator<Item = BlockHeight>> = match direction {
-        ScanDirection::CenterOut => Box::new(center_out_heights(block_height, window)),
-        ScanDirection::Ancestor => Box::new(ancestor_heights(block_height, window)),
+    let heights: Box<dyn Iterator<Item = BlockHeight>> = match scan {
+        Scan::CenterOut { window } => Box::new(center_out_heights(block_height, window)),
+        Scan::Ancestor { max_distance } => Box::new(ancestor_heights(block_height, max_distance)),
     };
     for height in heights {
         stats.heights_scanned += 1;
@@ -254,7 +242,11 @@ pub fn resolve_receipt_via_hint(
             };
 
             let resolution = HintResolution {
-                info: build_receipt_to_tx_info(origin, child.receiver_id().clone(), shard_id),
+                info: ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                    origin,
+                    receiver_account_id: child.receiver_id().clone(),
+                    shard_id,
+                }),
                 outcome_block_height: height,
             };
             return Ok(Some(resolution));
