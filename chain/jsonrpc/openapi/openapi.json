@@ -1,9 +1,3 @@
-   Compiling near-chain-configs v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/core/chain-configs)
-   Compiling near-client-primitives v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/client-primitives)
-   Compiling near-jsonrpc-primitives v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/jsonrpc-primitives)
-   Compiling near-jsonrpc-openapi-spec v0.0.0 (/Users/stefan/conductor/workspaces/nearcore/tunis/chain/jsonrpc/openapi)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.54s
-     Running `target/debug/near-jsonrpc-openapi-spec`
 {
   "openapi": "3.0.0",
   "info": {
