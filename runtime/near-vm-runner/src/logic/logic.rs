@@ -3446,6 +3446,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         method_name_ptr: u64,
         arguments_len: u64,
         arguments_ptr: u64,
+        amount_ptr: u64,
         gas: u64,
         gas_weight: u64,
         yield_id_len: u64,
@@ -3459,6 +3460,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         self.result_state.gas_counter.pay_base(yield_create_with_id_base)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
 
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
@@ -3502,7 +3506,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             new_receipt_idx,
             method_name,
             arguments,
-            Balance::ZERO,
+            amount,
             Gas::from_gas(gas),
             GasWeight(gas_weight),
         )?;

@@ -144,11 +144,13 @@ fn test_promise_yield_create_with_id_invalid_yield_id_length() {
     let bad_yield_id = [0u8; 16];
     let yield_id_mem = logic.internal_mem_write(&bad_yield_id);
 
+    let amount = logic.internal_mem_write(&[0u8; 16]);
     let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
         args.ptr,
+        amount.ptr,
         0,
         1,
         yield_id_mem.len,
@@ -175,11 +177,13 @@ fn test_promise_yield_create_with_id_empty_method_name() {
     let yield_id = [1u8; 32];
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
+    let amount = logic.internal_mem_write(&[0u8; 16]);
     let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
         args.ptr,
+        amount.ptr,
         0,
         1,
         yield_id_mem.len,
@@ -207,11 +211,13 @@ fn test_promise_yield_create_with_id_view_prohibited() {
     let yield_id = [1u8; 32];
     let yield_id_mem = logic.internal_mem_write(&yield_id);
 
+    let amount = logic.internal_mem_write(&[0u8; 16]);
     let result = logic.promise_yield_create_with_id(
         method_name.len,
         method_name.ptr,
         args.len,
         args.ptr,
+        amount.ptr,
         0,
         1,
         yield_id_mem.len,

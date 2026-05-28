@@ -155,6 +155,7 @@ extern "C" {
         method_ptr: u64,
         arg_len: u64,
         arg_ptr: u64,
+        amount_ptr: u64,
         gas: u64,
         gas_weight: u64,
         yield_id_len: u64,
@@ -1406,6 +1407,7 @@ pub unsafe fn yield_create_base() {
 #[unsafe(no_mangle)]
 pub unsafe fn yield_create_with_id_base() {
     const METHOD_NAME: &str = "n";
+    let amount: u128 = 0;
     for i in 0..1000u64 {
         let mut yield_id = [0u8; 32];
         yield_id[..8].copy_from_slice(&i.to_le_bytes());
@@ -1414,6 +1416,7 @@ pub unsafe fn yield_create_with_id_base() {
             METHOD_NAME.as_ptr() as u64,
             0,
             0,
+            &amount as *const u128 as u64,
             0,
             1,
             yield_id.len() as u64,

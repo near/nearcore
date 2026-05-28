@@ -3780,6 +3780,7 @@ pub fn promise_yield_create_with_id(
     method_name_ptr: u64,
     arguments_len: u64,
     arguments_ptr: u64,
+    amount_ptr: u64,
     gas: u64,
     gas_weight: u64,
     yield_id_len: u64,
@@ -3793,6 +3794,8 @@ pub fn promise_yield_create_with_id(
         .into());
     }
     ctx.result_state.gas_counter.pay_base(yield_create_with_id_base)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
 
     let method_name = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
@@ -3865,7 +3868,7 @@ pub fn promise_yield_create_with_id(
         new_receipt_idx,
         method_name,
         arguments,
-        Balance::ZERO,
+        amount,
         Gas::from_gas(gas),
         GasWeight(gas_weight),
     )?;

@@ -306,6 +306,7 @@ imports! {
         method_name_ptr: u64,
         arguments_len: u64,
         arguments_ptr: u64,
+        amount_ptr: u64,
         gas: u64,
         gas_weight: u64,
         yield_id_len: u64,
