@@ -8,6 +8,7 @@ use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::account::AccountContract;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
@@ -632,6 +633,16 @@ pub enum ExecutionMetadata {
     V2(crate::profile_data_v2::ProfileDataV2) = 1,
     /// V3: With ProfileData by gas parameters
     V3(Box<ProfileDataV3>) = 2,
+    /// V4: With ProfileData by gas parameters and the contract that was
+    /// executed (relevant for function-call receipts, where the receiver
+    /// account and the contract source can differ — e.g. global contracts).
+    V4(Box<ExecutionMetadataV4>) = 3,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, ProtocolSchema)]
+pub struct ExecutionMetadataV4 {
+    pub profile: ProfileDataV3,
+    pub contract: AccountContract,
 }
 
 impl fmt::Debug for ExecutionOutcome {

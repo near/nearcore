@@ -18,6 +18,7 @@ use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
+use crate::profile_data_v3::ProfileDataV3;
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
@@ -1810,6 +1811,11 @@ pub struct CostGasUsed {
 pub struct ExecutionMetadataView {
     pub version: u32,
     pub gas_profile: Option<Vec<CostGasUsed>>,
+    /// The contract that was executed by this receipt (V4+ only). `None` for
+    /// older metadata versions and for receipts that do not execute a
+    /// contract (action receipts without a function call).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<AccountContract>,
 }
 
 impl Default for ExecutionMetadataView {
@@ -1824,6 +1830,13 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
             ExecutionMetadata::V1 => 1,
             ExecutionMetadata::V2(_) => 2,
             ExecutionMetadata::V3(_) => 3,
+            ExecutionMetadata::V4(_) => 4,
+        };
+        let contract = match &metadata {
+            ExecutionMetadata::V1
+            | ExecutionMetadata::V2(_)
+            | ExecutionMetadata::V3(_) => None,
+            ExecutionMetadata::V4(v4) => Some(v4.contract.clone()),
         };
         let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
@@ -1856,43 +1869,8 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
 
                 Some(costs)
             }
-            ExecutionMetadata::V3(profile) => {
-                // Add actions, wasm op, and ext costs in groups.
-                // actions costs are 1-to-1
-                let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
-                    .filter_map(|cost| {
-                        let gas_used = profile.get_action_cost(cost);
-                        (gas_used > Gas::ZERO).then(|| {
-                            CostGasUsed::action(
-                                format!("{:?}", cost).to_ascii_uppercase(),
-                                gas_used,
-                            )
-                        })
-                    })
-                    .collect();
-
-                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
-                let wasm_gas_used = profile.get_wasm_cost();
-                if wasm_gas_used > Gas::ZERO {
-                    costs.push(CostGasUsed::wasm_host(
-                        "WASM_INSTRUCTION".to_string(),
-                        wasm_gas_used,
-                    ));
-                }
-
-                // ext costs are 1-to-1
-                for ext_cost in ExtCosts::iter() {
-                    let gas_used = profile.get_ext_cost(ext_cost);
-                    if gas_used > Gas::ZERO {
-                        costs.push(CostGasUsed::wasm_host(
-                            format!("{:?}", ext_cost).to_ascii_uppercase(),
-                            gas_used,
-                        ));
-                    }
-                }
-
-                Some(costs)
-            }
+            ExecutionMetadata::V3(profile) => Some(profile_v3_to_costs(&profile)),
+            ExecutionMetadata::V4(v4) => Some(profile_v3_to_costs(&v4.profile)),
         };
         if let Some(ref mut costs) = gas_profile {
             // The order doesn't really matter, but the default one is just
@@ -1905,8 +1883,39 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 lhs.cost_category.cmp(&rhs.cost_category).then_with(|| lhs.cost.cmp(&rhs.cost))
             });
         }
-        ExecutionMetadataView { version, gas_profile }
+        ExecutionMetadataView { version, gas_profile, contract }
     }
+}
+
+fn profile_v3_to_costs(profile: &ProfileDataV3) -> Vec<CostGasUsed> {
+    // Add actions, wasm op, and ext costs in groups.
+    // actions costs are 1-to-1
+    let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
+        .filter_map(|cost| {
+            let gas_used = profile.get_action_cost(cost);
+            (gas_used > Gas::ZERO).then(|| {
+                CostGasUsed::action(format!("{:?}", cost).to_ascii_uppercase(), gas_used)
+            })
+        })
+        .collect();
+
+    // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+    let wasm_gas_used = profile.get_wasm_cost();
+    if wasm_gas_used > Gas::ZERO {
+        costs.push(CostGasUsed::wasm_host("WASM_INSTRUCTION".to_string(), wasm_gas_used));
+    }
+
+    // ext costs are 1-to-1
+    for ext_cost in ExtCosts::iter() {
+        let gas_used = profile.get_ext_cost(ext_cost);
+        if gas_used > Gas::ZERO {
+            costs.push(CostGasUsed::wasm_host(
+                format!("{:?}", ext_cost).to_ascii_uppercase(),
+                gas_used,
+            ));
+        }
+    }
+    costs
 }
 
 impl CostGasUsed {
@@ -3028,6 +3037,20 @@ mod tests {
     #[test]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with V4 metadata exposes both the gas profile
+    /// (same layout as V3) and the executed contract.
+    #[test]
+    fn test_exec_metadata_v4_view() {
+        use crate::transaction::ExecutionMetadataV4;
+        use near_primitives_core::account::AccountContract;
+        let metadata = ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 {
+            profile: ProfileDataV3::test(),
+            contract: AccountContract::Local(CryptoHash([7u8; 32])),
+        }));
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
     }
