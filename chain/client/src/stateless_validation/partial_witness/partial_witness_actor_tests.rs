@@ -107,7 +107,7 @@ fn capacity_cap_evicts_oldest_block() {
 
 /// V1 witnesses never carry `prev_block_hash`, so never inserted into pending
 /// pool. Guards invariant that V1 discriminants cannot slip through cache
-/// if caller misroutes.
+/// if caller routes wrong.
 #[test]
 fn prev_block_hash_absent_for_v1() {
     let signer = create_test_signer("test_account");
