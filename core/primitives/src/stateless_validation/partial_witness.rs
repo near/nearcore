@@ -236,8 +236,8 @@ impl PartialEncodedStateWitnessInnerV2 {
 ///   V2 arriving over the wire is dropped.
 /// - At/after EarlyKickout activation: only V2 is emitted and accepted.
 ///   V1 arriving over the wire is dropped.
-/// - [`VersionedPartialEncodedStateWitness::new`] selects the variant
-///   based on the `protocol_version` argument.
+/// - [`VersionedPartialEncodedStateWitness::new`] selects variant based on
+///   `protocol_version` argument.
 ///
 /// Cross-version replay resistance: V1 and V2 use distinct
 /// `signature_differentiator` strings, so a signature produced over V1's

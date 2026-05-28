@@ -801,9 +801,8 @@ pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_SIZE: LazyLock<IntGauge> = LazyL
     .unwrap()
 });
 
-// No shard_id label: an eviction removes one `prev_block_hash` bucket, which
-// can contain witnesses from multiple shards — there is no single correct
-// shard to attribute the eviction to.
+// No shard_id label: eviction removes one `prev_block_hash` bucket which can
+// contain witnesses from multiple shards — no single shard to attribute to.
 pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL: LazyLock<IntCounter> =
     LazyLock::new(|| {
         try_create_int_counter(

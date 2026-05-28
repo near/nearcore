@@ -106,9 +106,9 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    // Rollout policy + V1/V2 producer-resolution contract: see the docstring on
-    // `VersionedPartialEncodedStateWitness`. `DBNotFoundErr` on V2 is the signal
-    // for the caller to defer — `PendingV2WitnessCache` in `partial_witness_actor.rs`.
+    // Rollout policy + V1/V2 producer-resolution contract: see
+    // `VersionedPartialEncodedStateWitness` docstring. `DBNotFoundErr` on V2 signals
+    // caller to defer — `PendingV2WitnessCache` in `partial_witness_actor.rs`.
     let chunk_producer = match partial_witness {
         VersionedPartialEncodedStateWitness::V1(_) => {
             epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
@@ -123,20 +123,18 @@ pub fn validate_partial_encoded_state_witness(
                         .inc();
                     info
                 }
-                // Prev block header isn't in the epoch manager yet — common
-                // during steady-state operation when a witness races its
-                // prev block. Defer, don't fail.
+                // Prev block header not in epoch manager yet — common when witness
+                // races its prev block. Defer, don't fail.
                 Err(err @ EpochError::MissingBlock(_)) => {
                     metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
                         .with_label_values(&[shard_id_label.as_str(), "miss_prev_block"])
                         .inc();
                     return Err(err.into());
                 }
-                // Block is known but `DBCol::ChunkProducers` doesn't have an
-                // entry for this (block, shard). In steady state this
-                // should be near-zero — a persistent miss rate here
-                // signals an upstream writer bug (header-sync or block
-                // processing failed to populate the column).
+                // Block known but `DBCol::ChunkProducers` has no entry for
+                // (block, shard). Steady-state near-zero — persistent miss rate
+                // signals upstream writer bug (header-sync or block processing
+                // failed to populate column).
                 Err(err @ EpochError::ChunkProducerNotInDB(_, _)) => {
                     metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
                         .with_label_values(&[shard_id_label.as_str(), "miss_db_entry"])
@@ -150,16 +148,15 @@ pub fn validate_partial_encoded_state_witness(
                     return Err(err.into());
                 }
             };
-            // Cross-check the signed chunk key against what `prev_block_hash`
-            // implies. The producer's signature authenticates all of (epoch_id,
-            // shard_id, height_created, prev_block_hash), but without this
-            // check an authenticated producer for `(prev_block, shard)` could
-            // sign a witness claiming any (epoch_id, height_created) and we
-            // would store/forward it under that forged key. `prev_block_hash`
-            // uniquely determines the chunk slot: the chunk at the next height
-            // in the epoch implied by the prev block. Both lookups are cheap —
-            // `prev_block_hash` is already known to the epoch manager (we just
-            // resolved the producer via it), so these should not fault.
+            // Cross-check signed chunk key against `prev_block_hash` implication.
+            // Producer signature authenticates (epoch_id, shard_id, height_created,
+            // prev_block_hash); without this check an authenticated producer for
+            // (prev_block, shard) could sign a witness with any (epoch_id,
+            // height_created) and we would store/forward under forged key.
+            // `prev_block_hash` uniquely determines chunk slot: chunk at next
+            // height in epoch implied by prev block. Both lookups cheap —
+            // `prev_block_hash` already known to epoch manager (just resolved
+            // producer via it), so should not fault.
             let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
             let expected_height = epoch_manager.get_block_info(prev_block_hash)?.height() + 1;
             if expected_epoch_id != epoch_id || expected_height != height_created {
