@@ -228,10 +228,7 @@ pub fn resolve_receipt_via_hint(
                 }
                 (false, false) => continue,
                 (true, true) => {
-                    // warn rather than error so a corrupted outcome row that
-                    // recurs across many candidates in a single request doesn't
-                    // flood error-level logging.
-                    tracing::warn!(
+                    tracing::debug!(
                         %outcome_id,
                         height,
                         "outcome id present in both DBCol::Transactions and DBCol::Receipts; \
