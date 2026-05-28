@@ -156,8 +156,8 @@ fn test_promise_yield_create_with_id_invalid_yield_id_length() {
     );
 
     assert!(
-        matches!(result, Err(crate::logic::VMLogicError::HostError(HostError::DataIdMalformed))),
-        "expected DataIdMalformed for short yield_id, got {result:?}"
+        matches!(result, Err(crate::logic::VMLogicError::HostError(HostError::YieldIdMalformed))),
+        "expected YieldIdMalformed for short yield_id, got {result:?}"
     );
 }
 
@@ -249,8 +249,8 @@ fn test_promise_yield_resume_with_yield_id_malformed_yield_id() {
     );
 
     assert!(
-        matches!(result, Err(crate::logic::VMLogicError::HostError(HostError::DataIdMalformed))),
-        "expected DataIdMalformed error, got {result:?}"
+        matches!(result, Err(crate::logic::VMLogicError::HostError(HostError::YieldIdMalformed))),
+        "expected YieldIdMalformed error, got {result:?}"
     );
 }
 

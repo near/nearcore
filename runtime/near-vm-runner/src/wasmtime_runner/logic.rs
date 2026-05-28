@@ -3821,7 +3821,7 @@ pub fn promise_yield_create_with_id(
         yield_id_len,
     )?;
     let yield_id: [u8; YieldId::LENGTH] =
-        yield_id_bytes.as_ref().try_into().map_err(|_| HostError::DataIdMalformed)?;
+        yield_id_bytes.as_ref().try_into().map_err(|_| HostError::YieldIdMalformed)?;
     let user_yield_id = YieldId::from_bytes(yield_id);
 
     let method_name = method_name.to_owned();
@@ -3989,7 +3989,7 @@ pub fn promise_yield_resume_with_yield_id(
     }
 
     let yield_id: [_; YieldId::LENGTH] =
-        yield_id.as_ref().try_into().map_err(|_| HostError::DataIdMalformed)?;
+        yield_id.as_ref().try_into().map_err(|_| HostError::YieldIdMalformed)?;
     let yield_id = YieldId::from_bytes(yield_id);
     let payload = payload.into();
     ctx.ext.submit_promise_resume_data_with_yield_id(yield_id, payload).map(u32::from)

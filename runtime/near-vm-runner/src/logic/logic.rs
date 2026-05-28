@@ -3469,7 +3469,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         // Read and validate the yield ID (must be exactly 32 bytes)
         let yield_id_bytes = get_memory_or_register!(self, yield_id_ptr, yield_id_len)?;
         let yield_id: [u8; YieldId::LENGTH] =
-            (&*yield_id_bytes).try_into().map_err(|_| HostError::DataIdMalformed)?;
+            (&*yield_id_bytes).try_into().map_err(|_| HostError::YieldIdMalformed)?;
         let user_yield_id = YieldId::from_bytes(yield_id);
 
         let method_name = method_name.into_owned();
@@ -3603,7 +3603,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         }
 
         let yield_id: [_; YieldId::LENGTH] =
-            (&*yield_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
+            (&*yield_id).try_into().map_err(|_| HostError::YieldIdMalformed)?;
         let yield_id = YieldId::from_bytes(yield_id);
         let payload = payload.into_owned();
         self.ext.submit_promise_resume_data_with_yield_id(yield_id, payload).map(u32::from)
