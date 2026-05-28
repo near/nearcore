@@ -2120,7 +2120,12 @@ fn promise_batch_action_add_gas_key_with_function_call(
 ) {
 }
 
-// Stubs for yield_with_id host functions on stable, so call_promise compiles.
+// Stubs for yield_with_id host functions on stable, so `call_promise` compiles
+// when the contract is built without the `nightly` feature. The host functions
+// are gated on `ProtocolFeature::YieldWithId`, so reaching these on stable means
+// a test is exercising a nightly-only code path under the wrong build. Panic
+// loudly rather than returning a plausible-looking value that would let the
+// test silently succeed.
 #[cfg(not(feature = "nightly"))]
 fn promise_yield_create_with_id(
     _method_name_len: u64,
@@ -2132,7 +2137,9 @@ fn promise_yield_create_with_id(
     _yield_id_len: u64,
     _yield_id_ptr: u64,
 ) -> u64 {
-    0
+    let msg = b"promise_yield_create_with_id called on non-nightly build";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
 }
 
 #[cfg(not(feature = "nightly"))]
@@ -2142,5 +2149,7 @@ fn promise_yield_resume_with_yield_id(
     _payload_len: u64,
     _payload_ptr: u64,
 ) -> u32 {
-    0
+    let msg = b"promise_yield_resume_with_yield_id called on non-nightly build";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
 }
