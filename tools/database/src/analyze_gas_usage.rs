@@ -238,10 +238,11 @@ fn get_gas_usage_in_block(
                 .outcome;
 
             // Sanity check - make sure that the executor of this outcome belongs to this shard
-            let account_shard_id = shard_layout.account_id_to_shard_id(&outcome.executor_id);
+            let account_shard_id = shard_layout.account_id_to_shard_id(outcome.executor_id());
             assert_eq!(account_shard_id, shard_id);
 
-            gas_usage_in_shard.add_used_gas(outcome.executor_id, outcome.gas_burnt.as_gas().into());
+            gas_usage_in_shard
+                .add_used_gas(outcome.executor_id().clone(), outcome.gas_burnt().as_gas().into());
         }
 
         result.add_gas_usage_in_shard(shard_uid, gas_usage_in_shard);

@@ -119,7 +119,7 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn tx_receipt_id(&self, tx_hash: CryptoHash) -> CryptoHash {
         let tx_execution_outcome = self.execution_outcome(tx_hash);
-        let [receipt_id] = tx_execution_outcome.outcome.receipt_ids[..] else {
+        let [receipt_id] = tx_execution_outcome.outcome.receipt_ids()[..] else {
             panic!("expected single receipt")
         };
         receipt_id

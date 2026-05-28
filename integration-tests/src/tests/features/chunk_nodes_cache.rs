@@ -120,11 +120,11 @@ fn compare_node_counts() {
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
             let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-            let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+            let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids();
             assert_eq!(receipt_ids.len(), 1);
             let receipt_execution_outcome =
                 env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-            let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
+            let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata();
             match metadata {
                 ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
                 ExecutionMetadata::V2(_profile_data) => panic!("expected newest ExecutionMetadata"),

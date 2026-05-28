@@ -61,8 +61,8 @@ fn delayed_receipt_example_test() {
     let tx_receipt_ids = txs
         .iter()
         .map(|tx| {
-            match chain.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status {
-                ExecutionStatus::SuccessReceiptId(receipt_id) => receipt_id,
+            match chain.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status() {
+                ExecutionStatus::SuccessReceiptId(receipt_id) => *receipt_id,
                 status => panic!("unexpected tx {tx:?} outcome status {status:?}"),
             }
         })

@@ -154,7 +154,7 @@ pub fn process_height(
                 };
             let outcome = &outcome_with_proof.outcome;
 
-            if outcome.receipt_ids.is_empty() {
+            if outcome.receipt_ids().is_empty() {
                 continue;
             }
 
@@ -163,7 +163,7 @@ pub fn process_height(
             // For receipt outcomes, look up the parent receipt once (not per child).
             let parent_receipt = if !is_tx { chain_store.get_receipt(&outcome_id) } else { None };
 
-            for child_receipt_id in &outcome.receipt_ids {
+            for child_receipt_id in outcome.receipt_ids() {
                 let child_receipt = match chain_store.get_receipt(child_receipt_id) {
                     Some(r) => r,
                     None => {
@@ -182,7 +182,7 @@ pub fn process_height(
                     ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
                         origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
                             tx_hash: outcome_id,
-                            sender_account_id: outcome.executor_id.clone(),
+                            sender_account_id: outcome.executor_id().clone(),
                         }),
                         receiver_account_id: child_receipt.receiver_id().clone(),
                         shard_id,

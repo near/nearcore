@@ -131,7 +131,7 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
         .deploy_global_exec_cost()
         .checked_add(env.deploy_global_contract_storage_cost())
         .unwrap();
-    assert_eq!(receipt_execution_outcome.outcome.tokens_burnt, expected_tokens_burnt);
+    assert_eq!(receipt_execution_outcome.outcome.tokens_burnt(), expected_tokens_burnt);
 
     for account in [env.account_shard_0.clone(), env.account_shard_1.clone()] {
         let identifier = env.global_contract_identifier(&deploy_mode);

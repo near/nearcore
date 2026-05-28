@@ -51,7 +51,7 @@ fn test_save_receipt_to_tx_false() {
 
     // Get receipt ID from the transaction outcome.
     let outcome = env.validator().client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids()[0];
 
     // Verify ReceiptToTx entry does NOT exist.
     let store = env.validator().store();

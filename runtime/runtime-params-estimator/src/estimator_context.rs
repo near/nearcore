@@ -404,8 +404,8 @@ impl Testbed<'_> {
         let mut total_burnt_gas = Gas::ZERO;
         if !allow_failures {
             for outcome in &apply_result.outcomes {
-                total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt).unwrap();
-                match &outcome.outcome.status {
+                total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt()).unwrap();
+                match outcome.outcome.status() {
                     ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
                     _ => (),
                 }
@@ -509,7 +509,7 @@ impl Testbed<'_> {
         )
         .expect("applying receipt in estimator should not fail");
         let gas = clock.elapsed();
-        match exec_result.outcome.status {
+        match exec_result.outcome.status() {
             ExecutionStatus::Unknown => panic!("receipt not applied"),
             ExecutionStatus::Failure(err) => panic!("failed apply, {err:?}"),
             ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => (),

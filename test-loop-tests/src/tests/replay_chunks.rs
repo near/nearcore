@@ -5,7 +5,7 @@ use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithId};
+use near_primitives::transaction::ExecutionOutcomeWithId;
 use near_primitives::types::Balance;
 use near_replay::{ChunkReplayResult, MemtrieShardReplayController};
 
@@ -60,7 +60,7 @@ fn test_replay_chunks_controller() {
     for tx_hash in call_txs {
         let receipt_id = env.rpc_node().tx_receipt_id(tx_hash);
         let receipt_outcome = env.rpc_node().execution_outcome_with_proof(receipt_id);
-        assert_eq!(receipt_outcome.outcome_with_id.outcome.logs, vec!["hello"]);
+        assert_eq!(receipt_outcome.outcome_with_id.outcome.logs(), ["hello"]);
         receipt_outcomes.push(receipt_outcome);
     }
     assert_eq!(receipt_outcomes[0].block_hash, receipt_outcomes[1].block_hash);
@@ -118,6 +118,7 @@ fn assert_replayed_outcome(chunk_result: &ChunkReplayResult, expected: &Executio
         .iter()
         .find(|o| o.id == receipt_id)
         .unwrap_or_else(|| panic!("receipt outcome {} not found in replay result", receipt_id));
-    let comparable = ExecutionOutcome { compute_usage: None, ..replayed.outcome.clone() };
+    let mut comparable = replayed.outcome.clone();
+    comparable.set_compute_usage(None);
     assert_eq!(comparable, expected.outcome);
 }

@@ -316,10 +316,10 @@ fn try_find_actions_spawned_by_receipt(
             &raw_key,
         ) {
             if filter.receipts_out {
-                *entry.receipts_out.get_or_insert(0) += outcome.outcome.receipt_ids.len();
+                *entry.receipts_out.get_or_insert(0) += outcome.outcome.receipt_ids().len();
             }
             if filter.actions {
-                for outgoing_receipt_id in &outcome.outcome.receipt_ids {
+                for outgoing_receipt_id in outcome.outcome.receipt_ids() {
                     let maybe_outgoing_receipt: Option<Receipt> =
                         store.get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes());
                     let outgoing_receipt = maybe_outgoing_receipt.ok_or({
@@ -498,7 +498,8 @@ mod tests {
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
-        ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction, TransferAction,
+        ExecutionOutcomeV0, ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction,
+        TransferAction,
     };
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::Gas;
@@ -684,7 +685,7 @@ mod tests {
     fn create_execution_outcome(receipt_ids: Vec<CryptoHash>) -> ExecutionOutcomeWithProof {
         ExecutionOutcomeWithProof {
             proof: vec![],
-            outcome: ExecutionOutcome {
+            outcome: ExecutionOutcome::V0(ExecutionOutcomeV0 {
                 logs: vec![],
                 receipt_ids,
                 gas_burnt: Gas::from_gas(100),
@@ -693,7 +694,7 @@ mod tests {
                 executor_id: "someone.near".parse().unwrap(),
                 status: ExecutionStatus::SuccessValue(vec![]),
                 metadata: ExecutionMetadata::default(),
-            },
+            }),
         }
     }
 

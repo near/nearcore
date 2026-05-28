@@ -88,8 +88,8 @@ fn check_deploy_compute_cost_limits_chunk_capacity(code: Vec<u8>, max_per_chunk:
     let receipt_ids: Vec<_> = txs
         .iter()
         .map(|tx| {
-            match chain.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status {
-                ExecutionStatus::SuccessReceiptId(id) => id,
+            match chain.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status() {
+                ExecutionStatus::SuccessReceiptId(id) => *id,
                 status => panic!("unexpected tx outcome status: {status:?}"),
             }
         })

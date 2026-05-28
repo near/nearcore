@@ -212,7 +212,7 @@ fn test_rpc_parallel_take_first_partial_failure() {
     let receipt_id = *outcome
         .outcome_with_id
         .outcome
-        .receipt_ids
+        .receipt_ids()
         .first()
         .expect("transfer should produce at least one receipt");
 

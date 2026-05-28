@@ -421,7 +421,7 @@ impl RuntimeGroup {
 macro_rules! assert_receipts {
     ($group:ident, $transaction:ident ) => {{
         let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
-        transaction_log.outcome.receipt_ids
+        transaction_log.outcome.receipt_ids().to_vec()
     }};
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
@@ -447,7 +447,7 @@ macro_rules! assert_receipts {
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
         let receipt_log = $group.get_transaction_log(&r.get_hash());
-        receipt_log.outcome.receipt_ids
+        receipt_log.outcome.receipt_ids().to_vec()
     }};
 }
 

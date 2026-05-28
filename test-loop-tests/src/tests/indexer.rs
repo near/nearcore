@@ -113,14 +113,14 @@ fn test_indexer_instant_receipt() {
         .rpc_runner()
         .run_until_outcome_available(yield_create_tx.get_hash(), Duration::seconds(5));
     let ExecutionStatus::SuccessReceiptId(local_receipt_id) =
-        tx_outcome.outcome_with_id.outcome.status
+        tx_outcome.outcome_with_id.outcome.status()
     else {
         panic!("failed to convert transaction to receipt");
     };
     // Wait for local receipt to execute (this also processes the instant receipt).
     let local_outcome =
-        env.rpc_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
-    let [yield_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        env.rpc_runner().run_until_outcome_available(*local_receipt_id, Duration::seconds(5));
+    let [yield_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids()[..] else {
         panic!("expected single child receipt (the PromiseYield instant receipt)")
     };
 
@@ -206,10 +206,11 @@ fn test_indexer_delayed_local_receipt() {
         .run_until_outcome_available(last_tx.get_hash(), Duration::seconds(2));
     let last_tx_included_height = env.validator().head().height;
     let ExecutionStatus::SuccessReceiptId(last_tx_receipt_id) =
-        last_tx_outcome.outcome_with_id.outcome.status
+        last_tx_outcome.outcome_with_id.outcome.status()
     else {
         panic!("failed to convert tx to receipt");
     };
+    let last_tx_receipt_id = *last_tx_receipt_id;
     let last_tx_receipt_outcome = env
         .validator_runner()
         .run_until_outcome_available(last_tx_receipt_id, Duration::seconds(2));

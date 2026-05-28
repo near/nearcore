@@ -1955,14 +1955,16 @@ pub struct ExecutionOutcomeView {
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
     fn from(outcome: ExecutionOutcome) -> Self {
-        Self {
-            logs: outcome.logs,
-            receipt_ids: outcome.receipt_ids,
-            gas_burnt: outcome.gas_burnt,
-            tokens_burnt: outcome.tokens_burnt,
-            executor_id: outcome.executor_id,
-            status: outcome.status.into(),
-            metadata: outcome.metadata.into(),
+        match outcome {
+            ExecutionOutcome::V0(v0) => Self {
+                logs: v0.logs,
+                receipt_ids: v0.receipt_ids,
+                gas_burnt: v0.gas_burnt,
+                tokens_burnt: v0.tokens_burnt,
+                executor_id: v0.executor_id,
+                status: v0.status.into(),
+                metadata: v0.metadata.into(),
+            },
         }
     }
 }

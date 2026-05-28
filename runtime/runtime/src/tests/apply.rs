@@ -1323,11 +1323,11 @@ fn test_compute_usage_limit() {
     assert_eq!(apply_result.delayed_receipts_count, 1);
     assert_matches!(&apply_result.outcomes[..], [first, second] => {
         assert_eq!(first.id, *deploy_contract_receipt.receipt_id());
-        assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
+        assert_matches!(first.outcome.status(), ExecutionStatus::SuccessValue(_));
 
         assert_eq!(second.id, *first_call_receipt.receipt_id());
-        assert_eq!(second.outcome.compute_usage.unwrap(), sha256_cost.compute);
-        assert_matches!(second.outcome.status, ExecutionStatus::SuccessValue(_));
+        assert_eq!(second.outcome.compute_usage().unwrap(), sha256_cost.compute);
+        assert_matches!(second.outcome.status(), ExecutionStatus::SuccessValue(_));
     });
 
     let apply_result = runtime
@@ -1344,8 +1344,8 @@ fn test_compute_usage_limit() {
 
     assert_matches!(&apply_result.outcomes[..], [ExecutionOutcomeWithId { id, outcome }] => {
         assert_eq!(id, second_call_receipt.receipt_id());
-        assert_eq!(outcome.compute_usage.unwrap(), sha256_cost.compute);
-        assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_));
+        assert_eq!(outcome.compute_usage().unwrap(), sha256_cost.compute);
+        assert_matches!(outcome.status(), ExecutionStatus::SuccessValue(_));
     });
 }
 
@@ -1391,10 +1391,10 @@ fn test_compute_usage_limit_with_failed_receipt() {
 
     assert_matches!(&apply_result.outcomes[..], [first, second] => {
         assert_eq!(first.id, *deploy_contract_receipt.receipt_id());
-        assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
+        assert_matches!(first.outcome.status(), ExecutionStatus::SuccessValue(_));
 
         assert_eq!(second.id, *first_call_receipt.receipt_id());
-        assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
+        assert_matches!(second.outcome.status(), ExecutionStatus::Failure(_));
     });
 }
 
@@ -3031,9 +3031,9 @@ fn test_deploy_and_call_local_receipt() {
         &apply_result.outcomes[..],
         [_, ExecutionOutcomeWithId { id: _, outcome }] => outcome
     );
-    assert_eq!(&outcome.logs[..], ["hello"]);
+    assert_eq!(outcome.logs(), ["hello"]);
     let action_error = assert_matches!(
-        &outcome.status,
+        outcome.status(),
         ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
     );
     assert_eq!(action_error.index, Some(3));
@@ -3104,10 +3104,10 @@ fn test_deploy_and_call_local_receipts() {
         &apply_result.outcomes[..],
         [_, _, ExecutionOutcomeWithId { id: _, outcome: o1 }, ExecutionOutcomeWithId { id: _, outcome: o2 }] => (o1, o2)
     );
-    assert_eq!(o1.status, ExecutionStatus::SuccessValue(vec![]));
-    assert_eq!(&o2.logs[..], ["hello"]);
+    assert_eq!(o1.status(), &ExecutionStatus::SuccessValue(vec![]));
+    assert_eq!(o2.logs(), ["hello"]);
     let action_error = assert_matches!(
-        &o2.status,
+        o2.status(),
         ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
     );
     assert_eq!(action_error.index, Some(2));
@@ -3446,7 +3446,7 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             let tx1_outcome = &apply_result.outcomes[0];
             assert_eq!(tx1_outcome.id, tx1.get_hash());
             assert_matches!(
-                &tx1_outcome.outcome.status,
+                &tx1_outcome.outcome.status(),
                 ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
                     InvalidTxError::InvalidAccessKeyError(
                         near_primitives::errors::InvalidAccessKeyError::ReceiverMismatch { .. }
@@ -3456,7 +3456,7 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             let tx2_outcome = &apply_result.outcomes[1];
             assert_eq!(tx2_outcome.id, tx2.get_hash());
             assert_matches!(
-                &tx2_outcome.outcome.status,
+                &tx2_outcome.outcome.status(),
                 ExecutionStatus::SuccessReceiptId(_),
                 "protocol_version={protocol_version}: tx2 should succeed after fix"
             );
@@ -3534,7 +3534,7 @@ fn test_expired_transaction() {
         let outcome = &apply_result.outcomes[0];
         assert_eq!(outcome.id, expired_tx[0].get_hash());
         assert_matches!(
-            &outcome.outcome.status,
+            &outcome.outcome.status(),
             ExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::Expired))
         );
     } else {
@@ -3586,7 +3586,7 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
             Default::default(),
         )
         .unwrap();
-    assert!(matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_)));
+    assert!(matches!(apply_result.outcomes[0].outcome.status(), ExecutionStatus::SuccessValue(_)));
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
@@ -3623,12 +3623,12 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
         .unwrap();
 
     let outcome = &apply_result.outcomes[0].outcome;
-    assert!(matches!(outcome.status, ExecutionStatus::Failure(_)));
+    assert!(matches!(outcome.status(), ExecutionStatus::Failure(_)));
     // tokens_burnt must not include the gas key balance — only gas costs.
     assert!(
-        outcome.tokens_burnt < deposit_amount,
+        outcome.tokens_burnt() < deposit_amount,
         "tokens_burnt ({}) should not include gas key balance ({})",
-        outcome.tokens_burnt,
+        outcome.tokens_burnt(),
         deposit_amount,
     );
 
@@ -3787,7 +3787,7 @@ fn test_apply_gas_key_transaction() {
     // Verify transaction produced an outcome
     assert_eq!(apply_result.outcomes.len(), 1, "should have one outcome for gas key tx");
     let outcome = &apply_result.outcomes[0];
-    assert_matches!(&outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(&outcome.outcome.status(), ExecutionStatus::SuccessReceiptId(_));
 
     // Commit apply result and verify state changes
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
@@ -3971,7 +3971,7 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
     // Should have one outcome: a failure with gas burnt
     assert_eq!(apply_result.outcomes.len(), 1);
     let outcome = &apply_result.outcomes[0];
-    match &outcome.outcome.status {
+    match &outcome.outcome.status() {
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
             InvalidTxError::NotEnoughBalanceForDeposit { reason, .. },
         )) => {
@@ -3980,8 +3980,8 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         other => panic!("expected NotEnoughBalanceForDeposit, got {:?}", other),
     }
     let total_gas = transaction_cost.gas_burnt.checked_add(transaction_cost.gas_remaining).unwrap();
-    assert_eq!(outcome.outcome.gas_burnt, total_gas);
-    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.gas_cost);
+    assert_eq!(outcome.outcome.gas_burnt(), total_gas);
+    assert_eq!(outcome.outcome.tokens_burnt(), transaction_cost.gas_cost);
 
     // Commit and verify state
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
@@ -4105,10 +4105,10 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
 
     // Both function calls should succeed.
     assert_matches!(&apply_result.outcomes[..], [first, second] => {
-        assert_matches!(first.outcome.status, ExecutionStatus::SuccessReceiptId(_),
-            "first call: expected success but got {:?}", first.outcome.status);
-        assert_matches!(second.outcome.status, ExecutionStatus::SuccessReceiptId(_),
-            "second call: expected success but got {:?}", second.outcome.status);
+        assert_matches!(first.outcome.status(), ExecutionStatus::SuccessReceiptId(_),
+            "first call: expected success but got {:?}", first.outcome.status());
+        assert_matches!(second.outcome.status(), ExecutionStatus::SuccessReceiptId(_),
+            "second call: expected success but got {:?}", second.outcome.status());
     });
 
     // The subsidy should accumulate across both receipts.
@@ -4215,7 +4215,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
         .find(|outcome| outcome.id == call_id)
         .expect("function call outcome missing");
     assert_matches!(
-        &call_outcome.outcome.status,
+        &call_outcome.outcome.status(),
         ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
             kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::CodeDoesNotExist { .. }

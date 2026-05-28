@@ -726,7 +726,9 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-    use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
+    use near_primitives::transaction::{
+        ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeV0, ExecutionStatus,
+    };
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
 
@@ -767,7 +769,7 @@ mod tests {
     fn test_execution_outcome_merkelization() {
         let outcome1 = ExecutionOutcomeWithId {
             id: Default::default(),
-            outcome: ExecutionOutcome {
+            outcome: ExecutionOutcome::V0(ExecutionOutcomeV0 {
                 status: ExecutionStatus::Unknown,
                 logs: vec!["outcome1".to_string()],
                 receipt_ids: vec![hash(&[1])],
@@ -776,11 +778,11 @@ mod tests {
                 tokens_burnt: Balance::from_yoctonear(10000),
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
-            },
+            }),
         };
         let outcome2 = ExecutionOutcomeWithId {
             id: Default::default(),
-            outcome: ExecutionOutcome {
+            outcome: ExecutionOutcome::V0(ExecutionOutcomeV0 {
                 status: ExecutionStatus::SuccessValue(vec![1]),
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
@@ -789,7 +791,7 @@ mod tests {
                 tokens_burnt: Balance::ZERO,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
-            },
+            }),
         };
         let outcomes = vec![outcome1, outcome2];
         let (outcome_root, paths) = ApplyChunkResult::compute_outcomes_proof(&outcomes);

@@ -498,7 +498,7 @@ fn test_rpc_receipt_forwarding() {
     // Get receipt ID from the transaction outcome.
     let outcome =
         h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids()[0];
 
     let run_receipt_query = |h: &mut TwoShardHarness,
                              node_id: &AccountId,
@@ -1265,7 +1265,7 @@ fn test_rpc_light_client_proof_forwarding() {
         .unwrap()
         .outcome_with_id
         .outcome
-        .receipt_ids[0];
+        .receipt_ids()[0];
 
     // Pick the final head from an RPC node so the block is guaranteed to be
     // canonical on the node that actually answers the request.

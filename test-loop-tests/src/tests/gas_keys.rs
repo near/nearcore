@@ -383,7 +383,7 @@ fn test_gas_key_deposit_failed() {
     // Verify: tx failed with NotEnoughBalanceForDeposit
     assert!(
         matches!(
-            &outcome.outcome_with_id.outcome.status,
+            &outcome.outcome_with_id.outcome.status(),
             near_primitives::transaction::ExecutionStatus::Failure(
                 TxExecutionError::InvalidTxError(
                     near_primitives::errors::InvalidTxError::NotEnoughBalanceForDeposit { .. },
@@ -391,17 +391,17 @@ fn test_gas_key_deposit_failed() {
             ),
         ),
         "expected NotEnoughBalanceForDeposit, got {:?}",
-        outcome.outcome_with_id.outcome.status,
+        outcome.outcome_with_id.outcome.status(),
     );
 
     // Verify: all prepaid gas was burnt and tokens_burnt matches gas_burnt * gas_price
-    let gas_burnt = outcome.outcome_with_id.outcome.gas_burnt;
-    let tokens_burnt = outcome.outcome_with_id.outcome.tokens_burnt;
+    let gas_burnt = outcome.outcome_with_id.outcome.gas_burnt();
+    let tokens_burnt = outcome.outcome_with_id.outcome.tokens_burnt();
     assert!(gas_burnt.as_gas() > 0);
     assert_eq!(tokens_burnt, gas_price.checked_mul(u128::from(gas_burnt.as_gas())).unwrap());
 
     // Verify: no receipt was created (DepositFailed doesn't produce receipts)
-    assert!(outcome.outcome_with_id.outcome.receipt_ids.is_empty());
+    assert!(outcome.outcome_with_id.outcome.receipt_ids().is_empty());
 
     // Verify: gas key balance decreased by exactly tokens_burnt
     let (_, gas_key_balance_after) =
@@ -474,8 +474,11 @@ impl HostFunctionTestSetup {
         assert!(matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)));
         let fc_receipt_id = self.env.rpc_node().tx_receipt_id(tx_hash);
         let fc_outcome = self.env.rpc_node().execution_outcome(fc_receipt_id);
-        assert!(!fc_outcome.outcome.receipt_ids.is_empty(), "expected at least one inner receipt");
-        let inner_receipt_id = fc_outcome.outcome.receipt_ids[0];
+        assert!(
+            !fc_outcome.outcome.receipt_ids().is_empty(),
+            "expected at least one inner receipt"
+        );
+        let inner_receipt_id = fc_outcome.outcome.receipt_ids()[0];
         let inner_outcome = self.env.rpc_node().execution_outcome(inner_receipt_id);
         inner_outcome.outcome
     }
@@ -948,8 +951,8 @@ fn test_gas_key_fee_parity(mode: GasKeyKind) {
         {"batch_create": {"account_id": account.as_str()}, "id": 0},
         mode.add_action_json(num_nonces, &account, &public_key_b_base64),
     ]));
-    assert_eq!(add_a_outcome.gas_burnt, add_b_outcome.gas_burnt);
-    assert_eq!(add_a_outcome.tokens_burnt, add_b_outcome.tokens_burnt);
+    assert_eq!(add_a_outcome.gas_burnt(), add_b_outcome.gas_burnt());
+    assert_eq!(add_a_outcome.tokens_burnt(), add_b_outcome.tokens_burnt());
 
     // Fund gas key A via transaction, B via host function
     let fund_amount = Balance::from_millinear(10);
@@ -966,8 +969,8 @@ fn test_gas_key_fee_parity(mode: GasKeyKind) {
             "amount": fund_amount.as_yoctonear().to_string(),
         }, "id": 0},
     ]));
-    assert_eq!(fund_a_outcome.gas_burnt, fund_b_outcome.gas_burnt);
-    assert_eq!(fund_a_outcome.tokens_burnt, fund_b_outcome.tokens_burnt);
+    assert_eq!(fund_a_outcome.gas_burnt(), fund_b_outcome.gas_burnt());
+    assert_eq!(fund_a_outcome.tokens_burnt(), fund_b_outcome.tokens_burnt());
 
     // Delete gas key A via transaction, B via host function
     let delete_a_outcome = setup.run_actions(vec![Action::DeleteKey(Box::new(DeleteKeyAction {
@@ -983,8 +986,8 @@ fn test_gas_key_fee_parity(mode: GasKeyKind) {
             "public_key": public_key_b_base64,
         }, "id": 0},
     ]));
-    assert_eq!(delete_a_outcome.gas_burnt, delete_b_outcome.gas_burnt);
-    assert_eq!(delete_a_outcome.tokens_burnt, delete_b_outcome.tokens_burnt);
+    assert_eq!(delete_a_outcome.gas_burnt(), delete_b_outcome.gas_burnt());
+    assert_eq!(delete_a_outcome.tokens_burnt(), delete_b_outcome.tokens_burnt());
     let result =
         setup.env.rpc_node().view_access_key_query(&account, &gas_key_b_signer.public_key());
     assert!(result.is_err(), "gas key B should not exist after deletion");

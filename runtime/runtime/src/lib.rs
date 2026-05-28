@@ -53,8 +53,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    TransferAction,
+    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeV0, ExecutionOutcomeWithId,
+    ExecutionStatus, LogEntry, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -1020,7 +1020,7 @@ impl Runtime {
 
         Ok(ExecutionOutcomeWithId {
             id: *receipt.receipt_id(),
-            outcome: ExecutionOutcome {
+            outcome: ExecutionOutcome::V0(ExecutionOutcomeV0 {
                 status,
                 logs: result.logs,
                 receipt_ids,
@@ -1031,7 +1031,7 @@ impl Runtime {
                 metadata: ExecutionMetadata::V3(Box::new(conversions::Convert::convert(
                     *result.profile,
                 ))),
-            },
+            }),
         })
     }
 
@@ -1674,7 +1674,7 @@ impl Runtime {
     ) {
         if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
             outcomes.push(outcome);
-        } else if let ExecutionStatus::SuccessReceiptId(_) = outcome.outcome.status {
+        } else if let ExecutionStatus::SuccessReceiptId(_) = outcome.outcome.status() {
             outcomes.push(outcome);
         }
     }
@@ -1962,7 +1962,7 @@ impl Runtime {
                     );
                     let outcome = ExecutionOutcomeWithId {
                         id: tx.get_hash(),
-                        outcome: ExecutionOutcome {
+                        outcome: ExecutionOutcome::V0(ExecutionOutcomeV0 {
                             status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
                             logs: vec![],
                             receipt_ids: vec![*receipt.receipt_id()],
@@ -1973,7 +1973,7 @@ impl Runtime {
                             // TODO: profile data is only counted in apply_action, which only happened at process_receipt
                             // VerificationResult needs updates to incorporate profile data to support profile data of txns
                             metadata: ExecutionMetadata::V1,
-                        },
+                        }),
                     };
                     if processing_state.apply_state.save_receipt_to_tx {
                         processing_state.receipt_to_tx.push((
@@ -2015,7 +2015,7 @@ impl Runtime {
             // Accumulate burnt gas stats.
             match safe_add_balance(
                 processing_state.stats.balance.tx_burnt_amount,
-                outcome.outcome.tokens_burnt,
+                outcome.outcome.tokens_burnt(),
             ) {
                 Ok(new_balance) => {
                     processing_state.stats.balance.tx_burnt_amount = new_balance;
@@ -2027,7 +2027,7 @@ impl Runtime {
                     tracing::error!(
                         target: "runtime",
                         tx_hash=?tx.hash(),
-                        tx_burnt_amount=?outcome.outcome.tokens_burnt,
+                        tx_burnt_amount=?outcome.outcome.tokens_burnt(),
                         ?err,
                         "chunk total burnt gas overflow",
                     );
@@ -2037,9 +2037,9 @@ impl Runtime {
 
             let compute = outcome
                 .outcome
-                .compute_usage
+                .compute_usage()
                 .expect("`process_transaction` must populate compute usage");
-            processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
+            processing_state.total.add(outcome.outcome.gas_burnt().as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
 
             result.apply(account, access_key);
@@ -2136,10 +2136,10 @@ impl Runtime {
         }
 
         if let Some(outcome_with_id) = result? {
-            let gas_burnt = outcome_with_id.outcome.gas_burnt;
+            let gas_burnt = outcome_with_id.outcome.gas_burnt();
             let compute_usage = outcome_with_id
                 .outcome
-                .compute_usage
+                .compute_usage()
                 .expect("`process_receipt` must populate compute usage");
             let total = &mut processing_state.total;
             total.add(gas_burnt.as_gas(), compute_usage)?;

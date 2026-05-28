@@ -61,13 +61,13 @@ fn test_processed_receipt_ids_gc() {
     // complete because the yield callback is waiting for a resume).
     let tx_outcome =
         env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(5));
-    let [local_receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+    let [local_receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids()[..] else {
         panic!("expected single receipt from transaction")
     };
     let local_outcome =
         env.validator_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
     // The local receipt produces exactly one child receipt — the PromiseYield instant receipt.
-    let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+    let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids()[..] else {
         panic!("expected single receipt from local receipt execution")
     };
 
@@ -195,14 +195,14 @@ fn test_receipt_to_tx_saved_and_gced() {
     // Wait for the transaction outcome (tx → local receipt).
     let tx_outcome =
         env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(5));
-    let [local_receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+    let [local_receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids()[..] else {
         panic!("expected single receipt from transaction")
     };
 
     // Wait for the local receipt outcome (local receipt → instant receipt).
     let local_outcome =
         env.validator_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
-    let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+    let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids()[..] else {
         panic!("expected single receipt from local receipt execution")
     };
 
@@ -634,7 +634,7 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
     let tx_outcome = env
         .runner_for_account(&validator_id)
         .run_until_outcome_available(tx_hash, Duration::seconds(10));
-    let [receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+    let [receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids()[..] else {
         panic!("expected single receipt from transaction")
     };
 
