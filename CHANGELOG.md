@@ -9,7 +9,7 @@
 * Fix `action_delete_account` not accounting for the global contract identifier when checking the account deletion storage limit. For accounts using a global contract, the check overcounted storage usage by the identifier size (32 bytes, or the account id length for `GlobalByAccount`), so they were slightly harder to delete. ([#15752](https://github.com/near/nearcore/pull/15752))
 
 ### Non-protocol Changes
-* `EXPERIMENTAL_receipt_to_tx` accepts optional `block_height`, `shard_id`, `window` hint params. On column miss with hint set, handler scans execution outcomes around hint. Best-effort: long emit-to-execute delays + resharding boundaries return `UnknownReceipt` instead of terminal tx. New node-config knobs: `receipt_to_tx_max_hint_window` (default 20), `receipt_to_tx_max_hop_distance` (default 20), `receipt_to_tx_max_outcomes_per_request` (default 20_000). Operators serving cold-archival queries: raise these.
+* `EXPERIMENTAL_receipt_to_tx` accepts optional `block_height`, `shard_id`, `window` hint params. On a column miss with a hint set, the handler scans execution outcomes around the hint. Best-effort: long emit-to-execute delays and resharding boundaries return `UnknownReceipt` instead of a terminal tx. New node-config knobs: `receipt_to_tx_max_hint_window` (default 20), `receipt_to_tx_max_hop_distance` (default 20), `receipt_to_tx_max_outcomes_per_request` (default 20_000). Operators serving cold-archival queries should raise these.
 * Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `after_key_base64` and `limit`, and the response returns `last_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
 
 ## [2.12.0]
