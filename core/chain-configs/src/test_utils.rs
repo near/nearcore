@@ -318,6 +318,7 @@ impl ClientConfig {
             save_receipt_to_tx: true,
             receipt_to_tx_max_hint_window: 20,
             receipt_to_tx_max_hop_distance: 20,
+            receipt_to_tx_max_outcomes_per_request: 20_000,
             contract_cache_warming_pool_thread_count:
                 default_contract_cache_warming_pool_thread_count(),
             contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),

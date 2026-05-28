@@ -311,6 +311,14 @@ pub struct Config {
     /// defaults to 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_hop_distance: Option<BlockHeightDelta>,
+    /// Per-request ceiling on the total number of outcome rows the
+    /// `EXPERIMENTAL_receipt_to_tx` hint-fallback scanner may read across
+    /// all hops and shards. Caps cold-RocksDB worst-case latency on an
+    /// unauthenticated public endpoint. If `None`, defaults to 20_000.
+    /// Requests that exhaust the budget mid-scan fail with
+    /// `BudgetExceeded`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_to_tx_max_outcomes_per_request: Option<u64>,
     /// Number of worker threads in the contract-cache-warming pool. `0` disables warming.
     #[serde(default = "default_contract_cache_warming_pool_thread_count")]
     pub contract_cache_warming_pool_thread_count: usize,
@@ -495,6 +503,7 @@ impl Default for Config {
             save_receipt_to_tx: None,
             receipt_to_tx_max_hint_window: None,
             receipt_to_tx_max_hop_distance: None,
+            receipt_to_tx_max_outcomes_per_request: None,
             contract_cache_warming_pool_thread_count:
                 default_contract_cache_warming_pool_thread_count(),
             contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
@@ -792,6 +801,9 @@ impl NearConfig {
                     .unwrap_or_else(|| config.save_tx_outcomes.unwrap_or(is_archive_or_rpc)),
                 receipt_to_tx_max_hint_window: config.receipt_to_tx_max_hint_window.unwrap_or(20),
                 receipt_to_tx_max_hop_distance: config.receipt_to_tx_max_hop_distance.unwrap_or(20),
+                receipt_to_tx_max_outcomes_per_request: config
+                    .receipt_to_tx_max_outcomes_per_request
+                    .unwrap_or(20_000),
                 contract_cache_warming_pool_thread_count: config
                     .contract_cache_warming_pool_thread_count,
                 contract_cache_warming_max_item_count: config.contract_cache_warming_max_item_count,
@@ -1810,14 +1822,15 @@ mod tests {
     #[test]
     fn config_deserialization_with_missing_receipt_to_tx_fields() {
         // Locks the serde-default migration contract: an existing config.json
-        // without the two new receipt_to_tx hint knobs must deserialize and
-        // surface `None`, so the `ClientConfig` mapper falls back to its
-        // 20 / 10 defaults. If this test ever fails, an operator upgrade
-        // will reject their old config file at load time.
+        // without the receipt_to_tx hint knobs must deserialize and surface
+        // `None`, so the `ClientConfig` mapper falls back to defaults. If this
+        // test ever fails, an operator upgrade will reject their old config
+        // file at load time.
         let json_data = json!({});
         let config: Config = serde_json::from_value(json_data).unwrap();
         assert_eq!(config.receipt_to_tx_max_hint_window, None);
         assert_eq!(config.receipt_to_tx_max_hop_distance, None);
+        assert_eq!(config.receipt_to_tx_max_outcomes_per_request, None);
     }
 
     #[test]

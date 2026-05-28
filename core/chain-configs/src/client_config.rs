@@ -817,6 +817,15 @@ pub struct ClientConfig {
     /// hits between scans don't reset the anchor). Default 20 (matches
     /// `receipt_to_tx_max_hint_window`).
     pub receipt_to_tx_max_hop_distance: BlockHeightDelta,
+    /// Per-request ceiling on the total number of outcome rows the
+    /// `EXPERIMENTAL_receipt_to_tx` hint-fallback scanner may read across
+    /// all hops and shards. Caps cold-RocksDB worst-case latency on an
+    /// unauthenticated public endpoint. Default 20_000. Operators serving
+    /// cold archival traffic with deep walks or sparse outcomes may raise
+    /// this; benchmark first (see TODO in `view_client_actor.rs`).
+    /// Requests that exhaust the budget mid-scan fail with
+    /// `BudgetExceeded { scanned, limit }`.
+    pub receipt_to_tx_max_outcomes_per_request: u64,
     /// Number of worker threads in the contract cache-warming pool. The
     /// pool runs at the lowest realtime priority of any near pool, so the
     /// threads yield to chunk application and witness work. Setting this

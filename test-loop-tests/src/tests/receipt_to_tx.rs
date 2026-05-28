@@ -1547,11 +1547,12 @@ fn test_hint_budget_exceeded_in_scan() {
         })
         .build();
 
+    let configured_limit = env.validator().client().config.receipt_to_tx_max_outcomes_per_request;
     let block_height = env.validator().head().height;
     let block_hash = env.validator().head().last_block_hash;
     let shard_id = ShardId::new(0);
     let outcome_ids: Vec<CryptoHash> =
-        (0..=100_000u64).map(|i| CryptoHash::hash_bytes(&i.to_le_bytes())).collect();
+        (0..=configured_limit).map(|i| CryptoHash::hash_bytes(&i.to_le_bytes())).collect();
     let store = env.validator().store();
     let mut update = store.store_update();
     update.set_ser(DBCol::OutcomeIds, &get_block_shard_id(&block_hash, shard_id), &outcome_ids);
@@ -1568,8 +1569,8 @@ fn test_hint_budget_exceeded_in_scan() {
     );
     match result {
         Err(GetReceiptToTxError::BudgetExceeded { scanned, limit }) => {
-            assert_eq!(scanned, 100_000);
-            assert_eq!(limit, 100_000);
+            assert_eq!(scanned, configured_limit);
+            assert_eq!(limit, configured_limit);
         }
         other => panic!("expected BudgetExceeded, got {other:?}"),
     }

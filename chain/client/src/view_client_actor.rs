@@ -1328,10 +1328,17 @@ fn handle_receipt_to_tx(
         ));
     }
 
+    // TODO(receipt-to-tx-bench): benchmark cold-RocksDB worst-case to tune
+    // `receipt_to_tx_max_outcomes_per_request` default; current 20k is a
+    // conservative estimate.
+    // TODO(sharded-rpc): if a sharded variant lands, move coordination logic
+    // out of view_client_actor into the sharded handler.
+    let max_outcomes_per_request = actor.config.receipt_to_tx_max_outcomes_per_request;
+
     let mut current_receipt_id = msg.receipt_id;
     let mut current_height = msg.block_height;
     let mut current_shard = msg.shard_id;
-    let mut remaining_budget = MAX_OUTCOMES_PER_REQUEST;
+    let mut remaining_budget = max_outcomes_per_request;
     // Monotonic. Starts false; flips true on the first scan-resolve; never
     // reset. After a scan refreshes `current_height` to a resolved parent's
     // exact execution height, causality (receipts emit before they execute)
@@ -1423,22 +1430,6 @@ fn handle_receipt_to_tx(
     })
 }
 
-/// Per-request ceiling on the total number of outcome rows the hint-fallback
-/// scanner may read across all hops. Worst case without this cap is
-/// `RECEIPT_TO_TX_MAX_DEPTH * (2 * receipt_to_tx_max_hint_window + 1) *
-/// outcomes_per_chunk`, which a misaligned hint on a deep chain can drive
-/// into the millions on an unauthenticated public endpoint. 100k is well
-/// above the legitimate usage envelope (depth ≤ 3, window ≤ 5, sparse
-/// outcomes) and still bounded.
-///
-/// Note: when `current_shard` is unset (caller omitted `shard_id` and no
-/// `FromReceipt` arm has derived a shard yet), the scan enumerates all
-/// tracked shards and the budget is consumed across them in iteration
-/// order — a hit on the last-iterated shard charges every earlier shard's
-/// outcomes too. Callers that know the creating shard should supply
-/// `shard_id` so the very first scan runs on one shard.
-const MAX_OUTCOMES_PER_REQUEST: u64 = 100_000;
-
 fn scan_with_optional_shard_enumeration(
     actor: &ViewClientActor,
     receipt_id: CryptoHash,
@@ -1528,12 +1519,12 @@ fn run_hint_scan(
         remaining_budget,
     );
     record_hint_scan_stats(stats);
+    let limit = actor.config.receipt_to_tx_max_outcomes_per_request;
     result.map_err(|e| match e {
         ResolveHintError::Chain(e) => GetReceiptToTxError::InternalError(e.to_string()),
-        ResolveHintError::BudgetExceeded => GetReceiptToTxError::BudgetExceeded {
-            scanned: MAX_OUTCOMES_PER_REQUEST - *remaining_budget,
-            limit: MAX_OUTCOMES_PER_REQUEST,
-        },
+        ResolveHintError::BudgetExceeded => {
+            GetReceiptToTxError::BudgetExceeded { scanned: limit - *remaining_budget, limit }
+        }
     })
 }
 
