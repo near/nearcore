@@ -13,11 +13,9 @@ use near_primitives::receipt::{
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_store::DBCol;
 
-/// Default scan window (in blocks) for `Scan::CenterOut` when the
-/// caller does not specify one. The scan inspects heights
-/// `[h-window, h+window]`. `Scan::Ancestor` uses its own width
-/// set by the node's `receipt_to_tx_max_hop_distance` config, not this
-/// default.
+/// Default `Scan::CenterOut` window (blocks) when caller omits `window`.
+/// Scan inspects `[h-window, h+window]`. `Scan::Ancestor` uses
+/// `receipt_to_tx_max_hop_distance` instead.
 pub const DEFAULT_HINT_WINDOW: BlockHeightDelta = 5;
 
 /// Hint scan mode + width. Monotonic: once the walker resolves a hop via
@@ -32,11 +30,10 @@ pub enum Scan {
     Ancestor { max_distance: BlockHeightDelta },
 }
 
-/// Iterate heights center-out around `block_height` up to `±window`, saturating at 0.
-///
-/// Order: `h, h-1, h+1, h-2, h+2, ...`. Both the "hint = creation block" and
-/// "hint = child execution block" interpretations early-return well because
-/// the parent typically executed at `h` or `h-1` of the child.
+/// Iterate heights center-out around `block_height` up to `±window`,
+/// saturating at 0. Order: `h, h-1, h+1, h-2, h+2, ...`. Both "hint =
+/// creation block" and "hint = child execution block" interpretations
+/// early-return because parent typically executes at `h` or `h-1` of child.
 fn center_out_heights(
     block_height: BlockHeight,
     window: BlockHeightDelta,
@@ -44,21 +41,18 @@ fn center_out_heights(
     std::iter::once(block_height).chain((1..=window).flat_map(move |offset| {
         let low = block_height.saturating_sub(offset);
         let high = block_height.saturating_add(offset);
-        // saturating_sub repeats height 0 once offset exceeds block_height; drop the
-        // duplicate so the iterator visits each height at most once.
+        // saturating_sub repeats 0 once offset > block_height. Drop dup
+        // so iterator visits each height once.
         let lower = (offset <= block_height).then_some(low);
         let upper = (low != high).then_some(high);
         [lower, upper].into_iter().flatten()
     }))
 }
 
-/// Iterate heights backward from `block_height` down to `block_height -
-/// max_distance`, saturating at 0. The anchor is included.
-///
-/// Order: `h, h-1, h-2, ..., h-max_distance`. The anchor is included so the
-/// scan still finds same-shard local receipts (which execute in the same
-/// block as their producing outcome). Forward heights are never visited
-/// because receipts are produced before they execute.
+/// Iterate heights backward `h, h-1, ..., h-max_distance`, saturating at 0.
+/// Anchor included so scan finds same-shard local receipts (execute in
+/// same block as producing outcome). No forward heights — receipts emit
+/// before execute.
 fn ancestor_heights(
     block_height: BlockHeight,
     max_distance: BlockHeightDelta,
@@ -71,23 +65,20 @@ fn ancestor_heights(
     })
 }
 
-/// Successful resolution of a parent outcome via the hint scan. Carries the
-/// synthesized `ReceiptToTxInfo` plus the execution block height of the outcome
-/// itself, which the caller uses to refresh `block_height` for the next hop.
-/// The outcome's shard is *not* propagated: the next hop's scan target lives
-/// on the producer's shard, which may or may not match this one. The handler
-/// derives that shard from `ReceiptOriginReceipt.parent_predecessor_id` at
-/// the resolved height.
+/// Hint-scan hit. Carries synthesized `ReceiptToTxInfo` + execution block
+/// height of resolved outcome (caller refreshes `block_height` for next
+/// hop). Outcome shard not propagated — next hop's scan target lives on
+/// producer's shard, derived by handler from
+/// `ReceiptOriginReceipt.parent_predecessor_id` at resolved height.
 pub struct HintResolution {
     pub info: ReceiptToTxInfo,
-    /// Block height at which the parent outcome (transaction or receipt) executed.
-    /// For receipt-origin parents, this is also the height at which the child
-    /// receipt was created.
+    /// Block height parent outcome (transaction or receipt) executed.
+    /// For receipt-origin parents, also the height child receipt was created.
     pub outcome_block_height: BlockHeight,
 }
 
-/// Per-scan I/O accounting surfaced to the handler so it can drive the
-/// hint-scan metrics regardless of whether the scan hit or missed.
+/// Per-scan I/O accounting. Handler drives hint-scan metrics from this
+/// regardless of hit/miss.
 #[derive(Default, Clone, Copy)]
 pub struct HintScanStats {
     pub heights_scanned: u64,
@@ -102,25 +93,19 @@ pub enum ResolveHintError {
     BudgetExceeded,
 }
 
-/// Attempt to resolve the immediate parent of `receipt_id` by scanning
-/// `OutcomeIds` / `TransactionResultForBlock` rows in a block range
-/// around `block_height` on `shard_id`. The scan mode is set by
-/// the caller-supplied `scan`: `CenterOut { window }` (`±window` around the
-/// anchor) when the anchor is the caller's literal hint and no prior
-/// scan has run, `Ancestor { max_distance }` (`h, h-1, ..., h-max_distance`
-/// backward from the anchor) once any prior hop in the walk has been
-/// scan-resolved. The handler in `chain/client` picks the mode based on
-/// whether **any** prior hop in this walk was scan-resolved (monotonic).
+/// Resolve immediate parent of `receipt_id` by scanning `OutcomeIds` /
+/// `TransactionResultForBlock` around `block_height` on `shard_id`. Mode
+/// set by `scan`: `CenterOut` pre-first-scan, `Ancestor` once any prior
+/// hop scan-resolved (monotonic, picked by `chain/client` handler).
 ///
 /// `Ok(Some(_))` — parent located, info synthesized in-flight.
-/// `Ok(None)` — window exhausted without finding the receipt.
-/// `Err(_)` — genuine I/O error or budget exhaustion mid-scan; bubbles to the handler.
+/// `Ok(None)` — window exhausted, receipt not found.
+/// `Err(_)` — I/O error or budget exhaustion mid-scan, bubbles to handler.
 ///
-/// `stats` is accumulated in-place so callers can emit metrics in every
-/// outcome — hit, miss, or error mid-scan. Missing-data inside the scan
-/// (no block at height, GC'd outcome row, deleted receipt row) is
-/// skip-and-continue. `remaining_budget` is decremented for every outcome row
-/// inspected so callers can enforce one budget across all shards and hops.
+/// `stats` accumulates in-place so callers emit metrics on hit/miss/error.
+/// Missing data (no block at height, GC'd outcome, deleted receipt) is
+/// skip-and-continue. `remaining_budget` decrements per outcome inspected
+/// so caller enforces one budget across all shards + hops.
 pub fn resolve_receipt_via_hint(
     chain_store: &ChainStore,
     receipt_id: CryptoHash,
@@ -165,19 +150,17 @@ pub fn resolve_receipt_via_hint(
                 None => continue,
             };
 
-            // Both `Transactions` and `Receipts` are reference-counted and GC'd at
-            // the historical horizon this endpoint exists to serve. Checking only
-            // `Transactions` misclassifies tx-origin outcomes whose tx row has been
-            // collected as receipt-origin and then silently fails the parent-receipt
-            // lookup. Check both columns; skip the candidate when neither has the
-            // row so the scan moves on to the next height.
+            // Both `Transactions` and `Receipts` reference-counted + GC'd
+            // at the historical horizon this endpoint serves. Checking only
+            // `Transactions` misclassifies tx-origin outcomes whose tx row
+            // was collected as receipt-origin → silent parent-receipt
+            // lookup fail. Check both columns, skip if neither holds the row.
             //
-            // The two `exists` calls are not snapshotted. Concurrent GC between
-            // them can downgrade a (true, true) candidate to (true, false) or
-            // (false, true), or downgrade either to (false, false). The
-            // worst-case outcome is a spurious skip — never a misclassification
-            // — because both subsequent paths re-read from the same store
-            // before producing a result.
+            // `exists` calls not snapshotted. Concurrent GC between them
+            // downgrades (true, true) → (true, false) / (false, true), or
+            // either side to (false, false). Worst case: spurious skip,
+            // never misclassification — both downstream paths re-read from
+            // the same store before producing a result.
             let in_txs = store.exists(DBCol::Transactions, outcome_id.as_ref());
             let in_receipts = store.exists(DBCol::Receipts, outcome_id.as_ref());
             let origin = match (in_txs, in_receipts) {
@@ -242,7 +225,7 @@ mod tests {
 
     #[test]
     fn center_out_saturates_at_zero() {
-        // Offsets greater than block_height should drop the lower side, not produce duplicates.
+        // Offsets > block_height drop lower side, no duplicates.
         assert_eq!(collect(2, 5), vec![2, 1, 3, 0, 4, 5, 6, 7]);
         assert_eq!(collect(0, 2), vec![0, 1, 2]);
     }
@@ -261,8 +244,7 @@ mod tests {
 
     #[test]
     fn ancestor_heights_no_forward() {
-        // Lock the invariant directly on the iterator: ancestor scan must
-        // never emit a height greater than its anchor.
+        // Lock invariant on iterator: ancestor scan never emits height > anchor.
         for h in [0, 1, 5, 100, 1_000_000] {
             for w in [0, 1, 5, 20, 100] {
                 for emitted in ancestor_heights(h, w) {

@@ -1298,9 +1298,9 @@ fn handle_receipt_to_tx(
             "shard_id requires block_height".to_string(),
         ));
     }
-    // `window` is meaningless without a hint; reject explicitly so a caller
-    // who supplies `{receipt_id, window: 999}` doesn't get a silent accept
-    // with the parameter discarded.
+    // `window` meaningless without hint. Reject explicitly so caller
+    // supplying `{receipt_id, window: 999}` doesn't get silent accept
+    // with param discarded.
     if msg.window.is_some() && !hint_provided {
         return Err(GetReceiptToTxError::MalformedHint("window requires block_height".to_string()));
     }
@@ -1314,13 +1314,13 @@ fn handle_receipt_to_tx(
         });
     }
 
-    // tracks_all_shards is required in both modes: cross-shard historical
-    // lookups only work when this node has every shard's chain data locally.
+    // tracks_all_shards required both modes: cross-shard historical
+    // lookups need every shard's chain data locally.
     if !actor.config.tracked_shards_config.tracks_all_shards() {
         return Err(GetReceiptToTxError::Unsupported("node does not track all shards".to_string()));
     }
-    // Column-only mode still requires save_receipt_to_tx. Hint mode does not —
-    // it can rebuild origin info from OutcomeIds + Receipts/Transactions.
+    // Column-only mode requires save_receipt_to_tx. Hint mode doesn't —
+    // rebuilds origin from OutcomeIds + Receipts/Transactions.
     if !hint_provided && !actor.config.save_receipt_to_tx {
         return Err(GetReceiptToTxError::Unsupported(
             "receipt-to-tx mapping is disabled (save_receipt_to_tx=false) and no hint supplied"
@@ -1339,14 +1339,14 @@ fn handle_receipt_to_tx(
     let mut current_height = msg.block_height;
     let mut current_shard = msg.shard_id;
     let mut remaining_budget = max_outcomes_per_request;
-    // Monotonic. Starts false; flips true on the first scan-resolve; never
-    // reset. After a scan refreshes `current_height` to a resolved parent's
-    // exact execution height, causality (receipts emit before they execute)
-    // guarantees every later ancestor's emitter outcome lives at or before
-    // that anchor. Column hits walked past the anchor deepen the backward
-    // distance but preserve the upper-bound provenance, so subsequent
-    // column-miss scans stay on `Ancestor + max_hop_distance`. Pre-first-scan
-    // the anchor is the caller's literal hint and `CenterOut` spans both sides.
+    // Monotonic. False → true on first scan-resolve, never reset. After
+    // scan refreshes `current_height` to resolved parent's exact execution
+    // height, causality (receipts emit before they execute) bounds every
+    // later ancestor's emitter outcome at or before anchor. Column hits
+    // walked past anchor deepen backward distance but keep upper-bound
+    // provenance → subsequent column-miss scans stay
+    // `Ancestor + max_hop_distance`. Pre-first-scan anchor = caller's
+    // literal hint, `CenterOut` spans both sides.
     let mut have_scanned = false;
 
     for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
@@ -1376,9 +1376,9 @@ fn handle_receipt_to_tx(
                     Some(res) => {
                         have_scanned = true;
                         current_height = Some(res.outcome_block_height);
-                        // No `current_shard = None` here: the FromReceipt arm
-                        // recomputes it from the parent's predecessor account,
-                        // and the FromTransaction arm doesn't read it.
+                        // No `current_shard = None`: FromReceipt arm
+                        // recomputes from parent's predecessor account,
+                        // FromTransaction arm doesn't read it.
                         res.info
                     }
                     None => {
@@ -1399,12 +1399,12 @@ fn handle_receipt_to_tx(
             ReceiptOrigin::FromReceipt(origin) => {
                 let parent_id = origin.parent_receipt_id;
                 // Next-hop shard = predecessor of this receipt's parent.
-                // Parent P executed on shard(P.receiver_id), which equals
-                // this receipt's predecessor_id. P's parent lives at
+                // Parent P executed on shard(P.receiver_id) = this
+                // receipt's predecessor_id. P's parent lives at
                 // shard(origin.parent_predecessor_id), computed at
                 // current_height. Best-effort across resharding: layout
-                // shifts may pick a stale shard; the scan misses and the
-                // walk returns `UnknownReceipt` rather than fabricate.
+                // shifts may pick stale shard; scan misses, walk returns
+                // `UnknownReceipt` rather than fabricate.
                 current_shard = current_height.and_then(|h| {
                     shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
                 });
@@ -1444,12 +1444,12 @@ fn scan_with_optional_shard_enumeration(
     Ok(None)
 }
 
-/// Shard layout at the hinted height. `Ok(None)` means the height isn't
-/// locally resolvable (typically GC'd at the archival horizon); the caller
-/// maps that to `UnknownReceipt`. Falling back to the head epoch's shard
-/// layout would be wrong across a resharding boundary — wrong shards scanned,
-/// wrong result. Other chain/epoch errors propagate as `InternalError`, not
-/// `Ok(None)`, so corruption can't masquerade as a missing receipt.
+/// Shard layout at hinted height. `Ok(None)` = height not locally
+/// resolvable (typically GC'd at archival horizon); caller maps to
+/// `UnknownReceipt`. Fallback to head-epoch layout would be wrong across
+/// resharding boundary — wrong shards scanned, wrong result. Other
+/// chain/epoch errors propagate as `InternalError`, not `Ok(None)`, so
+/// corruption can't masquerade as missing receipt.
 fn shard_ids_for_hint_height(
     actor: &ViewClientActor,
     block_height: BlockHeight,
@@ -1468,11 +1468,10 @@ fn shard_ids_for_hint_height(
     Ok(Some(shard_layout.shard_ids().collect()))
 }
 
-/// Resolve `account_id` to its shard at the height the hint just walked to.
-/// Returns `None` when the height is locally unresolvable; callers fall back
-/// to `current_shard = None` which triggers all-shards enumeration on the
-/// next hop's scan (and any all-shards scan with an unresolvable height
-/// surfaces `UnknownReceipt` upstream).
+/// Resolve `account_id` → shard at the height hint walked to. `None` =
+/// height locally unresolvable; callers fall back to `current_shard = None`
+/// → all-shards enumeration on next hop's scan (all-shards scan with
+/// unresolvable height surfaces `UnknownReceipt`).
 fn shard_for_account_at_height(
     actor: &ViewClientActor,
     account_id: &AccountId,
@@ -1483,12 +1482,10 @@ fn shard_for_account_at_height(
     account_id_to_shard_id(actor.chain.epoch_manager.as_ref(), account_id, epoch_id).ok()
 }
 
-/// Run one hint-fallback scan and unconditionally record its stats.
-/// Used by the column-miss branch in both `Scan::CenterOut`
-/// (pre-first-scan, anchor is the caller's literal hint) and
-/// `Scan::Ancestor` (any prior hop in the walk has been
-/// scan-resolved, anchor has upper-bound provenance), so neither path
-/// can drop metric accounting on an error return.
+/// Run one hint-fallback scan + unconditionally record stats. Used by
+/// column-miss branch in both `Scan::CenterOut` (pre-first-scan) and
+/// `Scan::Ancestor` (post-scan-resolved hop). Neither path drops metric
+/// accounting on error return.
 fn run_hint_scan(
     actor: &ViewClientActor,
     receipt_id: CryptoHash,

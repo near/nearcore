@@ -794,36 +794,31 @@ pub struct ClientConfig {
     pub save_tx_outcomes: bool,
     /// Whether to persist receipt-to-tx origin mappings to disk or not.
     pub save_receipt_to_tx: bool,
-    /// Maximum ±window width accepted on `EXPERIMENTAL_receipt_to_tx`
-    /// requests. Caps the caller-supplied `window` field. Applies to the
-    /// pre-first-scan `CenterOut` scan against the caller's literal hint.
-    /// Subsequent ancestor scans use `receipt_to_tx_max_hop_distance`,
-    /// not this field. Operators raising this cap should also consider
-    /// raising `receipt_to_tx_max_hop_distance` so backward reach across
-    /// scan-resolved-then-column-hit chains matches the caller's wider
-    /// hint scope. Requests with `window` larger than this are rejected
-    /// with `WindowTooLarge`.
+    /// Max `±window` accepted on `EXPERIMENTAL_receipt_to_tx` requests.
+    /// Caps caller's `window`. Applies to pre-first-scan `CenterOut`
+    /// against caller's literal hint; ancestor scans use
+    /// `receipt_to_tx_max_hop_distance` instead. Operators raising this
+    /// should also raise `receipt_to_tx_max_hop_distance` so backward reach
+    /// matches caller's wider hint scope. Requests with `window` over this
+    /// rejected with `WindowTooLarge`.
     pub receipt_to_tx_max_hint_window: BlockHeightDelta,
-    /// Maximum block-distance the ancestor scan walks per hop after any
-    /// scan in the walk refreshes `current_height`. All subsequent
-    /// column-miss scans visit `h, h-1, ..., h-max_hop_distance` from
-    /// the most-recent scan-refreshed anchor, regardless of intervening
-    /// column hits, subject to this distance. The anchor is included
-    /// because same-shard local receipts can execute in the same block
-    /// as their producing outcome. Raise if cold archival traffic shows
-    /// ancestor misses — the relevant gap is from the scan-refreshed
-    /// anchor to the producer-outcome height of the receipt whose
-    /// column row is missing (not "between consecutive scans" — column
-    /// hits between scans don't reset the anchor). Default 20 (matches
+    /// Max block-distance the ancestor scan walks per hop once any scan in
+    /// the walk refreshed `current_height`. Subsequent column-miss scans
+    /// visit `h, h-1, ..., h-max_hop_distance` from most-recent
+    /// scan-refreshed anchor, regardless of column hits between. Anchor
+    /// included because same-shard local receipts execute in same block as
+    /// producing outcome. Raise if cold archival traffic shows ancestor
+    /// misses — relevant gap = scan-refreshed anchor to producer-outcome
+    /// height of receipt with missing column row (not "between consecutive
+    /// scans"; column hits don't reset anchor). Default 20 (matches
     /// `receipt_to_tx_max_hint_window`).
     pub receipt_to_tx_max_hop_distance: BlockHeightDelta,
-    /// Per-request ceiling on the total number of outcome rows the
-    /// `EXPERIMENTAL_receipt_to_tx` hint-fallback scanner may read across
-    /// all hops and shards. Caps cold-RocksDB worst-case latency on an
-    /// unauthenticated public endpoint. Default 20_000. Operators serving
-    /// cold archival traffic with deep walks or sparse outcomes may raise
-    /// this; benchmark first (see TODO in `view_client_actor.rs`).
-    /// Requests that exhaust the budget mid-scan fail with
+    /// Per-request ceiling on outcome rows the `EXPERIMENTAL_receipt_to_tx`
+    /// hint-fallback scanner reads across hops + shards. Caps cold-RocksDB
+    /// worst case on unauthenticated public endpoint. Default 20_000.
+    /// Operators serving cold archival traffic with deep walks or sparse
+    /// outcomes may raise; benchmark first (see TODO in
+    /// `view_client_actor.rs`). Mid-scan exhaustion fails with
     /// `BudgetExceeded { scanned, limit }`.
     pub receipt_to_tx_max_outcomes_per_request: u64,
     /// Number of worker threads in the contract cache-warming pool. The

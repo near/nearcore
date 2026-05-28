@@ -928,12 +928,10 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
 #[derive(Debug)]
 pub struct GetReceiptToTx {
     pub receipt_id: CryptoHash,
-    /// Optional block height near where the receipt was created. Supplying it
-    /// enables hint mode, where the handler falls back to a `±window` scan
-    /// whenever the local `ReceiptToTx` column misses an entry mid-walk.
-    /// `shard_id` optionally narrows the first scan; omitting it scans all
-    /// tracked shards at the hinted height. `window` overrides the default
-    /// scan range.
+    /// Block height near where receipt was created. Enables hint mode:
+    /// handler falls back to `±window` scan when local `ReceiptToTx` column
+    /// misses mid-walk. `shard_id` narrows first scan; omit → all tracked
+    /// shards at hint height. `window` overrides default scan range.
     pub block_height: Option<BlockHeight>,
     pub shard_id: Option<ShardId>,
     pub window: Option<BlockHeightDelta>,

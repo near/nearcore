@@ -469,9 +469,8 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
-/// `EXPERIMENTAL_receipt_to_tx` requests labeled by terminal outcome
-/// (ok / error variant). Lets operators see column vs scanner mix and
-/// error rates at a glance.
+/// `EXPERIMENTAL_receipt_to_tx` requests by terminal outcome (ok / error
+/// variant). Operators read column vs scanner mix + error rates from labels.
 pub(crate) static RECEIPT_TO_TX_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_receipt_to_tx_total",
@@ -481,10 +480,9 @@ pub(crate) static RECEIPT_TO_TX_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|
     .unwrap()
 });
 
-/// Total number of `(shard, block height)` pairs inspected by hint-scan
-/// fallback across all requests. Combined with
-/// `receipt_to_tx_hint_outcomes_scanned_total`, this gives operators a sense
-/// of how expensive the scanner is on average per request.
+/// `(shard, block height)` pairs inspected by hint-scan fallback across
+/// all requests. Combine with `receipt_to_tx_hint_outcomes_scanned_total`
+/// for average scanner cost per request.
 pub(crate) static RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL: LazyLock<IntCounter> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -494,8 +492,8 @@ pub(crate) static RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL: LazyLock<IntCounter>
         .unwrap()
     });
 
-/// Total number of outcome rows read by hint-scan fallback across all
-/// `(shard, block height)` visits and requests.
+/// Outcome rows read by hint-scan fallback across all `(shard, block height)`
+/// visits + requests.
 pub(crate) static RECEIPT_TO_TX_HINT_OUTCOMES_SCANNED_TOTAL: LazyLock<IntCounter> =
     LazyLock::new(|| {
         try_create_int_counter(

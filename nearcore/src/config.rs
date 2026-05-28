@@ -295,28 +295,24 @@ pub struct Config {
     /// If set to `None`, defaults to the same value as `save_tx_outcomes`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_receipt_to_tx: Option<bool>,
-    /// Maximum ±window width accepted on `EXPERIMENTAL_receipt_to_tx`
-    /// requests. Caps the caller-supplied `window` field. Applies to the
-    /// pre-first-scan `CenterOut` scan against the caller's literal hint.
-    /// Subsequent ancestor scans use `receipt_to_tx_max_hop_distance`,
-    /// not this field. Requests larger than this are rejected with
-    /// `WindowTooLarge`. If `None`, defaults to 20.
+    /// Max `±window` accepted on `EXPERIMENTAL_receipt_to_tx` requests.
+    /// Caps caller's `window`. Applies to pre-first-scan `CenterOut`
+    /// against caller's literal hint; ancestor scans use
+    /// `receipt_to_tx_max_hop_distance` instead. Requests over this
+    /// rejected with `WindowTooLarge`. `None` → 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_hint_window: Option<BlockHeightDelta>,
-    /// Maximum block-distance the ancestor scan walks per hop after any
-    /// scan in an `EXPERIMENTAL_receipt_to_tx` walk refreshes
-    /// `current_height`. All subsequent column-miss scans visit `h, h-1,
-    /// ..., h-max_hop_distance` from the most-recent scan-refreshed
-    /// anchor, regardless of intervening column hits. If `None`,
-    /// defaults to 20.
+    /// Max block-distance the ancestor scan walks per hop once any scan in
+    /// an `EXPERIMENTAL_receipt_to_tx` walk refreshed `current_height`.
+    /// Subsequent column-miss scans visit `h, h-1, ..., h-max_hop_distance`
+    /// from most-recent scan-refreshed anchor, regardless of column hits
+    /// between. `None` → 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_hop_distance: Option<BlockHeightDelta>,
-    /// Per-request ceiling on the total number of outcome rows the
-    /// `EXPERIMENTAL_receipt_to_tx` hint-fallback scanner may read across
-    /// all hops and shards. Caps cold-RocksDB worst-case latency on an
-    /// unauthenticated public endpoint. If `None`, defaults to 20_000.
-    /// Requests that exhaust the budget mid-scan fail with
-    /// `BudgetExceeded`.
+    /// Per-request ceiling on outcome rows the `EXPERIMENTAL_receipt_to_tx`
+    /// hint-fallback scanner reads across hops + shards. Caps cold-RocksDB
+    /// worst case on unauthenticated public endpoint. `None` → 20_000.
+    /// Mid-scan exhaustion fails with `BudgetExceeded`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_to_tx_max_outcomes_per_request: Option<u64>,
     /// Number of worker threads in the contract-cache-warming pool. `0` disables warming.
@@ -1821,11 +1817,10 @@ mod tests {
 
     #[test]
     fn config_deserialization_with_missing_receipt_to_tx_fields() {
-        // Locks the serde-default migration contract: an existing config.json
-        // without the receipt_to_tx hint knobs must deserialize and surface
-        // `None`, so the `ClientConfig` mapper falls back to defaults. If this
-        // test ever fails, an operator upgrade will reject their old config
-        // file at load time.
+        // Locks serde-default migration contract: old config.json without
+        // receipt_to_tx hint knobs must deserialize → `None`, so
+        // `ClientConfig` mapper falls back to defaults. Failure here means
+        // operator upgrade rejects old config at load time.
         let json_data = json!({});
         let config: Config = serde_json::from_value(json_data).unwrap();
         assert_eq!(config.receipt_to_tx_max_hint_window, None);

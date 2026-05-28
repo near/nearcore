@@ -51,54 +51,42 @@ impl From<RpcReceiptError> for crate::errors::RpcError {
 pub struct RpcReceiptToTxRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
-    /// Optional block height near where the receipt was created. Supplying
-    /// it enables a best-effort hinted fallback scan when the local
-    /// `ReceiptToTx` column is missing an entry mid-walk. The handler uses
-    /// this height as the anchor for the first hint scan. Each scan that
-    /// resolves a hop refreshes the anchor to that resolved parent's exact
-    /// execution height. After the first scan resolves a hop, the anchor
-    /// is an upper bound for every later ancestor in the walk (causality:
-    /// receipts emit before they execute). All subsequent column-miss
-    /// scans use `Ancestor` direction, anchored on the most-recent
-    /// scan-refreshed height. A missing `ReceiptToTx` row has no block
-    /// height of its own; the gap that matters for `max_hop_distance` is
-    /// from the scan-refreshed anchor to the producer-outcome height of
-    /// the receipt whose column row is missing. Bump
-    /// `receipt_to_tx_max_hop_distance` if your workload sees gaps wider
-    /// than the default 20 blocks.
+    /// Block height near where receipt was created. Enables best-effort
+    /// hint fallback scan when local `ReceiptToTx` column misses mid-walk.
+    /// Handler anchors first hint scan here. Each scan-resolved hop
+    /// refreshes anchor to parent's exact execution height; later ancestors
+    /// are bounded by anchor via causality (receipts emit before execute),
+    /// so subsequent column-miss scans switch to `Ancestor` direction.
+    /// Bump `receipt_to_tx_max_hop_distance` if cold archival workload
+    /// sees gaps wider than default 20 blocks.
     ///
-    /// Cold-storage usage: this endpoint primarily serves historical queries,
-    /// so the scan typically reads from cold storage where per-row latency is
-    /// orders of magnitude higher than hot. To keep request cost bounded,
-    /// callers should:
-    ///   - Supply `block_height` within the parent outcome's `±window` range
+    /// Cold-storage cost: endpoint serves historical queries from cold
+    /// storage (per-row latency orders of magnitude higher than hot).
+    /// To keep request cost bounded:
+    ///   - Supply `block_height` within parent outcome's `±window`
     ///     (default 5 blocks).
-    ///   - Supply `shard_id` when the producing shard is known. Omitting
-    ///     it leaves `current_shard` unset until the walk crosses a
-    ///     `FromReceipt` arm (which derives the shard via
-    ///     predecessor-account lookup); any scan that runs before that
-    ///     enumerates all tracked shards, multiplying cold-read cost.
-    ///   - Avoid increasing `window` beyond what the indexer's height
-    ///     estimate actually requires; the scan budget is shared across the
-    ///     full ancestry walk.
+    ///   - Supply `shard_id` when producing shard is known. Omitting forces
+    ///     all-shards enumeration until walker crosses a `FromReceipt` hop,
+    ///     multiplying cold-read cost.
+    ///   - Don't widen `window` beyond indexer's height-estimate accuracy;
+    ///     budget shared across full ancestry walk.
     ///
     /// Receipt-id-only queries against periods where `save_receipt_to_tx`
-    /// was disabled at processing time remain unsupported — the column was
-    /// never written and this endpoint provides no self-locating mechanism.
+    /// was disabled remain unsupported: column never written, endpoint has
+    /// no self-locating mechanism.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_height: Option<BlockHeight>,
-    /// Shard hint. Narrows the scan to this shard at the hint height. Omit
-    /// to enumerate all tracked shards (higher cost). After the walker
-    /// crosses a receipt-origin hop the shard is derived from the parent's
-    /// predecessor account and this hint no longer applies. Best-effort
-    /// across resharding: layout shifts can miss the producer, walk returns
-    /// `UnknownReceipt`.
+    /// Shard hint. Narrows scan to this shard at hint height. Omit to
+    /// enumerate all tracked shards (higher cost). After walker crosses a
+    /// receipt-origin hop, shard derived from parent's predecessor account
+    /// and hint no longer applies. Best-effort across resharding: layout
+    /// shifts can miss producer, walk returns `UnknownReceipt`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shard_id: Option<ShardId>,
-    /// Pre-first-scan width: `±window` heights around the hint. Caps at the
-    /// node's `receipt_to_tx_max_hint_window` (default 20). Ignored after
-    /// the first scan-resolved hop; the walker switches to `Ancestor` mode
-    /// at `receipt_to_tx_max_hop_distance` width.
+    /// Pre-first-scan width: `±window` heights around hint. Caps at
+    /// `receipt_to_tx_max_hint_window` (default 20). Ignored after first
+    /// scan-resolved hop — walker switches to `Ancestor` mode at
+    /// `receipt_to_tx_max_hop_distance` width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<BlockHeightDelta>,
 }
