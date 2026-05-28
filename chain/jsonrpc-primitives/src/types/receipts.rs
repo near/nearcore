@@ -87,32 +87,18 @@ pub struct RpcReceiptToTxRequest {
     /// never written and this endpoint provides no self-locating mechanism.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_height: Option<BlockHeight>,
-    /// Optional shard hint consumed by any hint scan that runs before the
-    /// walk has crossed a `FromReceipt` arm. Once a `FromReceipt` arm
-    /// fires, the handler overwrites `current_shard` via predecessor-account
-    /// derivation (`shard_for_account_at_height(parent_predecessor_id,
-    /// current_height)`), so this field does not narrow the rest of the
-    /// walk. If the very first walker step is a column hit returning
-    /// `FromReceipt`, the caller's shard hint is discarded without being
-    /// used by any scan. Omitting `shard_id` leaves `current_shard` unset;
-    /// any scan that runs before a `FromReceipt` arm has derived it then
-    /// enumerates all tracked shards at the hint height, multiplying the
-    /// scan budget by the number of shards.
+    /// Shard hint. Narrows the scan to this shard at the hint height. Omit
+    /// to enumerate all tracked shards (higher cost). After the walker
+    /// crosses a receipt-origin hop the shard is derived from the parent's
+    /// predecessor account and this hint no longer applies. Best-effort
+    /// across resharding: layout shifts can miss the producer, walk returns
+    /// `UnknownReceipt`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shard_id: Option<ShardId>,
-    /// Optional override for the `±window` scan range used on the
-    /// pre-first-scan `CenterOut` scan against the caller's literal hint.
-    /// Defaults to `DEFAULT_HINT_WINDOW` when omitted; rejected with
-    /// `WindowTooLarge` when greater than the node's
-    /// `receipt_to_tx_max_hint_window` setting (default 20). On cold
-    /// storage, every extra block in the window translates directly into
-    /// additional remote reads — keep this tight.
-    ///
-    /// After the first scan-resolve, all later scans use `Ancestor +
-    /// receipt_to_tx_max_hop_distance` regardless of intervening column
-    /// hits, subject to `max_hop_distance`. Bumping `window` past
-    /// `max_hop_distance` widens only the pre-first-scan scan; tune the
-    /// node config to widen subsequent ancestor scans.
+    /// Pre-first-scan width: `±window` heights around the hint. Caps at the
+    /// node's `receipt_to_tx_max_hint_window` (default 20). Ignored after
+    /// the first scan-resolved hop; the walker switches to `Ancestor` mode
+    /// at `receipt_to_tx_max_hop_distance` width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<BlockHeightDelta>,
 }

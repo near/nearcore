@@ -469,11 +469,9 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
-/// Labeled by terminal outcome of an `EXPERIMENTAL_receipt_to_tx` request,
-/// covering the column-only path, the hint-fallback path, and every error
-/// terminal that can short-circuit the handler. Lets operators tell at a
-/// glance whether requests are being served by the column or relying on
-/// the scanner.
+/// `EXPERIMENTAL_receipt_to_tx` requests labeled by terminal outcome
+/// (ok / error variant). Lets operators see column vs scanner mix and
+/// error rates at a glance.
 pub(crate) static RECEIPT_TO_TX_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_receipt_to_tx_total",

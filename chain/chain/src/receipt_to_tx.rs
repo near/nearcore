@@ -1,27 +1,6 @@
-//! Hint-fallback resolver for the receipt-to-tx walk.
-//!
-//! `resolve_receipt_via_hint` is a single entry point with two scan
-//! modes selected by `Scan`. The handler picks the mode based
-//! on whether any prior hop in this walk has been scan-resolved
-//! (monotonic — set once, never reset):
-//!
-//! * **`Scan::CenterOut`** — anchor is the caller's literal
-//!   hint (no scan has run yet). The resolver visits `h, h-1, h+1,
-//!   h-2, h+2, ...` up to `±window` because the anchor could be off
-//!   either side of the producing outcome.
-//! * **`Scan::Ancestor`** — any prior hop in this walk was
-//!   scan-resolved, so the anchor has upper-bound provenance via
-//!   causality (receipts emit before they execute; later ancestors
-//!   cannot execute past a refreshed anchor). Subsequent ancestor
-//!   scans reach `max_distance` backward from the anchor
-//!   regardless of intervening column hits. The anchor itself stays in
-//!   the iteration because same-shard local receipts can execute in
-//!   the same block as their producing outcome (`process_local_receipts`
-//!   runs inside the same `apply()` call as the transactions that emit
-//!   them).
-//!
-//! Both modes consume the per-request outcome budget enforced by the
-//! handler; the kernel only counts and reports per-scan progress.
+//! Hint-fallback scan: locate a receipt's producing outcome by walking
+//! `OutcomeIds` / `TransactionResultForBlock` around a caller-supplied
+//! anchor. Used when the `ReceiptToTx` column is disabled or rotated out.
 
 use crate::{ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
@@ -41,25 +20,15 @@ use near_store::DBCol;
 /// default.
 pub const DEFAULT_HINT_WINDOW: BlockHeightDelta = 5;
 
-/// Hint scan mode + width. Handler picks the variant based on whether any
-/// prior hop in the walk was scan-resolved (`Ancestor`) or not
-/// (`CenterOut`). The flag is monotonic — once set on the first
-/// scan-resolve it stays set for the rest of the walk; intervening column
-/// hits do not flip it back.
+/// Hint scan mode + width. Monotonic: once the walker resolves a hop via
+/// scan it stays in `Ancestor` for the rest of the walk; column hits do
+/// not flip it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scan {
-    /// Center-out `±window` scan. Used when no scan has run yet, so the
-    /// anchor is the caller's literal hint and could be off either side
-    /// of the producing outcome.
+    /// `±window` around the caller's literal hint. Used pre-first-scan.
     CenterOut { window: BlockHeightDelta },
-    /// Anchor-inclusive backward scan: `h, h-1, ..., h-max_distance`. The
-    /// anchor is included because same-shard local receipts can execute
-    /// in the same block as their producing outcome
-    /// (`process_local_receipts` runs within the same `apply()` call as
-    /// the transactions that emit them; see `runtime/runtime/src/lib.rs`).
-    /// Used once any prior hop has been scan-resolved: causality
-    /// guarantees later ancestors execute at or before the most-recent
-    /// scan-refreshed anchor, regardless of column hits walked between.
+    /// Anchor-inclusive backward scan `h, h-1, ..., h-max_distance`.
+    /// Used after any prior hop in the walk was scan-resolved.
     Ancestor { max_distance: BlockHeightDelta },
 }
 

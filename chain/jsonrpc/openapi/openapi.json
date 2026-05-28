@@ -13308,6 +13308,12 @@
             "minimum": 0,
             "type": "integer"
           },
+          "receipt_to_tx_max_outcomes_per_request": {
+            "description": "Per-request ceiling on the total number of outcome rows the\n`EXPERIMENTAL_receipt_to_tx` hint-fallback scanner may read across\nall hops and shards. Caps cold-RocksDB worst-case latency on an\nunauthenticated public endpoint. Default 20_000. Operators serving\ncold archival traffic with deep walks or sparse outcomes may raise\nthis; benchmark first (see TODO in `view_client_actor.rs`).\nRequests that exhaust the budget mid-scan fail with\n`BudgetExceeded { scanned, limit }`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "resharding_config": {
             "$ref": "#/components/schemas/MutableConfigValue"
           },
@@ -16414,10 +16420,10 @@
                 "nullable": true
               }
             ],
-            "description": "Optional shard hint consumed by any hint scan that runs before the\nwalk has crossed a `FromReceipt` arm. Once a `FromReceipt` arm\nfires, the handler overwrites `current_shard` via predecessor-account\nderivation (`shard_for_account_at_height(parent_predecessor_id,\ncurrent_height)`), so this field does not narrow the rest of the\nwalk. If the very first walker step is a column hit returning\n`FromReceipt`, the caller's shard hint is discarded without being\nused by any scan. Omitting `shard_id` leaves `current_shard` unset;\nany scan that runs before a `FromReceipt` arm has derived it then\nenumerates all tracked shards at the hint height, multiplying the\nscan budget by the number of shards."
+            "description": "Shard hint. Narrows the scan to this shard at the hint height. Omit\nto enumerate all tracked shards (higher cost). After the walker\ncrosses a receipt-origin hop the shard is derived from the parent's\npredecessor account and this hint no longer applies. Best-effort\nacross resharding: layout shifts can miss the producer, walk returns\n`UnknownReceipt`."
           },
           "window": {
-            "description": "Optional override for the `±window` scan range used on the\npre-first-scan `CenterOut` scan against the caller's literal hint.\nDefaults to `DEFAULT_HINT_WINDOW` when omitted; rejected with\n`WindowTooLarge` when greater than the node's\n`receipt_to_tx_max_hint_window` setting (default 20). On cold\nstorage, every extra block in the window translates directly into\nadditional remote reads — keep this tight.\n\nAfter the first scan-resolve, all later scans use `Ancestor +\nreceipt_to_tx_max_hop_distance` regardless of intervening column\nhits, subject to `max_hop_distance`. Bumping `window` past\n`max_hop_distance` widens only the pre-first-scan scan; tune the\nnode config to widen subsequent ancestor scans.",
+            "description": "Pre-first-scan width: `±window` heights around the hint. Caps at the\nnode's `receipt_to_tx_max_hint_window` (default 20). Ignored after\nthe first scan-resolved hop; the walker switches to `Ancestor` mode\nat `receipt_to_tx_max_hop_distance` width.",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,

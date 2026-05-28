@@ -1398,24 +1398,13 @@ fn handle_receipt_to_tx(
             }
             ReceiptOrigin::FromReceipt(origin) => {
                 let parent_id = origin.parent_receipt_id;
-                // Derive next-hop shard from the parent receipt's
-                // predecessor account. The parent receipt P executed on the
-                // shard of P.receiver_id; P.receiver_id = R.predecessor_id
-                // (where R is the receipt we just resolved). We don't have R
-                // loaded here but we do have `parent_predecessor_id` which
-                // is P.predecessor_id, useful for finding *P's* parent (the
-                // grandparent G executed on shard(G.receiver_id) =
-                // shard(P.predecessor_id)). That's the shard the next
-                // column-miss scan should target, so this assignment lets
-                // the scan run on one shard instead of enumerating all of
-                // them. Best-effort: the shard is computed at
-                // `current_height`, which may be stale wrt the receipt's
-                // actual creation height — column hits walk past
-                // `current_height` without refreshing it. Across a
-                // resharding boundary the derivation can pick a shard that
-                // no longer contains the producing outcome, in which case
-                // the scan misses and the walk falls through to
-                // `UnknownReceipt` rather than fabricating a result.
+                // Next-hop shard = predecessor of this receipt's parent.
+                // Parent P executed on shard(P.receiver_id), which equals
+                // this receipt's predecessor_id. P's parent lives at
+                // shard(origin.parent_predecessor_id), computed at
+                // current_height. Best-effort across resharding: layout
+                // shifts may pick a stale shard; the scan misses and the
+                // walk returns `UnknownReceipt` rather than fabricate.
                 current_shard = current_height.and_then(|h| {
                     shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
                 });
