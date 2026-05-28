@@ -802,16 +802,15 @@ pub struct ClientConfig {
     /// matches caller's wider hint scope. Requests with `window` over this
     /// rejected with `WindowTooLarge`.
     pub receipt_to_tx_max_hint_window: BlockHeightDelta,
-    /// Max block-distance the ancestor scan walks per hop once any scan in
-    /// the walk refreshed `current_height`. Subsequent column-miss scans
-    /// visit `h, h-1, ..., h-max_hop_distance` from most-recent
-    /// scan-refreshed anchor, regardless of column hits between. Anchor
-    /// included because same-shard local receipts execute in same block as
-    /// producing outcome. Raise if cold archival traffic shows ancestor
-    /// misses — relevant gap = scan-refreshed anchor to producer-outcome
-    /// height of receipt with missing column row (not "between consecutive
-    /// scans"; column hits don't reset anchor). Default 20 (matches
-    /// `receipt_to_tx_max_hint_window`).
+    /// Max block-distance ancestor scan walks per hop once any scan in
+    /// walk refreshed `current_height`. Subsequent column-miss scans visit
+    /// `h, h-1, ..., h-max_hop_distance` from most-recent scan-refreshed
+    /// anchor, regardless of column hits between. Anchor included —
+    /// same-shard local receipts execute in same block as producing
+    /// outcome. Raise if cold archival traffic shows ancestor misses —
+    /// gap = scan-refreshed anchor to producer-outcome height of receipt
+    /// with missing column row (column hits don't reset anchor). Default
+    /// 20 (matches `receipt_to_tx_max_hint_window`).
     pub receipt_to_tx_max_hop_distance: BlockHeightDelta,
     /// Per-request ceiling on outcome rows the `EXPERIMENTAL_receipt_to_tx`
     /// hint-fallback scanner reads across hops + shards. Caps cold-RocksDB

@@ -1339,14 +1339,13 @@ fn handle_receipt_to_tx(
     let mut current_height = msg.block_height;
     let mut current_shard = msg.shard_id;
     let mut remaining_budget = max_outcomes_per_request;
-    // Monotonic. False → true on first scan-resolve, never reset. After
-    // scan refreshes `current_height` to resolved parent's exact execution
-    // height, causality (receipts emit before they execute) bounds every
-    // later ancestor's emitter outcome at or before anchor. Column hits
-    // walked past anchor deepen backward distance but keep upper-bound
-    // provenance → subsequent column-miss scans stay
-    // `Ancestor + max_hop_distance`. Pre-first-scan anchor = caller's
-    // literal hint, `CenterOut` spans both sides.
+    // Monotonic. False → true on first scan-resolve, never reset. Scan
+    // refreshes `current_height` to parent's exact execution height;
+    // causality (emit before execute) bounds every later ancestor's
+    // emitter outcome at or before anchor. Column hits past anchor deepen
+    // backward distance but keep upper-bound provenance → subsequent
+    // column-miss scans stay `Ancestor + max_hop_distance`. Pre-first-scan
+    // anchor = caller's literal hint, `CenterOut` spans both sides.
     let mut have_scanned = false;
 
     for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {

@@ -51,29 +51,23 @@ impl From<RpcReceiptError> for crate::errors::RpcError {
 pub struct RpcReceiptToTxRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
-    /// Block height near where receipt was created. Enables best-effort
-    /// hint fallback scan when local `ReceiptToTx` column misses mid-walk.
-    /// Handler anchors first hint scan here. Each scan-resolved hop
-    /// refreshes anchor to parent's exact execution height; later ancestors
-    /// are bounded by anchor via causality (receipts emit before execute),
-    /// so subsequent column-miss scans switch to `Ancestor` direction.
-    /// Bump `receipt_to_tx_max_hop_distance` if cold archival workload
-    /// sees gaps wider than default 20 blocks.
+    /// Block height near where receipt was created. Enables hint fallback
+    /// scan on column miss. Anchor refreshes to each scan-resolved parent's
+    /// exact execution height; later ancestors bounded via causality
+    /// (emit before execute), so subsequent column-miss scans go
+    /// `Ancestor`. Bump `receipt_to_tx_max_hop_distance` if cold archival
+    /// gaps exceed default 20.
     ///
-    /// Cold-storage cost: endpoint serves historical queries from cold
-    /// storage (per-row latency orders of magnitude higher than hot).
-    /// To keep request cost bounded:
-    ///   - Supply `block_height` within parent outcome's `±window`
-    ///     (default 5 blocks).
-    ///   - Supply `shard_id` when producing shard is known. Omitting forces
-    ///     all-shards enumeration until walker crosses a `FromReceipt` hop,
-    ///     multiplying cold-read cost.
-    ///   - Don't widen `window` beyond indexer's height-estimate accuracy;
-    ///     budget shared across full ancestry walk.
+    /// Cold-storage cost: per-row latency orders of magnitude over hot. To
+    /// bound request cost:
+    ///   - Supply `block_height` within parent's `±window` (default 5).
+    ///   - Supply `shard_id`. Omit → all-shards enumeration until walker
+    ///     crosses `FromReceipt` hop, multiplying cold-read cost.
+    ///   - Don't widen `window` beyond indexer's accuracy; budget shared
+    ///     across full ancestry walk.
     ///
-    /// Receipt-id-only queries against periods where `save_receipt_to_tx`
-    /// was disabled remain unsupported: column never written, endpoint has
-    /// no self-locating mechanism.
+    /// Receipt-id-only queries against periods with `save_receipt_to_tx`
+    /// disabled stay unsupported: column never written, no self-locating.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_height: Option<BlockHeight>,
     /// Shard hint. Narrows scan to this shard at hint height. Omit to

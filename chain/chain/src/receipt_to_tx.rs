@@ -151,16 +151,16 @@ pub fn resolve_receipt_via_hint(
             };
 
             // Both `Transactions` and `Receipts` reference-counted + GC'd
-            // at the historical horizon this endpoint serves. Checking only
+            // at archival horizon this endpoint serves. Checking only
             // `Transactions` misclassifies tx-origin outcomes whose tx row
-            // was collected as receipt-origin → silent parent-receipt
-            // lookup fail. Check both columns, skip if neither holds the row.
+            // got collected → silent parent-receipt lookup fail. Check
+            // both, skip if neither.
             //
-            // `exists` calls not snapshotted. Concurrent GC between them
-            // downgrades (true, true) → (true, false) / (false, true), or
-            // either side to (false, false). Worst case: spurious skip,
-            // never misclassification — both downstream paths re-read from
-            // the same store before producing a result.
+            // `exists` calls not snapshotted. Concurrent GC downgrades
+            // (true, true) → (true, false) / (false, true) / either to
+            // (false, false). Worst case: spurious skip, never
+            // misclassification — both downstream paths re-read from same
+            // store before producing a result.
             let in_txs = store.exists(DBCol::Transactions, outcome_id.as_ref());
             let in_receipts = store.exists(DBCol::Receipts, outcome_id.as_ref());
             let origin = match (in_txs, in_receipts) {
