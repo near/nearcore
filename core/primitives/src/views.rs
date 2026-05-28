@@ -1965,6 +1965,15 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
                 status: v0.status.into(),
                 metadata: v0.metadata.into(),
             },
+            ExecutionOutcome::V1(v1) => Self {
+                logs: v1.logs,
+                receipt_ids: v1.receipt_ids,
+                gas_burnt: v1.gas_burnt,
+                tokens_burnt: v1.tokens_burnt,
+                executor_id: v1.executor_id,
+                status: v1.status.into(),
+                metadata: v1.metadata.into(),
+            },
         }
     }
 }
