@@ -21,7 +21,6 @@ use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ExecutionResultEndorsed;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::types::ApplyChunkResult;
-use near_chain::types::Tip;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
@@ -35,7 +34,6 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardProof;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
@@ -698,14 +696,15 @@ impl ChunkExecutorActor {
             store_update.commit();
         }
         // Advance the spice heads for the block we just applied (forward-only).
-        // The canonical-next walk below catches backlog from prior crashes; it
-        // would otherwise get stuck on non-canonical forks since
-        // `NextBlockHashes[fork]` is never populated when siblings overwrite
-        // `NextBlockHashes[fork.prev]`.
+        // The canonical-next walk in `advance_execution_head` can't reach this
+        // block from the prior head when the chain has forks — `NextBlockHashes`
+        // for the prior canonical fork is never populated because siblings
+        // overwrite `NextBlockHashes[fork.prev]`. Finalizing directly here
+        // sidesteps the walk; the walk runs at startup for restart-after-crash
+        // backlog.
         if self.all_tracked_shards_applied(&block_hash)? {
             self.finalize_block(&block_hash)?;
         }
-        self.advance_execution_head()?;
         Ok(())
     }
 
@@ -732,23 +731,14 @@ impl ChunkExecutorActor {
         }
     }
 
-    /// Block-level finalize: read block, write spice heads in one
-    /// `StoreUpdate`, then run the post-commit flat-storage advance + memtrie
-    /// GC (gated on the final-execution-head actually moving forward).
     fn finalize_block(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
-        let mut store_update = self.chain_store.store().store_update();
-        let new_final = apply_block_postprocessing(&mut store_update, &block)?;
-        store_update.commit();
-        near_chain::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.set(block.header().height() as i64);
-        let Some(new_final) = new_final else {
-            return Ok(());
-        };
-        let shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash())?;
-        self.update_flat_storage_head(&shard_layout, &new_final)?;
-        self.gc_memtrie_roots(&shard_layout, &new_final);
-        Ok(())
+        apply_block_postprocessing(
+            self.runtime_adapter.as_ref(),
+            self.epoch_manager.as_ref(),
+            &self.chain_store,
+            &block,
+        )
     }
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
@@ -1055,45 +1045,6 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    fn update_flat_storage_head(
-        &self,
-        shard_layout: &ShardLayout,
-        final_execution_head: &Tip,
-    ) -> Result<(), Error> {
-        // TODO(spice): Evaluate if using block before final_execution_head still makes sense for
-        // spice. For now it's used mainly because it's used for updating flat head without spice
-        // with the following reasoning:
-        // Using prev_block_hash should be required for `StateSnapshot` to be able to make snapshot of
-        // flat storage at the epoch boundary.
-        let new_flat_head = final_execution_head.prev_block_hash;
-        // TODO(spice): handle state sync and resharding edge cases when updating flat head.
-
-        if new_flat_head == CryptoHash::default() {
-            return Ok(());
-        }
-
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        for shard_uid in shard_layout.shard_uids() {
-            if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
-                continue;
-            }
-            flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
-        }
-        Ok(())
-    }
-
-    fn gc_memtrie_roots(&self, shard_layout: &ShardLayout, final_execution_head: &Tip) {
-        let header =
-            self.chain_store.get_block_header(&final_execution_head.last_block_hash).unwrap();
-        let Some(prev_height) = header.prev_height() else {
-            return;
-        };
-        for shard_uid in shard_layout.shard_uids() {
-            let tries = self.runtime_adapter.get_tries();
-            tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
-        }
-    }
-
     fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
         let start_block = match self.chain_store.spice_final_execution_head() {
             Ok(final_execution_head) => final_execution_head.last_block_hash,
@@ -1258,14 +1209,7 @@ pub(crate) fn is_descendant_of_final_execution_head(
     }
     let mut prev_hash = *header.prev_hash();
     while height > final_execution_head.height {
-        // GC may have removed ancestor headers (long-running tests, deep
-        // reorg). A missing header means this block's ancestor chain doesn't
-        // reach the final-execution head — treat as non-descendant.
-        let header = match chain_store.get_block_header(&prev_hash) {
-            Ok(header) => header,
-            Err(Error::DBNotFoundErr(_)) => return false,
-            Err(err) => panic!("failed to walk back to final execution head: {err:?}"),
-        };
+        let header = chain_store.get_block_header(&prev_hash).unwrap();
         prev_hash = *header.prev_hash();
         height = header.height();
     }
