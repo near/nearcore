@@ -18,10 +18,9 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 use std::collections::BTreeMap;
 
-/// Per-shard apply persistence config. Holds the column-gating flags read
-/// at the per-shard apply persistence call site. Lives in the chain crate
-/// so both the spice executor (client crate) and the chain-side apply path
-/// (chain crate) can share it.
+/// Column-gating flags read by `apply_chunk_postprocessing`. Lives in the
+/// chain crate so both the spice executor and the chain-side apply path
+/// share it.
 #[derive(Clone, Debug)]
 pub struct ChunkExecutorConfig {
     pub save_trie_changes: bool,
@@ -41,20 +40,16 @@ impl Default for ChunkExecutorConfig {
     }
 }
 
-/// Per-shard persistence for one chunk's apply outputs. Writes into the
-/// caller-provided `store_update`; the caller decides commit lifecycle.
-///
-/// Spice calls this per shard with a fresh `StoreUpdate` and commits per
-/// shard (per-shard atomicity). Chain calls it via the `ChainStoreUpdate`
-/// bridge for each shard and lets `ChainStoreUpdate::finalize` commit at
-/// the end of the block (per-block atomicity).
+/// Per-shard apply persistence for one chunk. Writes into the caller-provided
+/// `store_update`; the caller decides the commit lifecycle. Spice commits per
+/// shard (per-shard atomicity); chain commits per block via
+/// `ChainStoreUpdate::finalize` (per-block atomicity).
 ///
 /// Replay safety: the `ChunkExtra` sentinel, the refcounted `State` trie
-/// insertions, and the refcounted `Receipts` writes all land in the SAME
-/// `StoreUpdate` and commit together. A crash leaves neither the sentinel
-/// nor the rc writes; the caller's `chunk_extra_exists` guard then
-/// re-applies cleanly. Splitting these across store updates would
-/// double-count refcounts.
+/// insertions, and the refcounted `Receipts` writes must all land in the SAME
+/// `StoreUpdate`. A crash then leaves neither sentinel nor rc writes; the
+/// caller's `chunk_extra_exists` guard re-applies cleanly. Splitting across
+/// updates would double-count refcounts on replay.
 pub fn apply_chunk_postprocessing(
     store_update: &mut StoreUpdate,
     runtime_adapter: &dyn RuntimeAdapter,
@@ -94,10 +89,9 @@ pub fn apply_chunk_postprocessing(
         &trie_changes,
     )?;
 
-    // Trie deletions go into a SEPARATE `StoreUpdate` that is intentionally
-    // DROPPED without commit at the end of this function — see the doc on
-    // `write_trie_changes`. Built outside the helper so the dropped-without-
-    // commit lifecycle is visible at this level.
+    // Deletions go into a SEPARATE `StoreUpdate` that is intentionally DROPPED
+    // without commit — only the in-memory cache invalidation survives. Built
+    // here so the lifecycle is visible at the call site. See `write_trie_changes`.
     let mut deletions_store_update = runtime_adapter.store().trie_store().store_update();
     write_trie_changes(
         &mut store_update.trie_store_update(),
@@ -140,10 +134,9 @@ pub fn apply_chunk_postprocessing(
     Ok(())
 }
 
-/// Compute the flat-state delta for this shard's apply and merge it into
-/// `store_update`. Reads `trie_changes.state_changes()`, which is a borrow
-/// that becomes invalid once `state_changes_into` drains them — so this
-/// must run before [`write_trie_changes`].
+/// Compute the flat-state delta and merge it into `store_update`. Reads
+/// `trie_changes.state_changes()`, a borrow that `state_changes_into` drains —
+/// so this must run before `write_trie_changes`.
 fn write_flat_state_delta(
     store_update: &mut StoreUpdate,
     runtime_adapter: &dyn RuntimeAdapter,
@@ -164,23 +157,17 @@ fn write_flat_state_delta(
     Ok(())
 }
 
-/// Apply this chunk's trie changes: mem changes + refcount-incrementing
-/// insertions into the shared `StoreUpdate`, deletions into a separate
-/// `StoreUpdate` that the caller drops without committing. State-changes and
+/// Apply this chunk's trie changes. Insertions and refcount-incrementing writes
+/// go into the shared `StoreUpdate`; deletions go into a separate `StoreUpdate`
+/// that the caller drops without committing. Optional state-changes and
 /// trie-changes columns are gated by `config`.
 ///
-/// **Why `deletions_store_update` is a SEPARATE update.** `deletions_into`
-/// writes both to disk and to the in-memory trie cache. We *do* want to
-/// invalidate the cache for the deleted nodes (so future reads don't return
-/// stale data via the cache), but we *do not* want to remove the nodes from
-/// disk here — GC removes nodes from disk on its own schedule, after every
-/// reference is gone. Writing deletions to the same `StoreUpdate` as the
-/// insertions and committing it would remove the nodes from disk
-/// prematurely (and potentially under-refcount entries that other blocks
-/// still reference). The deletion-only `TrieStoreUpdateAdapter` is
-/// constructed at the call site and **dropped without commit** when it
-/// leaves scope — only the cache-update side effect of `deletions_into`
-/// survives, which is exactly what we want.
+/// `deletions_into` has two effects: write to disk AND invalidate the in-memory
+/// trie cache. We want the cache invalidation (stale reads otherwise) but NOT
+/// the disk write — GC removes nodes from disk on its own schedule, after every
+/// reference is gone. Committing deletions here would remove still-referenced
+/// nodes prematurely. Dropping the deletion-only update keeps only the cache
+/// invalidation side effect.
 fn write_trie_changes(
     trie_store_update: &mut TrieStoreUpdateAdapter,
     deletions_store_update: &mut TrieStoreUpdateAdapter,
@@ -199,10 +186,10 @@ fn write_trie_changes(
     }
 }
 
-/// Build the `ProcessedReceiptIds` metadata + companion refcounted `Receipts`
-/// writes. Consumes `processed_receipts` (the refcounted writes follow);
-/// borrows `receipt_to_tx`. Metadata derivation lives here (not in the
-/// adapter setter) so the `ReceiptToTxGc` markers stay a call-site decision.
+/// Build `ProcessedReceiptIds` metadata and the companion refcounted `Receipts`
+/// writes. Consumes `processed_receipts`; borrows `receipt_to_tx`. Metadata
+/// derivation stays here (not in the adapter setter) so the `ReceiptToTxGc`
+/// markers remain a call-site decision.
 fn write_processed_receipts(
     store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,

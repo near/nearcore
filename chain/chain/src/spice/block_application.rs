@@ -8,25 +8,21 @@ use near_primitives::shard_layout::ShardLayout;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 
-/// Block-level finalize: write spice heads, commit, then run the post-commit
-/// flat-storage advance and memtrie GC. Owns the commit lifecycle because the
-/// post-commit ops must observe the durably-written heads.
+/// Block-level finalize. Owns the entire commit lifecycle because the work
+/// straddles the commit boundary, unlike `apply_chunk_postprocessing` which
+/// takes `&mut StoreUpdate` and lets the caller commit.
 ///
-/// Unlike [`crate::spice::chunk_application::apply_chunk_postprocessing`] —
-/// which takes `&mut StoreUpdate` and lets the caller commit — this helper
-/// owns the entire block-level finalize because its work spans the commit
-/// boundary:
+/// **Pre-commit phase.** Forward-only writes to `spice_execution_head` and
+/// `spice_final_execution_head`, both into one `StoreUpdate` so the heads
+/// advance atomically. Forward-only setters make the writes idempotent.
 ///
-/// - **Pre-commit**: spice execution-head + final-execution-head writes go
-///   into one `StoreUpdate`. Forward-only setters make these idempotent.
-/// - **Post-commit**: flat-storage advance and memtrie GC operate on
-///   subsystems outside the spice `StoreUpdate` — flat-storage commits its
-///   own updates internally, memtrie GC is an in-memory cache mutation. Both
-///   are themselves idempotent, but must observe the durably-written final
-///   head before they run, otherwise a reader between pre- and post-commit
-///   would see an inconsistent split.
+/// **Post-commit phase.** Flat-storage advance and memtrie GC. These touch
+/// subsystems outside the spice `StoreUpdate` — flat storage commits its own
+/// internal updates, memtrie GC mutates an in-memory cache. They must observe
+/// the durably-written heads before they run, otherwise a reader between pre-
+/// and post-commit would see an inconsistent split. Both ops are idempotent.
 ///
-/// Idempotent: calling twice on the same block reaches the same end state.
+/// Calling twice on the same block reaches the same end state.
 pub fn apply_block_postprocessing(
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,

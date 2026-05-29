@@ -152,9 +152,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
-        // Self-heal after a finalize crash: advance the head past anything
-        // already-applied on disk before scheduling fresh applies. The advance
-        // is idempotent, so a healthy startup with no pending finalize is a no-op.
+        // Catch up after a crash between apply-commit and finalize: walk forward
+        // past anything already-applied on disk before scheduling fresh applies.
+        // Idempotent — a clean restart with no pending finalize is a no-op.
         if let Err(err) = self.advance_execution_head() {
             tracing::error!(
                 target: "chunk_executor",
@@ -444,10 +444,10 @@ impl ChunkExecutorActor {
                 continue;
             }
 
-            // Per-shard already-applied skip. Per-shard commits can partial-fail
-            // (some shards applied, others not — briefly during apply, durably
-            // after a crash between per-shard commits), so we skip the shard
-            // rather than bailing the whole block.
+            // Per-shard already-applied skip. Spice commits each shard
+            // independently, so partial application is possible — briefly during
+            // apply, durably after a crash between per-shard commits. Skip the
+            // applied shard rather than bailing the whole block.
             if self.chunk_extra_exists(block_hash, &shard_uid)? {
                 any_shard_already_applied = true;
                 continue;
@@ -493,11 +493,10 @@ impl ChunkExecutorActor {
             });
         }
         if chunk_contexts.is_empty() && any_shard_already_applied {
-            // Every tracked shard's chunk_extra was already on disk; nothing left
-            // to apply for this block. Treat as already-accepted so the caller
-            // doesn't keep retrying. If `chunk_contexts` is empty solely because
-            // this node tracks no shards for the epoch, fall through to the
-            // schedule call so the caller still sees `Scheduled` (no-op).
+            // All tracked shards already applied on disk; nothing left to schedule.
+            // Treat as already-accepted so the caller stops retrying. Empty
+            // contexts without `any_shard_already_applied` means this node tracks
+            // no shards — fall through to the no-op schedule call.
             return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
         }
         self.schedule_apply_chunks(
@@ -683,8 +682,7 @@ impl ChunkExecutorActor {
                     self.distribute_witness(&block, &new_chunk_result, outgoing_receipts_root)?;
                 }
             }
-            // RPC nodes (non-validator) skip the emit half above and still
-            // persist below.
+            // RPC nodes skip endorsement/distribution above; persistence below still runs.
             let mut store_update = self.chain_store.store().store_update();
             apply_chunk_postprocessing(
                 &mut store_update,
@@ -695,21 +693,20 @@ impl ChunkExecutorActor {
             )?;
             store_update.commit();
         }
-        // Advance the spice heads for the block we just applied (forward-only).
-        // Finalizing directly here, rather than relying on the canonical-next
-        // walk, is necessary because under forks `NextBlockHashes[fork]` is
-        // never populated — siblings overwrite `NextBlockHashes[fork.prev]`,
-        // leaving the walk unable to reach this block from the prior head.
+        // Finalize directly here, not via the canonical-next walk: under forks
+        // `NextBlockHashes[fork]` is never populated (siblings overwrite
+        // `NextBlockHashes[fork.prev]`), so the walk can't reach a fork block
+        // from the prior head. Forward-only setters make this idempotent.
         if self.all_tracked_shards_applied(&block_hash)? {
             self.finalize_block(&block_hash)?;
         }
         Ok(())
     }
 
-    /// Walks canonical-next blocks forward from `spice_execution_head`,
-    /// finalizing each block whose tracked shards all have `ChunkExtra` on
-    /// disk. Disk-driven: head advance is a function of disk state, not
-    /// message arrival.
+    /// Disk-driven catch-up: walk canonical-next from `spice_execution_head`
+    /// and finalize each block whose tracked shards all have `ChunkExtra` on
+    /// disk. Used on startup to recover from a crash between apply-commit and
+    /// finalize; the hot path finalizes directly in `process_apply_chunk_results`.
     fn advance_execution_head(&self) -> Result<(), Error> {
         loop {
             let head = self.chain_store.spice_execution_head()?.last_block_hash;
@@ -718,9 +715,9 @@ impl ChunkExecutorActor {
                 Err(Error::DBNotFoundErr(_)) => return Ok(()),
                 Err(err) => return Err(err),
             };
-            // `NextBlockHashes` is populated when headers are processed (block
-            // sync, header-first paths). The block content for `next` may not
-            // yet be on disk; if so, stop walking until it arrives.
+            // `NextBlockHashes` is populated when headers are processed, so the
+            // block content for `next` may not be on disk yet. Stop walking
+            // until it arrives.
             match self.chain_store.get_block(&next) {
                 Ok(_) => {}
                 Err(Error::DBNotFoundErr(_)) => return Ok(()),
