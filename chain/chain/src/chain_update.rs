@@ -138,14 +138,15 @@ impl<'a> ChainUpdate<'a> {
                 }
 
                 let config = self.chain_store_update.chain_store().chunk_executor_config();
-                let store_update = self.chain_store_update.store_update();
+                let mut store_update = self.chain_store_update.store().store_update();
                 apply_chunk_postprocessing(
-                    store_update,
+                    &mut store_update,
                     self.runtime_adapter.as_ref(),
                     block,
                     new_chunk_result,
                     &config,
                 )?;
+                self.chain_store_update.merge(store_update);
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -544,14 +545,15 @@ impl<'a> ChainUpdate<'a> {
         // inline; everything else goes through the shared helper.
         let config = self.chain_store_update.chain_store().chunk_executor_config();
         let new_chunk_result = NewChunkResult { gas_limit, shard_uid, apply_result };
-        let store_update = self.chain_store_update.store_update();
+        let mut store_update = self.chain_store_update.store().store_update();
         apply_chunk_postprocessing(
-            store_update,
+            &mut store_update,
             self.runtime_adapter.as_ref(),
             block.as_ref(),
             new_chunk_result,
             &config,
         )?;
+        self.chain_store_update.merge(store_update);
 
         for receipt_proof_response in receipt_proof_responses {
             self.chain_store_update.save_incoming_receipt(
