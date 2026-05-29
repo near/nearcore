@@ -118,6 +118,9 @@ fn register_block_holder(
 }
 
 #[test]
+// Spice distributes witnesses via its own data-distribution path, not the V2
+// partial-witness pending cache this test drives, so the defer never fires.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_v2_init_emit_defer_then_replay() {
     init_test_logger();
     let mut env = make_env();
