@@ -86,7 +86,6 @@ impl AccountV1 {
     Clone,
     ProtocolSchema,
 )]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccountContract {
     None,
     Local(CryptoHash),

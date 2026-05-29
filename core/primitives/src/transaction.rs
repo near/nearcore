@@ -8,10 +8,10 @@ use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::account::AccountContract;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
 use near_primitives_core::version::ProtocolFeature;
@@ -639,10 +639,16 @@ pub enum ExecutionMetadata {
     V4(Box<ExecutionMetadataV4>) = 3,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, ProtocolSchema)]
+#[derive(
+    BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default, ProtocolSchema,
+)]
 pub struct ExecutionMetadataV4 {
     pub profile: ProfileDataV3,
-    pub contract: AccountContract,
+    /// One entry per action in the receipt. For `FunctionCall` actions this
+    /// is the contract that ran; for every other action it is
+    /// `AccountContract::None`. Order matches the receipt's `actions` vector,
+    /// so consumers can correlate a contract with the action that invoked it.
+    pub contracts: Vec<AccountContract>,
 }
 
 impl fmt::Debug for ExecutionOutcome {

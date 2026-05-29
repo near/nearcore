@@ -34,7 +34,7 @@ use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -53,8 +53,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    TransferAction,
+    Action, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome, ExecutionOutcomeWithId,
+    ExecutionStatus, LogEntry, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -371,6 +371,12 @@ pub struct ActionResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
+    /// Per-action contract list. Each `apply_action` call appends exactly
+    /// one entry: the executed contract for `FunctionCall` actions and
+    /// `AccountContract::None` for all others. After merging the vector
+    /// length equals the receipt's action count. Surfaced via
+    /// `ExecutionMetadata::V4`.
+    pub executed_contracts: Vec<AccountContract>,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
 }
@@ -391,7 +397,11 @@ impl ActionResult {
             .ok_or(IntegerOverflowError)?;
         self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
+        // Profile aggregates by summing; contracts concatenate, so each
+        // per-action `ActionResult` contributes exactly one entry to the
+        // receipt-level vector (in action order).
         self.profile.merge(&next_result.profile);
+        self.executed_contracts.append(&mut next_result.executed_contracts);
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
         if let Ok(ReturnData::ReceiptIndex(ref mut receipt_index)) = self.result {
@@ -431,6 +441,7 @@ impl Default for ActionResult {
             new_receipts: vec![],
             validator_proposals: vec![],
             profile: Default::default(),
+            executed_contracts: vec![],
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
         }
@@ -487,6 +498,10 @@ impl Runtime {
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
         let implicit_account_creation_eligible = is_the_only_action && !is_refund;
+        // Populated by `Action::FunctionCall` below; pushed to
+        // `result.executed_contracts` once at the end so every `apply_action`
+        // call contributes exactly one entry to the per-action contract list.
+        let mut executed_contract = AccountContract::None;
 
         // Account validation
         if let Err(e) = check_account_existence(
@@ -497,11 +512,13 @@ impl Runtime {
             implicit_account_creation_eligible,
         ) {
             result.result = Err(e);
+            result.executed_contracts.push(executed_contract);
             return Ok(result);
         }
         // Permission validation
         if let Err(e) = check_actor_permissions(action, account, actor_id, account_id) {
             result.result = Err(e);
+            result.executed_contracts.push(executed_contract);
             return Ok(result);
         }
         match action {
@@ -570,10 +587,13 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let account_contract = account.contract();
+                let account_contract = account.contract().into_owned();
+                // Record the contract that runs so it can be surfaced via
+                // `ExecutionMetadata::V4` once the feature gate is active.
+                executed_contract = account_contract.clone();
                 let contract_id = RuntimeContractIdentifier::resolve(
                     account_id,
-                    account_contract.into_owned(),
+                    account_contract,
                     &state_update,
                     &apply_state.config.wasm_config,
                     &epoch_info_provider.chain_id(),
@@ -696,6 +716,7 @@ impl Runtime {
                 )?;
             }
         };
+        result.executed_contracts.push(executed_contract);
         Ok(result)
     }
 
@@ -1019,6 +1040,17 @@ impl Runtime {
 
         Self::print_log(&result.logs);
 
+        let profile = conversions::Convert::convert(*result.profile);
+        let metadata =
+            if ProtocolFeature::ExecutionMetadataV4.enabled(apply_state.current_protocol_version) {
+                ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 {
+                    profile,
+                    contracts: result.executed_contracts,
+                }))
+            } else {
+                ExecutionMetadata::V3(Box::new(profile))
+            };
+
         Ok(ExecutionOutcomeWithId {
             id: *receipt.receipt_id(),
             outcome: ExecutionOutcome {
@@ -1029,9 +1061,7 @@ impl Runtime {
                 compute_usage: Some(result.compute_usage),
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V3(Box::new(conversions::Convert::convert(
-                    *result.profile,
-                ))),
+                metadata,
             },
         })
     }

@@ -1,6 +1,6 @@
 ---
 source: core/primitives/src/views.rs
-assertion_line: 3054
+assertion_line: 3142
 expression: view
 snapshot_kind: text
 ---
@@ -568,7 +568,10 @@ snapshot_kind: text
       "gas_used": "64"
     }
   ],
-  "contract": {
-    "Local": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
-  }
+  "contracts": [
+    null,
+    {
+      "local": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+    }
+  ]
 }

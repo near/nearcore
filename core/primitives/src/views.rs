@@ -18,8 +18,8 @@ use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
-use crate::profile_data_v3::ProfileDataV3;
 use crate::network::PeerId;
+use crate::profile_data_v3::ProfileDataV3;
 use crate::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
     Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
@@ -1365,6 +1365,52 @@ impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
     }
 }
 
+/// RPC view of a non-empty [`AccountContract`]. The `AccountContract::None`
+/// variant is represented externally as a JSON `null` via `Option`, so this
+/// enum only carries the three "contract is present" cases. Serializes as
+/// an externally-tagged object:
+///
+/// - `Local(hash)` → `{"local": "<CryptoHash>"}`
+/// - `GlobalHash(hash)` → `{"global_hash": "<CryptoHash>"}`
+/// - `GlobalAccountId(id)` → `{"global_account_id": "<AccountId>"}`
+///
+/// Mirrors [`AccountContract`] 1:1 (minus `None`) so consumers can preserve
+/// the distinction between a global-by-hash and global-by-account contract
+/// without descending into a nested identifier.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AccountContractView {
+    Local(CryptoHash),
+    GlobalHash(CryptoHash),
+    GlobalAccountId(AccountId),
+}
+
+impl AccountContractView {
+    /// Project an [`AccountContract`] into its RPC view, with
+    /// `AccountContract::None` mapping to `Option::None` so the JSON layer
+    /// can render it as `null`.
+    pub fn from_account_contract(contract: AccountContract) -> Option<Self> {
+        match contract {
+            AccountContract::None => None,
+            AccountContract::Local(hash) => Some(AccountContractView::Local(hash)),
+            AccountContract::Global(hash) => Some(AccountContractView::GlobalHash(hash)),
+            AccountContract::GlobalByAccount(account_id) => {
+                Some(AccountContractView::GlobalAccountId(account_id))
+            }
+        }
+    }
+}
+
 impl From<GlobalContractIdentifierView> for GlobalContractIdentifier {
     fn from(code: GlobalContractIdentifierView) -> Self {
         match code {
@@ -1811,11 +1857,12 @@ pub struct CostGasUsed {
 pub struct ExecutionMetadataView {
     pub version: u32,
     pub gas_profile: Option<Vec<CostGasUsed>>,
-    /// The contract that was executed by this receipt (V4+ only). `None` for
-    /// older metadata versions and for receipts that do not execute a
-    /// contract (action receipts without a function call).
+    /// One entry per action in the receipt (V4+ only). The inner `Option`
+    /// is `Some` (a tagged contract object) for `FunctionCall` actions and
+    /// `None` (rendered as JSON `null`) for every other action. The outer
+    /// `Option` is `None` for older metadata versions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub contract: Option<AccountContract>,
+    pub contracts: Option<Vec<Option<AccountContractView>>>,
 }
 
 impl Default for ExecutionMetadataView {
@@ -1832,11 +1879,15 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
             ExecutionMetadata::V3(_) => 3,
             ExecutionMetadata::V4(_) => 4,
         };
-        let contract = match &metadata {
-            ExecutionMetadata::V1
-            | ExecutionMetadata::V2(_)
-            | ExecutionMetadata::V3(_) => None,
-            ExecutionMetadata::V4(v4) => Some(v4.contract.clone()),
+        let contracts = match &metadata {
+            ExecutionMetadata::V1 | ExecutionMetadata::V2(_) | ExecutionMetadata::V3(_) => None,
+            ExecutionMetadata::V4(v4) => Some(
+                v4.contracts
+                    .iter()
+                    .cloned()
+                    .map(AccountContractView::from_account_contract)
+                    .collect(),
+            ),
         };
         let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
@@ -1883,7 +1934,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 lhs.cost_category.cmp(&rhs.cost_category).then_with(|| lhs.cost.cmp(&rhs.cost))
             });
         }
-        ExecutionMetadataView { version, gas_profile, contract }
+        ExecutionMetadataView { version, gas_profile, contracts }
     }
 }
 
@@ -1893,9 +1944,8 @@ fn profile_v3_to_costs(profile: &ProfileDataV3) -> Vec<CostGasUsed> {
     let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
         .filter_map(|cost| {
             let gas_used = profile.get_action_cost(cost);
-            (gas_used > Gas::ZERO).then(|| {
-                CostGasUsed::action(format!("{:?}", cost).to_ascii_uppercase(), gas_used)
-            })
+            (gas_used > Gas::ZERO)
+                .then(|| CostGasUsed::action(format!("{:?}", cost).to_ascii_uppercase(), gas_used))
         })
         .collect();
 
@@ -3042,14 +3092,16 @@ mod tests {
     }
 
     /// `ExecutionMetadataView` with V4 metadata exposes both the gas profile
-    /// (same layout as V3) and the executed contract.
+    /// (same layout as V3) and the per-action contract list.
     #[test]
     fn test_exec_metadata_v4_view() {
         use crate::transaction::ExecutionMetadataV4;
         use near_primitives_core::account::AccountContract;
         let metadata = ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 {
             profile: ProfileDataV3::test(),
-            contract: AccountContract::Local(CryptoHash([7u8; 32])),
+            // Receipt with two actions: a Transfer (no contract) followed by
+            // a FunctionCall against a local contract.
+            contracts: vec![AccountContract::None, AccountContract::Local(CryptoHash([7u8; 32]))],
         }));
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
