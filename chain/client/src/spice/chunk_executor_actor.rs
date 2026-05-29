@@ -13,9 +13,10 @@ use near_chain::PendingShardJobs;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::{
-    ChunkExecutorConfig, apply_block_postprocessing, apply_chunk_postprocessing,
-    build_spice_apply_chunk_block_context, optional,
+    ChunkExecutorConfig, apply_chunk_postprocessing, build_spice_apply_chunk_block_context,
+    optional,
 };
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ExecutionResultEndorsed;
