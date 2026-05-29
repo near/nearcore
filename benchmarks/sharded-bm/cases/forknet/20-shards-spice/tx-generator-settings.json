@@ -17,7 +17,7 @@
 			"bps_filter_window_length": 6,
 			"gain_proportional": 20,
 			"gain_integral": 0.0,
-			"gain_derivative": 2.0,
+			"gain_derivative": 4.0,
 			"block_pause_threshold_ms": 6000
 		}
 	}
