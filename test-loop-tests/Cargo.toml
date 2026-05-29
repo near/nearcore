@@ -74,6 +74,7 @@ protocol_feature_spice = [
     "near-primitives-core/protocol_feature_spice",
 ]
 test_features = [
+    "near-async/test_features",
     "nearcore/test_features",
     "near-store/test_features",
     "near-vm-runner/test_features",

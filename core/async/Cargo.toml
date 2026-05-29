@@ -12,6 +12,7 @@ publish = true
 workspace = true
 
 [dependencies]
+corosensei = { workspace = true, optional = true }
 crossbeam-channel.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
@@ -32,6 +33,7 @@ thread-priority.workspace = true
 
 [features]
 actor_instrumentation_testing = ["rand"]
+test_features = ["dep:corosensei"]
 
 [dev-dependencies]
 tokio-util.workspace = true

@@ -188,6 +188,16 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Enables yield-point breakpoints for this test. When set, any `test_loop_yield!` call
+    /// firing from inside an `AsyncComputationSpawner`-spawned closure runs on a coroutine
+    /// stack, so an armed breakpoint can pause it. Without this, yield points are no-ops.
+    /// See `near_async::test_loop::breakpoint`. Only available with `--features test_features`.
+    #[cfg(feature = "test_features")]
+    pub fn enable_yield_points(mut self) -> Self {
+        self.test_loop.enable_yield_points();
+        self
+    }
+
     pub(crate) fn validators_spec(mut self, spec: ValidatorsSpec) -> Self {
         let auto = self.setup_config.ensure_auto();
         assert!(auto.validators_spec.is_none(), "validators_spec is already set");
