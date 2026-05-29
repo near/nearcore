@@ -792,7 +792,7 @@ pub(crate) static PARTIAL_WITNESS_DB_LOOKUP_TOTAL: LazyLock<IntCounterVec> = Laz
     .unwrap()
 });
 
-pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+pub static PARTIAL_WITNESS_PENDING_CACHE_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_partial_witness_pending_cache_size",
         "Current number of blocks with deferred V2 partial witnesses awaiting \

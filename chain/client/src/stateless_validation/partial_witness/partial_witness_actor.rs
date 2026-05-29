@@ -189,7 +189,7 @@ impl PendingV2WitnessCache {
 /// to spawner-side validate/store. `Ready` = progress now, `Requeue` = hold
 /// for next notification, `Retire` = permanently irrelevant, drop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReplayDisposition {
+pub(super) enum ReplayDisposition {
     /// Pre-checks passed. Dispatch via origin-appropriate path:
     /// `dispatch_partial_encoded_state_witness` (InitEmit) or
     /// `replay_forwarded_partial_witness` (Forwarded).
@@ -217,6 +217,61 @@ pub(super) fn witness_kicked_out(
     let expect_v2 = ProtocolFeature::EarlyKickout.enabled(version);
     let is_v2 = matches!(witness, VersionedPartialEncodedStateWitness::V2(_));
     is_v2 != expect_v2
+}
+
+/// Classify deferred V2 witness on actor thread before spawner-side
+/// validate+store. Cheap checks only: signer availability, chunk relevance
+/// (`HEAD`/`FINAL_HEAD` window, epoch admissibility), `ensure_chunk_validator`,
+/// V2 producer-DB resolvability. No signature verify — stays on spawner.
+///
+/// Transient (`TooEarly`, `UnknownEpochId`, `MissingBlock`,
+/// `ChunkProducerNotInDB`, signer unavailable) → `Requeue` (caller keeps
+/// cached for next notification). Terminal (`TooLate`, `NotAChunkValidator`,
+/// other hard validation errors) → `Retire` (drop).
+pub(super) fn pre_check_replay(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    my_signer: &MutableValidatorSigner,
+    witness: &VersionedPartialEncodedStateWitness,
+) -> ReplayDisposition {
+    let Some(signer) = my_signer.get() else {
+        return ReplayDisposition::Requeue;
+    };
+    let validator_account_id = signer.validator_id().clone();
+    drop(signer);
+
+    match validate_chunk_relevant_as_validator(
+        epoch_manager,
+        &witness.chunk_production_key(),
+        &validator_account_id,
+        runtime.store(),
+    ) {
+        Ok(ChunkRelevance::Relevant) => {}
+        Ok(ChunkRelevance::TooLate) => return ReplayDisposition::Retire,
+        Ok(ChunkRelevance::TooEarly | ChunkRelevance::UnknownEpochId) => {
+            return ReplayDisposition::Requeue;
+        }
+        Err(Error::DBNotFoundErr(_)) => return ReplayDisposition::Requeue,
+        Err(Error::NotAChunkValidator) => return ReplayDisposition::Retire,
+        // Anything else (bad shard, malformed, other epoch-manager failure) won't
+        // become valid by waiting. Retire.
+        Err(_) => return ReplayDisposition::Retire,
+    }
+
+    // V2: also verify prev-block-backed producer lookup resolves now. Still
+    // unresolved → waiting on header sync / block processing; keep cached.
+    if let VersionedPartialEncodedStateWitness::V2(v2) = witness {
+        let shard_id = witness.chunk_production_key().shard_id;
+        match epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id) {
+            Ok(_) => {}
+            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+                return ReplayDisposition::Requeue;
+            }
+            Err(_) => return ReplayDisposition::Retire,
+        }
+    }
+
+    ReplayDisposition::Ready
 }
 
 pub struct PartialWitnessActor {
@@ -720,54 +775,13 @@ impl PartialWitnessActor {
         Ok(())
     }
 
-    /// Classify deferred V2 witness on actor thread before spawner-side
-    /// validate+store. Cheap checks only: signer availability, chunk relevance
-    /// (`HEAD`/`FINAL_HEAD` window, epoch admissibility), `ensure_chunk_validator`,
-    /// V2 producer-DB resolvability. No signature verify — stays on spawner.
-    ///
-    /// Transient (`TooEarly`, `UnknownEpochId`, `MissingBlock`,
-    /// `ChunkProducerNotInDB`, signer unavailable) → `Requeue` (caller keeps
-    /// cached for next notification). Terminal (`TooLate`, `NotAChunkValidator`,
-    /// other hard validation errors) → `Retire` (drop).
     fn pre_check_replay(&self, witness: &VersionedPartialEncodedStateWitness) -> ReplayDisposition {
-        let Ok(signer) = self.my_validator_signer() else {
-            return ReplayDisposition::Requeue;
-        };
-        let validator_account_id = signer.validator_id().clone();
-        drop(signer);
-
-        match validate_chunk_relevant_as_validator(
+        pre_check_replay(
             self.epoch_manager.as_ref(),
-            &witness.chunk_production_key(),
-            &validator_account_id,
-            self.runtime.store(),
-        ) {
-            Ok(ChunkRelevance::Relevant) => {}
-            Ok(ChunkRelevance::TooLate) => return ReplayDisposition::Retire,
-            Ok(ChunkRelevance::TooEarly | ChunkRelevance::UnknownEpochId) => {
-                return ReplayDisposition::Requeue;
-            }
-            Err(Error::DBNotFoundErr(_)) => return ReplayDisposition::Requeue,
-            Err(Error::NotAChunkValidator) => return ReplayDisposition::Retire,
-            // Anything else (bad shard, malformed, other epoch-manager failure) won't
-            // become valid by waiting. Retire.
-            Err(_) => return ReplayDisposition::Retire,
-        }
-
-        // V2: also verify prev-block-backed producer lookup resolves now. Still
-        // unresolved → waiting on header sync / block processing; keep cached.
-        if let VersionedPartialEncodedStateWitness::V2(v2) = witness {
-            let shard_id = witness.chunk_production_key().shard_id;
-            match self.epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id) {
-                Ok(_) => {}
-                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
-                    return ReplayDisposition::Requeue;
-                }
-                Err(_) => return ReplayDisposition::Retire,
-            }
-        }
-
-        ReplayDisposition::Ready
+            self.runtime.as_ref(),
+            &self.my_signer,
+            witness,
+        )
     }
 
     /// Scan all deferred V2 witnesses on every block notification, reclassify
