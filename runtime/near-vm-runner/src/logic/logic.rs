@@ -3502,6 +3502,20 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
         self.pay_action_base(ActionCosts::function_call_base, true)?;
         self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, true)?;
+        // Allow attaching exactly 1 yoctoNEAR with the `one_yocto_on_promise`
+        // exemption (mirrors `promise_batch_action_function_call_weight`).
+        let skip_deduct = amount == Balance::from_yoctonear(1)
+            && self.config.one_yocto_on_promise
+            && self.result_state.current_account_balance.is_zero();
+        if skip_deduct {
+            self.result_state.subsidized_amount = self
+                .result_state
+                .subsidized_amount
+                .checked_add(amount)
+                .expect("subsidized_amount overflow");
+        } else {
+            self.result_state.deduct_balance(amount)?;
+        }
         self.ext.append_action_function_call_weight(
             new_receipt_idx,
             method_name,

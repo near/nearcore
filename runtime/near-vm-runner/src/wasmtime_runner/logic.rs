@@ -3864,6 +3864,20 @@ pub fn promise_yield_create_with_id(
         num_bytes,
         true,
     )?;
+    // Allow attaching exactly 1 yoctoNEAR with the `one_yocto_on_promise`
+    // exemption (mirrors `promise_batch_action_function_call_weight`).
+    let skip_deduct = amount == Balance::from_yoctonear(1)
+        && ctx.config.one_yocto_on_promise
+        && ctx.result_state.current_account_balance.is_zero();
+    if skip_deduct {
+        ctx.result_state.subsidized_amount = ctx
+            .result_state
+            .subsidized_amount
+            .checked_add(amount)
+            .expect("subsidized_amount overflow");
+    } else {
+        ctx.result_state.deduct_balance(amount)?;
+    }
     ctx.ext.append_action_function_call_weight(
         new_receipt_idx,
         method_name,
