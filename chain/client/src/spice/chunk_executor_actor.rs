@@ -16,7 +16,6 @@ use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::{
     ChunkExecutorConfig, apply_chunk_postprocessing, build_spice_apply_chunk_block_context,
-    optional,
 };
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ExecutionResultEndorsed;
@@ -685,7 +684,7 @@ impl ChunkExecutorActor {
                 }
             }
             // RPC nodes (non-validator) skip the emit half above and still
-            // persist below. Persistence consumes `new_chunk_result`.
+            // persist below.
             let mut store_update = self.chain_store.store().store_update();
             apply_chunk_postprocessing(
                 &mut store_update,
@@ -697,12 +696,10 @@ impl ChunkExecutorActor {
             store_update.commit();
         }
         // Advance the spice heads for the block we just applied (forward-only).
-        // The canonical-next walk in `advance_execution_head` can't reach this
-        // block from the prior head when the chain has forks — `NextBlockHashes`
-        // for the prior canonical fork is never populated because siblings
-        // overwrite `NextBlockHashes[fork.prev]`. Finalizing directly here
-        // sidesteps the walk; the walk runs at startup for restart-after-crash
-        // backlog.
+        // Finalizing directly here, rather than relying on the canonical-next
+        // walk, is necessary because under forks `NextBlockHashes[fork]` is
+        // never populated — siblings overwrite `NextBlockHashes[fork.prev]`,
+        // leaving the walk unable to reach this block from the prior head.
         if self.all_tracked_shards_applied(&block_hash)? {
             self.finalize_block(&block_hash)?;
         }
@@ -716,15 +713,19 @@ impl ChunkExecutorActor {
     fn advance_execution_head(&self) -> Result<(), Error> {
         loop {
             let head = self.chain_store.spice_execution_head()?.last_block_hash;
-            let Some(next) = optional(self.chain_store.get_next_block_hash(&head))? else {
-                return Ok(());
+            let next = match self.chain_store.get_next_block_hash(&head) {
+                Ok(hash) => hash,
+                Err(Error::DBNotFoundErr(_)) => return Ok(()),
+                Err(err) => return Err(err),
             };
             // `NextBlockHashes` is populated when headers are processed (block
             // sync, header-first paths). The block content for `next` may not
             // yet be on disk; if so, stop walking until it arrives.
-            if optional(self.chain_store.get_block(&next))?.is_none() {
-                return Ok(());
-            }
+            match self.chain_store.get_block(&next) {
+                Ok(_) => {}
+                Err(Error::DBNotFoundErr(_)) => return Ok(()),
+                Err(err) => return Err(err),
+            };
             if !self.all_tracked_shards_applied(&next)? {
                 return Ok(());
             }

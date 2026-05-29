@@ -164,7 +164,10 @@ fn write_flat_state_delta(
     Ok(())
 }
 
-/// Mirrors `ChainStoreUpdate::finalize`'s trie loop.
+/// Apply this chunk's trie changes: mem changes + refcount-incrementing
+/// insertions into the shared `StoreUpdate`, deletions into a separate
+/// `StoreUpdate` that the caller drops without committing. State-changes and
+/// trie-changes columns are gated by `config`.
 ///
 /// **Why `deletions_store_update` is a SEPARATE update.** `deletions_into`
 /// writes both to disk and to the in-memory trie cache. We *do* want to
@@ -221,16 +224,6 @@ fn write_processed_receipts(
     store_update
         .chain_store_update()
         .set_processed_receipt_ids(block_hash, shard_id, &metadata, &receipts);
-}
-
-/// Maps `DBNotFoundErr` to `None` and any other error through. Lets a read
-/// that may be absent compose with `?`.
-pub fn optional<T>(res: Result<T, Error>) -> Result<Option<T>, Error> {
-    match res {
-        Ok(value) => Ok(Some(value)),
-        Err(Error::DBNotFoundErr(_)) => Ok(None),
-        Err(err) => Err(err),
-    }
 }
 
 pub fn build_spice_apply_chunk_block_context(
