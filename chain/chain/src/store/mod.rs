@@ -1,3 +1,4 @@
+use crate::spice::chunk_application::ChunkExecutorConfig;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -325,6 +326,18 @@ impl ChainStore {
 
     pub fn with_save_state_changes(self, save_state_changes: bool) -> ChainStore {
         ChainStore { save_state_changes, ..self }
+    }
+
+    /// Both the chain-side apply path and the spice executor read off this
+    /// surface to keep the gating decisions in one place at the per-shard
+    /// call site.
+    pub fn chunk_executor_config(&self) -> ChunkExecutorConfig {
+        ChunkExecutorConfig {
+            save_trie_changes: self.save_trie_changes,
+            save_tx_outcomes: self.save_tx_outcomes,
+            save_receipt_to_tx: self.save_receipt_to_tx,
+            save_state_changes: self.save_state_changes,
+        }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {

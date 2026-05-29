@@ -2,12 +2,12 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::record_uncertified_chunks_for_block;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
-    RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkShardContext, BlockType, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{Chain, Doomslug};
@@ -31,6 +31,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
+use std::mem;
 use std::sync::Arc;
 
 /// Chain update helper, contains information that is needed to process block
@@ -118,65 +119,33 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match result {
-            ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
-                let (_, outcome_paths) =
-                    ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-                let shard_id = shard_uid.shard_id();
+            ShardUpdateResult::NewChunk(mut new_chunk_result) => {
+                let shard_id = new_chunk_result.shard_uid.shard_id();
 
-                // Save state root after applying transactions.
-                let chunk_extra = apply_result.to_chunk_extra(gas_limit);
-                self.chain_store_update.save_chunk_extra(
-                    block_hash,
-                    &shard_uid,
-                    chunk_extra.into(),
-                );
-
-                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                let store_update = flat_storage_manager.save_flat_state_changes(
-                    *block_hash,
-                    *prev_hash,
-                    height,
-                    shard_uid,
-                    apply_result.trie_changes.state_changes(),
-                )?;
-                self.chain_store_update.merge(store_update.into());
-
-                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
-                self.chain_store_update.save_outgoing_receipt(
-                    block_hash,
-                    shard_id,
-                    apply_result.outgoing_receipts,
-                );
-                let receipt_to_tx_ids: Vec<CryptoHash> =
-                    apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
-                self.chain_store_update.save_processed_receipt_ids(
-                    block_hash,
-                    shard_id,
-                    apply_result.processed_receipts,
-                    receipt_to_tx_ids,
-                );
-                // Save receipt and transaction results.
-                self.chain_store_update.save_outcomes_with_proofs(
-                    block_hash,
-                    shard_id,
-                    apply_result.outcomes,
-                    outcome_paths,
-                );
-                self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
+                // State-transition data is chain-only; extract before the
+                // shared helper consumes `apply_result`. All writes share
+                // one final `StoreUpdate` via `ChainStoreUpdate::finalize`,
+                // so ordering doesn't affect atomicity.
                 if should_save_state_transition_data {
+                    let apply_result = &mut new_chunk_result.apply_result;
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
                         shard_id,
-                        apply_result.proof,
+                        apply_result.proof.take(),
                         apply_result.applied_receipts_hash,
-                        apply_result.contract_updates,
+                        mem::take(&mut apply_result.contract_updates),
                     );
                 }
-                self.chain_store_update.save_chunk_apply_stats(
-                    *block_hash,
-                    shard_id,
-                    apply_result.stats,
-                );
+
+                let config = self.chain_store_update.chain_store().chunk_executor_config();
+                let store_update = self.chain_store_update.store_update();
+                apply_chunk_postprocessing(
+                    store_update,
+                    self.runtime_adapter.as_ref(),
+                    block,
+                    new_chunk_result,
+                    &config,
+                )?;
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -569,52 +538,21 @@ impl<'a> ChainUpdate<'a> {
             transactions,
         )?;
 
-        let (_, outcome_proofs) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-
         self.chain_store_update.save_chunk(chunk);
 
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        let store_update = flat_storage_manager.save_flat_state_changes(
-            *block_header.hash(),
-            *chunk_header.prev_block_hash(),
-            chunk_header.height_included(),
-            shard_uid,
-            apply_result.trie_changes.state_changes(),
+        // `save_chunk` and `save_incoming_receipt` are chain-only and stay
+        // inline; everything else goes through the shared helper.
+        let config = self.chain_store_update.chain_store().chunk_executor_config();
+        let new_chunk_result = NewChunkResult { gas_limit, shard_uid, apply_result };
+        let store_update = self.chain_store_update.store_update();
+        apply_chunk_postprocessing(
+            store_update,
+            self.runtime_adapter.as_ref(),
+            block.as_ref(),
+            new_chunk_result,
+            &config,
         )?;
-        self.chain_store_update.merge(store_update.into());
 
-        let chunk_extra = apply_result.to_chunk_extra(gas_limit);
-
-        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
-
-        self.chain_store_update.save_chunk_extra(
-            block_header.hash(),
-            &shard_uid,
-            chunk_extra.into(),
-        );
-
-        self.chain_store_update.save_outgoing_receipt(
-            block_header.hash(),
-            shard_id,
-            apply_result.outgoing_receipts,
-        );
-        // Saving transaction results.
-        self.chain_store_update.save_outcomes_with_proofs(
-            block_header.hash(),
-            shard_id,
-            apply_result.outcomes,
-            outcome_proofs,
-        );
-        let receipt_to_tx_ids: Vec<CryptoHash> =
-            apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
-        self.chain_store_update.save_processed_receipt_ids(
-            block_header.hash(),
-            shard_id,
-            apply_result.processed_receipts,
-            receipt_to_tx_ids,
-        );
-        self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
-        // Saving all incoming receipts.
         for receipt_proof_response in receipt_proof_responses {
             self.chain_store_update.save_incoming_receipt(
                 &receipt_proof_response.0,
