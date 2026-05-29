@@ -427,6 +427,7 @@ impl ChunkExecutorActor {
         }
 
         let mut chunk_contexts = Vec::new();
+        let mut any_shard_already_applied = false;
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
         let prev_block_shard_uids = self.epoch_manager.shard_uids(&prev_block_epoch_id)?;
         let current_block_shard_layout =
@@ -448,10 +449,9 @@ impl ChunkExecutorActor {
             // Per-shard already-applied skip. Per-shard commits can partial-fail
             // (some shards applied, others not — briefly during apply, durably
             // after a crash between per-shard commits), so we skip the shard
-            // rather than bailing the whole block. If every shard is already
-            // applied, `chunk_contexts` ends up empty and the block-level
-            // BlockAlreadyAccepted branch below short-circuits the schedule.
+            // rather than bailing the whole block.
             if self.chunk_extra_exists(block_hash, &shard_uid)? {
+                any_shard_already_applied = true;
                 continue;
             }
 
@@ -494,10 +494,12 @@ impl ChunkExecutorActor {
                 chunk_header,
             });
         }
-        if chunk_contexts.is_empty() {
+        if chunk_contexts.is_empty() && any_shard_already_applied {
             // Every tracked shard's chunk_extra was already on disk; nothing left
             // to apply for this block. Treat as already-accepted so the caller
-            // doesn't keep retrying.
+            // doesn't keep retrying. If `chunk_contexts` is empty solely because
+            // this node tracks no shards for the epoch, fall through to the
+            // schedule call so the caller still sees `Scheduled` (no-op).
             return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
         }
         self.schedule_apply_chunks(
@@ -695,6 +697,14 @@ impl ChunkExecutorActor {
             )?;
             store_update.commit();
         }
+        // Advance the spice heads for the block we just applied (forward-only).
+        // The canonical-next walk below catches backlog from prior crashes; it
+        // would otherwise get stuck on non-canonical forks since
+        // `NextBlockHashes[fork]` is never populated when siblings overwrite
+        // `NextBlockHashes[fork.prev]`.
+        if self.all_tracked_shards_applied(&block_hash)? {
+            self.finalize_block(&block_hash)?;
+        }
         self.advance_execution_head()?;
         Ok(())
     }
@@ -709,6 +719,12 @@ impl ChunkExecutorActor {
             let Some(next) = optional(self.chain_store.get_next_block_hash(&head))? else {
                 return Ok(());
             };
+            // `NextBlockHashes` is populated when headers are processed (block
+            // sync, header-first paths). The block content for `next` may not
+            // yet be on disk; if so, stop walking until it arrives.
+            if optional(self.chain_store.get_block(&next))?.is_none() {
+                return Ok(());
+            }
             if !self.all_tracked_shards_applied(&next)? {
                 return Ok(());
             }
@@ -1242,7 +1258,14 @@ pub(crate) fn is_descendant_of_final_execution_head(
     }
     let mut prev_hash = *header.prev_hash();
     while height > final_execution_head.height {
-        let header = chain_store.get_block_header(&prev_hash).unwrap();
+        // GC may have removed ancestor headers (long-running tests, deep
+        // reorg). A missing header means this block's ancestor chain doesn't
+        // reach the final-execution head — treat as non-descendant.
+        let header = match chain_store.get_block_header(&prev_hash) {
+            Ok(header) => header,
+            Err(Error::DBNotFoundErr(_)) => return false,
+            Err(err) => panic!("failed to walk back to final execution head: {err:?}"),
+        };
         prev_hash = *header.prev_hash();
         height = header.height();
     }
