@@ -851,3 +851,110 @@ fn test_far_horizon_stale_sync_hash_detection() {
         "validator height {validator_height} should exceed threshold {expected_threshold}",
     );
 }
+
+// Scenario: gossip indicates the network is far ahead, but the syncing node
+// has not been able to validate that progress — its `header_head` is pinned
+// because header responses are dropped.
+// Mirrors where an attacker can claim an arbitrary `highest_height` over the
+// peer wire but cannot produce real signed headers extending the chain.
+//
+// Without the `plausible_vs_validated` bound the legacy predicate fires on
+// gossiped height alone and the node gets wiped. With the bound the trigger
+// must wait for `header_head` to corroborate the claim.
+//
+// Setup matches `test_far_horizon_stale_sync_hash_detection` up to entering
+// StateSync; then header sync is throttled to zero before advancing the
+// validators by two epochs.
+#[test]
+#[cfg(feature = "test_features")]
+fn test_stale_sync_hash_requires_validated_header_progress() {
+    use super::util::throttle_header_sync;
+    use near_chain_configs::SyncConfig;
+    use near_client::sync::state::STALE_SYNC_HASH_THRESHOLD;
+
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+            config.state_sync.sync = SyncConfig::Peers;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+
+    // Run until new node enters StateSync and record its sync hash.
+    let mut node_sync_hash = None;
+    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+            if let SyncStatus::StateSync(s) = status {
+                node_sync_hash = Some(s.sync_hash);
+                true
+            } else {
+                false
+            }
+        },
+        Duration::seconds(20),
+    );
+    let node_sync_hash = node_sync_hash.unwrap();
+
+    // Pin the new node's header_head: drop all subsequent header responses.
+    // The new node continues to receive gossiped highest_height from peers
+    // (via the periodic NetworkInfo push) but cannot validate any progress.
+    throttle_header_sync(&mut env.test_loop, &env.shared_state, &env.node_datas[new_node_idx], 0);
+    let header_head_when_pinned =
+        env.node(new_node_idx).client().chain.header_head().unwrap().height;
+
+    // Advance validators by two epochs — past the legacy stale-sync-hash
+    // threshold. Without the new bound, gossiped highest_height alone is
+    // sufficient to trigger EpochSyncDataReset here.
+    env.node_runner(0).run_for_number_of_blocks(2 * epoch_length as usize);
+
+    // Sanity: the legacy lower-bound predicate WOULD fire — the chain has
+    // advanced past `sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD`.
+    // This is what makes the negative assertion below meaningful: with the
+    // fix removed, the node IS denylisted in this scenario.
+    let sync_hash_height =
+        env.node(0).client().chain.get_block_header(&node_sync_hash).unwrap().height();
+    let validator_height = env.node(0).head().height;
+    let expected_threshold = sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD;
+    assert!(
+        validator_height > expected_threshold,
+        "validator height {validator_height} should exceed legacy threshold {expected_threshold}",
+    );
+
+    // Sanity: header_head on the syncing node really did not advance past
+    // `highest_height - epoch_length`. Otherwise the new bound would also
+    // allow the trigger to fire and the assertion below would be vacuous.
+    let new_node_header_head = env.node(new_node_idx).client().chain.header_head().unwrap().height;
+    assert!(
+        new_node_header_head + epoch_length < validator_height,
+        "header_head {new_node_header_head} should stay more than one epoch behind validator height {validator_height} (pinned around {header_head_when_pinned})",
+    );
+
+    // With the `plausible_vs_validated` bound the trigger must NOT fire:
+    // gossip says we're stale, but the validator-signed header chain has
+    // not corroborated that claim.
+    assert!(
+        !env.test_loop.is_denylisted("new_node"),
+        "node should not be denylisted when only gossiped height (not validated header_head) indicates staleness",
+    );
+}
