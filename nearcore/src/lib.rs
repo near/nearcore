@@ -28,6 +28,7 @@ use near_client::archive::cloud_archival_writer::{
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
+use near_client::recent_tx_fate_cache::RecentTxFateCache;
 use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
@@ -51,7 +52,7 @@ use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -509,6 +510,8 @@ pub async fn start_with_config_and_synchronization_impl(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
+    let tx_fate_cache = Arc::new(Mutex::new(RecentTxFateCache::new()));
+
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
@@ -520,6 +523,7 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.clone(),
         adv.clone(),
         config.validator_signer.clone(),
+        tx_fate_cache.clone(),
     );
 
     // Use dedicated thread pool for StateRequestActor
@@ -701,6 +705,7 @@ pub async fn start_with_config_and_synchronization_impl(
         rpc_handler_config,
         tx_pool,
         pending_transaction_queue,
+        tx_fate_cache,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),

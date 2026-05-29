@@ -1,6 +1,7 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use crate::recent_tx_fate_cache::{RecentTxFateCache, TransactionFate};
 use crate::{
     GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
@@ -62,7 +63,7 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
@@ -94,6 +95,7 @@ pub struct ViewClientActor {
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
     spice_chain_reader: SpiceChainReader,
+    tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
 }
 
 impl ViewClientRequestManager {
@@ -119,6 +121,7 @@ impl ViewClientActor {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
+        tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
     ) -> MultithreadRuntimeHandle<ViewClientActor> {
         actor_system.spawn_multithread_actor(config.view_client_threads, move || {
             ViewClientActor::new(
@@ -131,6 +134,7 @@ impl ViewClientActor {
                 config.clone(),
                 adv.clone(),
                 validator_signer.clone(),
+                tx_fate_cache.clone(),
             )
             .unwrap()
         })
@@ -146,6 +150,7 @@ impl ViewClientActor {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
+        tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -174,6 +179,7 @@ impl ViewClientActor {
             config,
             request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
             spice_chain_reader,
+            tx_fate_cache,
         })
     }
 
@@ -693,7 +699,29 @@ impl ViewClientActor {
                             })
                         }
                     } else {
-                        Err(TxStatusError::MissingTransaction(tx_hash))
+                        // Drop the MutexGuard before chain-store I/O below.
+                        let tx_fate = self.tx_fate_cache.lock().fate(&tx_hash);
+                        match tx_fate {
+                            TransactionFate::DroppedMempoolFull => {
+                                Err(TxStatusError::DroppedMempoolFull)
+                            }
+                            TransactionFate::Pending { base_block_hash } => {
+                                let head_block = self.chain.get_block(&head.last_block_hash)?;
+                                match self.chain.chain_store().check_transaction_validity_period(
+                                    head_block.header(),
+                                    &base_block_hash,
+                                ) {
+                                    Ok(()) => Ok(TxStatusView {
+                                        execution_outcome: None,
+                                        status: TxExecutionStatus::None,
+                                    }),
+                                    Err(_) => Err(TxStatusError::Expired(tx_hash)),
+                                }
+                            }
+                            TransactionFate::Unknown => {
+                                Err(TxStatusError::MissingTransaction(tx_hash))
+                            }
+                        }
                     }
                 }
                 Err(err) => {

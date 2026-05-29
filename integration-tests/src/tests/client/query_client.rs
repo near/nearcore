@@ -3,7 +3,7 @@ use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
 use near_async::time::{Clock, Duration};
 use near_client::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus,
+    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus, TxStatusError,
 };
 use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
@@ -11,11 +11,12 @@ use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::hash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockReference, EpochId, ShardId};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind, TxExecutionStatus};
 use std::sync::Arc;
 
 /// Query account from view client
@@ -160,5 +161,137 @@ async fn test_execution_outcome_for_chunk() {
     assert_eq!(execution_outcomes_in_block.len(), 1);
     let outcomes = execution_outcomes_in_block.remove(&ShardId::new(0)).unwrap();
     assert_eq!(outcomes[0].id, tx_hash);
+    actor_system.stop();
+}
+
+#[tokio::test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+async fn tx_status_reports_dropped_transaction() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        true,
+    );
+    let signer = InMemorySigner::test_signer(&"test".parse().unwrap());
+
+    let block_hash = actor_handles
+        .view_client_actor
+        .send_async(GetBlock::latest())
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .hash;
+
+    let transaction = SignedTransaction::send_money(
+        1,
+        "test".parse().unwrap(),
+        "near".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(10),
+        block_hash,
+    );
+    let tx_hash = transaction.get_hash();
+    actor_handles.tx_fate_cache.lock().record_dropped_mempool_full(tx_hash);
+
+    let res = actor_handles
+        .view_client_actor
+        .send_async(TxStatus {
+            tx_hash,
+            signer_account_id: "test".parse().unwrap(),
+            fetch_receipt: false,
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(res, Err(TxStatusError::DroppedMempoolFull)),
+        "expected DroppedMempoolFull, got {res:?}"
+    );
+    actor_system.stop();
+}
+
+#[tokio::test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+async fn tx_status_reports_pending_transaction() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        true,
+    );
+    let signer = InMemorySigner::test_signer(&"test".parse().unwrap());
+
+    let block_hash = actor_handles
+        .view_client_actor
+        .send_async(GetBlock::latest())
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .hash;
+
+    let transaction = SignedTransaction::send_money(
+        1,
+        "test".parse().unwrap(),
+        "near".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(10),
+        block_hash,
+    );
+    let tx_hash = transaction.get_hash();
+    actor_handles.tx_fate_cache.lock().record_pending(tx_hash, block_hash);
+
+    let res = actor_handles
+        .view_client_actor
+        .send_async(TxStatus {
+            tx_hash,
+            signer_account_id: "test".parse().unwrap(),
+            fetch_receipt: false,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(res.execution_outcome.is_none());
+    assert_eq!(res.status, TxExecutionStatus::None);
+    actor_system.stop();
+}
+
+#[tokio::test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+async fn tx_status_reports_unknown_transaction() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        true,
+    );
+
+    let tx_hash = hash(b"never submitted");
+    let res = actor_handles
+        .view_client_actor
+        .send_async(TxStatus {
+            tx_hash,
+            signer_account_id: "test".parse().unwrap(),
+            fetch_receipt: false,
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(res, Err(TxStatusError::MissingTransaction(h)) if h == tx_hash),
+        "expected MissingTransaction, got {res:?}"
+    );
     actor_system.stop();
 }

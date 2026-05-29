@@ -875,48 +875,55 @@ impl JsonRpcHandler {
         tx_hash: CryptoHash,
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
-        self.clock.timeout(self.polling_config.polling_timeout, async {
-            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
-            let mut new_block_watcher = self.block_notification_watcher.clone();
-            new_block_watcher.mark_unchanged();
+        self.clock
+            .timeout(self.polling_config.polling_timeout, async {
+                // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+                let mut new_block_watcher = self.block_notification_watcher.clone();
+                new_block_watcher.mark_unchanged();
 
-            loop {
-                // TODO(optimization): Introduce a view_client method to only get transaction
-                // status without the information about execution outcomes.
-                match self.view_client_send(
-                    TxStatus {
-                        tx_hash,
-                        signer_account_id: signer_account_id.clone(),
-                        fetch_receipt: false,
-                    })
-                    .await
-                {
-                    Ok(status) => {
-                        if let Some(_) = status.execution_outcome {
-                            return Ok(true);
+                loop {
+                    // TODO(optimization): Introduce a view_client method to only get transaction
+                    // status without the information about execution outcomes.
+                    match self
+                        .view_client_send(TxStatus {
+                            tx_hash,
+                            signer_account_id: signer_account_id.clone(),
+                            fetch_receipt: false,
+                        })
+                        .await
+                    {
+                        Ok(status) => {
+                            if let Some(_) = status.execution_outcome {
+                                return Ok(true);
+                            }
                         }
+                        Err(
+                            RpcTransactionError::UnknownTransaction { .. }
+                            | RpcTransactionError::TransactionExpired { .. }
+                            | RpcTransactionError::MempoolIsFull,
+                        ) => {
+                            return Ok(false);
+                        }
+                        _ => {}
                     }
-                    Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
-                        ..
-                    }) => {
-                        return Ok(false);
-                    }
-                    _ => {}
+                    new_block_watcher.changed().await.map_err(|_| {
+                        RpcTransactionError::InternalError {
+                            debug_info: "Block notification channel closed".to_string(),
+                        }
+                    })?;
                 }
-                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
-            }
-        })
-        .await
-        .map_err(|_| {
-            metrics::RPC_TIMEOUT_TOTAL.inc();
-            tracing::warn!(
-                target: "jsonrpc",
-                ?tx_hash,
-                ?signer_account_id,
-                "timeout: tx_exists method"
-            );
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
-        })?
+            })
+            .await
+            .map_err(|_| {
+                metrics::RPC_TIMEOUT_TOTAL.inc();
+                tracing::warn!(
+                    target: "jsonrpc",
+                    ?tx_hash,
+                    ?signer_account_id,
+                    "timeout: tx_exists method"
+                );
+                near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
+            })?
     }
 
     /// Return status of the given transaction

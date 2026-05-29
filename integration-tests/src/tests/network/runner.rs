@@ -11,6 +11,7 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
+use near_client::recent_tx_fate_cache::RecentTxFateCache;
 use near_client::{ChunkValidationActor, spawn_chunk_endorsement_handler_actor};
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
@@ -36,6 +37,7 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_in_memory_rpc_node_storage;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
@@ -145,6 +147,7 @@ fn setup_network_node_with_tcp(
             spice_core_writer_sender: noop().into_sender(),
         },
     );
+    let tx_fate_cache = Arc::new(Mutex::new(RecentTxFateCache::new()));
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
@@ -156,6 +159,7 @@ fn setup_network_node_with_tcp(
         client_config.clone(),
         adv,
         validator_signer.clone(),
+        tx_fate_cache.clone(),
     );
     let state_request_addr = actor_system.spawn_tokio_actor(StateRequestActor::new(
         Clock::real(),
@@ -179,6 +183,7 @@ fn setup_network_node_with_tcp(
         rpc_handler_config,
         tx_pool,
         pending_transaction_queue,
+        tx_fate_cache,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),

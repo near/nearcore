@@ -1,5 +1,6 @@
 use crate::metrics;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::recent_tx_fate_cache::RecentTxFateCache;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -20,6 +21,7 @@ use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerAdapter;
 use near_network::types::PeerManagerMessageRequest;
 use near_pool::InsertTransactionResult;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -54,6 +56,7 @@ pub fn spawn_rpc_handler_actor(
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+    tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
@@ -64,6 +67,7 @@ pub fn spawn_rpc_handler_actor(
         config.clone(),
         tx_pool,
         pending_transaction_queue,
+        tx_fate_cache,
         epoch_manager,
         shard_tracker,
         validator_signer,
@@ -93,6 +97,7 @@ pub struct RpcHandlerActor {
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+    tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -107,6 +112,7 @@ impl RpcHandlerActor {
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
         pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+        tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
@@ -119,6 +125,7 @@ impl RpcHandlerActor {
             config,
             tx_pool,
             pending_transaction_queue,
+            tx_fate_cache,
             validator_signer,
             chain_store,
             epoch_manager,
@@ -258,10 +265,14 @@ impl RpcHandlerActor {
             if check_only {
                 return Ok(ProcessTxResponse::ValidTx);
             }
+            self.record_tx_pending(signed_tx.get_hash(), *signed_tx.transaction.block_hash());
             // Transactions only need to be recorded if this node is a chunk producer for the transaction's shard.
             if self.is_chunk_producer_for_transaction(&head, signed_tx.transaction.signer_id())? {
-                let mut pool = self.tx_pool.lock();
-                match pool.insert_transaction(shard_uid, validated_tx) {
+                let insert_result = {
+                    let mut pool = self.tx_pool.lock();
+                    pool.insert_transaction(shard_uid, validated_tx)
+                };
+                match insert_result {
                     InsertTransactionResult::Success => {
                         tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
                     }
@@ -269,12 +280,13 @@ impl RpcHandlerActor {
                         tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
                         return Ok(ProcessTxResponse::ValidTx);
                     }
+                    InsertTransactionResult::NoSpaceLeft if is_forwarded => {
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
+                        self.record_tx_dropped_mempool_full(signed_tx.get_hash());
+                        return Ok(ProcessTxResponse::MempoolFull);
+                    }
                     InsertTransactionResult::NoSpaceLeft => {
-                        if is_forwarded {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
-                        } else {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
-                        }
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
                     }
                 }
             }
@@ -319,6 +331,14 @@ impl RpcHandlerActor {
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
         self.forward_tx(&epoch_id, signed_tx).map(|()| ProcessTxResponse::RequestRouted)
+    }
+
+    fn record_tx_pending(&self, tx_hash: CryptoHash, base_block_hash: CryptoHash) {
+        self.tx_fate_cache.lock().record_pending(tx_hash, base_block_hash);
+    }
+
+    fn record_tx_dropped_mempool_full(&self, tx_hash: CryptoHash) {
+        self.tx_fate_cache.lock().record_dropped_mempool_full(tx_hash);
     }
 
     /// Forwards given transaction to upcoming validators.

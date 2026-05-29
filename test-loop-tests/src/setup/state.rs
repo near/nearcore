@@ -16,6 +16,7 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActor;
+use near_client::recent_tx_fate_cache::RecentTxFateCache;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
@@ -121,6 +122,7 @@ pub struct NodeExecutionData {
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
     pub jsonrpc_transport: Arc<dyn RpcTransport>,
     pub sharded_rpc_pool: Arc<RwLock<ShardedRpcPool>>,
+    pub tx_fate_cache: Arc<Mutex<RecentTxFateCache>>,
     /// Extra blocks of delay between consensus head and execution head.
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.

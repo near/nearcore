@@ -808,6 +808,9 @@ impl TestEnv {
             | ProcessTxResponse::ValidTx => (),
             ProcessTxResponse::InvalidTx(e) => return Err(e),
             ProcessTxResponse::DoesNotTrackShard => panic!("test setup is buggy"),
+            ProcessTxResponse::MempoolFull => {
+                panic!("MempoolFull is only returned for forwarded transactions")
+            }
         }
         let max_iters = 100;
         let tip = self.clients[0].chain.head().unwrap();

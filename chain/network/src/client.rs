@@ -132,6 +132,8 @@ pub enum ProcessTxResponse {
     /// The node being queried does not track the shard needed and therefore cannot provide useful
     /// response.
     DoesNotTrackShard,
+    /// Reached the destination chunk producer but its mempool was full.
+    MempoolFull,
 }
 
 /// Account announcements that needs to be validated before being processed.

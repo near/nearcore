@@ -51,6 +51,7 @@ mod info;
 pub mod metrics;
 pub mod pending_transaction_queue;
 mod prepare_transactions;
+pub mod recent_tx_fate_cache;
 mod rpc_handler;
 pub mod spice;
 mod state_request_actor;
