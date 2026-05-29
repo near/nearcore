@@ -183,6 +183,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(self.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
+    /// Get the list of `ShardUId`s for the epoch. Prefer this over `shard_ids`
+    /// when the caller needs the layout-version-qualified identifier (per
+    /// `[[prefer-shard-uid]]`).
+    fn shard_uids(&self, epoch_id: &EpochId) -> Result<Vec<ShardUId>, EpochError> {
+        Ok(self.get_shard_layout(epoch_id)?.shard_uids().collect())
+    }
+
     /// For each `ShardId` in the current block, returns its parent `ShardInfo`
     /// from previous block.
     ///
