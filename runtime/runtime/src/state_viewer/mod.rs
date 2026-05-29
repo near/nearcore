@@ -5,7 +5,7 @@ use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use itertools::Itertools;
-use near_crypto::{KeyType, PublicKey};
+use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
@@ -17,7 +17,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers::{
-    self, parse_nonce_index_from_gas_key_key, parse_public_key_from_access_key_key,
+    self, parse_key_handle_from_access_key_key, parse_nonce_index_from_gas_key_key,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
@@ -157,20 +157,20 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
+    ) -> Result<Vec<(PublicKeyHandle, AccessKey)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let access_keys =
             state_update
                 .iter(&prefix)?
                 .map(|key| {
                     let key = key?;
-                    let public_key = parse_public_key_from_access_key_key(&key, account_id)
+                    let key_handle = parse_key_handle_from_access_key_key(&key, account_id)
                         .map_err(|_| errors::ViewAccessKeyError::InternalError {
                             error_message: "Unexpected invalid access key from iterator"
                                 .to_string(),
                         })?;
                     if let Some(_index) =
-                        parse_nonce_index_from_gas_key_key(&key, account_id, &public_key).map_err(
+                        parse_nonce_index_from_gas_key_key(&key, account_id, &key_handle).map_err(
                             |_| errors::ViewAccessKeyError::InternalError {
                                 error_message: "could not parse nonce index".to_string(),
                             },
@@ -179,12 +179,18 @@ impl TrieViewer {
                         // This is a gas key nonce, skip it.
                         return Ok(None);
                     }
-                    let access_key = get_access_key(state_update, account_id, &public_key)?
-                        .ok_or_else(|| errors::ViewAccessKeyError::AccessKeyDoesNotExist {
-                            public_key: public_key.clone(),
-                        })?;
+                    let access_key = near_store::get_access_key_by_handle(
+                        state_update,
+                        account_id,
+                        &key_handle,
+                    )?
+                    .ok_or_else(|| {
+                        near_primitives::errors::StorageError::StorageInconsistentState(format!(
+                            "iterator yielded an access-key trie key with no value: {key_handle}"
+                        ))
+                    })?;
 
-                    Ok(Some((public_key, access_key)))
+                    Ok(Some((key_handle, access_key)))
                 })
                 .filter_map_ok(|x| x)
                 .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();

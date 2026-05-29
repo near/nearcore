@@ -220,7 +220,11 @@ impl crate::ChainAccess for ChainAccess {
             QueryResponseKind::AccessKeyList(l) => {
                 for k in l.keys {
                     if k.access_key.permission == AccessKeyPermissionView::FullAccess {
-                        ret.push(k.public_key);
+                        // TODO(post-quantum): Mirror does not support ML-DSA-65
+                        // hash-form entries; skip them silently.
+                        if let Some(pk) = k.public_key.full_pubkey() {
+                            ret.push(pk);
+                        }
                     }
                 }
             }

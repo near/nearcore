@@ -55,6 +55,7 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
+near-replay.workspace = true
 near-store.workspace = true
 node-runtime.workspace = true
 near-test-contracts.workspace = true

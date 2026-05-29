@@ -7,7 +7,7 @@ use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
-use near_crypto::PublicKey;
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -260,16 +260,16 @@ pub enum StateChangeValue {
     },
     AccessKeyUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         access_key: AccessKey,
     },
     AccessKeyDeletion {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         index: NonceIndex,
         nonce: Nonce,
     },
@@ -341,27 +341,27 @@ impl StateChanges {
                         },
                     },
                 )),
-                TrieKey::AccessKey { account_id, public_key } => {
+                TrieKey::AccessKey { account_id, key_handle } => {
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,
                             value: if let Some(change_data) = data {
                                 StateChangeValue::AccessKeyUpdate {
                                     account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
+                                    public_key: key_handle.clone(),
                                     access_key: <_>::try_from_slice(&change_data)
                                         .expect("Failed to parse internally stored access key"),
                                 }
                             } else {
                                 StateChangeValue::AccessKeyDeletion {
                                     account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
+                                    public_key: key_handle.clone(),
                                 }
                             },
                         },
                     ))
                 }
-                TrieKey::GasKeyNonce { account_id, public_key, index } => state_changes.extend(
+                TrieKey::GasKeyNonce { account_id, key_handle, index } => state_changes.extend(
                     // Deletion of a nonce can only be done with a corresponding
                     // deletion of the gas key, so we don't need to report these.
                     changes.into_iter().filter_map(|RawStateChange { cause, data }| {
@@ -369,7 +369,7 @@ impl StateChanges {
                             cause,
                             value: StateChangeValue::GasKeyNonceUpdate {
                                 account_id: account_id.clone(),
-                                public_key: public_key.clone(),
+                                public_key: key_handle.clone(),
                                 index,
                                 nonce: Nonce::try_from_slice(&change_data)
                                     .expect("Failed to parse internally stored gas key nonce"),
@@ -972,6 +972,16 @@ pub mod chunk_extra {
                 Self::V4(v4) => &mut v4.state_root,
                 Self::V5(v5) => &mut v5.state_root,
             }
+        }
+
+        /// Builds the chunk extra for an old (missing) chunk from the
+        /// previous chunk extra. All fields are carried over except the
+        /// state root, which is replaced with the one produced by applying
+        /// the old chunk.
+        pub fn next_for_old_chunk(&self, state_root: StateRoot) -> Self {
+            let mut new_extra = self.clone();
+            *new_extra.state_root_mut() = state_root;
+            new_extra
         }
 
         #[inline]

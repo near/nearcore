@@ -2,7 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
-use crate::spice::core::{get_last_certified_block_header, record_uncertified_chunks_for_block};
+use crate::spice::core::record_uncertified_chunks_for_block;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
@@ -183,8 +183,7 @@ impl<'a> ChainUpdate<'a> {
                 // anyway. Prepare a chunk extra as a copy of the old chunk
                 // extra and apply changes to it.
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
-                let mut new_extra = ChunkExtra::clone(&old_extra);
-                *new_extra.state_root_mut() = apply_result.new_root;
+                let new_extra = old_extra.next_for_old_chunk(apply_result.new_root);
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
@@ -295,25 +294,8 @@ impl<'a> ChainUpdate<'a> {
 
         let current_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        let block_info = if ProtocolFeature::Spice.enabled(current_protocol_version) {
-            // Query by prev_hash, not block.hash(): this block's
-            // uncertified-chunks tracking is only written later in the same
-            // update (see `record_uncertified_chunks_for_block` below), so
-            // querying with `block.hash()` would error inside
-            // `get_last_certified_block_header`.
-            let last_certified_block_epoch = *get_last_certified_block_header(
-                self.chain_store_update.chain_store(),
-                block.header().prev_hash(),
-            )?
-            .epoch_id();
-            BlockInfo::from_spice_header(
-                block.header(),
-                last_finalized_height,
-                last_certified_block_epoch,
-            )
-        } else {
-            BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version)
-        };
+        let block_info =
+            BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version);
         let epoch_manager_update = self
             .epoch_manager
             .add_validator_proposals(block_info, *block.header().random_value())?;

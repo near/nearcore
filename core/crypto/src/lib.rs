@@ -3,8 +3,8 @@
 pub use errors::{ParseKeyError, ParseKeyTypeError, ParseSignatureError};
 pub use key_file::KeyFile;
 pub use signature::{
-    ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, Secp256K1PublicKey, Secp256K1Signature,
-    SecretKey, Signature,
+    ED25519PublicKey, ED25519SecretKey, KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_SIGNATURE_LENGTH,
+    PublicKey, PublicKeyHandle, Secp256K1PublicKey, Secp256K1Signature, SecretKey, Signature,
 };
 pub use signer::{EmptySigner, InMemorySigner, Signer};
 

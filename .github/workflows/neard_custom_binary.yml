@@ -1,4 +1,4 @@
-name: Neard custom binary release
+name: Build and publish custom neard binary
 
 on:
   workflow_dispatch:
@@ -28,7 +28,6 @@ jobs:
   binary-release:
     name: "Build and publish neard binary"
     runs-on: warp-ubuntu-2404-x64-16x
-    environment: deploy
     permissions:
       contents: read
       id-token: write # required to use OIDC authentication

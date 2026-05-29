@@ -114,11 +114,7 @@ impl FlatStateValue {
         near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 
     pub fn on_disk(value: &[u8]) -> Self {
-        if value.len() <= Self::INLINE_DISK_VALUE_THRESHOLD {
-            Self::inlined(value)
-        } else {
-            Self::value_ref(value)
-        }
+        if Self::should_inline(value.len()) { Self::inlined(value) } else { Self::value_ref(value) }
     }
 
     pub fn value_ref(value: &[u8]) -> Self {
@@ -148,5 +144,9 @@ impl FlatStateValue {
             Self::Ref(_) => size_of::<Self>(),
             Self::Inlined(value) => size_of::<Self>() + value.capacity(),
         }
+    }
+
+    pub fn should_inline(value_len: usize) -> bool {
+        value_len <= Self::INLINE_DISK_VALUE_THRESHOLD
     }
 }

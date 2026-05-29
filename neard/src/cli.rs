@@ -23,6 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
+use near_replay_tool::ReplayCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
@@ -165,6 +166,9 @@ impl NeardCmd {
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            NeardSubCommand::Replay(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
+            }
             #[cfg(feature = "dump-test-contract")]
             NeardSubCommand::DumpTestContracts(cmd) => {
                 cmd.run()?;
@@ -280,6 +284,9 @@ pub(super) enum NeardSubCommand {
 
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
+
+    /// Replay chunks from a database snapshot and verify results.
+    Replay(ReplayCommand),
 
     #[cfg(feature = "dump-test-contract")]
     /// Placeholder for test contracts subcommand
