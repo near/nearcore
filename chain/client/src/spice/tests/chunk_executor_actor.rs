@@ -1,6 +1,6 @@
 use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::chunk_executor_actor::{
-    ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
+    ChunkExecutorActor, is_descendant_of_final_execution_head,
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
@@ -14,6 +14,7 @@ use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
+use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
 use near_chain::spice::core::SpiceCoreReader;
@@ -44,6 +45,7 @@ use near_primitives::types::SpiceChunkId;
 use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
+use near_store::adapter::StoreUpdateAdapter;
 use parking_lot::RwLock;
 use std::str::FromStr as _;
 use std::sync::Arc;
@@ -193,7 +195,7 @@ impl TestActor {
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,
-            ChunkExecutorConfig::default(),
+            ChunkPersistenceConfig::default(),
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }
@@ -351,12 +353,11 @@ fn simulate_outgoing_messages(
 
 fn block_executed(actor: &TestActor, block: &Block) -> bool {
     let epoch_id = block.header().epoch_id();
-    let shard_ids = actor.actor.epoch_manager.shard_ids(epoch_id).unwrap();
-    for shard_id in shard_ids {
-        if !actor.actor.shard_tracker.cares_about_shard(block.hash(), shard_id) {
+    for shard_uid in actor.actor.epoch_manager.shard_uids(epoch_id).unwrap() {
+        if !actor.actor.shard_tracker.cares_about_shard(block.hash(), shard_uid.shard_id()) {
             continue;
         }
-        if !actor.actor.chunk_extra_exists(block.header().hash(), shard_id).unwrap() {
+        if !actor.actor.chunk_extra_exists(block.header().hash(), &shard_uid).unwrap() {
             return false;
         }
     }
@@ -412,8 +413,9 @@ fn find_chunk_execution_result(
     shard_layout: &ShardLayout,
     shard_id: ShardId,
 ) -> ChunkExecutionResult {
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
     for actor in actors {
-        if let Some(chunk_extra) = actor.actor.get_chunk_extra(block_hash, shard_id).unwrap() {
+        if let Some(chunk_extra) = actor.actor.get_chunk_extra(block_hash, &shard_uid).unwrap() {
             let outgoing_receipts =
                 actor.actor.chain_store.get_outgoing_receipts(block_hash, shard_id).unwrap();
             let (outgoing_receipts_root, _receipt_proofs) =
@@ -906,11 +908,11 @@ fn test_tracking_several_shards() {
             .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
 
         let epoch_id = block.header().epoch_id();
-        let shard_ids = actors[0].actor.epoch_manager.shard_ids(epoch_id).unwrap();
-        for shard_id in shard_ids {
+        let shard_layout = actors[0].actor.epoch_manager.get_shard_layout(epoch_id).unwrap();
+        for shard_uid in shard_layout.shard_uids() {
             assert!(
-                actors[0].actor.chunk_extra_exists(block.header().hash(), shard_id).unwrap(),
-                "no execution results for block #{} shard_id={shard_id} block_hash {}",
+                actors[0].actor.chunk_extra_exists(block.header().hash(), &shard_uid).unwrap(),
+                "no execution results for block #{} shard_uid={shard_uid:?} block_hash {}",
                 i + 1,
                 block.hash(),
             );
@@ -1152,9 +1154,12 @@ fn test_is_descendant_of_final_execution_head_with_long_forks() {
 
     let mut last_block = new_block(&mut chain, &genesis);
 
-    let mut store_update = chain.chain_store.store_update();
-    store_update.save_spice_final_execution_head(&Tip::from_header(last_block.header())).unwrap();
-    store_update.commit().unwrap();
+    let store = chain.chain_store.store();
+    let mut store_update = store.store_update();
+    store_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(last_block.header()));
+    store_update.commit();
 
     let mut last_fork_block = new_block(&mut chain, &genesis);
     for _ in 0..2 {
@@ -1187,8 +1192,13 @@ fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_
     let mut store_update = chain.chain_store.store_update();
     store_update.save_block(block.clone());
     store_update.save_block_header(block.header().clone()).unwrap();
-    store_update.save_spice_final_execution_head(&Tip::from_header(block.header())).unwrap();
     store_update.commit().unwrap();
+    let store = chain.chain_store.store();
+    let mut spice_head_update = store.store_update();
+    spice_head_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(block.header()));
+    spice_head_update.commit();
 
     assert_eq!(is_descendant_of_final_execution_head(&chain.chain_store, block.header()), false);
 }
