@@ -9,6 +9,7 @@ use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
+#[cfg(not(windows))]
 use near_primitives_core::version::ProtocolFeature;
 use parking_lot::Mutex;
 #[cfg(not(windows))]
@@ -28,6 +29,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+#[cfg(not(windows))]
 use std::time::SystemTime;
 
 #[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
