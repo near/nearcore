@@ -553,6 +553,13 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     /// Forward-only: advance the SPICE final execution head to `block`'s last final
     /// block when that is higher than the current head (or none is set), writing via
     /// this update, and return the (possibly advanced) head.
+    ///
+    /// The "current head" comparison reads the committed `Store`, not pending writes
+    /// queued in this `StoreUpdate`. That's intentional: this setter is called at
+    /// most once per `apply_block_postprocessing` invocation, which owns its own
+    /// `StoreUpdate` and commits before the next finalize runs. The forward-only
+    /// check guards against inter-update races (a concurrent finalize already
+    /// committed a higher head), not intra-update races.
     pub fn update_spice_final_execution_head(
         &mut self,
         block: &Block,
@@ -584,6 +591,10 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     /// forward by construction; this is belt-and-suspenders against an
     /// out-of-order / fork re-run. Differs from
     /// `ChainStoreUpdate::save_spice_execution_head`, which is unconditional.
+    ///
+    /// Same intra-update caveat as `update_spice_final_execution_head`: the check
+    /// reads the committed `Store`, not pending writes in this `StoreUpdate`. Safe
+    /// because callers issue at most one write per `StoreUpdate`.
     pub fn set_spice_execution_head(&mut self, tip: &Tip) -> Result<(), Error> {
         let current_height = match self.store_update.store.chain_store().spice_execution_head() {
             Ok(head) => Some(head.height),
