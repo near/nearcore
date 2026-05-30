@@ -22,14 +22,14 @@ use std::collections::BTreeMap;
 /// chain crate so both the spice executor and the chain-side apply path
 /// share it.
 #[derive(Clone, Debug)]
-pub struct ChunkExecutorConfig {
+pub struct ChunkPersistenceConfig {
     pub save_trie_changes: bool,
     pub save_tx_outcomes: bool,
     pub save_receipt_to_tx: bool,
     pub save_state_changes: bool,
 }
 
-impl Default for ChunkExecutorConfig {
+impl Default for ChunkPersistenceConfig {
     fn default() -> Self {
         Self {
             save_trie_changes: true,
@@ -45,17 +45,18 @@ impl Default for ChunkExecutorConfig {
 /// shard (per-shard atomicity); chain commits per block via
 /// `ChainStoreUpdate::finalize` (per-block atomicity).
 ///
-/// Replay safety: the `ChunkExtra` sentinel, the refcounted `State` trie
-/// insertions, and the refcounted `Receipts` writes must all land in the SAME
-/// `StoreUpdate`. A crash then leaves neither sentinel nor rc writes; the
-/// caller's `chunk_extra_exists` guard re-applies cleanly. Splitting across
-/// updates would double-count refcounts on replay.
+/// Replay safety: the `ChunkExtra` write (which marks this shard's apply as
+/// done), the refcounted `State` trie insertions, and the refcounted `Receipts`
+/// writes must all land in the SAME `StoreUpdate`. A crash then leaves neither
+/// the `ChunkExtra` nor the rc writes; the caller's `chunk_extra_exists` guard
+/// re-applies cleanly. Splitting across updates would double-count refcounts
+/// on replay.
 pub fn apply_chunk_postprocessing(
     store_update: &mut StoreUpdate,
     runtime_adapter: &dyn RuntimeAdapter,
     block: &Block,
     result: NewChunkResult,
-    config: &ChunkExecutorConfig,
+    config: &ChunkPersistenceConfig,
 ) -> Result<(), Error> {
     let block_hash = block.hash();
     let prev_hash = block.header().prev_hash();
@@ -76,7 +77,7 @@ pub fn apply_chunk_postprocessing(
         ..
     } = apply_result;
 
-    // Sentinel write — must be in `store_update` with the refcounted writes below.
+    // `ChunkExtra` marks this shard's apply as done; must share `store_update` with the refcounted writes below.
     store_update.chunk_store_update().set_chunk_extra(block_hash, &shard_uid, &chunk_extra);
 
     write_flat_state_delta(
@@ -173,7 +174,7 @@ fn write_trie_changes(
     deletions_store_update: &mut TrieStoreUpdateAdapter,
     block_hash: &CryptoHash,
     trie_changes: &mut WrappedTrieChanges,
-    config: &ChunkExecutorConfig,
+    config: &ChunkPersistenceConfig,
 ) {
     trie_changes.apply_mem_changes();
     trie_changes.insertions_into(trie_store_update);
@@ -196,7 +197,7 @@ fn write_processed_receipts(
     shard_id: ShardId,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: &[(CryptoHash, ReceiptToTxInfo)],
-    config: &ChunkExecutorConfig,
+    config: &ChunkPersistenceConfig,
 ) {
     let mut metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
         .iter()

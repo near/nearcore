@@ -1,4 +1,4 @@
-use crate::spice::chunk_application::ChunkExecutorConfig;
+use crate::spice::chunk_application::ChunkPersistenceConfig;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -91,10 +91,6 @@ pub trait ChainStoreAccess {
     fn head_header(&self) -> Result<Arc<BlockHeader>, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last final block of the chain that we executed.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last block of the chain that we executed.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> BlockHeight;
     /// Stop height observed during the last garbage collection iteration.
@@ -331,8 +327,8 @@ impl ChainStore {
     /// Both the chain-side apply path and the spice executor read off this
     /// surface to keep the gating decisions in one place at the per-shard
     /// call site.
-    pub fn chunk_executor_config(&self) -> ChunkExecutorConfig {
-        ChunkExecutorConfig {
+    pub fn chunk_persistence_config(&self) -> ChunkPersistenceConfig {
+        ChunkPersistenceConfig {
             save_trie_changes: self.save_trie_changes,
             save_tx_outcomes: self.save_tx_outcomes,
             save_receipt_to_tx: self.save_receipt_to_tx,
@@ -893,16 +889,6 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::final_head(self)
     }
 
-    /// Spice final head execution head.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_final_execution_head(self)
-    }
-
-    /// Spice execution head.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_execution_head(self)
-    }
-
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
@@ -1188,14 +1174,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         } else {
             self.chain_store.final_head()
         }
-    }
-
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        self.chain_store.spice_final_execution_head()
-    }
-
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        self.chain_store.spice_execution_head()
     }
 
     fn largest_target_height(&self) -> BlockHeight {

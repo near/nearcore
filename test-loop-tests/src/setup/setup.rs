@@ -8,7 +8,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::runtime::NightshadeRuntime;
-use near_chain::spice::chunk_application::ChunkExecutorConfig;
+use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
@@ -471,7 +471,7 @@ pub fn setup_client(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
-        ChunkExecutorConfig {
+        ChunkPersistenceConfig {
             save_trie_changes: client_config.save_trie_changes,
             save_tx_outcomes: client_config.save_tx_outcomes,
             save_receipt_to_tx: client_config.save_receipt_to_tx,

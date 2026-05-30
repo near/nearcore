@@ -184,8 +184,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Get the list of `ShardUId`s for the epoch. Prefer this over `shard_ids`
-    /// when the caller needs the layout-version-qualified identifier (per
-    /// `[[prefer-shard-uid]]`).
+    /// when the caller needs the layout-version-qualified identifier (`ShardId`
+    /// is reserved for protocol/RPC serialization and validator-assignment
+    /// queries).
     fn shard_uids(&self, epoch_id: &EpochId) -> Result<Vec<ShardUId>, EpochError> {
         Ok(self.get_shard_layout(epoch_id)?.shard_uids().collect())
     }

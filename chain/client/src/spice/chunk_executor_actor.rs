@@ -15,7 +15,7 @@ use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::{
-    ChunkExecutorConfig, apply_chunk_postprocessing, build_spice_apply_chunk_block_context,
+    ChunkPersistenceConfig, apply_chunk_postprocessing, build_spice_apply_chunk_block_context,
 };
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ExecutionResultEndorsed;
@@ -84,7 +84,7 @@ pub struct ChunkExecutorActor {
     myself_sender: Sender<ExecutorApplyChunksDone>,
     pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
-    config: ChunkExecutorConfig,
+    config: ChunkPersistenceConfig,
 
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
@@ -106,7 +106,7 @@ impl ChunkExecutorActor {
         myself_sender: Sender<ExecutorApplyChunksDone>,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
-        config: ChunkExecutorConfig,
+        config: ChunkPersistenceConfig,
     ) -> Self {
         let core_reader =
             SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
@@ -152,7 +152,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
-        // Catch up after a crash between apply-commit and finalize: walk forward
+        // Recover after a crash between apply-commit and finalize: walk forward
         // past anything already-applied on disk before scheduling fresh applies.
         // Idempotent — a clean restart with no pending finalize is a no-op.
         if let Err(err) = self.advance_execution_head() {
@@ -703,7 +703,7 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Disk-driven catch-up: walk canonical-next from `spice_execution_head`
+    /// Disk-driven head recovery: walk canonical-next from `spice_execution_head`
     /// and finalize each block whose tracked shards all have `ChunkExtra` on
     /// disk. Used on startup to recover from a crash between apply-commit and
     /// finalize; the hot path finalizes directly in `process_apply_chunk_results`.
@@ -1260,7 +1260,7 @@ pub mod testonly {
             shard_tracker: ShardTracker,
             network_adapter: PeerManagerAdapter,
             validator_signer: MutableValidatorSigner,
-            chunk_executor_config: ChunkExecutorConfig,
+            chunk_persistence_config: ChunkPersistenceConfig,
         ) -> Self {
             let (actor_sc, actor_rc) = unbounded();
             let myself_sender = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
@@ -1306,7 +1306,7 @@ pub mod testonly {
                     myself_sender,
                     core_writer_sender,
                     data_distributor_adapter,
-                    chunk_executor_config,
+                    chunk_persistence_config,
                 ),
                 actor_rc,
                 tasks_rc,

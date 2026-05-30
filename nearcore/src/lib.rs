@@ -12,7 +12,7 @@ use near_async::thread_pool::{
 use near_async::time::Clock;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
-use near_chain::spice::chunk_application::ChunkExecutorConfig;
+use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
@@ -262,7 +262,7 @@ fn spawn_spice_actors(
     shard_tracker: ShardTracker,
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
-    chunk_executor_config: ChunkExecutorConfig,
+    chunk_persistence_config: ChunkPersistenceConfig,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -317,7 +317,7 @@ fn spawn_spice_actors(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
-        chunk_executor_config,
+        chunk_persistence_config,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -659,7 +659,7 @@ pub async fn start_with_config_and_synchronization_impl(
             shard_tracker.clone(),
             runtime.clone(),
             network_adapter.as_multi_sender(),
-            ChunkExecutorConfig {
+            ChunkPersistenceConfig {
                 save_trie_changes: config.client_config.save_trie_changes,
                 save_tx_outcomes: config.client_config.save_tx_outcomes,
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,

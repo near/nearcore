@@ -14,7 +14,7 @@ use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
-use near_chain::spice::chunk_application::ChunkExecutorConfig;
+use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
 use near_chain::spice::core::SpiceCoreReader;
@@ -195,7 +195,7 @@ impl TestActor {
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,
-            ChunkExecutorConfig::default(),
+            ChunkPersistenceConfig::default(),
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }

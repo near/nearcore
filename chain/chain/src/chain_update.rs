@@ -137,7 +137,7 @@ impl<'a> ChainUpdate<'a> {
                     );
                 }
 
-                let config = self.chain_store_update.chain_store().chunk_executor_config();
+                let config = self.chain_store_update.chain_store().chunk_persistence_config();
                 let mut store_update = self.chain_store_update.store().store_update();
                 apply_chunk_postprocessing(
                     &mut store_update,
@@ -543,7 +543,7 @@ impl<'a> ChainUpdate<'a> {
 
         // `save_chunk` and `save_incoming_receipt` are chain-only and stay
         // inline; everything else goes through the shared helper.
-        let config = self.chain_store_update.chain_store().chunk_executor_config();
+        let config = self.chain_store_update.chain_store().chunk_persistence_config();
         let new_chunk_result = NewChunkResult { gas_limit, shard_uid, apply_result };
         let mut store_update = self.chain_store_update.store().store_update();
         apply_chunk_postprocessing(

@@ -247,10 +247,7 @@ impl ShardTracker {
         )
     }
 
-    /// All `ShardUId`s this client tracks in the current epoch at
-    /// `parent_hash` — the set whose chunks this node executes. Spice uses
-    /// this as the head-advance gate: the execution head advances past a
-    /// block only when every shard in this set has its `ChunkExtra` on disk.
+    /// All `ShardUId`s this client tracks in the current epoch at `parent_hash`.
     pub fn tracked_shard_uids(
         &self,
         parent_hash: &CryptoHash,
