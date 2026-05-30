@@ -7,7 +7,7 @@ use crate::types::{
     StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
-use near_async::thread_pool::contract_compilation_pool;
+use near_async::thread_pool::{contract_compilation_pool, contract_warming_pool};
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{
     GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig,
@@ -1630,6 +1630,27 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
         self.compiled_contract_cache.as_ref()
+    }
+
+    fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
+        let cache = self.compiled_contract_cache.handle();
+        let job = move || cache.on_protocol_version_update(new_protocol_version);
+        match contract_warming_pool() {
+            Some(pool) => pool.spawn_boxed(Box::new(job)),
+            None => {
+                if let Err(err) = std::thread::Builder::new()
+                    .name("contract-cache-pv-update".to_string())
+                    .spawn(job)
+                {
+                    tracing::warn!(
+                        target: "runtime",
+                        err = &err as &dyn std::error::Error,
+                        new_protocol_version,
+                        "failed to spawn contract cache protocol-version-update thread; skipping",
+                    );
+                }
+            }
+        }
     }
 
     fn precompile_contracts(

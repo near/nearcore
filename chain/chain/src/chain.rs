@@ -1920,6 +1920,15 @@ impl Chain {
         // subsequent block processing.
         self.runtime_adapter.get_tries().try_finalize_background_memtrie_loading();
 
+        // Notify the runtime when the canonical head crosses a protocol-version boundary.
+        if let Some(new_head) = &new_head {
+            let new_pv = self.epoch_manager.get_epoch_protocol_version(&new_head.epoch_id)?;
+            let prev_pv = self.epoch_manager.get_epoch_protocol_version(&prev_head.epoch_id)?;
+            if new_pv != prev_pv {
+                self.runtime_adapter.on_protocol_version_update(new_pv);
+            }
+        }
+
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
