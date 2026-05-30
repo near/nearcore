@@ -1938,6 +1938,21 @@ impl<'a> ChainStoreUpdate<'a> {
         self.store_updates.push(store_update);
     }
 
+    /// Returns a fresh `StoreUpdate` chained onto this `ChainStoreUpdate`. The
+    /// returned update is merged into the final commit when `finalize()` runs,
+    /// so adapter writes can be chained into the existing flow.
+    ///
+    /// CACHE-BYPASS WARNING: writes through this handle do NOT populate the
+    /// `chain_store_cache_update` write-buffer. Subsequent `ChainStoreUpdate::get_*`
+    /// reads in the same logical txn will fall through to disk and miss the
+    /// in-flight write. Callers must either (a) not read what they just wrote,
+    /// or (b) read through the adapter (which also bypasses the cache) for
+    /// consistency.
+    pub fn store_update(&mut self) -> &mut StoreUpdate {
+        self.store_updates.push(self.store().store_update());
+        self.store_updates.last_mut().expect("just pushed")
+    }
+
     fn write_col_misc<T: BorshSerialize>(
         store_update: &mut StoreUpdate,
         key: &[u8],
