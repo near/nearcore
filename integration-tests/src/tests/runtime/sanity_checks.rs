@@ -3,13 +3,19 @@ use near_chain_configs::Genesis;
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
 };
+
 use std::collections::HashSet;
 use std::mem::size_of;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
+
+// AccountCostIncrease adds a refund for the purchase/burn price difference.
+const fn extra_refund_outcomes() -> usize {
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+}
 
 /// Initial balance used in tests.
 const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
@@ -57,12 +63,12 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(tx_result.receipts_outcome.len(), 1);
+    assert_eq!(tx_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
 
     let tx_result =
         node_user.deploy_contract(test_contract_account(), wasm_binary.to_vec()).unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(tx_result.receipts_outcome.len(), 1);
+    assert_eq!(tx_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
 
     node
 }
