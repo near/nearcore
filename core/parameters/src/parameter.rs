@@ -23,6 +23,12 @@ pub enum Parameter {
     GasRefundPenalty,
     /// Minimum gas refund tax.
     MinGasRefundPenalty,
+    /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
+    /// burned might be lower, in which case the difference is refunded after execution.
+    MinGasPurchasePrice,
+    /// How much creating an account should cost in NEAR. Taken into account when burning gas for
+    /// account creation.
+    AccountCreationCharge,
 
     /// Stateless validation config
     /// Size limit for storage proof generated while executing receipts in a chunk.
