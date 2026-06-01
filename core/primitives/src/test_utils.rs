@@ -1097,6 +1097,7 @@ impl TestBlockBuilder {
                     prev_last_certified_block_epoch_id: self
                         .prev_last_certified_block_epoch_id
                         .expect("prev_last_certified_block_epoch_id not set for spice block"),
+                    spice_chunk_endorsement_stats: Vec::new(),
                 }
             }),
         );

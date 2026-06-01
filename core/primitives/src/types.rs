@@ -1167,6 +1167,28 @@ impl ValidatorStats {
     }
 }
 
+/// Per-validator chunk endorsement stats accumulated over a spice epoch,
+/// indexed by the current epoch's validator id. Carried on the last block of
+/// the epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.
+#[derive(
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct SpiceChunkEndorsementStats {
+    pub produced: u32,
+    pub expected: u32,
+}
+
 #[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
