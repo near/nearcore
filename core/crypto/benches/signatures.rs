@@ -2,9 +2,10 @@
 //!
 //! Run with `cargo bench -p near-crypto --bench signatures`.
 //!
-//! Three operations are measured per scheme: keygen, sign, verify.
-//! For verify we pre-generate a stable keypair and re-verify a fresh
-//! signature each iteration (matches the on-chain hot path).
+//! Four groups are measured per scheme: keygen, sign, verify (one fixed
+//! keypair + signature re-verified every iteration), and verify_random_keys
+//! (round-robin over many random keypairs, to average over the
+//! key-specific verify-cost variation a single-key benchmark can't see).
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};

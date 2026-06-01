@@ -5,12 +5,16 @@
 //! `polyveck_use_hint`, whose work is proportional to `weight(h)` and bounded
 //! by `ω = 55`. Everything else is constant-time.
 //!
-//! This bench tests two hypotheses:
+//! This bench answers two questions:
 //!
-//!   H1: Verify time increases with `weight(h)`.
-//!   H2: An "adversarial" tampered signature crafted to (a) max out h-weight
-//!       and (b) force the final-hash failure path is meaningfully slower than
-//!       the natural-distribution worst case (~500µs from verify_distribution).
+//!   H1: Does verify time grow with `weight(h)`? If `polyveck_use_hint` is the
+//!       only data-dependent step, higher-weight signatures should verify
+//!       slower. `experiment_h1_natural_distribution` buckets naturally-sampled
+//!       signatures by weight and times each bucket.
+//!   H2: How heavy is the tail? `experiment_h2_tampered_tail` samples 100k
+//!       tampered signatures forced through the full verify computation and
+//!       reports its percentiles, bounding the worst case an attacker can reach
+//!       by trying many inputs.
 //!
 //! ML-DSA-65 signature layout (3309 bytes total):
 //!   [0..48]      c_tilde       — challenge commitment (2λ/8 = 48 bytes for ML-DSA-65)
@@ -23,21 +27,15 @@
 //! Run:
 //!   cargo bench -p near-crypto --bench ml_dsa_worst_case
 
-use near_crypto::{KeyType, ML_DSA_65_SIGNATURE_LENGTH, PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
-const _HINT_COUNTS_OFFSET: usize = 3303; // 48 + 5*640 + 55
 const HINT_TOTAL_OFFSET: usize = 3308; // last of the 6 cumulative count bytes
 
 const PROBE_N: usize = 4096;
 const VERIFY_REPS: usize = 200;
 const TAIL_N: usize = 100_000;
-
-fn extract_hint_weight(sig_bytes: &[u8]) -> u8 {
-    debug_assert_eq!(sig_bytes.len(), ML_DSA_65_SIGNATURE_LENGTH);
-    sig_bytes[HINT_TOTAL_OFFSET]
-}
 
 fn time_verify(pk: &PublicKey, sig: &Signature, msg: &[u8]) -> u128 {
     let t0 = Instant::now();
@@ -45,9 +43,19 @@ fn time_verify(pk: &PublicKey, sig: &Signature, msg: &[u8]) -> u128 {
     t0.elapsed().as_nanos()
 }
 
-/// Sign `n` distinct messages with `n` distinct keys and return triples
-/// `(pk, sig, hint_weight)` so callers can investigate weight ↔ time.
-fn sample_signatures(n: usize) -> Vec<(PublicKey, Signature, u8)> {
+/// One sampled signature: the keypair's public key, the signature, the
+/// message it was signed over, and the extracted hint weight `weight(h)`.
+struct Sample {
+    pk: PublicKey,
+    sig: Signature,
+    msg: [u8; 32],
+    weight: u8,
+}
+
+/// Sign `n` distinct messages with `n` distinct keys so callers can
+/// investigate weight ↔ verify time. The message is returned alongside each
+/// signature so the verify path can reuse it without re-deriving.
+fn sample_signatures(n: usize) -> Vec<Sample> {
     eprint!("  sampling {n} ML-DSA-65 (key, sig) pairs and extracting h-weights... ");
     let out: Vec<_> = (0..n)
         .map(|i| {
@@ -55,11 +63,9 @@ fn sample_signatures(n: usize) -> Vec<(PublicKey, Signature, u8)> {
             let pk = sk.public_key();
             let msg: [u8; 32] = Sha256::digest(format!("hint-weight-probe-{i}")).into();
             let sig = sk.sign(&msg);
-            let bytes = borsh::to_vec(&sig).unwrap();
-            // Strip the 1-byte type tag.
-            let raw = &bytes[1..];
-            let w = extract_hint_weight(raw);
-            (pk, sig, w)
+            let Signature::MLDSA65(s) = &sig else { unreachable!() };
+            let weight = s.0[HINT_TOTAL_OFFSET];
+            Sample { pk, sig, msg, weight }
         })
         .collect();
     eprintln!("done.");
@@ -88,13 +94,13 @@ fn fmt_ns(ns: u128) -> String {
 fn experiment_h1_natural_distribution() {
     eprintln!("\n## H1: weight(h) vs verify time (natural-distribution signatures)\n");
 
-    // Sign many messages, sort by h-weight, time each verify.
+    // Sample many signatures, then bucket their verify times by h-weight.
     let probe = sample_signatures(PROBE_N);
 
     // Histogram of h-weight.
     let mut hist = vec![0u32; 64];
-    for (_, _, w) in &probe {
-        hist[*w as usize] += 1;
+    for s in &probe {
+        hist[s.weight as usize] += 1;
     }
     println!("h-weight histogram (PROBE_N={PROBE_N}):");
     for w in 0..64 {
@@ -103,24 +109,18 @@ fn experiment_h1_natural_distribution() {
         }
     }
 
-    // Bucket by weight, time each entry.
-    let msg: [u8; 32] = Sha256::digest(b"weight-vs-time-probe").into();
-    // Re-sign messages to a single fixed `msg` so verify-time is the only varying input?
-    // No — that breaks h-weight diversity. Instead time-verify each (pk, sig) pair
-    // against ITS OWN message. We have to derive the message the same way.
+    // Time each signature against its own message, bucketed by h-weight.
     let mut by_weight: Vec<Vec<u128>> = (0..64).map(|_| Vec::new()).collect();
-    for (i, (pk, sig, w)) in probe.iter().enumerate() {
-        let m: [u8; 32] = Sha256::digest(format!("hint-weight-probe-{i}")).into();
-        // Repeated verifies of the same (pk, sig, m) tuple to denoise.
+    for s in &probe {
+        // Repeated verifies of the same (pk, sig, msg) tuple to denoise.
         let mut samples = Vec::with_capacity(VERIFY_REPS);
         for _ in 0..VERIFY_REPS {
-            samples.push(time_verify(pk, sig, &m));
+            samples.push(time_verify(&s.pk, &s.sig, &s.msg));
         }
         samples.sort_unstable();
         // Median across the inner reps for this single signature.
-        by_weight[*w as usize].push(samples[VERIFY_REPS / 2]);
+        by_weight[s.weight as usize].push(samples[VERIFY_REPS / 2]);
     }
-    let _ = msg;
 
     println!();
     println!(
@@ -148,10 +148,10 @@ fn experiment_h1_natural_distribution() {
     }
 }
 
-fn experiment_h2_amplified_tampered() {
+fn experiment_h2_tampered_tail() {
     eprintln!("\n## H2: tail of tampered-signature verify time across {TAIL_N} iterations\n");
-    let msg: [u8; 32] = Sha256::digest(b"amp-tampered-base").into();
-    let other: [u8; 32] = Sha256::digest(b"amp-tampered-not-this-one").into();
+    let msg: [u8; 32] = Sha256::digest(b"tampered-tail-base").into();
+    let other: [u8; 32] = Sha256::digest(b"tampered-tail-not-this-one").into();
 
     eprintln!("  pre-generating {TAIL_N} (pk, sig) pairs...");
     let pairs: Vec<(PublicKey, Signature)> = (0..TAIL_N)
@@ -192,16 +192,17 @@ fn main() {
     );
 
     experiment_h1_natural_distribution();
-    experiment_h2_amplified_tampered();
+    experiment_h2_tampered_tail();
 
     println!(
         "\nInterpretation:\n  \
          - If H1 shows a flat line across weights, `polyveck_use_hint` is\n  \
            cheap and not exploitable.\n  \
-         - If H2's max stays close to the verify_distribution result\n  \
-           (~500µs at N=10k), the worst case is bounded and the gas\n  \
-           constant only needs a small safety multiplier.\n  \
-         - If either shows a meaningful tail, that's the attack vector\n  \
-           and a separate `polyveck_use_hint`-aware bound is needed."
+         - If H2's p99.99 stays close to the verify_distribution tail\n  \
+           (~600µs), the worst case is bounded and the gas constant only\n  \
+           needs a small safety multiplier. The single-sample max is noisy\n  \
+           (it swings ~0.7-1.3ms run to run) and is not a reliable bound.\n  \
+         - If either shows a meaningful tail beyond that, that's the attack\n  \
+           vector and a separate `polyveck_use_hint`-aware bound is needed."
     );
 }

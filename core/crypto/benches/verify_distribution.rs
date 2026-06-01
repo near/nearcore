@@ -8,9 +8,11 @@
 //! Run with:
 //!   cargo bench -p near-crypto --bench verify_distribution
 //!
-//! Output is three tables written to stdout:
+//! Output is one table written to stdout, with a row per (scheme, mode)
+//! across three modes:
 //!   1. valid           — same key signed/verified the message; verify -> Ok
-//!   2. random garbage  — random 3309 bytes "signature" (wrong-shape)
+//!   2. random garbage  — correct-length random bytes (from_parts-accepted),
+//!                        real pubkey, real msg; verify -> false
 //!   3. tampered msg    — valid sig, verified against a *different* message
 //!
 //! Together these show the spread between honest and adversarial paths,
@@ -28,7 +30,6 @@ const SCHEMES: [(KeyType, &str); 3] = [
     (KeyType::MLDSA65, "ml-dsa-65"),
 ];
 
-#[derive(Debug)]
 struct Stats {
     name: &'static str,
     mode: &'static str,
@@ -71,11 +72,11 @@ fn sig_size(sig: &Signature) -> usize {
     }
 }
 
-/// Rebuild a `Signature` of the same scheme as `sample` whose bytes are
-/// drawn from `rng_byte()`. Returns `None` if `Signature::from_parts`
-/// rejects the bytes outright (rare for fixed-length variants — happens
-/// for ed25519 if the high bits of the last byte are non-zero, but we
-/// retry until acceptance to keep iteration counts honest).
+/// Build a `Signature` of the same scheme as `sample` whose bytes are
+/// drawn from `rng_byte()`, retrying until `Signature::from_parts` accepts
+/// them. Rejection is rare for fixed-length variants (e.g. ed25519 rejects
+/// a non-canonical high bit in the last byte); retrying keeps every
+/// iteration backed by a well-formed signature.
 fn make_random_sig<F: FnMut() -> u8>(sample: &Signature, mut rng_byte: F) -> Signature {
     let len = sig_size(sample);
     let kt = sample.key_type();
@@ -106,7 +107,7 @@ fn pregen(key_type: KeyType, name: &str, n: usize, msg: &[u8]) -> Vec<(PublicKey
     pairs
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 enum Mode {
     Valid,
     RandomGarbage,
@@ -158,14 +159,10 @@ fn bench_one(mode: Mode, key_type: KeyType, name: &'static str) -> Stats {
         }
     }
 
-    // Warmup
-    let mut accept_warmup = 0usize;
+    // Warmup: run verify to warm caches/branch predictors before timing.
     for (pk, sig, vmsg) in &iters[..WARMUP] {
-        if sig.verify(vmsg, pk) {
-            accept_warmup += 1;
-        }
+        let _ = sig.verify(vmsg, pk);
     }
-    let _ = accept_warmup;
 
     // Measured region.
     let mut samples: Vec<u128> = Vec::with_capacity(N);
