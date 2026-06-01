@@ -67,14 +67,9 @@ BlockV4 = 2664395254
 BlockWithChangesInfo = 887507517
 BufferedReceiptIndices = 2030010377
 CachedParts = 2411133894
-<<<<<<< stafik/cloud-archive/writer-carried-chunks
-CarriedData = 1947824401
-Challenge = 1847531820
-ChallengeBody = 2333758727
-=======
+CarriedData = 885932156
 Challenge = 2920851601
 ChallengeBody = 896146878
->>>>>>> master
 ChunkApplyStats = 669249519
 ChunkApplyStatsV0 = 1421844879
 ChunkApplyStatsV1 = 2744974066
@@ -195,15 +190,11 @@ MessageDiscriminant = 3240833245
 MethodResolveError = 917413558
 MissingTrieValue = 2644075732
 MissingTrieValueContext = 2672288367
-<<<<<<< stafik/cloud-archive/writer-carried-chunks
-NewChunkData = 4200521395
-NonDelegateAction = 972592874
-=======
 MlDsa65PublicKey = 2878377555
 MlDsa65PublicKeyHandle = 401334470
 MlDsa65Signature = 67467562
+NewChunkData = 716078453
 NonDelegateAction = 1554727064
->>>>>>> master
 NonceMode = 4100259659
 OptimisticBlock = 2323599339
 OptimisticBlockInner = 1534008891
@@ -277,45 +268,25 @@ RoutedMessageV3 = 1385979227
 Secp256K1PublicKey = 4117078281
 Secp256K1Signature = 3687154735
 SerdeAccount = 2480953291
-<<<<<<< stafik/cloud-archive/writer-carried-chunks
-ServerError = 4079605558
-ShardBatch = 1308246752
-ShardBatchV1 = 1331242367
-ShardChunk = 782359304
-ShardChunkHeader = 1348655804
-ShardChunkHeaderInner = 631250903
-ShardChunkHeaderInnerV1 = 1163806504
-=======
 ServerError = 464841008
-ShardBatch = 1283545303
-ShardBatchV1 = 2723408154
+ShardBatch = 821976386
+ShardBatchV1 = 3994041835
 ShardChunk = 1968702051
 ShardChunkHeader = 3687024378
 ShardChunkHeaderInner = 1032603996
 ShardChunkHeaderInnerV1 = 9193151
->>>>>>> master
 ShardChunkHeaderInnerV2 = 296821483
 ShardChunkHeaderInnerV3 = 3178645760
 ShardChunkHeaderInnerV4 = 1767419507
 ShardChunkHeaderInnerV5 = 2369956272
 ShardChunkHeaderInnerV6SpiceTxOnly = 471852313
-<<<<<<< stafik/cloud-archive/writer-carried-chunks
-ShardChunkHeaderV1 = 4071323586
-ShardChunkHeaderV2 = 1286368135
-ShardChunkHeaderV3 = 1647939430
-ShardChunkV1 = 4041235017
-ShardChunkV2 = 833698888
-ShardData = 1661033849
-ShardDataV1 = 1292040036
-=======
 ShardChunkHeaderV1 = 2706609719
 ShardChunkHeaderV2 = 1517277312
 ShardChunkHeaderV3 = 3691025457
 ShardChunkV1 = 2934631290
 ShardChunkV2 = 915478491
-ShardData = 1285614298
-ShardDataV1 = 3877347030
->>>>>>> master
+ShardData = 731833196
+ShardDataV1 = 2167521363
 ShardLayout = 912845275
 ShardLayoutV0 = 3139625127
 ShardLayoutV1 = 2054829142

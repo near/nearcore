@@ -23,6 +23,8 @@ pub enum ShardData {
     V1(ShardDataV1),
 }
 
+// Short-lived deserialized blob held only in small bounded collections;
+// the size disparity is transient, not worth a heap indirection per read.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ShardDataV1 {
