@@ -370,9 +370,9 @@ fn permission_exec_fees(
 pub fn tx_cost(
     config: &RuntimeConfig,
     tx: &Transaction,
-    receipt_gas_price: Balance,
+    current_gas_price: Balance,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    calculate_tx_cost(tx.receiver_id(), tx.signer_id(), tx.actions(), config, receipt_gas_price)
+    calculate_tx_cost(tx.receiver_id(), tx.signer_id(), tx.actions(), config, current_gas_price)
 }
 
 pub fn calculate_tx_cost(
@@ -380,7 +380,7 @@ pub fn calculate_tx_cost(
     signer_id: &AccountId,
     actions: &[Action],
     config: &RuntimeConfig,
-    receipt_gas_price: Balance,
+    current_gas_price: Balance,
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let sender_is_receiver = receiver_id == signer_id;
     let fees = &config.fees;
@@ -408,7 +408,13 @@ pub fn calculate_tx_cost(
         .checked_add_result(receipt_cost.gas)?
         .checked_add_result(prepaid_exec_fee.gas)?;
 
-    let burnt_amount = safe_gas_to_balance(receipt_gas_price, burnt.gas)?;
+    // Gas burned on converting the transaction to a receipt is burned at the current price.
+    let burnt_amount = safe_gas_to_balance(current_gas_price, burnt.gas)?;
+
+    // Gas attached to the receipt is purchased at a price which should be at least as large as
+    // min_gas_purchase_price. Later it might be burned at a lower price, in which case the price
+    // difference will be refunded.
+    let receipt_gas_price = std::cmp::max(current_gas_price, config.min_gas_purchase_price);
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;
