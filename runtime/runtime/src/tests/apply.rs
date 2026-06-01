@@ -777,6 +777,9 @@ fn test_apply_delayed_receipts_local_tx() {
     );
 }
 
+// Under AccountCostIncrease the runtime caps gas_burn_price at the receipt's gas_price (no
+// deficit ever) and refunds price_surplus through a refund receipt (instead of adding it to
+// tx_burnt). The tests below assert on both flavors.
 #[test]
 fn test_apply_deficit_gas_for_transfer() {
     let initial_balance = Balance::from_near(1_000_000);
@@ -807,10 +810,16 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
-        result.stats.balance.gas_deficit_amount,
-        result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
-    )
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is
+        // burnt at exactly what the user paid and no deficit accumulates.
+        assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
+    } else {
+        assert_eq!(
+            result.stats.balance.gas_deficit_amount,
+            result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
+        )
+    }
 }
 
 /// Apply a transfer receipt that was purchased at a higher gas price than
@@ -854,12 +863,20 @@ fn test_apply_surplus_gas_for_transfer() {
         .unwrap()
         .gas;
 
-    let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-    let expected_receipts = 0;
-
     assert!(result.stats.balance.gas_deficit_amount.is_zero());
-    assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-    assert_eq!(result.outgoing_receipts.len(), expected_receipts);
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
+        // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
+        let expected_burnt_amount =
+            apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+        assert_eq!(result.outgoing_receipts.len(), 1);
+    } else {
+        // price_surplus is burnt (added to tx_burnt_amount) and no refund is produced.
+        let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+        assert_eq!(result.outgoing_receipts.len(), 0);
+    }
 }
 
 #[test]
@@ -938,14 +955,17 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
-        result.stats.balance.gas_deficit_amount,
+    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+        Balance::ZERO
+    } else {
         GAS_PRICE
             .checked_sub(gas_price)
             .unwrap()
             .checked_mul(u128::from(expected_gas_burnt.as_gas()))
             .unwrap()
-    );
+    };
+    assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1006,11 +1026,15 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_deficit = GAS_PRICE
-        .checked_sub(gas_price)
-        .unwrap()
-        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-        .unwrap();
+    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        Balance::ZERO
+    } else {
+        GAS_PRICE
+            .checked_sub(gas_price)
+            .unwrap()
+            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+            .unwrap()
+    };
 
     let result = runtime
         .apply(
@@ -1092,11 +1116,25 @@ fn test_apply_surplus_gas_for_function_call() {
         .unwrap(),
     );
     let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
-    let expected_refund = total_receipt_cost
-        .checked_sub(expected_gas_burnt_amount)
-        .unwrap()
-        .checked_sub(gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap())
-        .unwrap();
+    // The unspent gas is refunded at the price it was purchased at (the receipt's `gas_price`).
+    let unspent_refund = total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap();
+    let expected_refund = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
+        // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
+        // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
+        let penalty =
+            apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+        let price_surplus = gas_price
+            .checked_sub(apply_state.gas_price)
+            .unwrap()
+            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+            .unwrap();
+        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap()
+    } else {
+        // The refund penalty is charged at the receipt's gas price.
+        let penalty = gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+        unspent_refund.checked_sub(penalty).unwrap()
+    };
 
     let result = runtime
         .apply(
@@ -1112,11 +1150,10 @@ fn test_apply_surplus_gas_for_function_call() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO, "expected surplus");
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
-            assert!(
-                matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
-            );
-        }
+        ReceiptEnum::Action(ActionReceipt { actions, .. }) => match &actions[0] {
+            Action::Transfer(TransferAction { deposit }) => assert_eq!(*deposit, expected_refund),
+            other => panic!("Expected transfer action, got {:?}", other),
+        },
         _ => unreachable!(),
     };
 }
