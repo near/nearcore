@@ -496,7 +496,7 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
         nonce
     };
 
-    // Deploy the nightly test contract
+    // Deploy the test contract
     let block_hash = env.rpc_node().head().last_block_hash;
     let deploy_tx = SignedTransaction::deploy_contract(
         next_nonce(),

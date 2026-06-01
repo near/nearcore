@@ -461,8 +461,8 @@ fn test_yield_resume_across_protocol_upgrade() {
     let new_protocol = ProtocolFeature::YieldResumeImprovements.protocol_version();
     let epoch_length = 5;
 
-    // Currently this test runs only on nightly.
-    // If PROTOCOL_VERSION is lower than `new_protocol`, the client will fail with a message like:
+    // Skip when this build's PROTOCOL_VERSION predates `new_protocol` (the features
+    // under test); otherwise the client fails with a message like:
     // "The client protocol version is older than the protocol version of the network: 131 > 84"
     if PROTOCOL_VERSION < new_protocol {
         return;

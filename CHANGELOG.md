@@ -8,7 +8,7 @@
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 * Fix `action_delete_account` not accounting for the global contract identifier when checking the account deletion storage limit. For accounts using a global contract, the check overcounted storage usage by the identifier size (32 bytes, or the account id length for `GlobalByAccount`), so they were slightly harder to delete. ([#15752](https://github.com/near/nearcore/pull/15752))
 * Fix a bug in `receiver` verification for a `DeterministicStateInitAction` inside a `DelegateAction` that made it impossible to create deterministic accounts through meta transactions. ([#15812](https://github.com/near/nearcore/pull/15812))
-* Stabilize gas keys ([NEP-611](https://github.com/near/NEPs/pull/611)): a new access key type that carries a pre-funded NEAR balance and up to 1,024 independent nonce sequences. Transactions signed with a gas key pay gas costs from the key's balance rather than the signer's account balance. ([#15183](https://github.com/near/nearcore/pull/15183))
+* Stabilized gas keys ([NEP-611](https://github.com/near/NEPs/pull/611)): a new access key type that carries a pre-funded NEAR balance and up to 1,024 independent nonce sequences. Transactions signed with a gas key pay gas costs from the key's balance rather than the signer's account balance. ([#15183](https://github.com/near/nearcore/pull/15183))
 
 ### Non-protocol Changes
 * Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `after_key_base64` and `limit`, and the response returns `last_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
