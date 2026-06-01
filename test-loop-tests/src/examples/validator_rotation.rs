@@ -22,11 +22,13 @@ fn test_validator_rotation() {
     let mut runner = RotatingValidatorsRunner::new(stake, validators.clone());
 
     let accounts = runner.all_validators_accounts();
+    // enough to stake + 1 near to pay for sending transactions.
+    let initial_balance = stake.checked_add(Balance::from_near(1)).unwrap();
     let seats: NumSeats = validators[0].len().try_into().unwrap();
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(7)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-        .add_user_accounts_simple(&accounts, stake)
+        .add_user_accounts_simple(&accounts, initial_balance)
         .shard_layout(ShardLayout::single_shard())
         .build();
 
