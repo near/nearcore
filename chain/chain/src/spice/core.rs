@@ -288,6 +288,58 @@ impl SpiceCoreReader {
         Ok(())
     }
 
+    /// Value for the block header's `spice_chunk_endorsement_stats` field.
+    /// Non-empty only on the epoch's last block, where it carries the running
+    /// per-epoch accumulator (canonicalized to empty when all-zero). The block
+    /// producer calls this with the new block's `epoch_id` and `prev_hash`.
+    pub fn spice_chunk_endorsement_stats(
+        &self,
+        epoch_id: &EpochId,
+        prev_hash: &CryptoHash,
+        is_last_block_in_epoch: bool,
+    ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
+        if !is_last_block_in_epoch {
+            return Ok(Vec::new());
+        }
+        let mut stats = compute_spice_endorsement_stats(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            epoch_id,
+            prev_hash,
+        )?;
+        if stats.iter().all(|s| *s == SpiceChunkEndorsementStats::default()) {
+            stats.clear();
+        }
+        Ok(stats)
+    }
+
+    pub fn validate_spice_chunk_endorsement_stats(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        let actual = header.spice_chunk_endorsement_stats().ok_or_else(|| {
+            Error::InvalidSpiceChunkEndorsementStats(
+                "missing field on spice block header".to_string(),
+            )
+        })?;
+        let is_last_block_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
+            header.height(),
+            header.prev_hash(),
+            header.last_final_block(),
+        )?;
+        let expected = self.spice_chunk_endorsement_stats(
+            header.epoch_id(),
+            header.prev_hash(),
+            is_last_block_in_epoch,
+        )?;
+        if actual != expected.as_slice() {
+            return Err(Error::InvalidSpiceChunkEndorsementStats(format!(
+                "expected {expected:?}, got {actual:?}"
+            )));
+        }
+        Ok(())
+    }
+
     pub fn validate_core_statements_in_block(
         &self,
         block: &Block,

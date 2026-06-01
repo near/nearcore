@@ -280,6 +280,10 @@ pub enum Error {
     /// match the epoch id of the last fully certified block as of prev.
     #[error("Invalid prev_last_certified_block_epoch_id: {0}")]
     InvalidPrevLastCertifiedBlockEpochId(String),
+    /// `spice_chunk_endorsement_stats` on a spice block header doesn't match the
+    /// value recomputed from the chain.
+    #[error("Invalid spice_chunk_endorsement_stats: {0}")]
+    InvalidSpiceChunkEndorsementStats(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -373,7 +377,8 @@ impl Error {
             | Error::NotAChunkValidator
             | Error::BadHeaderForProtocolVersion(_)
             | Error::InvalidSpiceCoreStatements(_)
-            | Error::InvalidPrevLastCertifiedBlockEpochId(_) => true,
+            | Error::InvalidPrevLastCertifiedBlockEpochId(_)
+            | Error::InvalidSpiceChunkEndorsementStats(_) => true,
         }
     }
 
@@ -464,6 +469,7 @@ impl Error {
             Error::InvalidPrevLastCertifiedBlockEpochId(_) => {
                 "invalid_prev_last_certified_block_epoch_id"
             }
+            Error::InvalidSpiceChunkEndorsementStats(_) => "invalid_spice_chunk_endorsement_stats",
         }
     }
 }
