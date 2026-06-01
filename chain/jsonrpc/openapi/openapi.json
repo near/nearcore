@@ -1132,7 +1132,7 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
-        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest\n(the full pubkey is not stored on-chain).",
+        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-256 digest\n(the full pubkey is not stored on-chain).",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"

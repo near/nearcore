@@ -25,16 +25,16 @@ pub const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
 /// FIPS 204 seed length in bytes (used to derive an ML-DSA private key).
 #[cfg(feature = "rand")]
 pub const ML_DSA_65_SEED_LENGTH: usize = 32;
-/// SHA3-384 output length used as the on-trie identifier for an
+/// SHA3-256 output length used as the on-trie identifier for an
 /// ML-DSA-65 access key. The same digest is expected to be reused as
 /// the account-id payload for ML-DSA-65 implicit accounts when that
 /// feature lands; update this comment then.
-pub const ML_DSA_65_HASH_LENGTH: usize = 48;
+pub const ML_DSA_65_HASH_LENGTH: usize = 32;
 /// Domain-separation tag for `MlDsa65PublicKey`-to-hash derivation.
-/// Prepended to the raw pubkey bytes before SHA3-384, so an ML-DSA-65
+/// Prepended to the raw pubkey bytes before SHA3-256, so an ML-DSA-65
 /// hash can never collide with another use of SHA3 in the protocol.
 const ML_DSA_65_HASH_DOMAIN_TAG: &[u8] = b"near:ml-dsa-65-pubkey-hash:v1";
-/// Wire-format prefix for an ML-DSA-65 access-key identifier (the SHA3-384
+/// Wire-format prefix for an ML-DSA-65 access-key identifier (the SHA3-256
 /// digest, not the full pubkey). Used in `view_access_key_list` responses
 /// and accepted by `PublicKeyHandle::from_str`.
 const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash:";
@@ -160,15 +160,15 @@ pub struct MlDsa65PublicKey(pub Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>);
 
 impl MlDsa65PublicKey {
     /// Compute the on-trie [`MlDsa65PublicKeyHandle`] for this public key -
-    /// the SHA3-384 of (domain-separation tag || raw pubkey bytes).
+    /// the SHA3-256 of (domain-separation tag || raw pubkey bytes).
     ///
     /// This is the form an ML-DSA-65 access key takes inside the trie: the
     /// full pubkey lives only on the wire (in transactions and actions),
     /// never in state. The full pubkey can be derived from the handle only
     /// by brute force.
     pub fn to_public_key_handle(&self) -> MlDsa65PublicKeyHandle {
-        use sha3::{Digest, Sha3_384};
-        let mut hasher = Sha3_384::new();
+        use sha3::{Digest, Sha3_256};
+        let mut hasher = Sha3_256::new();
         hasher.update(ML_DSA_65_HASH_DOMAIN_TAG);
         hasher.update(&self.0[..]);
         let mut out = [0u8; ML_DSA_65_HASH_LENGTH];
@@ -203,7 +203,7 @@ impl bolero::TypeGenerator for MlDsa65PublicKey {
 }
 
 /// On-trie identifier of an ML-DSA-65 access key - and, in the future,
-/// the basis for ML-DSA-65 implicit-account ids. Stored as the SHA3-384
+/// the basis for ML-DSA-65 implicit-account ids. Stored as the SHA3-256
 /// digest of (domain-tag || raw pubkey) because the full 1952-byte pubkey
 /// would be prohibitive to keep in state. Cannot sign or verify; only
 /// appears as a lookup key and in view-API responses.
@@ -265,7 +265,7 @@ impl PublicKey {
     /// discriminant tag (the leading `+ 1` in each arm).
     ///
     /// For storage-fee accounting use [`PublicKey::trie_id_len`] instead;
-    /// for ML-DSA-65 those two diverge (1953 wire vs 49 on-trie).
+    /// for ML-DSA-65 those two diverge (1953 wire vs 33 on-trie).
     // `is_empty` always returns false, so there is no point in adding it
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
@@ -320,7 +320,7 @@ impl PublicKey {
 
     /// Length, in bytes, of the on-trie identifier for an access-key
     /// entry owned by this public key. For ed25519/secp256k1 this matches
-    /// `len()`; for ML-DSA-65 the trie stores a SHA3-384 hash (49 bytes
+    /// `len()`; for ML-DSA-65 the trie stores a SHA3-256 hash (33 bytes
     /// including the type tag), not the 1953-byte borsh-encoded pubkey.
     /// Used by storage-fee calculations on the runtime side; cheap to call
     /// (no hashing) - for ML-DSA-65 this returns the size of the digest
@@ -481,7 +481,7 @@ impl From<MlDsa65PublicKey> for PublicKey {
 /// How an access-key entry is referred to in the trie.
 ///
 /// The trie stores ed25519 and secp256k1 access keys as their full
-/// public keys, but ML-DSA-65 access keys as a SHA3-384 hash of the
+/// public keys, but ML-DSA-65 access keys as a SHA3-256 hash of the
 /// pubkey (storage-efficiency optimization - see
 /// `docs/architecture/how/post_quantum_signatures.md`).
 ///
@@ -493,7 +493,7 @@ impl From<MlDsa65PublicKey> for PublicKey {
 ///
 /// The variant set mirrors [`PublicKey`] for schemes that store the
 /// full key in the trie (ed25519, secp256k1), and replaces ML-DSA-65's
-/// full-key variant with the SHA3-384 hash actually stored. This makes
+/// full-key variant with the SHA3-256 hash actually stored. This makes
 /// "a full ML-DSA-65 key in the trie" unrepresentable in the type
 /// system - the encoding/decoding round-trip becomes lossless and
 /// invalid combinations cannot be constructed.
@@ -503,7 +503,7 @@ pub enum PublicKeyHandle {
     ED25519(ED25519PublicKey),
     /// Full secp256k1 public key, as stored in the trie.
     SECP256K1(Secp256K1PublicKey),
-    /// SHA3-384 hash of an ML-DSA-65 public key. The full pubkey is not
+    /// SHA3-256 hash of an ML-DSA-65 public key. The full pubkey is not
     /// stored on-chain; only this hash appears in the trie.
     MlDsa65(MlDsa65PublicKeyHandle),
 }
@@ -536,8 +536,8 @@ impl Hash for PublicKeyHandle {
 impl PublicKeyHandle {
     /// Length, in bytes, of this handle's on-trie borsh encoding: the raw
     /// handle bytes plus a 1-byte borsh discriminant tag (the leading
-    /// `+ 1` in each arm). For ML-DSA-65 the handle is the 48-byte
-    /// SHA3-384 digest, not the full 1952-byte pubkey.
+    /// `+ 1` in each arm). For ML-DSA-65 the handle is the 32-byte
+    /// SHA3-256 digest, not the full 1952-byte pubkey.
     pub fn trie_id_len(&self) -> usize {
         match self {
             Self::ED25519(_) => 1 + ed25519_dalek::PUBLIC_KEY_LENGTH,
@@ -1638,7 +1638,7 @@ mod tests {
         assert!(matches!(pk2, PublicKey::ED25519(_)));
     }
 
-    /// `MlDsa65PublicKey::to_public_key_handle()` must be deterministic, 48 bytes,
+    /// `MlDsa65PublicKey::to_public_key_handle()` must be deterministic, 32 bytes,
     /// and distinct between different keys.
     #[cfg(feature = "rand")]
     #[test]
@@ -1688,7 +1688,7 @@ mod tests {
     }
 
     /// Borsh roundtrip of `PublicKeyHandle::MlDsa65`. Bytes must be tag 3
-    /// followed by the 48-byte hash so that the trie encoding matches.
+    /// followed by the 32-byte hash so that the trie encoding matches.
     #[test]
     fn test_key_handle_hash_borsh_roundtrip() {
         use super::PublicKeyHandle;
@@ -1713,7 +1713,7 @@ mod tests {
         let pq: PublicKeyHandle = SecretKey::from_seed(KeyType::MLDSA65, "x").public_key().into();
         assert_eq!(ed.trie_id_len(), 33);
         assert_eq!(sk.trie_id_len(), 65);
-        assert_eq!(pq.trie_id_len(), 49); // 1 + 48
+        assert_eq!(pq.trie_id_len(), 33); // 1 + 32
     }
 
     /// Backwards-compat: borsh-encoded `PublicKeyHandle::ED25519`/`SECP256K1`
