@@ -108,7 +108,7 @@ fn prepare_env() -> TestLoopEnv {
     let deploy_contract_tx = SignedTransaction::deploy_contract(
         1,
         &test_account,
-        near_test_contracts::rs_contract().into(),
+        near_test_contracts::backwards_compatible_rs_contract().into(),
         &test_account_signer,
         *genesis_block.hash(),
     );
@@ -552,7 +552,7 @@ fn test_yield_resume_across_protocol_upgrade() {
     let deploy_contract_tx = SignedTransaction::deploy_contract(
         1,
         &test_account,
-        near_test_contracts::rs_contract().into(),
+        near_test_contracts::backwards_compatible_rs_contract().into(),
         &test_account_signer,
         start_head.last_block_hash,
     );

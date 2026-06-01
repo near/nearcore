@@ -983,13 +983,22 @@ impl TestEnv {
             .runtime_config_store(runtime_config_store.clone())
             .build();
 
+        // `rs_contract` declares host-fn imports for the latest protocol that are
+        // not available at older versions; use the backwards-compatible contract
+        // when the test runs below the latest protocol version.
+        let contract_code = if protocol_version < PROTOCOL_VERSION {
+            near_test_contracts::backwards_compatible_rs_contract()
+        } else {
+            near_test_contracts::rs_contract()
+        };
+
         Self {
             env,
             runtime_config_store,
             user_account,
             independent_account,
             global_contract_account,
-            contract: ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
+            contract: ContractCode::new(contract_code.to_vec(), None),
             nonce: 1,
             protocol_version,
         }
