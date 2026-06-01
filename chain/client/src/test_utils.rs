@@ -254,17 +254,10 @@ pub fn create_chunk(
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
     // Match the producer: the field is non-empty only on the epoch's last block.
     let spice_chunk_endorsement_stats = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        let epoch_id =
-            client.epoch_manager.get_epoch_id_from_prev_block(last_block.hash()).unwrap();
-        let last_final_block = last_block.header().last_final_block_for_height(next_height);
-        let is_last_block_in_epoch = client
-            .epoch_manager
-            .is_produced_block_last_in_epoch(next_height, last_block.hash(), &last_final_block)
-            .unwrap();
         client
             .chain
             .spice_core_reader
-            .spice_chunk_endorsement_stats(&epoch_id, last_block.hash(), is_last_block_in_epoch)
+            .spice_chunk_endorsement_stats_for_next_block(last_block.header(), next_height)
             .unwrap()
     } else {
         Vec::new()

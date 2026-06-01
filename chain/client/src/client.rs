@@ -1175,12 +1175,10 @@ impl Client {
                 .chain
                 .spice_core_reader
                 .prev_last_certified_block_epoch_id(prev_header.hash())?;
-            let spice_chunk_endorsement_stats =
-                self.chain.spice_core_reader.spice_chunk_endorsement_stats(
-                    &epoch_id,
-                    prev_header.hash(),
-                    is_produced_block_last_in_epoch,
-                )?;
+            let spice_chunk_endorsement_stats = self
+                .chain
+                .spice_core_reader
+                .spice_chunk_endorsement_stats_for_next_block(prev_header, height)?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,

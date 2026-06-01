@@ -313,6 +313,27 @@ impl SpiceCoreReader {
         Ok(stats)
     }
 
+    /// `spice_chunk_endorsement_stats` for a block at `height` built on
+    /// `prev_header`, resolving the epoch and last-block-of-epoch gating
+    /// internally. Mirrors what the producer derives, so callers that don't
+    /// already have those values (e.g. test block builders) don't have to
+    /// reproduce the `last_final_block` computation and risk diverging from the
+    /// validator.
+    pub fn spice_chunk_endorsement_stats_for_next_block(
+        &self,
+        prev_header: &BlockHeader,
+        height: BlockHeight,
+    ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_header.hash())?;
+        let last_final_block = prev_header.last_final_block_for_height(height);
+        let is_last_block_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
+            height,
+            prev_header.hash(),
+            &last_final_block,
+        )?;
+        self.spice_chunk_endorsement_stats(&epoch_id, prev_header.hash(), is_last_block_in_epoch)
+    }
+
     pub fn validate_spice_chunk_endorsement_stats(
         &self,
         header: &BlockHeader,
