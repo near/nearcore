@@ -423,13 +423,7 @@ impl CloudArchivalWriter {
                 continue;
             }
             self.cloud_storage
-                .archive_shard_batch(
-                    &self.hot_store,
-                    self.genesis_height,
-                    shard_layout,
-                    batch_range,
-                    *shard_uid,
-                )
+                .archive_shard_batch(&self.hot_store, shard_layout, batch_range, *shard_uid)
                 .await?;
             self.cloud_storage.update_cloud_shard_head(shard_id, batch_range.end()).await?;
             advanced_shards.push(shard_id);
