@@ -336,10 +336,11 @@ impl EpochSync {
             ));
         }
         if all_epochs[0].last_final_block_header.epoch_id() != &second_next_epoch_id_after_genesis {
-            return Err(Error::InvalidEpochSyncProof(
-                "last final block header for the first epoch is not in the expected epoch"
-                    .to_string(),
-            ));
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "epoch_id mismatch for all_epochs[0] last final block header: expected {:?}, got {:?}",
+                second_next_epoch_id_after_genesis,
+                all_epochs[0].last_final_block_header.epoch_id(),
+            )));
         }
         Self::verify_final_block_endorsement(&all_epochs[0])?;
 
@@ -372,8 +373,10 @@ impl EpochSync {
                 != prev_epoch.last_final_block_header.next_epoch_id()
             {
                 return Err(Error::InvalidEpochSyncProof(format!(
-                    "last final block header for epoch index {} is not in the expected epoch",
-                    epoch_index
+                    "epoch_id mismatch at all_epochs[{}]: expected {:?}, got {:?}",
+                    epoch_index,
+                    prev_epoch.last_final_block_header.next_epoch_id(),
+                    epoch.last_final_block_header.epoch_id(),
                 )));
             }
             Self::verify_final_block_endorsement(epoch)?;
