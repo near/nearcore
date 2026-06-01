@@ -1928,7 +1928,12 @@ impl JsonRpcHandler {
         request: RpcReceiptToTxRequest,
     ) -> Result<RpcReceiptToTxResponse, RpcReceiptToTxError> {
         let response = self
-            .view_client_send(GetReceiptToTx { receipt_id: request.receipt_reference.receipt_id })
+            .view_client_send(GetReceiptToTx {
+                receipt_id: request.receipt_reference.receipt_id,
+                block_height: request.block_height,
+                shard_id: request.shard_id,
+                window: request.window,
+            })
             .await?;
         Ok(RpcReceiptToTxResponse {
             transaction_hash: response.transaction_hash,

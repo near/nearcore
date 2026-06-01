@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.7"
+    "version": "1.2.8"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -13296,6 +13296,24 @@
             ],
             "description": "Determines whether client should exit if the protocol version is not supported\nfor the next or next next epoch."
           },
+          "receipt_to_tx_max_hint_window": {
+            "description": "Max `±window` accepted on `EXPERIMENTAL_receipt_to_tx` requests.\nCaps caller's `window`. Applies to pre-first-scan `CenterOut`\nagainst caller's literal hint; ancestor scans use\n`receipt_to_tx_max_hop_distance` instead. Operators raising this\nshould also raise `receipt_to_tx_max_hop_distance` so backward reach\nmatches caller's wider hint scope. Requests with `window` over this\nrejected with `WindowTooLarge`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_to_tx_max_hop_distance": {
+            "description": "Max block-distance ancestor scan walks per hop once any scan in\nwalk refreshed `current_height`. Subsequent column-miss scans visit\n`h, h-1, ..., h-max_hop_distance` from most-recent scan-refreshed\nanchor, regardless of column hits between. Anchor included —\nsame-shard local receipts execute in same block as producing\noutcome. Raise if cold archival traffic shows ancestor misses —\ngap = scan-refreshed anchor to producer-outcome height of receipt\nwith missing column row (column hits don't reset anchor). Default\n20 (matches `receipt_to_tx_max_hint_window`).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_to_tx_max_outcomes_per_request": {
+            "description": "Per-request ceiling on outcome rows the `EXPERIMENTAL_receipt_to_tx`\nhint-fallback scanner reads across hops + shards. Caps cold-RocksDB\nworst case on unauthenticated public endpoint. Default 20_000.\nOperators serving cold archival traffic with deep walks or sparse\noutcomes may raise; benchmark first (see TODO in\n`view_client_actor.rs`). Mid-scan exhaustion fails with\n`BudgetExceeded { scanned, limit }`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "resharding_config": {
             "$ref": "#/components/schemas/MutableConfigValue"
           },
@@ -16267,13 +16285,149 @@
               "info"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "OUTCOMES_NOT_STORED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "maximum": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "requested",
+                  "maximum"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "WINDOW_TOO_LARGE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "MALFORMED_HINT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "scanned": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "scanned",
+                  "limit"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "BUDGET_EXCEEDED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
           }
         ]
       },
       "RpcReceiptToTxRequest": {
         "properties": {
+          "block_height": {
+            "description": "Block height near where receipt was created. Enables hint fallback\nscan on column miss. Anchor refreshes to each scan-resolved parent's\nexact execution height; later ancestors bounded via causality\n(emit before execute), so subsequent column-miss scans go\n`Ancestor`. Bump `receipt_to_tx_max_hop_distance` if cold archival\ngaps exceed default 20.\n\nCold-storage cost: per-row latency orders of magnitude over hot. To\nbound request cost:\n  - Supply `block_height` within parent's `±window` (default 5).\n  - Supply `shard_id`. Omit → all-shards enumeration until walker\n    crosses `FromReceipt` hop, multiplying cold-read cost.\n  - Don't widen `window` beyond indexer's accuracy; budget shared\n    across full ancestry walk.\n\nReceipt-id-only queries against periods with `save_receipt_to_tx`\ndisabled stay unsupported: column never written, no self-locating.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "receipt_id": {
             "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Shard hint. Narrows scan to this shard at hint height. Omit to\nenumerate all tracked shards (higher cost). After walker crosses a\nreceipt-origin hop, shard derived from parent's predecessor account\nand hint no longer applies. Best-effort across resharding: layout\nshifts can miss producer, walk returns `UnknownReceipt`."
+          },
+          "window": {
+            "description": "Pre-first-scan width: `±window` heights around hint. Caps at\n`receipt_to_tx_max_hint_window` (default 20). Ignored after first\nscan-resolved hop — walker switches to `Ancestor` mode at\n`receipt_to_tx_max_hop_distance` width.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
