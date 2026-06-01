@@ -211,7 +211,7 @@ fn test_gas_key_refund() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(101); // enough to pay for attached 100 TGas + tx cost
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2,
