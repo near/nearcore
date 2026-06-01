@@ -21,6 +21,13 @@ type EdgeKey = (PeerId, PeerId);
 /// Clock-skew tolerance for accepting edges with nonces in the future. Edges with nonces
 /// further ahead than this are rejected to prevent attackers from setting far-future
 /// timestamps to bypass the past-only `PRUNE_EDGES_AFTER` window.
+///
+/// This is distinct from, and stricter than, `EDGE_NONCE_MAX_TIME_DELTA` (20 min): that
+/// constant guards the nonce of the *local* node's own partial edges during handshake
+/// (`routing::edge::verify_nonce`) and is a symmetric past/future bound. This one applies
+/// to *all* propagated edges in the graph, where the past direction is already covered by
+/// the `PRUNE_EDGES_AFTER` window, so only the future direction needs bounding — and we
+/// keep that bound tight, just enough to absorb realistic clock skew between peers.
 const EDGE_NONCE_FUTURE_TOLERANCE: time::Duration = time::Duration::minutes(5);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 pub type DistanceTable = HashMap<PeerId, u32>;
@@ -223,9 +230,13 @@ impl Inner {
             }
 
             // Reject edges with nonces too far in the future. Otherwise an attacker can set
-            // nonces years ahead to bypass the past-only prune window above.
-            if let Ok(nonce_time) = Edge::nonce_to_utc(e.nonce()) {
-                if nonce_time > now + EDGE_NONCE_FUTURE_TOLERANCE {
+            // nonces years ahead to bypass the past-only prune window above. A nonce that
+            // doesn't map to a valid timestamp is rejected as well: `is_edge_older_than`
+            // treats such an edge as not-old, so it would never be pruned, granting the
+            // attacker the very immunity this check is meant to deny.
+            match Edge::nonce_to_utc(e.nonce()) {
+                Ok(nonce_time) if nonce_time <= now + EDGE_NONCE_FUTURE_TOLERANCE => {}
+                _ => {
                     metrics::EDGE_DROPPED.inc();
                     return false;
                 }

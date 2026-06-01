@@ -189,6 +189,7 @@ async fn future_nonce_edges_are_rejected() {
     let p1 = data::make_secret_key(rng);
     let p2 = data::make_secret_key(rng);
     let p3 = data::make_secret_key(rng);
+    let p4 = data::make_secret_key(rng);
 
     let now = clock.now_utc();
     // Within tolerance (1 minute ahead) — accepted.
@@ -197,8 +198,12 @@ async fn future_nonce_edges_are_rejected() {
     let far_future = data::make_edge(&node_key, &p2, to_active_nonce(now + 3600 * SEC));
     // Present nonce — accepted as a control.
     let present = data::make_edge(&node_key, &p3, to_active_nonce(now));
+    // Nonce that doesn't map to a valid timestamp (> i64::MAX) — rejected, so it can't
+    // slip past the future-tolerance check and become un-prunable. u64::MAX is odd, so
+    // the edge is Active.
+    let invalid_nonce = data::make_edge(&node_key, &p4, u64::MAX);
 
-    g.simple_update(vec![near_future.clone(), far_future.clone(), present.clone()]).await;
+    g.simple_update(vec![near_future.clone(), far_future, present.clone(), invalid_nonce]);
     g.check(&[near_future, present]);
 }
 
