@@ -51,7 +51,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
@@ -2104,7 +2104,13 @@ fn test_block_execution_outcomes() {
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
     assert!(next_chunk.to_transactions().is_empty());
-    assert!(next_chunk.prev_outgoing_receipts().is_empty());
+    // Under AccountCostIncrease the two action receipts processed in block 2 each emit a
+    // price_surplus gas-refund receipt, which then becomes `prev_outgoing_receipts` of
+    // block 3. Pre-feature no refund is produced because the unused-gas refund evaluates to
+    // zero with the test's gas_price.
+    let expected_refund_receipts_in_chunk =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 2 } else { 0 };
+    assert_eq!(next_chunk.prev_outgoing_receipts().len(), expected_refund_receipts_in_chunk);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
@@ -2112,8 +2118,12 @@ fn test_block_execution_outcomes() {
         .unwrap()
         .remove(&shard_id)
         .unwrap();
-    assert_eq!(execution_outcomes_from_block.len(), 1);
-    assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
+    // The delayed action receipt is processed plus, under the feature, the refund receipts
+    // for the previously-processed receipts are also processed in this block.
+    assert_eq!(execution_outcomes_from_block.len(), 1 + expected_refund_receipts_in_chunk);
+    assert!(
+        execution_outcomes_from_block.iter().any(|o| o.outcome_with_id.id == delayed_receipt_id[0])
+    );
 }
 
 #[test]
