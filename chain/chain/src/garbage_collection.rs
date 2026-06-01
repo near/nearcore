@@ -775,6 +775,7 @@ impl<'a> ChainStoreUpdate<'a> {
             );
         }
         self.gc_col(DBCol::uncertified_chunks(), block_hash.as_ref());
+        self.gc_col(DBCol::spice_endorsement_stats(), block_hash.as_ref());
     }
 
     fn gc_trie_changes(

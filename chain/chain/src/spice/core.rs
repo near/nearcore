@@ -15,7 +15,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
-    EpochId, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    EpochId, ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -679,6 +679,142 @@ pub fn record_uncertified_chunks_for_block(
         DBCol::uncertified_chunks(),
         block.header().hash().as_ref(),
         &uncertified_chunks,
+    );
+    chain_store_update.merge(store_update);
+    Ok(())
+}
+
+/// Adds `src` into `dst` element-wise, erroring on overflow. `src` may be empty
+/// (treated as all-zero) or the same length as `dst`.
+fn add_endorsement_stats(
+    dst: &mut [SpiceChunkEndorsementStats],
+    src: &[SpiceChunkEndorsementStats],
+) -> Result<(), Error> {
+    let overflow = || Error::Other("overflow accumulating spice endorsement stats".to_string());
+    for (entry, delta) in dst.iter_mut().zip(src) {
+        entry.produced = entry.produced.checked_add(delta.produced).ok_or_else(overflow)?;
+        entry.expected = entry.expected.checked_add(delta.expected).ok_or_else(overflow)?;
+    }
+    Ok(())
+}
+
+/// One block's contribution to per-validator endorsement stats: for every
+/// ChunkExecutionResult in `credited_block`'s body, credits each assigned
+/// validator with one expected endorsement (and one produced if it endorsed),
+/// indexed by `crediting_epoch_id`'s validator id. Validators no longer in the
+/// crediting epoch are ignored. Returns an empty vec for genesis/non-spice
+/// blocks.
+fn endorsement_contribution_of_block(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    crediting_epoch_id: &EpochId,
+    credited_block_hash: &CryptoHash,
+) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
+    let credited_block = chain_store.get_block(credited_block_hash)?;
+    if credited_block.header().is_genesis() || !credited_block.is_spice_block() {
+        return Ok(vec![]);
+    }
+    let epoch_info = epoch_manager.get_epoch_info(crediting_epoch_id)?;
+    let prev_uncertified =
+        get_uncertified_chunks(chain_store, credited_block.header().prev_hash())?;
+    let statements = credited_block.spice_core_statements();
+    // Union of endorsements accumulated in prior blocks (present in the prev
+    // block's uncertified chunks) and new endorsement statements in this block.
+    let endorsers: HashSet<(&SpiceChunkId, &AccountId)> = prev_uncertified
+        .iter()
+        .flat_map(|info| {
+            info.present_endorsements.iter().map(|(account, _)| (&info.chunk_id, account))
+        })
+        .chain(statements.iter_endorsements().map(|e| (e.chunk_id(), e.account_id())))
+        .collect();
+
+    let mut stats = vec![SpiceChunkEndorsementStats::default(); epoch_info.validators_iter().len()];
+    for (chunk_id, _) in statements.iter_execution_results() {
+        let chunk_block = epoch_manager.get_block_info(&chunk_id.block_hash)?;
+        let assignments = epoch_manager.get_chunk_validator_assignments(
+            chunk_block.epoch_id(),
+            chunk_id.shard_id,
+            chunk_block.height(),
+        )?;
+        for (account_id, _stake) in assignments.assignments() {
+            let Some(&validator_id) = epoch_info.get_validator_id(account_id) else {
+                continue;
+            };
+            let entry = &mut stats[validator_id as usize];
+            entry.expected += 1;
+            if endorsers.contains(&(chunk_id, account_id)) {
+                entry.produced += 1;
+            }
+        }
+    }
+    Ok(stats)
+}
+
+/// Reads the stored running endorsement-stats accumulator for `block_hash`.
+/// Returns an empty vec for genesis/non-spice blocks.
+fn get_spice_endorsement_stats(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
+    let block = chain_store.get_block(block_hash)?;
+    if block.header().is_genesis() || !block.is_spice_block() {
+        return Ok(vec![]);
+    }
+    let Some(stats) =
+        chain_store.store_ref().get_ser(DBCol::spice_endorsement_stats(), block_hash.as_ref())
+    else {
+        debug_assert!(false, "spice blocks in store should always have endorsement stats present");
+        return Err(Error::Other(format!("missing spice endorsement stats for {block_hash}")));
+    };
+    Ok(stats)
+}
+
+/// Computes the running per-epoch accumulator for a block in `epoch_id` built
+/// on `prev_hash`: the previous block's value (carried only within the same
+/// epoch, reset at the boundary) plus this epoch's contribution from the
+/// previous block's body. Indexed by the current epoch's validator id.
+///
+/// Takes `(epoch_id, prev_hash)` rather than a header so the block producer can
+/// call it before the header exists; both inputs are read from the store, so
+/// no in-flight block body is required.
+pub fn compute_spice_endorsement_stats(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    prev_hash: &CryptoHash,
+) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
+    let num_validators = epoch_manager.get_epoch_info(epoch_id)?.validators_iter().len();
+    let mut stats = vec![SpiceChunkEndorsementStats::default(); num_validators];
+
+    let prev_header = chain_store.get_block_header(prev_hash)?;
+    if !prev_header.is_genesis() && prev_header.epoch_id() == epoch_id {
+        let prev_stats = get_spice_endorsement_stats(chain_store, prev_hash)?;
+        add_endorsement_stats(&mut stats, &prev_stats)?;
+    }
+    let contribution =
+        endorsement_contribution_of_block(chain_store, epoch_manager, epoch_id, prev_hash)?;
+    add_endorsement_stats(&mut stats, &contribution)?;
+    Ok(stats)
+}
+
+/// Stores the running endorsement-stats accumulator for `block`, alongside its
+/// uncertified chunks. Must be called for every spice block during processing.
+pub fn record_spice_endorsement_stats_for_block(
+    chain_store_update: &mut ChainStoreUpdate,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+) -> Result<(), Error> {
+    let stats = compute_spice_endorsement_stats(
+        chain_store_update.chain_store(),
+        epoch_manager,
+        block.header().epoch_id(),
+        block.header().prev_hash(),
+    )?;
+    let mut store_update = chain_store_update.chain_store().store_ref().store_update();
+    store_update.insert_ser(
+        DBCol::spice_endorsement_stats(),
+        block.header().hash().as_ref(),
+        &stats,
     );
     chain_store_update.merge(store_update);
     Ok(())
