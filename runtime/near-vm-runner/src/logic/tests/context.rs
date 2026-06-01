@@ -1,3 +1,4 @@
+use crate::logic::External;
 use crate::logic::tests::helpers::assert_costs;
 use crate::map;
 use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
@@ -118,6 +119,15 @@ fn test_attached_deposit_view() {
     test_view(Balance::ZERO);
     test_view(Balance::from_yoctonear(1));
     test_view(Balance::MAX);
+}
+
+#[test]
+fn test_chain_id() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let want = logic_builder.ext.chain_id();
+    let mut logic = logic_builder.build();
+    logic.chain_id(0).expect("read chain_id into register from external should be ok");
+    logic.assert_read_register(want.as_bytes(), 0);
 }
 
 #[test]
