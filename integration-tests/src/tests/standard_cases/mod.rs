@@ -516,11 +516,18 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
 
+    // Only the first transfer creates the account, so only that one carries the
+    // AccountCostIncrease account_creation_charge. The second transfer goes to the
+    // existing account and only pays the gas portion (which still includes
+    // `create_account.exec` because `transfer_exec_fee` keys off the receiver's
+    // account-id format, not whether the account exists).
+    let second_transfer_cost =
+        transfer_cost.checked_sub(fee_helper.extra_account_creation_charge()).unwrap();
     let AccountView { amount, locked, .. } = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (amount, locked),
@@ -530,7 +537,9 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
                 .unwrap()
                 .checked_sub(TESTING_INIT_STAKE)
                 .unwrap()
-                .checked_sub(transfer_cost.checked_mul(2).unwrap())
+                .checked_sub(transfer_cost)
+                .unwrap()
+                .checked_sub(second_transfer_cost)
                 .unwrap(),
             TESTING_INIT_STAKE
         )
@@ -1681,11 +1690,20 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     let fee_helper = fee_helper(&node);
     let stake_fee = fee_helper.stake_cost();
     let delete_account_fee = fee_helper.prepaid_delete_account_cost();
+    // The newly-created account also pays the AccountCostIncrease creation charge out of the
+    // transferred balance, so the amount available to stake is reduced accordingly.
+    let account_creation_charge = fee_helper.extra_account_creation_charge();
     let transaction_result = node_user
         .stake(
             eve_dot_alice_account(),
             node.block_signer().public_key(),
-            money_used.checked_sub(stake_fee).unwrap().checked_sub(delete_account_fee).unwrap(),
+            money_used
+                .checked_sub(stake_fee)
+                .unwrap()
+                .checked_sub(delete_account_fee)
+                .unwrap()
+                .checked_sub(account_creation_charge)
+                .unwrap(),
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
