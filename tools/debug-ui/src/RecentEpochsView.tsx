@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { parse } from 'date-fns';
-import { EpochInfoView, fetchEpochInfo, fetchFullStatus } from './api';
+import { EpochInfoView, fetchEpochInfoLight, fetchFullStatus } from './api';
 import './RecentEpochsView.scss';
 import { formatDurationInMillis } from './utils';
 
@@ -13,7 +13,7 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
         data: epochData,
         error: epochError,
         isLoading: epochIsLoading,
-    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr, null));
+    } = useQuery(['epochInfoLight', addr], () => fetchEpochInfoLight(addr, null));
     const {
         data: statusData,
         error: statusError,

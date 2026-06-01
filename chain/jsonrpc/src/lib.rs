@@ -1133,6 +1133,9 @@ impl JsonRpcHandler {
                     "/debug/api/epoch_info" => {
                         self.client_send(DebugStatus::EpochInfo(None)).await?.rpc_into()
                     }
+                    "/debug/api/epoch_info_light" => {
+                        self.client_send(DebugStatus::EpochInfoLight(None)).await?.rpc_into()
+                    }
                     "/debug/api/block_status" => self
                         .client_send(DebugStatus::BlockStatus(DebugBlockStatusQuery::default()))
                         .await?
@@ -1213,6 +1216,23 @@ impl JsonRpcHandler {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn debug_epoch_info_light(
+        &self,
+        epoch_id: Option<near_primitives::types::EpochId>,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if !self.enable_debug_rpc {
+            return Ok(None);
+        }
+        let debug_status =
+            self.client_send(DebugStatus::EpochInfoLight(epoch_id)).await?.rpc_into();
+        Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+            status_response: debug_status,
+        }))
     }
 
     pub fn instrumented_threads(
@@ -2821,6 +2841,19 @@ async fn debug_epoch_info_handler(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+async fn debug_epoch_info_light_handler(
+    State(handler): State<Arc<JsonRpcHandler>>,
+    Path(epoch_id_str): Path<String>,
+) -> Response {
+    let Ok(epoch_id) = epoch_id_str.parse::<near_primitives::types::EpochId>() else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    match handler.debug_epoch_info_light(Some(epoch_id)).await {
+        Ok(Some(value)) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
 
 async fn health_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
     match handler.health().await {
@@ -2988,6 +3021,7 @@ pub fn create_jsonrpc_app(
             )
             .route("/debug/api/block_status", get(debug_block_status_handler))
             .route("/debug/api/epoch_info/{epoch_id}", get(debug_epoch_info_handler))
+            .route("/debug/api/epoch_info_light/{epoch_id}", get(debug_epoch_info_light_handler))
             .route("/debug/api/instrumented_threads", get(debug_instrumented_threads_handler))
             .route("/debug/api/{*api_path}", get(debug_handler))
             .route("/debug/client_config", get(client_config_handler))

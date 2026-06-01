@@ -481,6 +481,30 @@ export function fetchEpochInfo(
     return fetchJson(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
 }
 
+// Lightweight variant of the recent-epochs list that omits the heavy per-validator
+// `validator_info`. Use this for views that only need epoch metadata and
+// producer/validator counts (recent epochs, epoch shards, current peers).
+//
+// The debug-ui is released ahead of the node side, so this gracefully falls back to
+// the full `epoch_info` endpoint when talking to a node that predates
+// `epoch_info_light` (it returns 405 for the unknown path / 404 for the id route).
+// The fallback is correct, just heavier.
+// TODO: remove the fallback once all nodes expose `epoch_info_light`.
+export async function fetchEpochInfoLight(
+    addr: string,
+    epochId: string | null
+): Promise<EpochInfoResponse> {
+    const trailing = epochId ? `/${epochId}` : '';
+    try {
+        return await fetchJson(getTargetUrl(addr, `debug/api/epoch_info_light${trailing}`));
+    } catch (error) {
+        if (error instanceof HttpError && (error.status === 404 || error.status === 405)) {
+            return fetchEpochInfo(addr, epochId);
+        }
+        throw error;
+    }
+}
+
 export function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
     return fetchJson(getTargetUrl(addr, 'debug/api/peer_store'));
 }
