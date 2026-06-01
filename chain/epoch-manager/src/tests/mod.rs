@@ -3665,6 +3665,7 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
             chunk_endorsements: anchor_info.chunk_endorsements().cloned().unwrap_or_default(),
             shard_split: None,
             last_certified_block_epoch,
+            spice_chunk_endorsement_stats: vec![],
         })
     };
 
