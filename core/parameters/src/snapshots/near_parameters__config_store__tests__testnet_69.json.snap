@@ -269,5 +269,7 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 3000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
-  }
+  },
+  "min_gas_purchase_price": "0",
+  "account_creation_charge": "0"
 }

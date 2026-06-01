@@ -12,6 +12,8 @@ gas_refund_penalty: {
   denominator: 100,
 }
 min_gas_refund_penalty: 0
+min_gas_purchase_price: 0
+account_creation_charge: 0
 
 # Stateless validation config
 main_storage_proof_size_soft_limit: 4_294_967_295
