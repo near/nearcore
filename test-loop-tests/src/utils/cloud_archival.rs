@@ -5,7 +5,7 @@ use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess};
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
 use near_client::archive::cloud_archival_reader::{
-    bootstrap_range, find_present_block_at_or_below,
+    bootstrap_range, find_present_block_at_or_below, find_snapshot_at_or_before,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
@@ -336,20 +336,13 @@ pub fn bootstrap_reader(
             .expect("bootstrap_range should succeed");
     }
 
-    // If `target_block_height` is a skipped slot the height carries no data,
-    // so reconstructing state at the nearest present block at-or-below it is
-    // equivalent (no state changes between them).
+    // Resolve the target's epoch for the shard layout. A skipped-slot target
+    // carries no data, so snap it down to the nearest present block at or below
+    // it (no state changes between them).
     let (target_block_height, target_block_data) =
         find_present_block_at_or_below(&cloud_storage, target_block_height).unwrap();
-    let epoch_id = target_block_data.block().header().epoch_id();
-    let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
-    let epoch_height = epoch_data.epoch_info().epoch_height();
-
-    // Sync block is in the new epoch, after the prefix of blocks needed to
-    // reach two chunks per shard, and saved only once final - so present.
-    let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap().unwrap();
-    let sync_hash = sync_block.block().hash();
-    let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
+    let target_epoch_id = *target_block_data.block().header().epoch_id();
+    let target_epoch_data = cloud_storage.get_epoch_data(target_epoch_id).unwrap();
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
@@ -361,30 +354,47 @@ pub fn bootstrap_reader(
     );
     let state_sync_connection = StateSyncConnection::from_cloud_storage(&cloud_storage);
 
-    for shard_id in epoch_data.shard_layout().shard_ids() {
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
-        let target_block_shard_data =
-            cloud_storage.get_shard_data(target_block_height, shard_id).unwrap().unwrap();
-        let target_state_root = *target_block_shard_data.chunk_extra().state_root();
-        let state_header =
-            cloud_storage.get_state_header(epoch_height, *epoch_id, shard_id).unwrap();
-        let state_sync_state_root = state_header.chunk_prev_state_root();
+    // TODO(cloud_archival): support resharding; the shard layout can change
+    // between the snapshot epoch and the target, which this loop assumes constant.
+    for shard_id in target_epoch_data.shard_layout().shard_ids() {
+        let shard_uid =
+            ShardUId::from_shard_id_and_layout(shard_id, target_epoch_data.shard_layout());
 
-        chain.state_sync_adapter.set_state_header(shard_id, *sync_hash, state_header).unwrap();
+        // Reconstruct from the nearest snapshot at or below the bootstrap start,
+        // then replay deltas forward to the target, crossing epoch boundaries if
+        // needed. That snapshot's sync block is within the downloaded range.
+        let (snapshot_epoch_height, snapshot_epoch_id) =
+            find_snapshot_at_or_before(&cloud_storage, start_height, shard_id).unwrap();
+        let snapshot_epoch_data = cloud_storage.get_epoch_data(snapshot_epoch_id).unwrap();
+        let sync_block =
+            cloud_storage.get_block_data(snapshot_epoch_data.sync_block_height()).unwrap().unwrap();
+        let sync_hash = *sync_block.block().hash();
+        let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
+        let state_header = cloud_storage
+            .get_state_header(snapshot_epoch_height, snapshot_epoch_id, shard_id)
+            .unwrap();
+        let state_sync_state_root = state_header.chunk_prev_state_root();
+        chain.state_sync_adapter.set_state_header(shard_id, sync_hash, state_header).unwrap();
 
         assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
         execute_future(load_state_snapshot(
             chain,
             &state_sync_connection,
             cloud_storage.chain_id(),
-            epoch_id,
-            epoch_height,
-            *sync_hash,
+            &snapshot_epoch_id,
+            snapshot_epoch_height,
+            sync_hash,
             shard_id,
             state_sync_state_root,
         ));
         assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
 
+        let target_state_root = *cloud_storage
+            .get_shard_data(target_block_height, shard_id)
+            .unwrap()
+            .unwrap()
+            .chunk_extra()
+            .state_root();
         assert!(!has_state_root(&tries, shard_uid, target_state_root));
         apply_state_changes(
             &cloud_storage,

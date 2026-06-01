@@ -670,7 +670,9 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
 }
 
 /// A block at one height is lost; the batch entry there is `None` and
-/// `cloud_head` advances past it.
+/// `cloud_head` advances past it. The dropped slot pushes the epoch's sync block
+/// past a mid-epoch bootstrap target, so the reader reconstructs from the
+/// previous epoch's snapshot and replays across the gap.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_single_skipped_slot() {
@@ -684,6 +686,29 @@ fn test_cloud_archival_single_skipped_slot() {
     assert!(batch.get_block_at_height(dropped_height).is_none());
     assert!(h.cloud_head() > dropped_height);
     h.assert_heads_and_gc_ok();
+
+    let (start, target) = (5, 15);
+    let epoch_of = |height| {
+        *cloud_storage.get_block_data(height).unwrap().unwrap().block().header().epoch_id()
+    };
+    // start and target straddle an epoch boundary, so reconstruction crosses it.
+    assert_ne!(epoch_of(start), epoch_of(target), "start and target must be in different epochs");
+    let target_epoch_data = cloud_storage.get_epoch_data(epoch_of(target)).unwrap();
+    let sync_block_height = target_epoch_data.sync_block_height();
+    // The dropped slot is in the target epoch within the bootstrap range; it
+    // pushes that epoch's sync block past the target, so the reader cannot use
+    // the target epoch's own snapshot and must walk back to an earlier one.
+    assert!(
+        target_epoch_data.epoch_start_height() <= dropped_height && dropped_height < target,
+        "dropped slot {dropped_height} must be in the target epoch and the bootstrap range"
+    );
+    assert!(
+        sync_block_height > target,
+        "sync block {sync_block_height} must be past target {target}"
+    );
+
+    h.bootstrap_reader(start, target);
+    h.kill_reader();
 
     h.shutdown();
 }
