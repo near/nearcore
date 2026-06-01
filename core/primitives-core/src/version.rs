@@ -514,6 +514,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::FixDelegatedDeterministicStateInit
+            | ProtocolFeature::GasKeys
             | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
@@ -521,7 +522,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
