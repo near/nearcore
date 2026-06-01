@@ -399,6 +399,9 @@ pub enum ProtocolFeature {
     /// transaction or `AddKey` action carrying an ML-DSA-65 key/signature, so
     /// post-feature there is no question of grandfathered keys.
     PostQuantumSignatures,
+    /// Allow creating `DeterministicStateInitAction` from a delegated action by
+    /// fixing the receiver id check.
+    FixDelegatedDeterministicStateInit,
 }
 
 impl ProtocolFeature {
@@ -510,6 +513,7 @@ impl ProtocolFeature {
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
+            | ProtocolFeature::FixDelegatedDeterministicStateInit
             | ProtocolFeature::ContinuousEpochSync
             | ProtocolFeature::DynamicResharding
             | ProtocolFeature::StickyReshardingValidatorAssignment => 85,

@@ -2,6 +2,7 @@ use axum::Router;
 use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::types::RuntimeAdapter;
@@ -10,7 +11,7 @@ use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::spice::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::spice::chunk_executor_actor::ChunkExecutorActor;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
@@ -242,7 +243,7 @@ pub fn create_test_setup_with_accounts_and_validity(
             chunk_executor_adapter.as_sender(),
             spice_core_writer_adapter.as_sender(),
             spice_data_distributor_adapter.as_multi_sender(),
-            ChunkExecutorConfig::default(),
+            ChunkPersistenceConfig::default(),
         );
         let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
         chunk_executor_adapter.bind(chunk_executor_addr);

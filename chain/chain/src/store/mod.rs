@@ -1,3 +1,4 @@
+use crate::spice::chunk_application::ChunkPersistenceConfig;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -41,10 +42,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::{
-    GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY,
-    STATE_SYNC_DUMP_KEY, StoreStatistics,
-};
+use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -93,10 +91,6 @@ pub trait ChainStoreAccess {
     fn head_header(&self) -> Result<Arc<BlockHeader>, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last final block of the chain that we executed.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last block of the chain that we executed.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> BlockHeight;
     /// Stop height observed during the last garbage collection iteration.
@@ -328,6 +322,18 @@ impl ChainStore {
 
     pub fn with_save_state_changes(self, save_state_changes: bool) -> ChainStore {
         ChainStore { save_state_changes, ..self }
+    }
+
+    /// Both the chain-side apply path and the spice executor read off this
+    /// surface to keep the gating decisions in one place at the per-shard
+    /// call site.
+    pub fn chunk_persistence_config(&self) -> ChunkPersistenceConfig {
+        ChunkPersistenceConfig {
+            save_trie_changes: self.save_trie_changes,
+            save_tx_outcomes: self.save_tx_outcomes,
+            save_receipt_to_tx: self.save_receipt_to_tx,
+            save_state_changes: self.save_state_changes,
+        }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -883,16 +889,6 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::final_head(self)
     }
 
-    /// Spice final head execution head.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_final_execution_head(self)
-    }
-
-    /// Spice execution head.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_execution_head(self)
-    }
-
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
@@ -1075,8 +1071,6 @@ pub struct ChainStoreUpdate<'a> {
     fork_tail: Option<BlockHeight>,
     header_head: Option<Arc<Tip>>,
     final_head: Option<Arc<Tip>>,
-    spice_final_execution_head: Option<Arc<Tip>>,
-    spice_execution_head: Option<Arc<Tip>>,
     largest_target_height: Option<BlockHeight>,
     gc_stop_height: Option<BlockHeight>,
     trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
@@ -1103,8 +1097,6 @@ impl<'a> ChainStoreUpdate<'a> {
             fork_tail: None,
             header_head: None,
             final_head: None,
-            spice_final_execution_head: None,
-            spice_execution_head: None,
             largest_target_height: None,
             gc_stop_height: None,
             trie_changes: vec![],
@@ -1181,22 +1173,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(final_head.clone())
         } else {
             self.chain_store.final_head()
-        }
-    }
-
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        if let Some(final_execution_head) = self.spice_final_execution_head.as_ref() {
-            Ok(final_execution_head.clone())
-        } else {
-            self.chain_store.spice_final_execution_head()
-        }
-    }
-
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        if let Some(execution_head) = self.spice_execution_head.as_ref() {
-            Ok(execution_head.clone())
-        } else {
-            self.chain_store.spice_execution_head()
         }
     }
 
@@ -1484,16 +1460,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_final_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.final_head = Some(t.clone().into());
-        Ok(())
-    }
-
-    pub fn save_spice_final_execution_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.spice_final_execution_head = Some(t.clone().into());
-        Ok(())
-    }
-
-    pub fn save_spice_execution_head(&mut self, t: Tip) -> Result<(), Error> {
-        self.spice_execution_head = Some(t.into());
         Ok(())
     }
 
@@ -1959,16 +1925,6 @@ impl<'a> ChainStoreUpdate<'a> {
             Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail);
             Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head);
             Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head);
-            Self::write_col_misc(
-                &mut store_update,
-                SPICE_FINAL_EXECUTION_HEAD_KEY,
-                &mut self.spice_final_execution_head,
-            );
-            Self::write_col_misc(
-                &mut store_update,
-                SPICE_EXECUTION_HEAD_KEY,
-                &mut self.spice_execution_head,
-            );
             Self::write_col_misc(
                 &mut store_update,
                 LARGEST_TARGET_HEIGHT_KEY,
