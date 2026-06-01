@@ -438,8 +438,10 @@ async fn load_state_snapshot(
 }
 
 /// Applies per-block state deltas from cloud storage to advance the trie from
-/// `start_block_height` to `target_block_height`. The caller must pass present
-/// (non-skipped) heights for both endpoints.
+/// `start_block_height` to `target_block_height`. Both endpoints must be
+/// present; `start_block_height` must additionally have a new chunk for
+/// `shard_uid` (initial `state_root` is verified against the chunk's
+/// `prev_state_root`).
 fn apply_state_changes(
     cloud_storage: &CloudStorage,
     store: &Store,
@@ -454,7 +456,7 @@ fn apply_state_changes(
         cloud_storage.get_shard_data(start_block_height, shard_id).unwrap().unwrap();
     assert_eq!(
         state_root,
-        start_block_shard_data.chunk().prev_state_root(),
+        start_block_shard_data.chunk().unwrap().prev_state_root(),
         "initial state_root must match prev_state_root of the start block"
     );
     for block_height in start_block_height..=target_block_height {
