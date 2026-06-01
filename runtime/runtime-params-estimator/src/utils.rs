@@ -35,7 +35,17 @@ pub(crate) fn transaction_cost(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0);
+    // Under `AccountCostIncrease` the function-call receipt also produces a price_surplus
+    // gas-refund receipt that lands one block later.
+    let block_latency = if near_primitives::version::ProtocolFeature::AccountCostIncrease
+        .enabled(near_primitives::version::PROTOCOL_VERSION)
+    {
+        1
+    } else {
+        0
+    };
+    let (gas_cost, _ext_costs) =
+        transaction_cost_ext(ctx, block_size, make_transaction, block_latency);
     gas_cost
 }
 
@@ -103,8 +113,16 @@ pub(crate) fn fn_cost(
     count: u64,
 ) -> GasCost {
     // Most functions finish execution in a single block. Other measurements
-    // should use `fn_cost_count`.
-    let block_latency = 0;
+    // should use `fn_cost_count`. Under `AccountCostIncrease` the function-call receipt
+    // also produces a price_surplus gas-refund receipt that lands one block later, so we
+    // need to wait one extra block.
+    let block_latency = if near_primitives::version::ProtocolFeature::AccountCostIncrease
+        .enabled(near_primitives::version::PROTOCOL_VERSION)
+    {
+        1
+    } else {
+        0
+    };
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
     assert_eq!(
         measured_count, count,
@@ -171,6 +189,16 @@ pub(crate) fn fn_cost_with_setup(
     count: u64,
     block_latency: usize,
 ) -> GasCost {
+    // Under `AccountCostIncrease` each function-call receipt also produces a price_surplus
+    // gas-refund receipt that lands one block later.
+    let block_latency = block_latency
+        + if near_primitives::version::ProtocolFeature::AccountCostIncrease
+            .enabled(near_primitives::version::PROTOCOL_VERSION)
+        {
+            1
+        } else {
+            0
+        };
     let (total_cost, measured_count) = {
         let overhead = overhead_per_measured_block(ctx, block_latency);
         let block_size = 2usize;
