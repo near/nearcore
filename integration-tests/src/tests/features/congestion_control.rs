@@ -90,7 +90,11 @@ fn setup_account(
     let signer = InMemorySigner::test_signer(&signer_id);
 
     let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
-    let amount = Balance::from_near(10);
+    // Bumped 10x for AccountCostIncrease: the 10x more expensive account creation plus the
+    // per-receipt gas pre-payment at the inflated `min_gas_purchase_price` outgrew the
+    // original 10 NEAR partway through the test, causing `NotEnoughBalance` rejections
+    // instead of `ShardCongested`.
+    let amount = Balance::from_near(100);
 
     *nonce += 1;
     let create_account_tx = SignedTransaction::create_account(
@@ -124,7 +128,10 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
         signer_id,
         CONTRACT_ID.parse().unwrap(),
         contract.to_vec(),
-        Balance::from_near(10),
+        // Bumped 10x for AccountCostIncrease (the inflated `min_gas_purchase_price` per-tx
+        // pre-payment plus the larger account creation cost); the original amount runs out
+        // before reaching the congestion regime this test wants to exercise.
+        Balance::from_near(100),
         PublicKey::from_seed(KeyType::ED25519, CONTRACT_ID),
         &signer,
         *block.hash(),

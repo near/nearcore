@@ -678,7 +678,10 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
-    const TESTING_GAS_KEY_BALANCE: Balance = Balance::from_millinear(1);
+    // 10 millinear (was 1). Under AccountCostIncrease the receipt's gas is purchased at
+    // min_gas_purchase_price (1e9 yoctoNEAR/gas), so a 100 Tgas function-call tx costs ~2.4
+    // millinear up-front — 1 millinear is no longer enough to fund the test transaction.
+    const TESTING_GAS_KEY_BALANCE: Balance = Balance::from_millinear(10);
 
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
