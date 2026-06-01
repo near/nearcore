@@ -118,6 +118,7 @@ imports! {
     // # Context API #
     // ###############
     current_account_id<[register_id: u64] -> []>,
+    #[chain_id_host_fn] chain_id<[register_id: u64] -> []>,
     signer_account_id<[register_id: u64] -> []>,
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,

@@ -279,6 +279,7 @@ reftypes_bulk_memory: false
 gas_key_host_fns: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
+chain_id_host_fn: false
 
 # TODO What should be the config for testnet?
 

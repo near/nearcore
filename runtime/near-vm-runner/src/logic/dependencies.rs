@@ -269,6 +269,9 @@ pub trait External {
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
 
+    /// Returns the chain ID of the current chain.
+    fn chain_id(&self) -> String;
+
     /// Create an action receipt which will be executed after all the receipts identified by
     /// `receipt_indices` are complete.
     ///
