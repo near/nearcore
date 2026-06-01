@@ -413,6 +413,7 @@ pub fn calculate_tx_cost(
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;
     let total_cost = safe_add_balance(gas_cost, deposit_cost)?;
+
     Ok(TransactionCost {
         gas_burnt: burnt.gas,
         compute_burnt: burnt.compute,
