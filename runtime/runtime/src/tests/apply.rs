@@ -4196,6 +4196,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
         commit_apply_result(&deploy_result, &mut apply_state, &tries, ShardUId::single_shard());
     apply_state.block_height += 1;
 
+    let receipt_gas_price = GAS_PRICE.max(apply_state.config.min_gas_purchase_price);
     let build_receipt = |tag: &str, predecessor: AccountId, signer: &Signer, actions| -> Receipt {
         Receipt::V0(ReceiptV0 {
             predecessor_id: predecessor.clone(),
@@ -4204,7 +4205,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: predecessor,
                 signer_public_key: signer.public_key(),
-                gas_price: GAS_PRICE,
+                gas_price: receipt_gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions,
