@@ -405,6 +405,8 @@ pub enum ProtocolFeature {
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
+    /// Increase account creation cost
+    AccountCostIncrease,
 }
 
 impl ProtocolFeature {
@@ -524,6 +526,7 @@ impl ProtocolFeature {
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
+            ProtocolFeature::AccountCostIncrease => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
