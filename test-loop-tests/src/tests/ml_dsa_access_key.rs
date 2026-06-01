@@ -17,7 +17,7 @@ use near_primitives::views::{AccessKeyPermissionView, FinalExecutionStatus};
 
 /// Submit an `AddKey` action for `public_key` on `account` (signed by the account's default
 /// ed25519 key) and wait for it to land.
-fn add_pq_key(
+fn add_key(
     env: &mut TestLoopEnv,
     account: &AccountId,
     public_key: PublicKey,
@@ -60,7 +60,7 @@ fn test_ml_dsa_65_full_access_key() {
         InMemorySigner::from_seed(sender.clone(), KeyType::MLDSA65, "pq-full").into();
 
     // 1. AddKey for the ML-DSA-65 pubkey, signed with the account's ed25519 key.
-    add_pq_key(&mut env, &sender, pq_signer.public_key(), AccessKey::full_access());
+    add_key(&mut env, &sender, pq_signer.public_key(), AccessKey::full_access());
 
     // 2. View the new access key.
     let view = env.rpc_node().view_access_key_query(&sender, &pq_signer.public_key()).unwrap();
@@ -137,7 +137,7 @@ fn test_ml_dsa_65_function_call_key() {
             method_names: vec!["log_something".to_string()],
         }),
     };
-    add_pq_key(&mut env, &user, pq_signer.public_key(), access_key);
+    add_key(&mut env, &user, pq_signer.public_key(), access_key);
 
     // 3. View the new access key.
     let view = env.rpc_node().view_access_key_query(&user, &pq_signer.public_key()).unwrap();
