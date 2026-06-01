@@ -20,9 +20,11 @@ use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality, ShardId};
+use near_primitives::types::{
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId,
+};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::QueryRequest;
 use near_store::DBCol;
@@ -60,9 +62,30 @@ fn test_spice_chain() {
     // More than one shard in total allows testing cross-shard communications.
     let shard_layout =
         ShardLayout::multi_shard_custom(vec![accounts[accounts.len() / 2].clone()], 1);
-    let validators_spec = ValidatorsSpec::desired_roles(
-        &block_and_chunk_producers.iter().map(|a| a.as_str()).collect_vec(),
-        &validators_only.iter().map(|a| a.as_str()).collect_vec(),
+    // Skewed stakes keep the producer set stable across reward epochs: with
+    // desired_roles and equal stakes, a chunk producer that misses its first
+    // post-genesis chunk earns relatively fewer rewards, which can be enough to
+    // promote a validators-only account into the producer set next epoch (state
+    // sync for a newly-promoted producer is not yet implemented in spice
+    // test-loop).
+    let all_validators: Vec<AccountInfo> = block_and_chunk_producers
+        .iter()
+        .map(|account_id| AccountInfo {
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            account_id: account_id.clone(),
+            amount: Balance::from_near(10_000),
+        })
+        .chain(validators_only.iter().map(|account_id| AccountInfo {
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            account_id: account_id.clone(),
+            amount: Balance::from_near(100),
+        }))
+        .collect();
+    let validators_spec = ValidatorsSpec::raw(
+        all_validators,
+        num_block_producers as u64,
+        num_block_producers as u64,
+        num_validators as u64,
     );
 
     const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
