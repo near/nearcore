@@ -379,6 +379,17 @@ async fn slow_test_tx_not_enough_balance_must_return_error() {
                 Ok(_) => panic!("Transaction must not succeed"),
                 Err(err) => {
                     println!("testing: {:?}", err.data);
+                    // Under AccountCostIncrease the receipt gas is purchased at
+                    // min_gas_purchase_price instead of the current gas price, which increases
+                    // the cost of sending a transaction.
+                    let expected_cost =
+                        if near_primitives::version::ProtocolFeature::AccountCostIncrease
+                            .enabled(near_primitives::version::PROTOCOL_VERSION)
+                        {
+                            "1100000000000245500818750000000000"
+                        } else {
+                            "1100000000000044636512500000000000"
+                        };
                     assert_eq!(
                         *err.data.unwrap(),
                         serde_json::json!({"TxExecutionError": {
@@ -386,7 +397,7 @@ async fn slow_test_tx_not_enough_balance_must_return_error() {
                                 "NotEnoughBalance": {
                                     "signer_id": "near.0",
                                     "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
-                                    "cost": "1100000000000044636512500000000000",
+                                    "cost": expected_cost,
                                 }
                             }
                         }})
