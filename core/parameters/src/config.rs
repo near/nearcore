@@ -98,8 +98,11 @@ impl RuntimeConfig {
             witness_config: runtime_config.witness_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
             use_state_stored_receipt: runtime_config.use_state_stored_receipt,
-            min_gas_purchase_price: runtime_config.min_gas_purchase_price,
-            account_creation_charge: runtime_config.account_creation_charge,
+            min_gas_purchase_price: Balance::ZERO,
+            // The free config disables all gas costs; keep account_creation_charge at
+            // zero as well so the invariant min_gas_purchase_price * create_account_gas_cost >=
+            // account_creation_charge holds trivially (0 >= 0).
+            account_creation_charge: Balance::ZERO,
         }
     }
 
