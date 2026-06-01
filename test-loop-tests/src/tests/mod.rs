@@ -34,6 +34,7 @@ mod indexer;
 mod jsonrpc;
 mod malicious_chunk_producer;
 mod max_receipt_size;
+mod ml_dsa_access_key;
 mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;
@@ -45,6 +46,7 @@ mod processed_receipts_gc;
 mod protocol_upgrade;
 mod receipt_to_tx;
 mod reject_outdated_blocks;
+mod replay_chunks;
 mod resharding_cold_storage;
 mod resharding_v3;
 mod sharded_rpc;

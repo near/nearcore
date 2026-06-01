@@ -1,4 +1,4 @@
-use crate::errors::ImplicitPublicKeyError;
+use crate::errors::{ImplicitPublicKeyError, InvalidLength};
 use crate::{KeyType, PublicKey};
 use borsh::BorshDeserialize;
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -10,6 +10,13 @@ use near_account_id::AccountType;
 // cspell:words vmul vartime multiscalar
 pub fn vmul2(s1: Scalar, p1: &Point, s2: Scalar, p2: &Point) -> Point {
     Point::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())
+}
+
+/// Decode a byte slice into a fixed-size `[u8; N]`, surfacing a length
+/// mismatch as [`InvalidLength`]. Used by the various `TryFrom<&[u8]>`
+/// impls in `signature.rs` to avoid restating the same shape.
+pub(crate) fn try_fixed_array<const N: usize>(data: &[u8]) -> Result<[u8; N], InvalidLength> {
+    data.try_into().map_err(|_| InvalidLength { expected: N, received: data.len() })
 }
 
 pub trait Packable: Sized {

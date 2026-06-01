@@ -100,9 +100,10 @@ pub(crate) fn keys_from_source_db(
             .keys
             .into_iter()
             .filter_map(|k| {
-                // Mirror does not support ML-DSA-65 today; hash-form
-                // entries can't be mapped because the full pubkey is not
-                // recoverable. See key_mapping.rs for the matching panic.
+                // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
+                // hash-form entries can't be mapped because the full
+                // pubkey is not recoverable. See key_mapping.rs for the
+                // matching panic.
                 let full_pk = k.public_key.full_pubkey()?;
                 Some(SecretAccessKey {
                     mapped_key: crate::key_mapping::map_key(&full_pk, secret),
@@ -144,9 +145,10 @@ pub(crate) async fn keys_from_rpc(
             .keys
             .into_iter()
             .filter_map(|k| {
-                // Mirror does not support ML-DSA-65 today; hash-form
-                // entries can't be mapped because the full pubkey is not
-                // recoverable. See key_mapping.rs for the matching panic.
+                // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
+                // hash-form entries can't be mapped because the full
+                // pubkey is not recoverable. See key_mapping.rs for the
+                // matching panic.
                 let full_pk = k.public_key.full_pubkey()?;
                 Some(SecretAccessKey {
                     mapped_key: crate::key_mapping::map_key(&full_pk, secret),

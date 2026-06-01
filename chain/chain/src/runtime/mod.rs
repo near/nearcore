@@ -7,14 +7,14 @@ use crate::types::{
     StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
-use near_async::thread_pool::contract_compilation_pool;
+use near_async::thread_pool::{contract_compilation_pool, contract_warming_pool};
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{
     GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig,
     default_contract_cache_warming_max_item_count,
     default_contract_cache_warming_pool_thread_count,
 };
-use near_crypto::{KeyHandle, PublicKey};
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -1630,6 +1630,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.compiled_contract_cache.as_ref()
     }
 
+    fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
+        let cache = self.compiled_contract_cache.handle();
+        let job = move || cache.on_protocol_version_update(new_protocol_version);
+        match contract_warming_pool() {
+            Some(pool) => pool.spawn_boxed(Box::new(job)),
+            None => {
+                if let Err(err) = std::thread::Builder::new()
+                    .name("contract-cache-pv-update".to_string())
+                    .spawn(job)
+                {
+                    tracing::warn!(
+                        target: "runtime",
+                        err = &err as &dyn std::error::Error,
+                        new_protocol_version,
+                        "failed to spawn contract cache protocol-version-update thread; skipping",
+                    );
+                }
+            }
+        }
+    }
+
     fn precompile_contracts(
         &self,
         epoch_id: &EpochId,
@@ -1844,8 +1865,10 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(KeyHandle, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
-    {
+    ) -> Result<
+        Vec<(PublicKeyHandle, AccessKey)>,
+        node_runtime::state_viewer::errors::ViewAccessKeyError,
+    > {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
     }

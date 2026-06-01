@@ -165,13 +165,13 @@ pub async fn test_gas_key_changes_to_transactions(
     //   - Receipt 3: key_a balance decreased to 0.3 NEAR (-0.2 NEAR gas usage, no fee type)
     //   - Receipt 4: key_a deleted (burned remaining 0.3 NEAR)
     //   - Transaction 5: key_d balance decreased to 0.2 NEAR (-0.2 NEAR gas prepayment)
-    let key_a: near_crypto::KeyHandle =
+    let key_a: near_crypto::PublicKeyHandle =
         (&SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-a").public_key()).into();
-    let key_b: near_crypto::KeyHandle =
+    let key_b: near_crypto::PublicKeyHandle =
         (&SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-b").public_key()).into();
-    let key_c: near_crypto::KeyHandle =
+    let key_c: near_crypto::PublicKeyHandle =
         (&SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-c").public_key()).into();
-    let key_d: near_crypto::KeyHandle =
+    let key_d: near_crypto::PublicKeyHandle =
         (&SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-d").public_key()).into();
     let previous_gas_keys = crate::gas_key_utils::GasKeyInfo::from_entries([(
         "nfvalidator1.near".parse().unwrap(),

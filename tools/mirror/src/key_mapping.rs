@@ -101,6 +101,12 @@ pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>
     match key {
         PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
         PublicKey::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
+        // TODO(post-quantum): implement deterministic key mapping for
+        // ML-DSA-65 in mirror. For now, the mirror tool does not support
+        // cross-network mirroring of post-quantum keys.
+        PublicKey::MLDSA65(_) => {
+            panic!("mirror: ML-DSA-65 key mapping not yet implemented")
+        }
     }
 }
 

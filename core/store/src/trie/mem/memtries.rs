@@ -197,7 +197,7 @@ impl MemTries {
         Ok(())
     }
 
-    pub(crate) fn delete_root(&mut self, state_root: &CryptoHash) {
+    pub fn delete_root(&mut self, state_root: &CryptoHash) {
         if let Some(ids) = self.roots.get_mut(state_root) {
             let last_id = ids.last().unwrap();
             let new_ref = last_id.remove_ref(&mut self.arena);

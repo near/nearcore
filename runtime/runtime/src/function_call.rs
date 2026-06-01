@@ -127,6 +127,9 @@ pub(crate) fn action_function_call(
                     .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
+            FunctionCallError::WasmUnknownError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_WASM_UNKNOWN_ERRORS.inc();
+            }
         }
         // Update action result with the abort error converted to the
         // transaction runtime's format of errors.
@@ -277,12 +280,11 @@ pub(crate) fn execute_function_call(
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
-    // There are many specific errors that the runtime can encounter.
-    // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
-    // Note that this does not include errors caused by user code / input, those are
-    // stored in outcome.aborted.
+    // Most VM runner errors translate to a `RuntimeError` and are propagated
+    // up. `WasmUnknownError` is soft-failed into the function-call outcome
+    // instead of panicking: a consensus failure on one chunk is preferable to
+    // crashing all nodes if a VM bug surfaces post-deploy. User-code errors
+    // are reported via `outcome.aborted` and never reach these arms.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -310,11 +312,12 @@ pub(crate) fn execute_function_call(
         Err(VMRunnerError::LoadingError(msg)) => {
             return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
-        Err(VMRunnerError::Nondeterministic(msg)) => {
-            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
-        }
         Err(VMRunnerError::WasmUnknownError { debug_message }) => {
-            panic!("Wasmer returned unknown message: {}", debug_message)
+            tracing::error!(target: "runtime", "wasm unknown error: {}", debug_message);
+            debug_assert!(false, "wasm unknown error: {}", debug_message);
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::WasmUnknownError {
+                msg: debug_message,
+            }));
         }
         Ok(r) => r,
     };

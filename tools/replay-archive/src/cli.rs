@@ -357,8 +357,7 @@ impl ReplayController {
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {
-                let mut chunk_extra = ChunkExtra::clone(&prev_chunk_extra.as_ref());
-                *chunk_extra.state_root_mut() = apply_result.new_root;
+                let chunk_extra = prev_chunk_extra.next_for_old_chunk(apply_result.new_root);
                 let outgoing_receipts = apply_result.outgoing_receipts;
                 ReplayChunkOutput { chunk_extra: chunk_extra.into(), outgoing_receipts }
             }

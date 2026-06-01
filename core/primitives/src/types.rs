@@ -7,7 +7,7 @@ use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
-use near_crypto::{KeyHandle, PublicKey};
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -260,16 +260,16 @@ pub enum StateChangeValue {
     },
     AccessKeyUpdate {
         account_id: AccountId,
-        public_key: KeyHandle,
+        public_key: PublicKeyHandle,
         access_key: AccessKey,
     },
     AccessKeyDeletion {
         account_id: AccountId,
-        public_key: KeyHandle,
+        public_key: PublicKeyHandle,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
-        public_key: KeyHandle,
+        public_key: PublicKeyHandle,
         index: NonceIndex,
         nonce: Nonce,
     },
@@ -972,6 +972,16 @@ pub mod chunk_extra {
                 Self::V4(v4) => &mut v4.state_root,
                 Self::V5(v5) => &mut v5.state_root,
             }
+        }
+
+        /// Builds the chunk extra for an old (missing) chunk from the
+        /// previous chunk extra. All fields are carried over except the
+        /// state root, which is replaced with the one produced by applying
+        /// the old chunk.
+        pub fn next_for_old_chunk(&self, state_root: StateRoot) -> Self {
+            let mut new_extra = self.clone();
+            *new_extra.state_root_mut() = state_root;
+            new_extra
         }
 
         #[inline]
