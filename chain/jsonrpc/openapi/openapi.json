@@ -3451,6 +3451,13 @@
             ],
             "description": "Signature of the block producer."
           },
+          "spice_chunk_endorsement_stats": {
+            "items": {
+              "$ref": "#/components/schemas/SpiceChunkEndorsementStats"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "timestamp": {
             "description": "Legacy json number. Should not be used.",
             "format": "uint64",
@@ -19625,6 +19632,26 @@
         "required": [
           "account_id",
           "is_double_sign"
+        ],
+        "type": "object"
+      },
+      "SpiceChunkEndorsementStats": {
+        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.",
+        "properties": {
+          "expected": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "produced": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "produced",
+          "expected"
         ],
         "type": "object"
       },
