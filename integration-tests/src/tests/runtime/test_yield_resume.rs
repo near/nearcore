@@ -1,11 +1,18 @@
 use crate::node::{Node, RuntimeNode};
+#[cfg(feature = "nightly")]
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+#[cfg(feature = "nightly")]
 use near_primitives::action::{
     Action, DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
     UseGlobalContractAction,
 };
-use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
+#[cfg(feature = "nightly")]
+use near_primitives::types::AccountId;
+use near_primitives::types::{Balance, Gas};
+#[cfg(feature = "nightly")]
+use near_primitives::views::FinalExecutionOutcomeView;
+use near_primitives::views::FinalExecutionStatus;
+#[cfg(feature = "nightly")]
 use testlib::fees_utils::FeeHelper;
 
 /// Initial balance used in tests.
@@ -529,8 +536,7 @@ fn create_with_id_deducts_attached_amount() {
 
     let reward = contract_function_call_reward(&fee_helper(&node), &res, "call_promise", args_len);
     let balance_after = node.user().view_account(&contract_id).unwrap().amount;
-    let expected =
-        balance_before.checked_sub(attached).unwrap().checked_add(reward).unwrap();
+    let expected = balance_before.checked_sub(attached).unwrap().checked_add(reward).unwrap();
     assert_eq!(
         balance_after, expected,
         "contract balance should decrease by exactly the attached amount, minus the function-call gas reward",
@@ -609,10 +615,8 @@ fn setup_zba_global_contract() -> (RuntimeNode, AccountId) {
         code: near_test_contracts::nightly_rs_contract().to_vec().into(),
         deploy_mode: GlobalContractDeployMode::AccountId,
     })];
-    let res = node
-        .user()
-        .sign_and_commit_actions(alice_id.clone(), alice_id.clone(), deploy)
-        .unwrap();
+    let res =
+        node.user().sign_and_commit_actions(alice_id.clone(), alice_id.clone(), deploy).unwrap();
     assert!(
         matches!(res.status, FinalExecutionStatus::SuccessValue(_)),
         "DeployGlobalContract failed: {res:?}",
@@ -637,12 +641,10 @@ fn setup_zba_global_contract() -> (RuntimeNode, AccountId) {
 
     // Wire zba.alice.near to use the global contract.
     let use_global = vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
-        contract_identifier: GlobalContractIdentifier::AccountId(alice_id.clone()),
+        contract_identifier: GlobalContractIdentifier::AccountId(alice_id),
     }))];
-    let res = node
-        .user()
-        .sign_and_commit_actions(zba_id.clone(), zba_id.clone(), use_global)
-        .unwrap();
+    let res =
+        node.user().sign_and_commit_actions(zba_id.clone(), zba_id.clone(), use_global).unwrap();
     assert!(
         matches!(res.status, FinalExecutionStatus::SuccessValue(_)),
         "UseGlobalContract failed: {res:?}",
@@ -698,7 +700,7 @@ fn create_with_id_one_yocto_exemption_on_drained_zba() {
     let res = node
         .user()
         .function_call(
-            alice_id.clone(),
+            alice_id,
             zba_id.clone(),
             "call_promise",
             args,
@@ -758,7 +760,7 @@ fn create_with_id_two_yocto_fails_on_drained_zba() {
     let res = node
         .user()
         .function_call(
-            alice_id.clone(),
+            alice_id,
             zba_id.clone(),
             "call_promise",
             args,
