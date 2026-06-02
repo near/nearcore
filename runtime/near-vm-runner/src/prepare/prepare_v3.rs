@@ -415,6 +415,16 @@ pub(crate) fn prepare_contract(
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
+    if config.skip_gas_instrumentation {
+        if let Some(max_size) = config.limit_config.max_instrumented_code_size {
+            if lightly_steamed.len() as u64 > max_size {
+                tracing::debug!(target: "vm", size=lightly_steamed.len(), ?kind, "instrumented code too large");
+                return Err(PrepareError::InstrumentedCodeTooLarge);
+            }
+        }
+        return Ok(lightly_steamed);
+    }
+
     let analysis = finite_wasm_6::Analysis::new()
         .with_stack(SimpleMaxStackCfg)
         .with_gas(SimpleGasCostCfg {

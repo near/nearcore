@@ -457,6 +457,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
                 p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
+                skip_gas_instrumentation: false,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
