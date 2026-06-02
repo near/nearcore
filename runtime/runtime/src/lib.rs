@@ -1938,6 +1938,7 @@ impl Runtime {
                         "gas key transaction failed deposit check, charging gas"
                     );
                     // All gas used for converting the transaction to a receipt is burnt.
+                    let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
                         tx,
                         error,
                         cost.gas_burnt,
