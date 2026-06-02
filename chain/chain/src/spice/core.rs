@@ -752,6 +752,23 @@ fn add_endorsement_stats(
     dst: &mut [SpiceChunkEndorsementStats],
     src: &[SpiceChunkEndorsementStats],
 ) -> Result<(), Error> {
+    // Lengths are node-local (both come from the epoch's validator count), so a
+    // mismatch is an internal bug rather than adversarial input: assert loudly in
+    // debug, and still fail fast in release rather than silently truncating stats
+    // that feed reward and kickout.
+    if !src.is_empty() && src.len() != dst.len() {
+        debug_assert!(
+            false,
+            "endorsement stats length mismatch: dst {}, src {}",
+            dst.len(),
+            src.len()
+        );
+        return Err(Error::Other(format!(
+            "endorsement stats length mismatch: dst {}, src {}",
+            dst.len(),
+            src.len()
+        )));
+    }
     let overflow = || Error::Other("overflow accumulating spice endorsement stats".to_string());
     for (entry, delta) in dst.iter_mut().zip(src) {
         entry.produced = entry.produced.checked_add(delta.produced).ok_or_else(overflow)?;
