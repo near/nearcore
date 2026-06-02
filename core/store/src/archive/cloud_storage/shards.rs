@@ -9,7 +9,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::ExecutionOutcomeWithProof;
+use near_primitives::types::ShardId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use near_primitives::utils::get_block_shard_id;
@@ -22,20 +23,24 @@ pub enum ShardData {
     V1(ShardDataV1),
 }
 
+// Short-lived deserialized blob held only in small bounded collections;
+// the size disparity is transient, not worth a heap indirection per read.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ShardDataV1 {
+pub enum ShardDataV1 {
+    NewChunk(NewChunkData),
+    Carried(CarriedData),
+}
+
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct NewChunkData {
     /// Read from `DBCol::Chunks`.
     chunk: ShardChunk,
-    /// Read from `chunk`, part of `DBCol::Transactions`.
-    transactions: Vec<SignedTransaction>,
-    /// Read from `chunk`, part of `DBCol::Receipts`.
-    receipts: Vec<Receipt>,
-
-    /// Read from `DBCol::IncomingReceipts`.
-    incoming_receipts: Vec<ReceiptProof>,
+    /// Read from `DBCol::IncomingReceipts`. `None` when no new chunk in
+    /// the block produces a receipt targeting this shard.
+    incoming_receipts: Option<Vec<ReceiptProof>>,
     /// Read from `DBCol::OutgoingReceipts`.
     outgoing_receipts: Vec<Receipt>,
-
     /// Read from `DBCol::ChunkExtra`.
     chunk_extra: ChunkExtra,
     /// Read from `DBCol::ChunkApplyStats`.
@@ -49,14 +54,22 @@ pub struct ShardDataV1 {
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
-/// Builds a `ShardData` object for the given block height and shard ID by
-/// reading data from the store. Returns `Ok(None)` in two cases: there is
-/// no block at `block_height` (skipped slot), or there is a block but its
-/// chunk header for this shard was carried over from an earlier height (no
-/// new chunk to archive at `block_height`).
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct CarriedData {
+    /// Read from `DBCol::ChunkExtra`.
+    chunk_extra: ChunkExtra,
+    /// Read from `DBCol::ChunkApplyStats`.
+    chunk_apply_stats: ChunkApplyStats,
+    /// Read from `DBCol::StateChanges`.
+    state_changes: Vec<RawStateChangesWithTrieKey>,
+    /// Read from `DBCol::IncomingReceipts`. `None` when no new chunk in
+    /// the block produces a receipt targeting this shard.
+    incoming_receipts: Option<Vec<ReceiptProof>>,
+}
+
+/// `Ok(None)` at skipped heights (no block).
 pub fn build_shard_data(
     store: &Store,
-    genesis_height: BlockHeight,
     shard_layout: &ShardLayout,
     block_height: BlockHeight,
     shard_uid: ShardUId,
@@ -77,43 +90,61 @@ pub fn build_shard_data(
             "shard {shard_id} chunk not found in block at height {block_height}"
         )));
     };
-    // `chunk_header` is always present in `block.chunks()` for every shard,
-    // but if it's carried over from an earlier height there is no new chunk
-    // data to archive at this height.
-    if !chunk_header.is_new_chunk(block_height) {
-        return Ok(None);
-    }
-    let chunk_hash = chunk_header.chunk_hash().clone();
-
-    let chunk = chunk_store.get_chunk(&chunk_hash)?;
-    let transactions = chunk.to_transactions().iter().cloned().collect();
-    let receipts = chunk.prev_outgoing_receipts().iter().cloned().collect();
-
-    let outcome_ids = chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id);
-    // TODO(cloud_archival): Check why this `if` is required and whether there's a cleaner approach.
-    let incoming_receipts = if block_height > genesis_height + 1 {
-        chain_store.get_incoming_receipts(&block_hash, shard_id)?.to_vec()
-    } else {
-        Vec::new()
-    };
-    // TODO(cloud_archival): Check why this `if` is required and whether there's a cleaner approach.
-    let outgoing_receipts = if block_height > genesis_height + 1 {
-        chain_store.get_outgoing_receipts(&block_hash, shard_id)?.to_vec()
-    } else {
-        Vec::new()
-    };
 
     let chunk_extra = (*chunk_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
-    let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
     let chunk_apply_stats = option_to_not_found(
         chunk_store.get_chunk_apply_stats(&block_hash, &shard_id),
         format_args!("CHUNK APPLY STATS: height {block_height}, shard {shard_id:?}"),
     )?;
+    let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
+    // `IncomingReceipts` is only written at `(block, shard)` when at least
+    // one new chunk in `block` produces a receipt targeting `shard`;
+    // tolerate absence.
+    // TODO(cloud_archival): regression test for an all-chunks-missing block.
+    let incoming_receipts = match chain_store.get_incoming_receipts(&block_hash, shard_id) {
+        Ok(r) => Some(r.to_vec()),
+        Err(Error::DBNotFoundErr(_)) => None,
+        Err(e) => return Err(e),
+    };
 
+    if !chunk_header.is_new_chunk(block_height) {
+        return Ok(Some(ShardData::V1(ShardDataV1::Carried(CarriedData {
+            chunk_extra,
+            chunk_apply_stats,
+            state_changes,
+            incoming_receipts,
+        }))));
+    }
+
+    let chunk = chunk_store.get_chunk(chunk_header.chunk_hash())?;
+    let outgoing_receipts = chain_store.get_outgoing_receipts(&block_hash, shard_id)?.to_vec();
+    let transaction_result_for_block =
+        build_transaction_result_for_block(store, &block_hash, shard_id)?;
+    let receipt_to_tx = build_receipt_to_tx(store, &block_hash, shard_id)?;
+
+    Ok(Some(ShardData::V1(ShardDataV1::NewChunk(NewChunkData {
+        chunk,
+        incoming_receipts,
+        outgoing_receipts,
+        chunk_extra,
+        chunk_apply_stats,
+        state_changes,
+        transaction_result_for_block,
+        receipt_to_tx,
+    }))))
+}
+
+fn build_transaction_result_for_block(
+    store: &Store,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Result<Vec<(CryptoHash, ExecutionOutcomeWithProof)>, Error> {
+    let chain_store = store.chain_store();
+    let outcome_ids = chain_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id);
     let mut transaction_result_for_block = Vec::with_capacity(outcome_ids.len());
     for outcome_id in outcome_ids {
         let outcome = option_to_not_found(
-            chain_store.get_outcome_by_id_and_block_hash(&outcome_id, &block_hash),
+            chain_store.get_outcome_by_id_and_block_hash(&outcome_id, block_hash),
             format_args!(
                 "TRANSACTION RESULT FOR BLOCK: outcome_id {outcome_id}, block_hash {block_hash}"
             ),
@@ -122,13 +153,20 @@ pub fn build_shard_data(
     }
     // Sort so blob bytes are deterministic regardless of chunk-apply enumeration order.
     transaction_result_for_block.sort_by_key(|(id, _)| *id);
+    Ok(transaction_result_for_block)
+}
 
+fn build_receipt_to_tx(
+    store: &Store,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Result<Vec<(CryptoHash, ReceiptToTxInfo)>, Error> {
+    let chain_store = store.chain_store();
     let processed_receipt_ids: Vec<ProcessedReceiptMetadata> = store
-        .get_ser(DBCol::ProcessedReceiptIds, &get_block_shard_id(&block_hash, shard_id))
+        .get_ser(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id))
         .unwrap_or_default();
     let mut receipt_to_tx = Vec::new();
     for metadata in &processed_receipt_ids {
-        // `ReceiptToTxGc` tags exactly the ids in `apply_result.receipt_to_tx`.
         if !matches!(metadata.source(), ReceiptSource::ReceiptToTxGc) {
             continue;
         }
@@ -139,21 +177,9 @@ pub fn build_shard_data(
         )?;
         receipt_to_tx.push((receipt_id, info));
     }
+    // Sort so blob bytes are deterministic regardless of chunk-apply enumeration order.
     receipt_to_tx.sort_by_key(|(id, _)| *id);
-
-    let shard_data = ShardDataV1 {
-        chunk,
-        transactions,
-        receipts,
-        incoming_receipts,
-        outgoing_receipts,
-        chunk_extra,
-        state_changes,
-        chunk_apply_stats,
-        transaction_result_for_block,
-        receipt_to_tx,
-    };
-    Ok(Some(ShardData::V1(shard_data)))
+    Ok(receipt_to_tx)
 }
 
 // TODO(cloud_archival) Consider calling this function once per block height instead for each shard.
@@ -187,39 +213,47 @@ fn get_state_changes(
 }
 
 impl ShardData {
-    pub fn chunk(&self) -> &ShardChunk {
+    pub fn chunk(&self) -> Option<&ShardChunk> {
         match self {
-            ShardData::V1(data) => &data.chunk,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.chunk),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
 
     pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
         match self {
-            ShardData::V1(data) => &data.state_changes,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.state_changes,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.state_changes,
         }
     }
 
     pub fn chunk_extra(&self) -> &ChunkExtra {
         match self {
-            ShardData::V1(data) => &data.chunk_extra,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.chunk_extra,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.chunk_extra,
         }
     }
 
     pub fn chunk_apply_stats(&self) -> &ChunkApplyStats {
         match self {
-            ShardData::V1(data) => &data.chunk_apply_stats,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.chunk_apply_stats,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.chunk_apply_stats,
         }
     }
 
-    pub fn transaction_result_for_block(&self) -> &[(CryptoHash, ExecutionOutcomeWithProof)] {
+    pub fn transaction_result_for_block(
+        &self,
+    ) -> Option<&[(CryptoHash, ExecutionOutcomeWithProof)]> {
         match self {
-            ShardData::V1(data) => &data.transaction_result_for_block,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.transaction_result_for_block),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
 
-    pub fn receipt_to_tx(&self) -> &[(CryptoHash, ReceiptToTxInfo)] {
+    pub fn receipt_to_tx(&self) -> Option<&[(CryptoHash, ReceiptToTxInfo)]> {
         match self {
-            ShardData::V1(data) => &data.receipt_to_tx,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.receipt_to_tx),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
 }
@@ -234,17 +268,14 @@ pub enum ShardBatch {
 pub struct ShardBatchV1 {
     start_height: BlockHeight,
     end_height: BlockHeight,
-    /// One entry per height; `None` at skipped slots or when the chunk at
-    /// that height is not new for this shard.
+    /// One entry per height; `None` at skipped slots.
     data: Vec<Option<ShardData>>,
 }
 
 /// Builds a `ShardBatch` by reading shard data for each height in `range`.
-/// Pushes `None` for skipped slots and for heights where this shard's chunk
-/// is not new.
+/// Pushes `None` for skipped slots.
 pub fn build_shard_batch(
     store: &Store,
-    genesis_height: BlockHeight,
     shard_layout: &ShardLayout,
     range: &BatchRange,
     shard_uid: ShardUId,
@@ -252,7 +283,7 @@ pub fn build_shard_batch(
     let count = (range.end() - range.start() + 1) as usize;
     let mut data = Vec::with_capacity(count);
     for height in range.start()..=range.end() {
-        data.push(build_shard_data(store, genesis_height, shard_layout, height, shard_uid)?);
+        data.push(build_shard_data(store, shard_layout, height, shard_uid)?);
     }
     Ok(ShardBatch::new(range.start(), range.end(), data))
 }
@@ -298,10 +329,10 @@ impl ShardBatch {
     }
 
     /// Returns the shard data at `height` within this batch, or `None` if
-    /// the height is a skipped slot or the shard's chunk at that height is
-    /// not new. `height` must be within the batch range - passing an
-    /// out-of-range height is a programmer error and panics.
-    pub fn get_shard_at_height(&self, height: BlockHeight) -> Option<&ShardData> {
+    /// the height is a skipped slot. `height` must be within the batch
+    /// range - passing an out-of-range height is a programmer error and
+    /// panics.
+    pub fn get_data_at_height(&self, height: BlockHeight) -> Option<&ShardData> {
         let ShardBatch::V1(batch) = self;
         assert!(
             height >= batch.start_height && height <= batch.end_height,

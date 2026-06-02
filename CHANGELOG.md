@@ -4,12 +4,13 @@
 
 ### Protocol Changes
 * New opt-in strict nonce mode for transactions added in nightly. When enabled, each transaction must use a nonce exactly equal to the previous nonce for that access key plus one; nonces that repeat or skip values are rejected. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
-* Added FIPS 204 ML-DSA-65 post-quantum signature scheme for access keys in nightly. Public keys are stored on-trie as a 48-byte SHA3-384 hash rather than the full 1952 bytes. ([#15731](https://github.com/near/nearcore/pull/15731))
+* Added FIPS 204 ML-DSA-65 post-quantum signature scheme for access keys in nightly. Public keys are stored on-trie as a 32-byte SHA3-256 hash rather than the full 1952 bytes. ([#15731](https://github.com/near/nearcore/pull/15731))
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 * Fix `action_delete_account` not accounting for the global contract identifier when checking the account deletion storage limit. For accounts using a global contract, the check overcounted storage usage by the identifier size (32 bytes, or the account id length for `GlobalByAccount`), so they were slightly harder to delete. ([#15752](https://github.com/near/nearcore/pull/15752))
 * Fix a bug in `receiver` verification for a `DeterministicStateInitAction` inside a `DelegateAction` that made it impossible to create deterministic accounts through meta transactions. ([#15812](https://github.com/near/nearcore/pull/15812))
 
 ### Non-protocol Changes
+* `EXPERIMENTAL_receipt_to_tx` accepts optional `block_height`, `shard_id`, `window` hint params. On a column miss with a hint set, the handler scans execution outcomes around the hint. Best-effort: long emit-to-execute delays and resharding boundaries return `UnknownReceipt` instead of a terminal tx. New node-config knobs: `receipt_to_tx_max_hint_window` (default 20), `receipt_to_tx_max_hop_distance` (default 20), `receipt_to_tx_max_outcomes_per_request` (default 20_000). Operators serving cold-archival queries should consider raising these.
 * Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `after_key_base64` and `limit`, and the response returns `last_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
 
 ## [2.12.0]

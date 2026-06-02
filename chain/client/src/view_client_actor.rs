@@ -7,6 +7,10 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::receipt_to_tx::{
+    DEFAULT_HINT_WINDOW, HintResolution, HintScanStats, ResolveHintError, Scan,
+    resolve_receipt_via_hint,
+};
 use near_chain::spice::chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -1276,42 +1280,254 @@ impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceiptToTx"]).start_timer();
 
-        if !self.config.save_receipt_to_tx {
-            return Err(GetReceiptToTxError::Unsupported(
-                "receipt-to-tx mapping is disabled (save_receipt_to_tx=false)".to_string(),
-            ));
-        }
-        if !self.config.tracked_shards_config.tracks_all_shards() {
-            return Err(GetReceiptToTxError::Unsupported(
-                "node does not track all shards".to_string(),
-            ));
-        }
+        let result = handle_receipt_to_tx(self, msg);
+        record_receipt_to_tx_outcome(&result);
+        result
+    }
+}
 
-        const MAX_DEPTH: u32 = 1000;
-        let mut current_receipt_id = msg.receipt_id;
-        for _ in 0..MAX_DEPTH {
-            let info = self
-                .chain
-                .chain_store()
-                .get_receipt_to_tx(&current_receipt_id)
-                .ok_or(GetReceiptToTxError::UnknownReceipt(current_receipt_id))?;
+const RECEIPT_TO_TX_MAX_DEPTH: u32 = 1000;
 
-            let ReceiptToTxInfo::V1(v1) = info;
-            match v1.origin {
-                ReceiptOrigin::FromTransaction(origin) => {
-                    return Ok(GetReceiptToTxResponse {
-                        transaction_hash: origin.tx_hash,
-                        sender_account_id: origin.sender_account_id,
-                    });
+fn handle_receipt_to_tx(
+    actor: &ViewClientActor,
+    msg: GetReceiptToTx,
+) -> Result<GetReceiptToTxResponse, GetReceiptToTxError> {
+    let hint_provided = msg.block_height.is_some();
+    if msg.shard_id.is_some() && !hint_provided {
+        return Err(GetReceiptToTxError::MalformedHint(
+            "shard_id requires block_height".to_string(),
+        ));
+    }
+    // `window` meaningless without hint. Reject explicitly so caller
+    // supplying `{receipt_id, window: 999}` doesn't get silent accept
+    // with param discarded.
+    if msg.window.is_some() && !hint_provided {
+        return Err(GetReceiptToTxError::MalformedHint("window requires block_height".to_string()));
+    }
+    let effective_window = msg.window.unwrap_or(DEFAULT_HINT_WINDOW);
+    let max_hint_window = actor.config.receipt_to_tx_max_hint_window;
+    let max_hop_distance = actor.config.receipt_to_tx_max_hop_distance;
+    if hint_provided && effective_window > max_hint_window {
+        return Err(GetReceiptToTxError::WindowTooLarge {
+            requested: effective_window,
+            maximum: max_hint_window,
+        });
+    }
+
+    // tracks_all_shards required both modes: cross-shard historical
+    // lookups need every shard's chain data locally.
+    if !actor.config.tracked_shards_config.tracks_all_shards() {
+        return Err(GetReceiptToTxError::Unsupported("node does not track all shards".to_string()));
+    }
+    // Column-only mode requires save_receipt_to_tx. Hint mode doesn't —
+    // rebuilds origin from OutcomeIds + Receipts/Transactions.
+    if !hint_provided && !actor.config.save_receipt_to_tx {
+        return Err(GetReceiptToTxError::Unsupported(
+            "receipt-to-tx mapping is disabled (save_receipt_to_tx=false) and no hint supplied"
+                .to_string(),
+        ));
+    }
+
+    // TODO(receipt-to-tx-bench): benchmark cold-RocksDB worst-case to tune
+    // `receipt_to_tx_max_outcomes_per_request` default; current 20k is a
+    // conservative estimate.
+    // TODO(sharded-rpc): if a sharded variant lands, move coordination logic
+    // out of view_client_actor into the sharded handler.
+    let max_outcomes_per_request = actor.config.receipt_to_tx_max_outcomes_per_request;
+
+    let mut current_receipt_id = msg.receipt_id;
+    let mut current_height = msg.block_height;
+    let mut current_shard = msg.shard_id;
+    let mut remaining_budget = max_outcomes_per_request;
+    // Monotonic. False → true on first scan-resolve, never reset. After
+    // scan, `current_height` = parent's exact execution height; causality
+    // bounds later ancestors at or before anchor → column-miss scans stay
+    // `Ancestor + max_hop_distance`. Pre-first-scan anchor = caller's
+    // literal hint, `CenterOut` spans both sides.
+    let mut have_scanned = false;
+
+    for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
+        let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
+        let info = match column_info {
+            Some(info) => info,
+            None => {
+                let Some(height) = current_height else {
+                    return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
+                };
+                if !actor.config.save_tx_outcomes {
+                    return Err(GetReceiptToTxError::OutcomesNotStored);
                 }
-                ReceiptOrigin::FromReceipt(origin) => {
-                    current_receipt_id = origin.parent_receipt_id;
+                let scan = if have_scanned {
+                    Scan::Ancestor { max_distance: max_hop_distance }
+                } else {
+                    Scan::CenterOut { window: effective_window }
+                };
+                match scan_with_optional_shard_enumeration(
+                    actor,
+                    current_receipt_id,
+                    height,
+                    current_shard,
+                    scan,
+                    &mut remaining_budget,
+                )? {
+                    Some(res) => {
+                        have_scanned = true;
+                        current_height = Some(res.outcome_block_height);
+                        // No `current_shard = None`: FromReceipt arm
+                        // recomputes from parent's predecessor account,
+                        // FromTransaction arm doesn't read it.
+                        res.info
+                    }
+                    None => {
+                        return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
+                    }
                 }
             }
-        }
+        };
 
-        Err(GetReceiptToTxError::DepthExceeded { receipt_id: msg.receipt_id, limit: MAX_DEPTH })
+        let ReceiptToTxInfo::V1(v1) = info;
+        match v1.origin {
+            ReceiptOrigin::FromTransaction(origin) => {
+                return Ok(GetReceiptToTxResponse {
+                    transaction_hash: origin.tx_hash,
+                    sender_account_id: origin.sender_account_id,
+                });
+            }
+            ReceiptOrigin::FromReceipt(origin) => {
+                let parent_id = origin.parent_receipt_id;
+                // Next-hop shard = predecessor of this receipt's parent.
+                // Parent P executed on shard(P.receiver_id) =
+                // receipt's predecessor_id. P's parent at
+                // shard(origin.parent_predecessor_id), computed at
+                // current_height. Best-effort across resharding: layout
+                // shifts may pick stale shard → scan misses, walk returns
+                // `UnknownReceipt` rather than fabricate.
+                current_shard = current_height.and_then(|h| {
+                    shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
+                });
+                current_receipt_id = parent_id;
+            }
+        }
     }
+
+    Err(GetReceiptToTxError::DepthExceeded {
+        receipt_id: msg.receipt_id,
+        limit: RECEIPT_TO_TX_MAX_DEPTH,
+    })
+}
+
+fn scan_with_optional_shard_enumeration(
+    actor: &ViewClientActor,
+    receipt_id: CryptoHash,
+    block_height: BlockHeight,
+    shard_id: Option<ShardId>,
+    scan: Scan,
+    remaining_budget: &mut u64,
+) -> Result<Option<HintResolution>, GetReceiptToTxError> {
+    if let Some(shard_id) = shard_id {
+        return run_hint_scan(actor, receipt_id, block_height, shard_id, scan, remaining_budget);
+    }
+
+    let Some(shard_ids) = shard_ids_for_hint_height(actor, block_height)? else {
+        return Err(GetReceiptToTxError::UnknownReceipt(receipt_id));
+    };
+    for shard_id in shard_ids {
+        if let Some(resolution) =
+            run_hint_scan(actor, receipt_id, block_height, shard_id, scan, remaining_budget)?
+        {
+            return Ok(Some(resolution));
+        }
+    }
+    Ok(None)
+}
+
+/// Shard layout at hinted height. `Ok(None)` = height not locally
+/// resolvable (GC'd at archival horizon); caller maps to `UnknownReceipt`.
+/// No head-epoch fallback — would scan wrong shards post-resharding.
+/// Other chain/epoch errors → `InternalError`, not `Ok(None)`, so
+/// corruption can't masquerade as missing receipt.
+fn shard_ids_for_hint_height(
+    actor: &ViewClientActor,
+    block_height: BlockHeight,
+) -> Result<Option<Vec<ShardId>>, GetReceiptToTxError> {
+    let header = match actor.chain.get_block_header_by_height(block_height) {
+        Ok(header) => header,
+        Err(near_chain::Error::DBNotFoundErr(_)) => return Ok(None),
+        Err(e) => return Err(GetReceiptToTxError::InternalError(e.to_string())),
+    };
+    let shard_layout = actor
+        .chain
+        .epoch_manager
+        .get_shard_layout(header.epoch_id())
+        .into_chain_error()
+        .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?;
+    Ok(Some(shard_layout.shard_ids().collect()))
+}
+
+/// Resolve `account_id` → shard at the height hint walked to. `None` =
+/// height locally unresolvable; callers fall back to `current_shard = None`
+/// → all-shards enumeration on next hop's scan (all-shards scan with
+/// unresolvable height surfaces `UnknownReceipt`).
+fn shard_for_account_at_height(
+    actor: &ViewClientActor,
+    account_id: &AccountId,
+    block_height: BlockHeight,
+) -> Option<ShardId> {
+    let header = actor.chain.get_block_header_by_height(block_height).ok()?;
+    let epoch_id = header.epoch_id();
+    account_id_to_shard_id(actor.chain.epoch_manager.as_ref(), account_id, epoch_id).ok()
+}
+
+/// Run one hint-fallback scan + unconditionally record stats. Used by
+/// column-miss branch in both `Scan::CenterOut` (pre-first-scan) and
+/// `Scan::Ancestor` (post-scan-resolved hop). Neither path drops metric
+/// accounting on error return.
+fn run_hint_scan(
+    actor: &ViewClientActor,
+    receipt_id: CryptoHash,
+    block_height: BlockHeight,
+    shard_id: ShardId,
+    scan: Scan,
+    remaining_budget: &mut u64,
+) -> Result<Option<HintResolution>, GetReceiptToTxError> {
+    let mut stats = HintScanStats::default();
+    let result = resolve_receipt_via_hint(
+        actor.chain.chain_store(),
+        receipt_id,
+        block_height,
+        shard_id,
+        scan,
+        &mut stats,
+        remaining_budget,
+    );
+    record_hint_scan_stats(stats);
+    let limit = actor.config.receipt_to_tx_max_outcomes_per_request;
+    result.map_err(|e| match e {
+        ResolveHintError::Chain(e) => GetReceiptToTxError::InternalError(e.to_string()),
+        ResolveHintError::BudgetExceeded => {
+            GetReceiptToTxError::BudgetExceeded { scanned: limit - *remaining_budget, limit }
+        }
+    })
+}
+
+fn record_hint_scan_stats(stats: HintScanStats) {
+    metrics::RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL.inc_by(stats.heights_scanned);
+    metrics::RECEIPT_TO_TX_HINT_OUTCOMES_SCANNED_TOTAL.inc_by(stats.outcomes_scanned);
+}
+
+fn record_receipt_to_tx_outcome(result: &Result<GetReceiptToTxResponse, GetReceiptToTxError>) {
+    let outcome = match result {
+        Ok(_) => "ok",
+        Err(GetReceiptToTxError::UnknownReceipt(_)) => "unknown_receipt",
+        Err(GetReceiptToTxError::DepthExceeded { .. }) => "depth_exceeded",
+        Err(GetReceiptToTxError::Unsupported(_)) => "unsupported",
+        Err(GetReceiptToTxError::OutcomesNotStored) => "outcomes_not_stored",
+        Err(GetReceiptToTxError::WindowTooLarge { .. }) => "window_too_large",
+        Err(GetReceiptToTxError::MalformedHint(_)) => "malformed_hint",
+        Err(GetReceiptToTxError::BudgetExceeded { .. }) => "budget_exceeded",
+        Err(GetReceiptToTxError::InternalError(_)) => "internal_error",
+    };
+    metrics::RECEIPT_TO_TX_TOTAL.with_label_values(&[outcome]).inc();
 }
 
 impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> for ViewClientActor {

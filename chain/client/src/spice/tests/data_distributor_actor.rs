@@ -59,6 +59,7 @@ use near_primitives::types::{ShardId, SpiceChunkId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZero;
@@ -375,10 +376,13 @@ fn chunk_producer_for_shard(chain: &Chain, shard_id: ShardId) -> AccountId {
         .unwrap()
 }
 
-fn save_final_execution_head(chain: &mut Chain, block: &Block) {
-    let mut store_update = chain.chain_store.store_update();
-    store_update.save_spice_final_execution_head(&Tip::from_header(block.header())).unwrap();
-    store_update.commit().unwrap();
+fn save_final_execution_head(chain: &Chain, block: &Block) {
+    let store = chain.chain_store.store();
+    let mut store_update = store.store_update();
+    store_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(block.header()));
+    store_update.commit();
 }
 
 struct SpicePartialDataBuilder {
@@ -1429,7 +1433,7 @@ fn test_requesting_witnesses_from_forks_on_start() {
     let next_next_block = produce_block(&mut chain, &next_block);
     let fork_block = produce_block(&mut chain, &block);
 
-    save_final_execution_head(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
@@ -1467,7 +1471,7 @@ fn test_not_requesting_witnesses_we_already_endorsed_on_start() {
 
     let next_block = produce_block(&mut chain, &block);
 
-    save_final_execution_head(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
     record_endorsement(
         &chain,
         SpiceChunkId { block_hash: *next_block.hash(), shard_id },
@@ -1499,7 +1503,7 @@ fn test_not_requesting_witnesses_we_produce_on_start() {
 
     let next_block = produce_block(&mut chain, &block);
 
-    save_final_execution_head(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
@@ -1571,7 +1575,7 @@ fn test_requesting_receipts_from_forks_on_start() {
     let next_next_block = produce_block(&mut chain, &next_block);
     let fork_block = produce_block(&mut chain, &block);
 
-    save_final_execution_head(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
@@ -1622,7 +1626,7 @@ fn test_not_requesting_receipts_we_already_have_on_start() {
     );
     store_update.commit();
 
-    save_final_execution_head(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
@@ -1651,7 +1655,7 @@ fn test_not_requesting_receipts_we_produce_on_start() {
     let block = latest_block(&chain);
     let next_block = produce_block(&mut chain, &block);
 
-    save_final_execution_head(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);

@@ -123,8 +123,7 @@ impl CloudStorage {
     }
 
     /// Test-only: fetch a single shard's data. See `get_block_data`. Returns
-    /// `Ok(None)` when the height has no block or this shard's chunk is not
-    /// new at that height.
+    /// `Ok(None)` when the height has no block.
     #[cfg(feature = "test_features")]
     pub fn get_shard_data(
         &self,
@@ -132,7 +131,7 @@ impl CloudStorage {
         shard_id: ShardId,
     ) -> Result<Option<ShardData>, CloudRetrievalError> {
         let batch = self.get_shard_batch_for_height(block_height, shard_id)?;
-        Ok(batch.get_shard_at_height(block_height).cloned())
+        Ok(batch.get_data_at_height(block_height).cloned())
     }
 }
 

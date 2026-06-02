@@ -699,6 +699,10 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 
+    /// Things to do on the protocol version change. Better be idempotent: the caller may invoke it
+    /// repeatedly for the same `new_protocol_version`, across restarts for example.
+    fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion);
+
     /// Precompiles the contracts and stores them in the compiled contract cache.
     fn precompile_contracts(
         &self,

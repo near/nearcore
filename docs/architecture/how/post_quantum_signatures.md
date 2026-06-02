@@ -70,8 +70,8 @@ responses:
   `PublicKey::ED25519`'s encoding.
 - `PublicKeyHandle::SECP256K1(Secp256K1PublicKey)` - borsh tag `1`, byte-identical
   to `PublicKey::SECP256K1`'s encoding.
-- `PublicKeyHandle::MlDsa65Hash(MlDsa65PublicKeyHandle)` - borsh tag `3`, 48-byte
-  SHA3-384 digest. Appears only as a result of parsing a trie key (e.g.
+- `PublicKeyHandle::MlDsa65Hash(MlDsa65PublicKeyHandle)` - borsh tag `3`, 32-byte
+  SHA3-256 digest. Appears only as a result of parsing a trie key (e.g.
   `view_access_key_list`) or constructed via `From<&PublicKey>` from a known
   full ML-DSA-65 pubkey. Cannot sign, cannot verify, never appears in
   transactions or actions.
@@ -96,19 +96,20 @@ encoding for an `AccessKey` entry is:
 |------------|----------------------------------------------------------------------|
 | ED25519    | `[tag=0] \|\| 32-byte raw pubkey`                                    |
 | SECP256K1  | `[tag=1] \|\| 64-byte raw pubkey`                                    |
-| ML-DSA-65  | `[tag=3] \|\| sha3_384(domain_tag \|\| raw_pubkey)` (49 bytes total) |
+| ML-DSA-65  | `[tag=3] \|\| sha3_256(domain_tag \|\| raw_pubkey)` (33 bytes total) |
 
 Domain tag: `b"near:ml-dsa-65-pubkey-hash:v1"`, hashed before the pubkey
 bytes. Prevents collisions with other SHA-3 uses in the protocol.
 
-Choice of SHA3-384 (not SHA3-256): an attacker forging an access key needs
-second-preimage on the hash. Grover gives `O(2^(H/2))` quantum cost; to match
-ML-DSA-65's Category-3 (~192-bit) security level, the hash needs `H ≥ 384`
-bits. SHA3-256 would leave the access-key lookup at Category 2, one level
-under the keypair.
+Choice of SHA3-256: a 256-bit digest has been decided to be secure enough for
+the access-key lookup. The decisive property is that the digest is short enough
+to be encoded into a NEAR account id, so the hash can be used directly as an
+(implicit) account id. This keeps the door open to creating ML-DSA-65 access
+keys for implicit accounts in the future from the account id alone - without
+having to carry or store the full 1952-byte pubkey.
 
-Storage impact: an ML-DSA-65 access key occupies 49 bytes in the trie key
-portion versus 1953 if stored raw - about a 96% reduction. Storage stake
+Storage impact: an ML-DSA-65 access key occupies 33 bytes in the trie key
+portion versus 1953 if stored raw - about a 98% reduction. Storage stake
 drops from ~0.0195 NEAR to ~0.0005 NEAR per key.
 
 UX consequence: `view_access_key_list` returns `ml-dsa-65-hash:<bs58>` for
@@ -128,7 +129,7 @@ gas-key fee helpers (`gas_key_*_fee` in `runtime/runtime/src/config.rs`) use
 
 - `len()` reports the borsh-encoded length (33 / 65 / 1953 across the
   three `PublicKey` variants).
-- `trie_id_len()` reports the on-trie length (33 / 65 / **49**).
+- `trie_id_len()` reports the on-trie length (33 / 65 / **33**).
 
 The two diverge only for `PublicKey::MLDSA65`. Every storage-stake and
 trie-byte-priced fee path was updated to call `trie_id_len()`.
@@ -139,8 +140,11 @@ ML-DSA verify is variable-time (rejection sampling on signature generation
 sets up patterns that show as small variance on verify). For the initial
 integration:
 
-- Concrete verify-time distribution: **to be checked with benchmarks**
-  (benches live in a separate commit on top of this one).
+- Concrete verify-time distribution from benches at
+  `core/crypto/benches/{signatures.rs, verify_distribution.rs,
+  ml_dsa_worst_case.rs}`: mean ≈ 83 µs, p99.99 ≈ 600 µs, max-of-100k ≈
+  1.3 ms (the single-sample max is noisy and varies ~0.7–1.3 ms run to
+  run), measured on an Intel Core Ultra 9 185H (64 GiB RAM).
 - Adversarial-input analysis: it has been concluded that no
   maliciously-crafted signature can materially blow up verification time
   beyond the natural worst case.
@@ -252,8 +256,8 @@ items the team should resolve before stabilizing in 2.13.
    `trie_id_len()`. Outstanding work:
    - Per-byte component on `AddKey` and `DeleteKey` fees.
    - Tx-level `tx_signature_verify_ml_dsa_65` gas constant. Provisional 10
-     Ggas based on a ~10× safety margin over the empirical worst case
-     (1.23 ms at 1 Tgas/s); should be tightened after Phase 5.4 calibration.
+     Ggas based on a ~8× safety margin over the empirical worst case
+     (~1.3 ms at 1 Tgas/s); should be tightened after Phase 5.4 calibration.
    - New `parameters.yaml` diff file gated on `PostQuantumSignatures`.
    - Snapshot regeneration.
 
@@ -289,5 +293,5 @@ items the team should resolve before stabilizing in 2.13.
 
 7. **Implicit-account derivation for PQ keys.** Briefing's open question
     (1). Not part of this feature, but the access-key hashing here has set
-    the precedent (SHA3-384, domain-separated) that implicit-account
+    the precedent (SHA3-256, domain-separated) that implicit-account
     derivation should probably follow.

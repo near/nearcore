@@ -34,6 +34,7 @@ mod indexer;
 mod jsonrpc;
 mod malicious_chunk_producer;
 mod max_receipt_size;
+mod ml_dsa_access_key;
 mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;
