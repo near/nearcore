@@ -300,6 +300,8 @@ impl From<VMConfigView> for crate::vm::Config {
             gas_key_host_fns: view.gas_key_host_fns,
             one_yocto_on_promise: view.one_yocto_on_promise,
             p256_verify_host_fn: view.p256_verify_host_fn,
+            // Not exposed on the view, only used in benchmarks
+            skip_gas_instrumentation: false,
         }
     }
 }

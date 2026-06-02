@@ -401,6 +401,10 @@ pub(crate) fn prepare_contract(
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
+    if config.skip_gas_instrumentation {
+        return Ok(lightly_steamed);
+    }
+
     let res = finite_wasm::Analysis::new()
         .with_stack(Box::new(SimpleMaxStackCfg))
         .with_gas(Box::new(SimpleGasCostCfg(u64::from(config.regular_op_cost))))

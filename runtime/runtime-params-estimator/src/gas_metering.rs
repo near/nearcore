@@ -138,6 +138,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
         let mut cfg = near_parameters::vm::Config::clone(&vm_config_gas);
         cfg.make_free();
         cfg.enable_all_features();
+        cfg.skip_gas_instrumentation = true;
         cfg
     });
     let fees = runtime_config.fees.clone();

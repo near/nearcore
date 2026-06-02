@@ -230,6 +230,10 @@ pub struct Config {
     /// NEP-635: <https://github.com/near/NEPs/pull/635>
     pub p256_verify_host_fn: bool,
 
+    /// Skip finite-wasm gas instrumentation when preparing contracts.
+    /// Used for benchmarks, keep this `false` in production.
+    pub skip_gas_instrumentation: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
