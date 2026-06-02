@@ -17,6 +17,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
     EpochId, ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    ValidatorId,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -806,19 +807,36 @@ fn endorsement_contribution_of_block(
             chunk_id.shard_id,
             chunk_block.height(),
         )?;
-        for (account_id, _stake) in assignments.assignments() {
-            let Some(&validator_id) = epoch_info.get_validator_id(account_id) else {
-                continue;
-            };
-            let entry = &mut stats[validator_id as usize];
-            entry.expected += 1;
-            // Credited only when they endorsed the result that actually certified.
-            if endorsed_hash.get(&(chunk_id, account_id)) == Some(&certified_hash) {
-                entry.produced += 1;
-            }
-        }
+        credit_chunk_endorsement_stats(
+            &mut stats,
+            assignments.assignments().iter().map(|(account_id, _stake)| account_id),
+            |account_id| epoch_info.get_validator_id(account_id).copied(),
+            |account_id| endorsed_hash.get(&(chunk_id, account_id)) == Some(&certified_hash),
+        );
     }
     Ok(stats)
+}
+
+/// Credits one certified chunk's validator assignment into `stats`: each assigned
+/// validator still in the current epoch (`validator_id` returns `Some`) gets one
+/// expected endorsement, plus one produced if `endorsed_certified` holds for it.
+/// Validators no longer in the epoch (`validator_id` returns `None`) are ignored.
+pub(crate) fn credit_chunk_endorsement_stats<'a>(
+    stats: &mut [SpiceChunkEndorsementStats],
+    assignment: impl IntoIterator<Item = &'a AccountId>,
+    validator_id: impl Fn(&AccountId) -> Option<ValidatorId>,
+    endorsed_certified: impl Fn(&AccountId) -> bool,
+) {
+    for account_id in assignment {
+        let Some(validator_id) = validator_id(account_id) else {
+            continue;
+        };
+        let entry = &mut stats[validator_id as usize];
+        entry.expected += 1;
+        if endorsed_certified(account_id) {
+            entry.produced += 1;
+        }
+    }
 }
 
 /// Reads the stored running endorsement-stats accumulator for `block_hash`.
@@ -851,16 +869,35 @@ pub fn compute_spice_endorsement_stats(
     prev_hash: &CryptoHash,
 ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
     let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
-    let mut stats = vec![SpiceChunkEndorsementStats::default(); epoch_info.validators_iter().len()];
-
-    let prev_header = chain_store.get_block_header(prev_hash)?;
-    if !prev_header.is_genesis() && prev_header.epoch_id() == epoch_id {
-        let prev_stats = get_spice_endorsement_stats(chain_store, prev_hash)?;
-        add_endorsement_stats(&mut stats, &prev_stats)?;
-    }
+    let num_validators = epoch_info.validators_iter().len();
     let contribution =
         endorsement_contribution_of_block(chain_store, epoch_manager, &epoch_info, prev_hash)?;
-    add_endorsement_stats(&mut stats, &contribution)?;
+
+    // Carry the previous block's accumulator only within the same epoch; at the
+    // epoch boundary (and genesis) the per-epoch accumulator resets.
+    let prev_header = chain_store.get_block_header(prev_hash)?;
+    let prev_stats = if !prev_header.is_genesis() && prev_header.epoch_id() == epoch_id {
+        Some(get_spice_endorsement_stats(chain_store, prev_hash)?)
+    } else {
+        None
+    };
+    fold_endorsement_stats(num_validators, prev_stats.as_deref(), &contribution)
+}
+
+/// Folds the previous block's running accumulator (`prev_stats`) and this block's
+/// `contribution` into the running per-epoch value. `prev_stats` is `None` at an
+/// epoch boundary or genesis, where the accumulator resets to this block's
+/// contribution alone.
+pub(crate) fn fold_endorsement_stats(
+    num_validators: usize,
+    prev_stats: Option<&[SpiceChunkEndorsementStats]>,
+    contribution: &[SpiceChunkEndorsementStats],
+) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
+    let mut stats = vec![SpiceChunkEndorsementStats::default(); num_validators];
+    if let Some(prev_stats) = prev_stats {
+        add_endorsement_stats(&mut stats, prev_stats)?;
+    }
+    add_endorsement_stats(&mut stats, contribution)?;
     Ok(stats)
 }
 
