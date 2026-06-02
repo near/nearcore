@@ -39,7 +39,7 @@ use near_network::types::{
 };
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::errors::EpochError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
@@ -715,7 +715,10 @@ impl ViewClientActor {
                                         execution_outcome: None,
                                         status: TxExecutionStatus::None,
                                     }),
-                                    Err(_) => Err(TxStatusError::Expired(tx_hash)),
+                                    Err(InvalidTxError::Expired) => {
+                                        Err(TxStatusError::Expired(tx_hash))
+                                    }
+                                    Err(e) => Err(TxStatusError::InternalError(e.to_string())),
                                 }
                             }
                             TransactionFate::Unknown => {
