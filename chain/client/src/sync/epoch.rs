@@ -312,7 +312,7 @@ impl EpochSync {
         Ok(())
     }
 
-    fn verify_proof(
+    pub fn verify_proof(
         &self,
         proof: &EpochSyncProofV1,
         epoch_manager: &dyn EpochManagerAdapter,
