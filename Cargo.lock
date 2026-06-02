@@ -4529,6 +4529,7 @@ dependencies = [
  "bolero",
  "borsh",
  "bs58 0.4.0",
+ "criterion",
  "curve25519-dalek",
  "derive_more 2.0.1",
  "ed25519-dalek",

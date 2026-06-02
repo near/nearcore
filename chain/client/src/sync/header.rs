@@ -1,6 +1,7 @@
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
+use near_network::config::MAX_BLOCK_HEADER_HASHES;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, ReasonForBan};
 use near_primitives::block::Tip;
@@ -12,9 +13,6 @@ use std::cmp::min;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
-
-/// Maximum number of block header hashes to send as part of a locator.
-pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 

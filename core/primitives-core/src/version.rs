@@ -515,17 +515,17 @@ impl ProtocolFeature {
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::FixDelegatedDeterministicStateInit
             | ProtocolFeature::GasKeys
-            | ProtocolFeature::ContinuousEpochSync => 85,
+            | ProtocolFeature::ContinuousEpochSync
+            | ProtocolFeature::DynamicResharding
+            | ProtocolFeature::StickyReshardingValidatorAssignment => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::StickyReshardingValidatorAssignment => 153,
             ProtocolFeature::PostQuantumSignatures => 154,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
