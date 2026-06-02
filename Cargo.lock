@@ -1161,7 +1161,7 @@ dependencies = [
 
 [[package]]
 name = "cold-store-tool"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "borsh",
@@ -1215,7 +1215,7 @@ dependencies = [
 
 [[package]]
 name = "congestion-model"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "bytesize 1.1.0",
  "chrono",
@@ -2227,7 +2227,7 @@ dependencies = [
 
 [[package]]
 name = "estimator-warehouse"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2692,7 +2692,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-csv-to-json"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "chrono",
  "clap",
@@ -2709,7 +2709,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-populate"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "borsh",
  "clap",
@@ -3459,7 +3459,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-example"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3541,7 +3541,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3756,7 +3756,7 @@ dependencies = [
 
 [[package]]
 name = "keypair-generator"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "clap",
  "near-crypto",
@@ -4172,7 +4172,7 @@ dependencies = [
 
 [[package]]
 name = "mock-node"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4265,7 +4265,7 @@ dependencies = [
 
 [[package]]
 name = "near-async"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "criterion",
  "crossbeam-channel",
@@ -4286,7 +4286,7 @@ dependencies = [
 
 [[package]]
 name = "near-async-derive"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "pretty_assertions",
  "proc-macro2",
@@ -4296,7 +4296,7 @@ dependencies = [
 
 [[package]]
 name = "near-cache"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "bencher",
  "lru 0.16.3",
@@ -4306,7 +4306,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -4356,7 +4356,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain-configs"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "bytesize 1.1.0",
@@ -4381,7 +4381,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain-primitives"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "near-crypto",
  "near-primitives",
@@ -4392,7 +4392,7 @@ dependencies = [
 
 [[package]]
 name = "near-chunks"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "assert_matches",
  "itertools 0.14.0",
@@ -4418,7 +4418,7 @@ dependencies = [
 
 [[package]]
 name = "near-chunks-primitives"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "near-chain-primitives",
  "near-primitives",
@@ -4426,7 +4426,7 @@ dependencies = [
 
 [[package]]
 name = "near-client"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -4480,7 +4480,7 @@ dependencies = [
 
 [[package]]
 name = "near-client-primitives"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "near-chain-primitives",
  "near-chunks-primitives",
@@ -4495,7 +4495,7 @@ dependencies = [
 
 [[package]]
 name = "near-cloud-archive-tool"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "borsh",
@@ -4511,7 +4511,7 @@ dependencies = [
 
 [[package]]
 name = "near-config-utils"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "json_comments",
@@ -4521,7 +4521,7 @@ dependencies = [
 
 [[package]]
 name = "near-crypto"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "blake2",
  "bolero",
@@ -4550,7 +4550,7 @@ dependencies = [
 
 [[package]]
 name = "near-database-tool"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "borsh",
@@ -4576,7 +4576,7 @@ dependencies = [
 
 [[package]]
 name = "near-dump-test-contract"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4585,7 +4585,7 @@ dependencies = [
 
 [[package]]
 name = "near-dyn-configs"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "near-chain-configs",
@@ -4599,7 +4599,7 @@ dependencies = [
 
 [[package]]
 name = "near-epoch-manager"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "borsh",
  "itertools 0.14.0",
@@ -4623,7 +4623,7 @@ dependencies = [
 
 [[package]]
 name = "near-external-storage"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -4639,7 +4639,7 @@ dependencies = [
 
 [[package]]
 name = "near-flat-storage"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "borsh",
@@ -4656,14 +4656,14 @@ dependencies = [
 
 [[package]]
 name = "near-fmt"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "near-primitives-core",
 ]
 
 [[package]]
 name = "near-fork-network"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4701,7 +4701,7 @@ dependencies = [
 
 [[package]]
 name = "near-indexer"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -4727,7 +4727,7 @@ dependencies = [
 
 [[package]]
 name = "near-indexer-primitives"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "near-primitives",
  "serde",
@@ -4735,7 +4735,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "axum",
  "bs58 0.4.0",
@@ -4765,7 +4765,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-adversarial-primitives"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "near-primitives",
  "serde",
@@ -4773,7 +4773,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-client-internal"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "futures",
  "near-jsonrpc-primitives",
@@ -4786,7 +4786,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-openapi-spec"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "itertools 0.14.0",
  "near-chain-configs",
@@ -4799,7 +4799,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-primitives"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "arbitrary",
  "near-chain-configs",
@@ -4817,7 +4817,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-tests"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "axum",
  "axum-test",
@@ -4847,7 +4847,7 @@ dependencies = [
 
 [[package]]
 name = "near-mainnet-res"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "near-account-id",
  "near-chain-configs",
@@ -4857,7 +4857,7 @@ dependencies = [
 
 [[package]]
 name = "near-mirror"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4901,7 +4901,7 @@ dependencies = [
 
 [[package]]
 name = "near-network"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4953,7 +4953,7 @@ dependencies = [
 
 [[package]]
 name = "near-o11y"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "base64 0.21.0",
  "bencher",
@@ -4980,7 +4980,7 @@ dependencies = [
 
 [[package]]
 name = "near-parameters"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "assert_matches",
  "borsh",
@@ -5001,7 +5001,7 @@ dependencies = [
 
 [[package]]
 name = "near-ping"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5019,7 +5019,7 @@ dependencies = [
 
 [[package]]
 name = "near-pool"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "borsh",
  "near-crypto",
@@ -5030,7 +5030,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "arbitrary",
  "assert_matches",
@@ -5082,7 +5082,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives-core"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "arbitrary",
  "base64 0.21.0",
@@ -5108,7 +5108,7 @@ dependencies = [
 
 [[package]]
 name = "near-replay-archive-tool"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5130,7 +5130,7 @@ dependencies = [
 
 [[package]]
 name = "near-rosetta-rpc"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "axum",
  "derive_more 2.0.1",
@@ -5160,7 +5160,7 @@ dependencies = [
 
 [[package]]
 name = "near-rpc-probe"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "near-crypto",
@@ -5177,14 +5177,14 @@ dependencies = [
 
 [[package]]
 name = "near-schema-checker-core"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "inventory",
 ]
 
 [[package]]
 name = "near-schema-checker-lib"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "inventory",
  "near-schema-checker-core",
@@ -5193,7 +5193,7 @@ dependencies = [
 
 [[package]]
 name = "near-schema-checker-macro"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5202,11 +5202,11 @@ dependencies = [
 
 [[package]]
 name = "near-stable-hasher"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 
 [[package]]
 name = "near-state-parts"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5224,7 +5224,7 @@ dependencies = [
 
 [[package]]
 name = "near-state-parts-dump-check"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5246,11 +5246,11 @@ dependencies = [
 
 [[package]]
 name = "near-stdx"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 
 [[package]]
 name = "near-store"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -5307,7 +5307,7 @@ dependencies = [
 
 [[package]]
 name = "near-telemetry"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "futures",
  "near-async",
@@ -5320,7 +5320,7 @@ dependencies = [
 
 [[package]]
 name = "near-test-contracts"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "arbitrary",
  "rand 0.8.5",
@@ -5332,7 +5332,7 @@ dependencies = [
 
 [[package]]
 name = "near-time"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "parking_lot 0.12.1",
  "schemars 1.2.1",
@@ -5355,7 +5355,7 @@ dependencies = [
 
 [[package]]
 name = "near-transactions-generator"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "near-async",
@@ -5376,7 +5376,7 @@ dependencies = [
 
 [[package]]
 name = "near-undo-block"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5392,7 +5392,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-compiler"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "enumset",
  "finite-wasm 0.5.0",
@@ -5407,7 +5407,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-compiler-singlepass"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "dynasm",
  "dynasmrt",
@@ -5426,7 +5426,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-compiler-test-derive"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "pretty_assertions",
  "proc-macro2",
@@ -5437,7 +5437,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-engine"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "backtrace",
  "finite-wasm 0.5.0",
@@ -5455,7 +5455,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-runner"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -5521,7 +5521,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-test-api"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -5549,14 +5549,14 @@ dependencies = [
 
 [[package]]
 name = "near-vm-test-generator"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "near-vm-types"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "bolero",
  "indexmap 2.14.0",
@@ -5567,7 +5567,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-vm"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "backtrace",
  "cc",
@@ -5587,7 +5587,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-wast"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "near-vm-test-api",
@@ -5597,7 +5597,7 @@ dependencies = [
 
 [[package]]
 name = "near-wallet-contract"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "near-primitives-core",
@@ -5606,7 +5606,7 @@ dependencies = [
 
 [[package]]
 name = "nearcore"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "bencher",
@@ -5670,7 +5670,7 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5738,7 +5738,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "ahash 0.8.11",
  "assert_matches",
@@ -6606,7 +6606,7 @@ dependencies = [
 
 [[package]]
 name = "protocol-schema-check"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "inventory",
  "near-chain",
@@ -7176,7 +7176,7 @@ dependencies = [
 
 [[package]]
 name = "restaked"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "clap",
  "integration-tests",
@@ -7299,7 +7299,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-params-estimator"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "bs58 0.4.0",
@@ -8148,7 +8148,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "state-viewer"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "borsh",
@@ -8198,7 +8198,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "storage-usage-delta-calculator"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "near-chain-configs",
@@ -8213,7 +8213,7 @@ dependencies = [
 
 [[package]]
 name = "store-validator"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "clap",
  "near-chain",
@@ -8423,7 +8423,7 @@ dependencies = [
 
 [[package]]
 name = "test-loop-tests"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "assert_matches",
  "aurora-engine-transactions",
@@ -8478,7 +8478,7 @@ dependencies = [
 
 [[package]]
 name = "testlib"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "borsh",
  "bytesize 1.1.0",
@@ -8497,7 +8497,7 @@ dependencies = [
 
 [[package]]
 name = "themis"
-version = "2.12.0-rc.2"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "cargo_metadata",
