@@ -103,25 +103,21 @@ extern "C" {
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_deploy_global_contract(
         promise_index: u64,
         code_len: u64,
         code_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_deploy_global_contract_by_account_id(
         promise_index: u64,
         code_len: u64,
         code_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_use_global_contract(
         promise_index: u64,
         code_hash_len: u64,
         code_hash_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_use_global_contract_by_account_id(
         promise_index: u64,
         account_id_len: u64,
@@ -252,16 +248,12 @@ extern "C" {
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(feature = "latest_protocol")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 
     #[cfg(feature = "test_features")]
@@ -1408,7 +1400,6 @@ fn attach_unspent_gas_but_use_all_gas() {
     }
 }
 
-#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 fn do_ripemd() {
     let data = b"tesdsst";
@@ -1582,13 +1573,11 @@ pub unsafe fn sanity_check() {
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_deploy_global_contract(
         batch_promise_idx,
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_deploy_global_contract_by_account_id(
         batch_promise_idx,
         contract_code.len() as u64,
@@ -1748,7 +1737,6 @@ pub unsafe fn sanity_check() {
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(feature = "latest_protocol")]
     {
         let buffer = [65u8; 10];
         ripemd160(buffer.len() as u64, buffer.as_ptr() as u64, 1);
@@ -1757,7 +1745,6 @@ pub unsafe fn sanity_check() {
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "latest_protocol")]
     {
         let buffer: [u8; 96] = [
             16, 238, 91, 161, 241, 22, 172, 158, 138, 252, 202, 212, 136, 37, 110, 231, 118, 220,
