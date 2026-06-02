@@ -1,5 +1,5 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -51,6 +51,38 @@ impl From<RpcReceiptError> for crate::errors::RpcError {
 pub struct RpcReceiptToTxRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
+    /// Block height near where receipt was created. Enables hint fallback
+    /// scan on column miss. Anchor refreshes to each scan-resolved parent's
+    /// exact execution height; later ancestors bounded via causality
+    /// (emit before execute), so subsequent column-miss scans go
+    /// `Ancestor`. Bump `receipt_to_tx_max_hop_distance` if cold archival
+    /// gaps exceed default 20.
+    ///
+    /// Cold-storage cost: per-row latency orders of magnitude over hot. To
+    /// bound request cost:
+    ///   - Supply `block_height` within parent's `±window` (default 5).
+    ///   - Supply `shard_id`. Omit → all-shards enumeration until walker
+    ///     crosses `FromReceipt` hop, multiplying cold-read cost.
+    ///   - Don't widen `window` beyond indexer's accuracy; budget shared
+    ///     across full ancestry walk.
+    ///
+    /// Receipt-id-only queries against periods with `save_receipt_to_tx`
+    /// disabled stay unsupported: column never written, no self-locating.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_height: Option<BlockHeight>,
+    /// Shard hint. Narrows scan to this shard at hint height. Omit to
+    /// enumerate all tracked shards (higher cost). After walker crosses a
+    /// receipt-origin hop, shard derived from parent's predecessor account
+    /// and hint no longer applies. Best-effort across resharding: layout
+    /// shifts can miss producer, walk returns `UnknownReceipt`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shard_id: Option<ShardId>,
+    /// Pre-first-scan width: `±window` heights around hint. Caps at
+    /// `receipt_to_tx_max_hint_window` (default 20). Ignored after first
+    /// scan-resolved hop — walker switches to `Ancestor` mode at
+    /// `receipt_to_tx_max_hop_distance` width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<BlockHeightDelta>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -63,6 +95,7 @@ pub struct RpcReceiptToTxResponse {
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
 pub enum RpcReceiptToTxError {
     #[error("Receipt with id {receipt_id} has never been observed on this node")]
     UnknownReceipt { receipt_id: CryptoHash },
@@ -72,6 +105,14 @@ pub enum RpcReceiptToTxError {
     Unsupported { error_message: String },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
+    #[error("execution outcomes are not stored on this node (save_tx_outcomes=false)")]
+    OutcomesNotStored,
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
+    #[error("malformed hint: {error_message}")]
+    MalformedHint { error_message: String },
+    #[error("hint-scan budget exceeded: {scanned} outcomes scanned, limit {limit}")]
+    BudgetExceeded { scanned: u64, limit: u64 },
 }
 
 impl From<RpcReceiptToTxError> for crate::errors::RpcError {
