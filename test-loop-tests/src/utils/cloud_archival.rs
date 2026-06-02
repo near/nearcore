@@ -1,15 +1,15 @@
 use crate::setup::env::TestLoopEnv;
 use borsh::BorshDeserialize;
 use itertools::Itertools;
+use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
-use near_chain::{Chain, ChainStoreAccess};
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
 use near_client::archive::cloud_archival_reader::{
     bootstrap_range, find_present_block_at_or_below, find_snapshot_at_or_before,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
-    StateSyncConnection, download_and_apply_state_parts_sequentially, list_state_parts,
+    StateFileType, StateSyncConnection, external_storage_location, list_state_parts,
 };
 use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
@@ -18,6 +18,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
@@ -28,7 +29,7 @@ use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
-    COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
+    COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
 };
 use std::collections::HashSet;
 use std::future::Future;
@@ -352,7 +353,6 @@ pub fn bootstrap_reader(
         FlatStorageManager::new(store.flat_store()),
         StateSnapshotConfig::Disabled,
     );
-    let state_sync_connection = StateSyncConnection::from_cloud_storage(&cloud_storage);
 
     // TODO(cloud_archival): support resharding; the shard layout can change
     // between the snapshot epoch and the target, which this loop assumes constant.
@@ -361,30 +361,25 @@ pub fn bootstrap_reader(
             ShardUId::from_shard_id_and_layout(shard_id, target_epoch_data.shard_layout());
 
         // Reconstruct from the nearest snapshot at or below the bootstrap start,
-        // then replay deltas forward to the target, crossing epoch boundaries if
-        // needed. That snapshot's sync block is within the downloaded range.
+        // loaded from cloud state parts, then apply deltas forward to the target.
         let (snapshot_epoch_height, snapshot_epoch_id) =
             find_snapshot_at_or_before(&cloud_storage, start_height, shard_id).unwrap();
         let snapshot_epoch_data = cloud_storage.get_epoch_data(snapshot_epoch_id).unwrap();
         let sync_block =
             cloud_storage.get_block_data(snapshot_epoch_data.sync_block_height()).unwrap().unwrap();
-        let sync_hash = *sync_block.block().hash();
         let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
-        let state_header = cloud_storage
+        let state_sync_state_root = cloud_storage
             .get_state_header(snapshot_epoch_height, snapshot_epoch_id, shard_id)
-            .unwrap();
-        let state_sync_state_root = state_header.chunk_prev_state_root();
-        chain.state_sync_adapter.set_state_header(shard_id, sync_hash, state_header).unwrap();
+            .unwrap()
+            .chunk_prev_state_root();
 
         assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
-        execute_future(load_state_snapshot(
-            chain,
-            &state_sync_connection,
-            cloud_storage.chain_id(),
+        execute_future(download_and_apply_state_snapshot(
+            &tries,
+            &cloud_storage,
             &snapshot_epoch_id,
             snapshot_epoch_height,
-            sync_hash,
-            shard_id,
+            shard_uid,
             state_sync_state_root,
         ));
         assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
@@ -419,32 +414,33 @@ fn has_state_root(tries: &ShardTries, shard_uid: ShardUId, state_root: CryptoHas
     trie.retrieve_root_node().is_ok()
 }
 
-async fn load_state_snapshot(
-    chain: &Chain,
-    external: &StateSyncConnection,
-    chain_id: &str,
+/// Loads a shard's state snapshot by downloading its state parts from cloud and
+/// applying them straight into the trie.
+async fn download_and_apply_state_snapshot(
+    tries: &ShardTries,
+    cloud_storage: &CloudStorage,
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
-    sync_hash: CryptoHash,
-    shard_id: ShardId,
+    shard_uid: ShardUId,
     state_root: CryptoHash,
 ) {
+    let shard_id = shard_uid.shard_id();
+    let connection = StateSyncConnection::from_cloud_storage(cloud_storage);
+    let chain_id = cloud_storage.chain_id();
     let num_parts =
-        list_state_parts(external, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
-    download_and_apply_state_parts_sequentially(
-        chain,
-        external,
-        chain_id,
-        epoch_id,
-        epoch_height,
-        sync_hash,
-        shard_id,
-        state_root,
-        0..num_parts,
-        num_parts,
-    )
-    .await
-    .unwrap();
+        list_state_parts(&connection, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
+    for part_id in 0..num_parts {
+        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let location =
+            external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
+        let bytes = connection.get_file(shard_id, &location, &file_type).await.unwrap();
+        let partial_state = StatePart::from_bytes(bytes).unwrap().to_partial_state().unwrap();
+        let apply_result =
+            Trie::apply_state_part(&state_root, PartId::new(part_id, num_parts), partial_state);
+        let mut store_update = tries.store_update();
+        tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+    }
 }
 
 /// Applies per-block state deltas from cloud storage to advance the trie from

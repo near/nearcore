@@ -672,7 +672,7 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
 /// A block at one height is lost; the batch entry there is `None` and
 /// `cloud_head` advances past it. The dropped slot pushes the epoch's sync block
 /// past a mid-epoch bootstrap target, so the reader reconstructs from the
-/// previous epoch's snapshot and replays across the gap.
+/// previous epoch's snapshot and applies deltas across the gap.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_single_skipped_slot() {
@@ -710,6 +710,31 @@ fn test_cloud_archival_single_skipped_slot() {
     h.bootstrap_reader(start, target);
     h.kill_reader();
 
+    h.shutdown();
+}
+
+/// At cadence 2, `start` (epoch 3) has no snapshot, so the reader resolves the
+/// snapshot to an earlier epoch whose sync block is below the downloaded block
+/// range. Reconstruction loads that snapshot from cloud state parts, so it works
+/// without the sync block being local.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_bootstrap_snapshot_in_earlier_epoch() {
+    let mut h = CloudArchiveHarness::builder().snapshot_every_n_epochs(2).build();
+    h.run_until_epoch(5);
+
+    // Pin the scenario: the resolved snapshot is in an earlier epoch than start.
+    let (start, target) = (35, 38);
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let shard_id = CloudArchiveHarness::all_shard_ids()[0];
+    let (_, snapshot_epoch_id) =
+        find_snapshot_at_or_before(&cloud_storage, start, shard_id).unwrap();
+    let start_epoch_id =
+        *cloud_storage.get_block_data(start).unwrap().unwrap().block().header().epoch_id();
+    assert_ne!(snapshot_epoch_id, start_epoch_id, "snapshot must resolve to an earlier epoch");
+
+    h.bootstrap_reader(start, target);
+    h.kill_reader();
     h.shutdown();
 }
 
