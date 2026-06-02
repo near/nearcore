@@ -395,12 +395,10 @@ impl SpiceCoreReader {
                 SpiceCoreStatement::Endorsement(endorsement) => {
                     let chunk_id = endorsement.chunk_id();
                     let account_id = endorsement.account_id();
-                    // TODO(spice): reject more than one endorsement per (chunk, account)
-                    // regardless of result hash. `waiting_on_endorsements` is not updated
-                    // within this loop and the duplicate check below is per result hash, so a
-                    // validator can endorse two different results for one chunk in the same
-                    // block. That is provable equivocation and lets a validator's stake count
-                    // toward two result hashes certifying; it should be rejected.
+                    // TODO(spice): reject more than one endorsement per (chunk, account),
+                    // regardless of result hash. The dup check below is per result hash and
+                    // `waiting_on_endorsements` is not updated mid-loop, so a validator can
+                    // equivocate (endorse two results for one chunk) and count toward both.
                     // Checking contents of waiting_on_endorsements makes sure that
                     // chunk_id and account_id are valid.
                     if !waiting_on_endorsements.contains(&(chunk_id, account_id)) {
@@ -752,10 +750,8 @@ fn add_endorsement_stats(
     dst: &mut [SpiceChunkEndorsementStats],
     src: &[SpiceChunkEndorsementStats],
 ) -> Result<(), Error> {
-    // Lengths are node-local (both come from the epoch's validator count), so a
-    // mismatch is an internal bug rather than adversarial input: assert loudly in
-    // debug, and still fail fast in release rather than silently truncating stats
-    // that feed reward and kickout.
+    // Lengths are node-local (epoch validator count), so a mismatch is an internal
+    // bug, not adversarial input: fail fast instead of silently truncating via zip.
     if !src.is_empty() && src.len() != dst.len() {
         debug_assert!(
             false,
@@ -795,8 +791,7 @@ fn endorsement_contribution_of_block(
     let prev_uncertified =
         get_uncertified_chunks(chain_store, credited_block.header().prev_hash())?;
     let statements = credited_block.spice_core_statements();
-    // The result hash each validator endorsed for each chunk, from endorsements
-    // accumulated in prior blocks and newly included in this block.
+    // (chunk, validator) -> the result they endorsed, from prior blocks and this one.
     // `unchecked_to_stored` is safe here: signatures are verified in
     // `validate_core_statements_in_block` before stats are computed.
     let endorsed_hash: HashMap<(&SpiceChunkId, &AccountId), ChunkExecutionResultHash> =

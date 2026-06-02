@@ -464,7 +464,6 @@ fn test_endorsement_stats_only_credit_certified_result() {
     let block = build_block(&chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
 
-    // `wrong_validator` endorses a result other than the one that certifies.
     let wrong_validator = "test6";
     let core_statements = block_certification_core_statements_with_wrong_endorser(
         &block,
