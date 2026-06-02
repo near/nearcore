@@ -4,7 +4,7 @@ use crate::metrics::{
     COMPILATION_CACHE_WARMING_DROPPED_TOTAL, COMPILATION_CACHE_WARMING_FAILURES,
     COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS,
 };
-use near_async::thread_pool::{ThreadPool, contract_warming_pool};
+use near_async::thread_pool::background_crt_tasks_pool;
 use near_parameters::vm::Config;
 use near_store::contract::ContractStorage;
 use near_vm_runner::logic::errors::{CacheError, CompilationError};
@@ -13,29 +13,12 @@ use near_vm_runner::{
     config_cache_key_signature, precompile_contract, try_precompile_contract,
 };
 use parking_lot::Mutex;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-/// Initialization parameters for the cache-warming subsystem. Plumbed
-/// through to [`init_warming`] exactly once during runtime construction.
-#[derive(Debug, Clone, Copy)]
-pub struct WarmingConfig {
-    /// Worker threads in the warming pool. `0` disables warming entirely
-    /// (no pool created, every submission short-circuits silently).
-    pub thread_count: usize,
-    /// Cap on submissions queued in the warming pool. `0` disables warming.
-    pub max_item_count: usize,
-}
+/// Cap on warming submissions queued in the background pool at once.
+/// Submissions over the cap are dropped.
+const WARMING_PENDING_SUBMISSIONS_CAP: usize = 128;
 
-/// Configure the cache-warming subsystem. Call once at runtime startup;
-/// all settings are fixed at the first call (subsequent calls are no-ops).
-pub fn init_warming(config: WarmingConfig) {
-    near_async::thread_pool::init_contract_warming_pool(config.thread_count);
-    let _ = WARMING_PENDING_SUBMISSIONS_CAP.set(config.max_item_count);
-}
-
-/// Process-global queue cap. Set by [`init_warming`]; absence (`None`)
-/// means warming has not been configured yet — every submission rejects.
-static WARMING_PENDING_SUBMISSIONS_CAP: OnceLock<usize> = OnceLock::new();
 static WARMING_PENDING_SUBMISSIONS: Mutex<usize> = Mutex::new(0);
 
 /// Try to claim a slot for a new warming submission. Returns `true` on
@@ -43,11 +26,8 @@ static WARMING_PENDING_SUBMISSIONS: Mutex<usize> = Mutex::new(0);
 /// dequeued the closure (so a freshly running worker frees the slot for the
 /// next submission).
 fn try_reserve_pending_slot() -> bool {
-    let Some(&cap) = WARMING_PENDING_SUBMISSIONS_CAP.get() else {
-        return false;
-    };
     let mut count = WARMING_PENDING_SUBMISSIONS.lock();
-    if *count >= cap {
+    if *count >= WARMING_PENDING_SUBMISSIONS_CAP {
         return false;
     }
     *count += 1;
@@ -80,7 +60,7 @@ pub fn cache_keys_differ(a: Arc<Config>, b: Arc<Config>) -> bool {
 /// Precompile `code` against `current_config` synchronously and
 /// — when `next_config` is `Some` and its cache-key signature differs from
 /// `current_config` — additionally enqueue a fire-and-forget warming
-/// compilation against `next_config` on the [`contract_warming_pool`].
+/// compilation against `next_config` on the [`background_crt_tasks_pool`].
 ///
 /// Errors from either compile are dropped.
 pub(crate) fn precompile_contract_with_warming(
@@ -132,14 +112,11 @@ fn spawn_warming(
     config: Arc<Config>,
     cache_handle: Box<dyn ContractRuntimeCache>,
 ) {
-    let Some(pool) = try_get_warming_pool() else {
-        return;
-    };
     if !try_reserve_pending_slot() {
         COMPILATION_CACHE_WARMING_DROPPED_TOTAL.inc();
         return;
     }
-    pool.spawn_boxed(Box::new(move || {
+    background_crt_tasks_pool().spawn_boxed(Box::new(move || {
         release_pending_slot();
         let Some(code) = get_code() else {
             return;
@@ -147,14 +124,6 @@ fn spawn_warming(
         let result = try_precompile_contract(code.as_ref(), config, Some(&*cache_handle));
         update_compilation_cache_warming_metrics(result);
     }));
-}
-
-/// Returns the warming pool only when contract cache pre-warming is enabled
-fn try_get_warming_pool() -> Option<&'static Arc<ThreadPool>> {
-    match WARMING_PENDING_SUBMISSIONS_CAP.get() {
-        None | Some(0) => None,
-        Some(_) => contract_warming_pool(),
-    }
 }
 
 /// Increment the compiles counter only on a fresh compile;

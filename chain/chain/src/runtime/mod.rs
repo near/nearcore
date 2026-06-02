@@ -7,13 +7,9 @@ use crate::types::{
     StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
-use near_async::thread_pool::{contract_compilation_pool, contract_warming_pool};
+use near_async::thread_pool::{background_crt_tasks_pool, contract_compilation_pool};
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{
-    GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig,
-    default_contract_cache_warming_max_item_count,
-    default_contract_cache_warming_pool_thread_count,
-};
+use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -105,22 +101,11 @@ pub struct RuntimeOptions {
     pub is_cloud_archival_writer: bool,
     /// Persist receipt-to-transaction origin mappings to disk.
     pub save_receipt_to_tx: bool,
-    /// Number of worker threads in the contract cache-warming pool. `0` disables warming (no pool created);
-    pub contract_cache_warming_pool_thread_count: usize,
-    /// Maximum number of warming submissions allowed to sit in the pool's
-    /// queue at once.  `0` disables warming (every submission rejects silently).
-    pub contract_cache_warming_max_item_count: usize,
 }
 
 impl Default for RuntimeOptions {
     fn default() -> Self {
-        Self {
-            is_cloud_archival_writer: false,
-            save_receipt_to_tx: true,
-            contract_cache_warming_pool_thread_count:
-                default_contract_cache_warming_pool_thread_count(),
-            contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
-        }
+        Self { is_cloud_archival_writer: false, save_receipt_to_tx: true }
     }
 }
 
@@ -139,16 +124,7 @@ impl NightshadeRuntime {
         state_parts_compression_lvl: i32,
         options: RuntimeOptions,
     ) -> Arc<Self> {
-        let RuntimeOptions {
-            is_cloud_archival_writer,
-            save_receipt_to_tx,
-            contract_cache_warming_pool_thread_count,
-            contract_cache_warming_max_item_count,
-        } = options;
-        node_runtime::cache_warming::init_warming(node_runtime::cache_warming::WarmingConfig {
-            thread_count: contract_cache_warming_pool_thread_count,
-            max_item_count: contract_cache_warming_max_item_count,
-        });
+        let RuntimeOptions { is_cloud_archival_writer, save_receipt_to_tx } = options;
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
@@ -1633,22 +1609,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
         let cache = self.compiled_contract_cache.handle();
         let job = move || cache.on_protocol_version_update(new_protocol_version);
-        match contract_warming_pool() {
-            Some(pool) => pool.spawn_boxed(Box::new(job)),
-            None => {
-                if let Err(err) = std::thread::Builder::new()
-                    .name("contract-cache-pv-update".to_string())
-                    .spawn(job)
-                {
-                    tracing::warn!(
-                        target: "runtime",
-                        err = &err as &dyn std::error::Error,
-                        new_protocol_version,
-                        "failed to spawn contract cache protocol-version-update thread; skipping",
-                    );
-                }
-            }
-        }
+        background_crt_tasks_pool().spawn_boxed(Box::new(job));
     }
 
     fn precompile_contracts(

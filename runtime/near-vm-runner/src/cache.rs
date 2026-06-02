@@ -18,7 +18,8 @@ use rand::Rng as _;
 use rustix::fd::OwnedFd;
 #[cfg(not(windows))]
 use rustix::fs::{
-    Access, AtFlags, Dir, Mode, OFlags, accessat, fstat, open, openat, renameat, statat, unlinkat,
+    Access, AtFlags, Dir, Mode, OFlags, Timespec, Timestamps, UTIME_NOW, UTIME_OMIT, accessat,
+    fstat, open, openat, renameat, statat, unlinkat, utimensat,
 };
 #[cfg(not(windows))]
 use rustix::io::Errno;
@@ -32,7 +33,7 @@ use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 #[cfg(not(windows))]
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 #[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
 // FIXME(ProtocolSchema): this isn't really part of the protocol schema??
@@ -146,8 +147,7 @@ pub trait ContractRuntimeCache: Send + Sync {
     /// Things to be performed on protocol version change. The default is a no-op.
     fn on_protocol_version_update(&self, _new_protocol_version: ProtocolVersion) {}
 
-    /// Notify the cache that `key` has been touched.
-    /// The default is a no-op; only [`FilesystemContractRuntimeCache`] implements it.
+    /// Notify the cache that `key` has been touched. The default is a no-op.
     fn touch(&self, _key: &CryptoHash) {}
 
     /// TESTING ONLY: Clears the cache including in-memory and persistent data (if any).
@@ -286,9 +286,12 @@ impl fmt::Debug for MockContractRuntimeCache {
 /// Clones of this type share the same underlying state and information. The cache is thread safe
 /// and atomic.
 ///
-/// This cache however does not implement any clean-up policies. While it is possible to truncate
-/// a file that has been written to the cache before (`put` an empty buffer), the file will remain
-/// in place until an operator (or somebody else) removes files at their own discretion.
+/// This cache implements a size-bounded, best-effort on-disk eviction policy.
+/// Files are tracked by key and on-disk byte size; LRU victims are unlinked on `put`.
+/// (The in-memory cache is separate and VM-specific.)
+/// Sink for fire-and-forget background maintenance jobs.
+pub type BackgroundJobSpawner = Arc<dyn Fn(Box<dyn FnOnce() + Send>) + Send + Sync>;
+
 #[cfg(not(windows))]
 #[derive(Clone)]
 pub struct FilesystemContractRuntimeCache {
@@ -297,13 +300,26 @@ pub struct FilesystemContractRuntimeCache {
 
 #[cfg(not(windows))]
 struct FilesystemContractRuntimeCacheState {
+    /// file descriptor to the cache directory
     dir: OwnedFd,
     any_cache: AnyCache,
     /// Tracks files present in `dir`, keyed by the same `CryptoHash` as the
-    /// on-disk filename, weighted by on-disk byte size.
-    disk_index: Mutex<LruWeightedCache<CryptoHash, ()>>,
+    /// on-disk filename, weighted by on-disk byte size. The value is the
+    /// instant the entry's on-disk atime was last refreshed/created.
+    disk_index: Mutex<LruWeightedCache<CryptoHash, Instant>>,
+    /// Minimum age of an entry's last atime on-disk refresh before `touch` enqueues another.
+    /// Mirrors `relatime` behavior.
+    atime_refresh_throttle: Duration,
+    /// Off-loads the on-disk atime refresh; see [`BackgroundJobSpawner`].
+    bg_spawner: Option<BackgroundJobSpawner>,
     test_temp_dir: Option<tempfile::TempDir>,
 }
+
+/// Default minimum age of a tracked entry's last atime refresh before [`touch`] will enqueue another one.
+///
+/// [`touch`]: FilesystemContractRuntimeCache::touch
+#[cfg(not(windows))]
+const ATIME_REFRESH_THROTTLE: Duration = Duration::from_mins(10);
 
 #[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
@@ -353,9 +369,6 @@ impl FilesystemContractRuntimeCache {
         StorePath: AsRef<std::path::Path> + ?Sized,
         ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
-        // Reject configs the on-disk LRU index can't represent before they
-        // reach the internal assertion, so a bad value is a clean error rather
-        // than a startup panic.
         if max_disk_cache_bytes > Self::MAX_DISK_CACHE_BYTES {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -422,9 +435,28 @@ impl FilesystemContractRuntimeCache {
                 dir,
                 any_cache,
                 disk_index,
+                atime_refresh_throttle: ATIME_REFRESH_THROTTLE,
+                bg_spawner: None,
                 test_temp_dir: None,
             }),
         })
+    }
+
+    pub fn set_background_job_spawner(&mut self, spawner: BackgroundJobSpawner) {
+        Arc::get_mut(&mut self.state)
+            .expect("background job spawner must be set before the cache is shared")
+            .bg_spawner = Some(spawner);
+    }
+
+    /// TEST ONLY: override the atime-refresh throttle window. Setting it to
+    /// [`Duration::ZERO`] makes every tracked key eligible on the next
+    /// [`Self::touch`] — deterministic, with no `Instant` arithmetic that could
+    /// underflow. Must be called before the cache is shared.
+    #[cfg(test)]
+    fn test_set_atime_refresh_throttle(&mut self, throttle: Duration) {
+        Arc::get_mut(&mut self.state)
+            .expect("throttle must be set before the cache is shared")
+            .atime_refresh_throttle = throttle;
     }
 
     pub fn test() -> std::io::Result<Self> {
@@ -527,6 +559,26 @@ impl FilesystemContractRuntimeCache {
         }
         removed
     }
+
+    /// Stamp `key`'s on-disk file with the current access time, leaving its
+    /// modification time untouched. Best-effort: failures are logged and dropped.
+    fn refresh_disk_atime(&self, key: &CryptoHash) {
+        let filename = key.to_string();
+        let times = Timestamps {
+            last_access: Timespec { tv_sec: 0, tv_nsec: UTIME_NOW },
+            last_modification: Timespec { tv_sec: 0, tv_nsec: UTIME_OMIT },
+        };
+        match utimensat(&self.state.dir, &filename, &times, AtFlags::empty()) {
+            // Success, or the file was evicted/removed out from under us.
+            Ok(()) | Err(Errno::NOENT) => {}
+            Err(err) => tracing::debug!(
+                target: "vm",
+                key = %key,
+                err = &err as &dyn std::error::Error,
+                "failed to refresh contract cache file atime",
+            ),
+        }
+    }
 }
 
 /// Byte added after a serialized payload representing a compilation failure.
@@ -560,7 +612,7 @@ fn entry_disk_size(value: &CompiledContractInfo) -> u64 {
 
 /// Scan `dir` and build an [`LruWeightedCache`] tracking each on-disk
 /// cache file by its byte size, ordered from least- to most-recently-
-/// accessed (by `st_atime`, with all associated limitations).
+/// accessed by `st_atime`.
 ///
 /// Files whose names don't parse as a [`CryptoHash`] are skipped.
 /// If the scanned valid total already exceeds `max_bytes`, the oldest
@@ -569,8 +621,8 @@ fn entry_disk_size(value: &CompiledContractInfo) -> u64 {
 fn build_disk_index(
     dir: &rustix::fd::OwnedFd,
     max_bytes: u64,
-) -> std::io::Result<LruWeightedCache<CryptoHash, ()>> {
-    let mut index = LruWeightedCache::<CryptoHash, ()>::without_item_cap(max_bytes);
+) -> std::io::Result<LruWeightedCache<CryptoHash, Instant>> {
+    let mut index = LruWeightedCache::<CryptoHash, Instant>::without_item_cap(max_bytes);
     let mut entries: Vec<(CryptoHash, u64, i64, i64)> = Vec::new();
 
     let read_dir = Dir::read_from(dir)?;
@@ -580,11 +632,6 @@ fn build_disk_index(
             Err(_) => continue,
         };
         let filename = entry.file_name();
-        let filename_bytes = filename.to_bytes();
-        if filename_bytes == b"." || filename_bytes == b".." {
-            continue;
-        }
-        // Skip anything we don't recognize as a valid cache file
         if !entry.file_type().is_file() {
             continue;
         }
@@ -604,10 +651,26 @@ fn build_disk_index(
     // Ascending by atime: most-recently-accessed ends up MRU.
     entries.sort_unstable_by_key(|(_, _, sec, nsec)| (*sec, *nsec));
 
+    // Sizes by key, so we can total the bytes of any entries we trim below
+    // (`insert` only hands back the evicted key, not its weight).
+    let sizes: HashMap<CryptoHash, u64> =
+        entries.iter().map(|&(key, size, _, _)| (key, size)).collect();
+
+    let refreshed_at = Instant::now();
     let mut over_limit_trimmed: usize = 0;
+    let mut trimmed_bytes: u64 = 0;
     for (key, size, _, _) in entries {
-        for (victim, ()) in index.insert(key, size, ()) {
-            let _ = unlinkat(dir, victim.to_string(), AtFlags::empty());
+        for (victim, _) in index.insert(key, size, refreshed_at) {
+            trimmed_bytes += sizes.get(&victim).copied().unwrap_or(0);
+            match unlinkat(dir, victim.to_string(), AtFlags::empty()) {
+                Ok(()) | Err(Errno::NOENT) => {}
+                Err(err) => tracing::debug!(
+                    target: "vm",
+                    victim = %victim,
+                    err = &err as &dyn std::error::Error,
+                    "failed to unlink evicted compiled-contract cache file; on-disk cache may exceed its size limit"
+                ),
+            }
             over_limit_trimmed += 1;
         }
     }
@@ -616,6 +679,7 @@ fn build_disk_index(
         tracing::info!(
             target: "vm",
             trimmed = over_limit_trimmed,
+            trimmed_bytes,
             max_bytes,
             "compiled-contract cache exceeded its on-disk size limit at startup; trimmed oldest entries"
         );
@@ -691,15 +755,24 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         {
             let mut index = self.state.disk_index.lock();
             renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
-            let evicted = index.insert(*key, weight, ());
+            // We just wrote the file, so its atime is current as of now.
+            let evicted = index.insert(*key, weight, Instant::now());
             // `insert` returns `key` for a same-key replacement (keep our file)
             // and for an oversized reject (remove it); `contains` tells them apart.
             let key_stored = index.contains(key);
-            for (victim, ()) in evicted {
+            for (victim, _) in evicted {
                 if &victim == key && key_stored {
                     continue;
                 }
-                let _ = unlinkat(&self.state.dir, victim.to_string(), AtFlags::empty());
+                match unlinkat(&self.state.dir, victim.to_string(), AtFlags::empty()) {
+                    Ok(()) | Err(Errno::NOENT) => {}
+                    Err(err) => tracing::debug!(
+                        target: "vm",
+                        victim = %victim,
+                        err = &err as &dyn std::error::Error,
+                        "failed to unlink evicted compiled-contract cache file; on-disk cache may exceed its size limit"
+                    ),
+                }
             }
         }
 
@@ -793,7 +866,29 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     }
 
     fn touch(&self, key: &CryptoHash) {
-        self.state.disk_index.lock().touch(key);
+        // Promote in the in-memory LRU and check if on-disk atime refresh is needed.
+        let needs_refresh = {
+            let mut index = self.state.disk_index.lock();
+            match index.get_mut(key) {
+                Some((_weight, last_refresh)) => {
+                    let now = Instant::now();
+                    if now >= *last_refresh + self.state.atime_refresh_throttle {
+                        *last_refresh = now;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                None => false,
+            }
+        };
+        if needs_refresh {
+            if let Some(spawner) = &self.state.bg_spawner {
+                let cache = self.clone();
+                let key = *key;
+                spawner(Box::new(move || cache.refresh_disk_atime(&key)));
+            }
+        }
     }
 
     /// Clears the in-memory cache, the on-disk LRU index, and the files in the
@@ -870,13 +965,14 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
         Self { current_weight: 0, max_weight, cache }
     }
 
-    fn get(&mut self, key: &K) -> Option<&(u64, V)> {
-        self.cache.get(key)
+    /// Like [`Self::get`], but yields a mutable reference to the stored value.
+    /// Also promotes `key` to most-recently-used.
+    fn get_mut(&mut self, key: &K) -> Option<&mut (u64, V)> {
+        self.cache.get_mut(key)
     }
 
-    /// Promote `key` to most-recently-used; returns whether it was present.
-    fn touch(&mut self, key: &K) -> bool {
-        self.cache.promote(key)
+    fn get(&mut self, key: &K) -> Option<&(u64, V)> {
+        self.cache.get(key)
     }
 
     /// Insert `key` with `weight` and `value` as MRU. Returns the entries
@@ -1410,8 +1506,8 @@ mod tests {
 
         assert!(cache.insert("a", 4, 1).is_empty());
         assert!(cache.insert("b", 4, 2).is_empty()); // current_weight = 8
-        // Touch "a" so "b" is LRU.
-        cache.touch(&"a");
+        // Promote "a" so "b" is LRU.
+        cache.get_mut(&"a");
 
         // Inserting "c" (weight 4) pushes current_weight to 12, must evict
         // exactly the LRU entry "b".
@@ -1496,8 +1592,8 @@ mod tests {
         assert_eq!(cache.len(), 10);
         assert_eq!(cache.current_weight(), 10);
 
-        // Touch "n0" so it is MRU; "n1" becomes LRU.
-        cache.touch(&"n0");
+        // Promote "n0" so it is MRU; "n1" becomes LRU.
+        cache.get_mut(&"n0");
 
         // Inserting one more entry must evict exactly one LRU.
         let evicted = cache.insert("extra", 1, 99);
@@ -1775,5 +1871,69 @@ mod tests {
             }
             _ => panic!("expected Code"),
         }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn refresh_disk_atime_advances_atime_and_preserves_mtime() {
+        use std::time::{Duration, UNIX_EPOCH};
+        // An explicit `utimensat` must bump atime regardless of the mount's
+        // atime policy, while leaving mtime (which records compile time for the
+        // protocol-version sweep) untouched.
+        let cache = FilesystemContractRuntimeCache::test_with_disk_cache_bytes(1 << 20).unwrap();
+        let path = cache_dir_path(&cache).join(CryptoHash::hash_bytes(b"refresh").to_string());
+        let k = CryptoHash::hash_bytes(b"refresh");
+        cache.put(&k, make_test_entry(0x11)).unwrap();
+
+        // Backdate both timestamps to a fixed, clearly-old instant.
+        let old = UNIX_EPOCH + Duration::from_secs(1_000);
+        let times = std::fs::FileTimes::new().set_accessed(old).set_modified(old);
+        std::fs::File::open(&path).unwrap().set_times(times).unwrap();
+
+        cache.refresh_disk_atime(&k);
+
+        let meta = std::fs::metadata(&path).unwrap();
+        assert!(
+            meta.accessed().unwrap() > old + Duration::from_secs(60),
+            "atime should have been refreshed to ~now"
+        );
+        assert_eq!(meta.modified().unwrap(), old, "mtime must be preserved by the atime refresh");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn touch_throttles_and_enqueues_atime_refresh() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // A spawner that runs the job inline and counts how many it received.
+        let count = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&count);
+        let mut cache =
+            FilesystemContractRuntimeCache::test_with_disk_cache_bytes(1 << 20).unwrap();
+        cache.set_background_job_spawner(Arc::new(move |task| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            task();
+        }));
+
+        let k = CryptoHash::hash_bytes(b"hot");
+        cache.put(&k, make_test_entry(0x22)).unwrap();
+
+        // Right after `put` the entry is inside its (default) throttle window.
+        cache.touch(&k);
+        assert_eq!(count.load(Ordering::SeqCst), 0, "touch within the throttle must not refresh");
+
+        // With a zero window the entry is eligible: one touch enqueues exactly
+        // one refresh and records "refreshed now".
+        cache.test_set_atime_refresh_throttle(Duration::ZERO);
+        cache.touch(&k);
+        assert_eq!(count.load(Ordering::SeqCst), 1, "an eligible touch must enqueue one refresh");
+
+        // Restore the window; the just-recorded refresh time now suppresses.
+        cache.test_set_atime_refresh_throttle(ATIME_REFRESH_THROTTLE);
+        cache.touch(&k);
+        assert_eq!(count.load(Ordering::SeqCst), 1, "the next touch must be throttled again");
+
+        // An untracked key never enqueues anything.
+        cache.touch(&CryptoHash::hash_bytes(b"never-put"));
+        assert_eq!(count.load(Ordering::SeqCst), 1, "untracked key must not refresh");
     }
 }
