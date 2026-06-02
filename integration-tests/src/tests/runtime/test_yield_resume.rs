@@ -1,18 +1,14 @@
 use crate::node::{Node, RuntimeNode};
-#[cfg(feature = "nightly")]
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-#[cfg(feature = "nightly")]
 use near_primitives::action::{
     Action, DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
     UseGlobalContractAction,
 };
-#[cfg(feature = "nightly")]
 use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
-#[cfg(feature = "nightly")]
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::views::FinalExecutionStatus;
-#[cfg(feature = "nightly")]
 use testlib::fees_utils::FeeHelper;
 
 /// Initial balance used in tests.
@@ -181,13 +177,11 @@ fn resume_without_yield() {
     );
 }
 
-#[cfg(feature = "nightly")]
 fn b64(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-#[cfg(feature = "nightly")]
 fn yield_create_with_id_op(yield_id: &[u8; 32], payload: &[u8], id: i64) -> serde_json::Value {
     serde_json::json!({
         "yield_create_with_id": {
@@ -201,7 +195,6 @@ fn yield_create_with_id_op(yield_id: &[u8; 32], payload: &[u8], id: i64) -> serd
     })
 }
 
-#[cfg(feature = "nightly")]
 fn yield_create_with_id_op_with_amount(
     yield_id: &[u8; 32],
     payload: &[u8],
@@ -221,7 +214,6 @@ fn yield_create_with_id_op_with_amount(
     })
 }
 
-#[cfg(feature = "nightly")]
 fn yield_resume_with_yield_id_op(yield_id: &[u8], payload: &[u8], id: i64) -> serde_json::Value {
     serde_json::json!({
         "yield_resume_with_yield_id": { "yield_id": b64(yield_id), "payload": b64(payload) },
@@ -230,8 +222,11 @@ fn yield_resume_with_yield_id_op(yield_id: &[u8], payload: &[u8], id: i64) -> se
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_then_resume_with_yield_id() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -299,8 +294,11 @@ fn create_with_id_then_resume_with_yield_id() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_and_resume_with_yield_id_in_one_call() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![23u8; 16];
@@ -342,8 +340,11 @@ fn create_with_id_and_resume_with_yield_id_in_one_call() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn resume_with_yield_id_without_yield() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     // Resume with a yield_id that was never created — expect failure (id=0).
@@ -364,8 +365,11 @@ fn resume_with_yield_id_without_yield() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_duplicate_in_same_call_returns_sentinel() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -393,8 +397,11 @@ fn create_with_id_duplicate_in_same_call_returns_sentinel() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_then_resume_with_yield_id_fails() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -437,8 +444,11 @@ fn create_with_id_then_resume_with_yield_id_fails() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_then_resume_with_yield_id_fails() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
     let yield_payload = vec![6u8; 16];
@@ -477,7 +487,6 @@ fn create_then_resume_with_yield_id_fails() {
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
 }
 
-#[cfg(feature = "nightly")]
 fn fee_helper(node: &RuntimeNode) -> FeeHelper {
     let store = RuntimeConfigStore::new(None);
     let config = RuntimeConfig::clone(store.get_config(node.genesis().config.protocol_version));
@@ -486,7 +495,6 @@ fn fee_helper(node: &RuntimeNode) -> FeeHelper {
 
 /// The portion of the function call's burnt gas that is credited back to the
 /// contract account as a reward (30% of wasm-burnt gas).
-#[cfg(feature = "nightly")]
 fn contract_function_call_reward(
     fee_helper: &FeeHelper,
     res: &FinalExecutionOutcomeView,
@@ -503,8 +511,11 @@ fn contract_function_call_reward(
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_deducts_attached_amount() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
     let contract_id: AccountId = "test_contract.alice.near".parse().unwrap();
 
@@ -544,8 +555,11 @@ fn create_with_id_deducts_attached_amount() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_fails_when_amount_exceeds_balance() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
     let contract_id: AccountId = "test_contract.alice.near".parse().unwrap();
 
@@ -603,7 +617,6 @@ fn create_with_id_fails_when_amount_exceeds_balance() {
 // `alice.near` and have a small account (`zba.alice.near`) reference it via
 // `UseGlobalContract` — that leaves the referencing account at ~150 bytes of
 // storage, well within the ZBA limit.
-#[cfg(feature = "nightly")]
 fn setup_zba_global_contract() -> (RuntimeNode, AccountId) {
     use testlib::runtime_utils::alice_account;
     let node = RuntimeNode::new(&alice_account());
@@ -664,7 +677,6 @@ fn setup_zba_global_contract() -> (RuntimeNode, AccountId) {
 
 /// JSON args for `call_promise`: drain the full account balance via a Transfer
 /// promise, then call `yield_create_with_id` attaching `attach_yocto` yoctoNEAR.
-#[cfg(feature = "nightly")]
 fn drain_then_yield_args(
     drain_to: &AccountId,
     drain_amount: Balance,
@@ -684,8 +696,11 @@ fn drain_then_yield_args(
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_one_yocto_exemption_on_drained_zba() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     use testlib::runtime_utils::alice_account;
     let (node, zba_id) = setup_zba_global_contract();
     let alice_id = alice_account();
@@ -736,8 +751,11 @@ fn create_with_id_one_yocto_exemption_on_drained_zba() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
 fn create_with_id_two_yocto_fails_on_drained_zba() {
+    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     use testlib::runtime_utils::alice_account;
     let (node, zba_id) = setup_zba_global_contract();
     let alice_id = alice_account();
