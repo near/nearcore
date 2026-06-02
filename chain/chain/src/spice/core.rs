@@ -4,6 +4,7 @@ use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -288,50 +289,38 @@ impl SpiceCoreReader {
         Ok(())
     }
 
-    /// Value for the block header's `spice_chunk_endorsement_stats` field.
-    /// Non-empty only on the epoch's last block, where it carries the running
-    /// per-epoch accumulator (canonicalized to empty when all-zero). The block
-    /// producer calls this with the new block's `epoch_id` and `prev_hash`.
-    pub fn spice_chunk_endorsement_stats(
-        &self,
-        epoch_id: &EpochId,
-        prev_hash: &CryptoHash,
-        is_last_block_in_epoch: bool,
-    ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
-        if !is_last_block_in_epoch {
-            return Ok(Vec::new());
-        }
-        let mut stats = compute_spice_endorsement_stats(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            epoch_id,
-            prev_hash,
-        )?;
-        if stats.iter().all(|s| *s == SpiceChunkEndorsementStats::default()) {
-            stats.clear();
-        }
-        Ok(stats)
-    }
-
-    /// `spice_chunk_endorsement_stats` for a block at `height` built on
-    /// `prev_header`, resolving the epoch and last-block-of-epoch gating
-    /// internally. Mirrors what the producer derives, so callers that don't
-    /// already have those values (e.g. test block builders) don't have to
-    /// reproduce the `last_final_block` computation and risk diverging from the
-    /// validator.
+    /// Value for the block header's `spice_chunk_endorsement_stats` field, for a
+    /// block at `height` built on `prev_header`. Non-empty only on the epoch's
+    /// last block, where it carries the running per-epoch accumulator
+    /// (canonicalized to empty when all-zero). Resolves the epoch and
+    /// last-block-of-epoch gating from `prev_header`/`height`, so the producer
+    /// and the validator derive the same value without reproducing the
+    /// `last_final_block` computation.
     pub fn spice_chunk_endorsement_stats_for_next_block(
         &self,
         prev_header: &BlockHeader,
         height: BlockHeight,
     ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_header.hash())?;
         let last_final_block = prev_header.last_final_block_for_height(height);
         let is_last_block_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
             height,
             prev_header.hash(),
             &last_final_block,
         )?;
-        self.spice_chunk_endorsement_stats(&epoch_id, prev_header.hash(), is_last_block_in_epoch)
+        if !is_last_block_in_epoch {
+            return Ok(Vec::new());
+        }
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_header.hash())?;
+        let mut stats = compute_spice_endorsement_stats(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &epoch_id,
+            prev_header.hash(),
+        )?;
+        if stats.iter().all(|s| *s == SpiceChunkEndorsementStats::default()) {
+            stats.clear();
+        }
+        Ok(stats)
     }
 
     pub fn validate_spice_chunk_endorsement_stats(
@@ -343,16 +332,9 @@ impl SpiceCoreReader {
                 "missing field on spice block header".to_string(),
             )
         })?;
-        let is_last_block_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
-            header.height(),
-            header.prev_hash(),
-            header.last_final_block(),
-        )?;
-        let expected = self.spice_chunk_endorsement_stats(
-            header.epoch_id(),
-            header.prev_hash(),
-            is_last_block_in_epoch,
-        )?;
+        let prev_header = self.chain_store.get_block_header(header.prev_hash())?;
+        let expected =
+            self.spice_chunk_endorsement_stats_for_next_block(&prev_header, header.height())?;
         if actual != expected.as_slice() {
             return Err(Error::InvalidSpiceChunkEndorsementStats(format!(
                 "expected {expected:?}, got {actual:?}"
@@ -774,20 +756,18 @@ fn add_endorsement_stats(
 /// One block's contribution to per-validator endorsement stats: for every
 /// ChunkExecutionResult in `credited_block`'s body, credits each assigned
 /// validator with one expected endorsement (and one produced if it endorsed),
-/// indexed by `crediting_epoch_id`'s validator id. Validators no longer in the
-/// crediting epoch are ignored. Returns an empty vec for genesis/non-spice
-/// blocks.
+/// indexed by `epoch_info`'s validator id. Validators no longer in that epoch
+/// are ignored. Returns an empty vec for genesis/non-spice blocks.
 fn endorsement_contribution_of_block(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-    crediting_epoch_id: &EpochId,
+    epoch_info: &EpochInfo,
     credited_block_hash: &CryptoHash,
 ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
     let credited_block = chain_store.get_block(credited_block_hash)?;
     if credited_block.header().is_genesis() || !credited_block.is_spice_block() {
         return Ok(vec![]);
     }
-    let epoch_info = epoch_manager.get_epoch_info(crediting_epoch_id)?;
     let prev_uncertified =
         get_uncertified_chunks(chain_store, credited_block.header().prev_hash())?;
     let statements = credited_block.spice_core_statements();
@@ -856,8 +836,8 @@ pub fn compute_spice_endorsement_stats(
     epoch_id: &EpochId,
     prev_hash: &CryptoHash,
 ) -> Result<Vec<SpiceChunkEndorsementStats>, Error> {
-    let num_validators = epoch_manager.get_epoch_info(epoch_id)?.validators_iter().len();
-    let mut stats = vec![SpiceChunkEndorsementStats::default(); num_validators];
+    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+    let mut stats = vec![SpiceChunkEndorsementStats::default(); epoch_info.validators_iter().len()];
 
     let prev_header = chain_store.get_block_header(prev_hash)?;
     if !prev_header.is_genesis() && prev_header.epoch_id() == epoch_id {
@@ -865,7 +845,7 @@ pub fn compute_spice_endorsement_stats(
         add_endorsement_stats(&mut stats, &prev_stats)?;
     }
     let contribution =
-        endorsement_contribution_of_block(chain_store, epoch_manager, epoch_id, prev_hash)?;
+        endorsement_contribution_of_block(chain_store, epoch_manager, &epoch_info, prev_hash)?;
     add_endorsement_stats(&mut stats, &contribution)?;
     Ok(stats)
 }

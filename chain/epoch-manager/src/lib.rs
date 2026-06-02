@@ -618,8 +618,8 @@ impl EpochManager {
         // the epoch's last block header rather than embedded per-shard.
         let spice_endorsement_tracker: HashMap<ValidatorId, ValidatorStats> = last_block_info
             .spice_chunk_endorsement_stats()
-            .into_iter()
-            .flatten()
+            .unwrap_or(&[])
+            .iter()
             .enumerate()
             .map(|(validator_id, stats)| {
                 (
