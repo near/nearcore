@@ -1937,13 +1937,12 @@ impl Runtime {
                         error = &error as &dyn std::error::Error,
                         "gas key transaction failed deposit check, charging gas"
                     );
-                    // All prepaid gas is burnt (no receipt created to refund remaining gas).
-                    let total_gas = cost.gas_burnt.checked_add_result(cost.gas_remaining)?;
+                    // All gas used for converting the transaction to a receipt is burnt.
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
                         tx,
                         error,
-                        total_gas,
-                        cost.gas_cost,
+                        cost.gas_burnt,
+                        cost.burnt_amount,
                     );
                     (outcome, result)
                 }
