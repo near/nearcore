@@ -9,7 +9,9 @@ use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::action::{Action, TransferAction};
-use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::epoch_manager::{
+    DynamicReshardingConfig, EpochConfigStore, ShardLayoutConfig,
+};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithProof};
@@ -898,31 +900,79 @@ struct ReshardBoundary {
     unchanged_shard_id: ShardId,
 }
 
-/// Drive a static reshard splitting `boundary_account`'s shard, run until the
-/// post-split layout is active at head, then pin the straddle pair from ACTUAL
-/// header layouts: adjacent heights where the parent id is present, then retired.
-/// Not epoch arithmetic — that risks an anchor still resolving pre-split, passing
-/// by accident.
-fn setup_reshard_boundary(boundary_account: &AccountId) -> ReshardBoundary {
+/// Resharding mode for `setup_reshard_boundary`. Both retire `boundary_account`'s
+/// shard identically (parent gone from `shard_ids()`, children map back), so
+/// everything downstream is shared.
+#[derive(Clone, Copy)]
+enum ReshardKind {
+    /// Static V2: protocol upgrade swaps in a layout derived from `boundary_account`.
+    /// Split point known ahead of time, content-independent.
+    StaticV2,
+    /// Dynamic V3: `force_split_shards` splits the shard at runtime. Split point is
+    /// trie-derived, not `boundary_account` (which only picks the shard + a post-split
+    /// child); fires only if the target shard has splittable state.
+    DynamicV3,
+}
+
+/// Split `boundary_account`'s shard (V2 or V3 per `kind`), run until the parent is
+/// retired at head, then pin the straddle pair from ACTUAL header layouts: adjacent
+/// heights where the parent id is present, then retired. Not epoch arithmetic — that
+/// risks an anchor still resolving pre-split, passing by accident.
+fn setup_reshard_boundary(kind: ReshardKind, boundary_account: &AccountId) -> ReshardBoundary {
     let epoch_length: u64 = 7;
     let base_shard_layout = ShardLayout::multi_shard(3, 3);
 
     let validators_spec = create_validators_spec(1, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut genesis_builder = TestLoopBuilder::new_genesis_builder()
         .protocol_version(PROTOCOL_VERSION - 1)
         .validators_spec(validators_spec)
         .shard_layout(base_shard_layout.clone())
-        .epoch_length(epoch_length)
-        .build();
+        .epoch_length(epoch_length);
+    if matches!(kind, ReshardKind::DynamicV3) {
+        // V3 force-split fires only if the target shard has splittable trie state:
+        // `find_mem_usage_split` returns `NotFound` on a sparse shard → no split →
+        // parent never retires → flip scan panics. Seed accounts co-located with
+        // `boundary_account` (all sort before "test1", the first `multi_shard(3, 3)`
+        // boundary). V2 is content-independent, needs none.
+        let split_shard_accounts: Vec<AccountId> =
+            (0..8).map(|i| format!("account{i}").parse().unwrap()).collect();
+        genesis_builder = genesis_builder
+            .add_user_accounts_simple(&split_shard_accounts, Balance::from_near(1_000_000));
+    }
+    let genesis = genesis_builder.build();
 
     let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
-    let (new_epoch_config, new_shard_layout) =
-        derive_new_epoch_config_from_boundary(&base_epoch_config, boundary_account);
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
-        (genesis.config.protocol_version, Arc::new(base_epoch_config)),
-        (genesis.config.protocol_version + 1, Arc::new(new_epoch_config)),
-    ]));
+    // Needed before building the store: V3 forces the split on this shard id.
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(boundary_account);
+
+    let epoch_config_store = match kind {
+        ReshardKind::StaticV2 => {
+            let (new_epoch_config, _) =
+                derive_new_epoch_config_from_boundary(&base_epoch_config, boundary_account);
+            EpochConfigStore::test(BTreeMap::from_iter(vec![
+                (genesis.config.protocol_version, Arc::new(base_epoch_config)),
+                (genesis.config.protocol_version + 1, Arc::new(new_epoch_config)),
+            ]))
+        }
+        ReshardKind::DynamicV3 => {
+            let mut dynamic_epoch_config = base_epoch_config.clone();
+            dynamic_epoch_config.shard_layout_config = ShardLayoutConfig::Dynamic {
+                dynamic_resharding_config: DynamicReshardingConfig {
+                    memory_usage_threshold: u64::MAX,
+                    min_child_memory_usage: u64::MAX,
+                    max_number_of_shards: 100,
+                    min_epochs_between_resharding: 1.try_into().unwrap(),
+                    force_split_shards: vec![parent_shard_id],
+                    block_split_shards: vec![],
+                },
+            };
+            EpochConfigStore::test(BTreeMap::from_iter(vec![
+                (genesis.config.protocol_version, Arc::new(base_epoch_config)),
+                (genesis.config.protocol_version + 1, Arc::new(dynamic_epoch_config)),
+            ]))
+        }
+    };
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
@@ -931,7 +981,8 @@ fn setup_reshard_boundary(boundary_account: &AccountId) -> ReshardBoundary {
         // Serving node must track every shard across the split, else the
         // handler rejects the query.
         .track_all_shards()
-        // Keep the pre-split block + its outcome rows alive for the query.
+        // Keep the pre-split block + outcome rows alive for the query; 20 exceeds
+        // V3's later activation.
         .gc_num_epochs_to_keep(20)
         .config_modifier(|config, _| {
             // Force the column miss so the hint scan runs. `save_tx_outcomes`
@@ -940,17 +991,23 @@ fn setup_reshard_boundary(boundary_account: &AccountId) -> ReshardBoundary {
         })
         .build();
 
-    // Run until the post-split layout is active at the head.
+    // Run until the parent is retired at head (⇔ split active). Kind-agnostic: V3
+    // has no precomputed layout to compare. V3 activates later (~epoch 4 vs ~2),
+    // so wider budget.
+    let timeout_epochs = match kind {
+        ReshardKind::StaticV2 => 8,
+        ReshardKind::DynamicV3 => 12,
+    };
     let epoch_manager = env.validator().client().epoch_manager.clone();
     env.validator_runner().run_until(
         |node| {
             let epoch_id = node.head().epoch_id;
-            epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
+            let layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            !layout.shard_ids().any(|s| s == parent_shard_id)
         },
-        Duration::seconds((8 * epoch_length) as i64),
+        Duration::seconds((timeout_epochs * epoch_length) as i64),
     );
 
-    let parent_shard_id = base_shard_layout.account_id_to_shard_id(boundary_account);
     let head_height = env.validator().head().height;
 
     let (h_anchor, block_hash_pre, block_hash_anchor, child_shard_id, unchanged_shard_id) = {
@@ -1013,37 +1070,28 @@ fn setup_reshard_boundary(boundary_account: &AccountId) -> ReshardBoundary {
     }
 }
 
-/// Resharding boundary, single-hop `FromTransaction`: a producing tx outcome on
-/// the pre-split parent shard must stay resolvable from a hint scan anchored
-/// *after* the split.
-///
-/// Before the fix the scan enumerated shards from the anchor-height layout only.
-/// A reshard mints child ids and retires the parent, so the parent id was absent
-/// post-split and its `OutcomeIds` rows never read → wrong `UnknownReceipt`.
-/// `resolve_scan_shards` now unions shards across every layout the window spans.
-///
-/// Exercises the `Enumerate` (no-hint) and `Hint` (post-split child id) seeds;
-/// the `Account` seed is covered by `test_hint_multi_hop_resolves_across_resharding`.
-///
-/// One synthetic tx-origin outcome injected on the pre-split parent shard, queried
-/// immediately — no cross-boundary execution, GC window, or block-placement noise.
-///
-/// Gated off under spice, like the other cross-shard hint tests.
-#[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_hint_resolves_across_resharding() {
-    init_test_logger();
-
-    let boundary_account: AccountId = "boundary".parse().unwrap();
+/// Single-hop `FromTransaction` across a reshard, shared by the V2 and V3 variants:
+/// a producing tx outcome on the pre-split parent shard must stay resolvable from a
+/// hint scan anchored *after* the split. Pre-fix the scan used the anchor-height
+/// layout only → the retired parent's `OutcomeIds` went unread → wrong
+/// `UnknownReceipt`; `resolve_scan_shards` now unions every layout the window spans.
+/// Exercises the `Enumerate` (no-hint) and `Hint` (child id) seeds; `Account` is
+/// covered by `test_hint_multi_hop_resolves_across_resharding`. One synthetic
+/// tx-origin outcome on the parent shard, queried immediately — no cross-boundary
+/// execution, GC, or block-placement noise.
+fn assert_single_hop_resolves_across_reshard(
+    boundary_account: &AccountId,
+    boundary: ReshardBoundary,
+) {
     let ReshardBoundary {
         mut env, h_anchor, block_hash_pre, parent_shard_id, child_shard_id, ..
-    } = setup_reshard_boundary(&boundary_account);
+    } = boundary;
 
     // Inject one synthetic tx-origin outcome on the retired parent shard, into
     // node 0's store (the single validator).
     let tx_outcome_id = CryptoHash::hash_bytes(b"reshard-hint-synthetic-tx");
     let child_receipt_id = CryptoHash::hash_bytes(b"reshard-hint-synthetic-child-receipt");
-    let child_receipt = Receipt::new_balance_refund(&boundary_account, Balance::ZERO);
+    let child_receipt = Receipt::new_balance_refund(boundary_account, Balance::ZERO);
 
     let store = env.validator().store();
     let outcome_ids_key = get_block_shard_id(&block_hash_pre, parent_shard_id);
@@ -1063,7 +1111,7 @@ fn test_hint_resolves_across_resharding() {
             proof: vec![],
             outcome: ExecutionOutcome {
                 receipt_ids: vec![child_receipt_id],
-                executor_id: boundary_account,
+                executor_id: boundary_account.clone(),
                 ..Default::default()
             },
         },
@@ -1079,10 +1127,9 @@ fn test_hint_resolves_across_resharding() {
     );
     update.commit();
 
-    // Positive control: an explicit retired-parent-shard hint scans that shard
-    // directly (skipping layout resolution), so it resolved even before the fix —
-    // proof the synthetic rows are valid, and a guard against a broken fixture
-    // passing the asserts below for the wrong reason.
+    // Positive control: an explicit retired-parent hint scans that shard, so it
+    // resolves regardless of the fix — proves the synthetic rows are valid and
+    // guards against a broken fixture passing the asserts below for the wrong reason.
     let control = handle(
         &mut env,
         GetReceiptToTx {
@@ -1102,12 +1149,9 @@ fn test_hint_resolves_across_resharding() {
         "fixture sanity: producing outcome is readable when the retired parent shard is scanned directly"
     );
 
-    // Query, anchored POST-split. Without the fix both sub-cases miss:
-    //    - `None`: enumeration walks the anchor layout, which lists only the
-    //      children → parent shard never scanned.
-    //    - `Some(child_shard_id)`: scans only the child; `{child}` never reaches
-    //      the parent unless the fix maps a post-split child hint back through
-    //      ancestor layouts.
+    // Query anchored POST-split. Pre-fix both miss: `None` walks the anchor layout
+    // (children only, parent unscanned); `Some(child)` scans only the child unless
+    // the fix maps it back through ancestor layouts.
     for shard_hint in [None, Some(child_shard_id)] {
         let result = handle(
             &mut env,
@@ -1124,6 +1168,34 @@ fn test_hint_resolves_across_resharding() {
             "shard hint {shard_hint:?}: producing outcome on the retired parent shard must resolve"
         );
     }
+}
+
+/// Single-hop across a STATIC V2 reshard — the version the fix is most often
+/// exercised against. Gated off under spice.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_hint_resolves_across_resharding() {
+    init_test_logger();
+    let boundary_account: AccountId = "boundary".parse().unwrap();
+    assert_single_hop_resolves_across_reshard(
+        &boundary_account,
+        setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account),
+    );
+}
+
+/// Single-hop across a DYNAMIC V3 reshard — the only test asserting the live
+/// dynamic mode (the rest drive static V2). Split point is trie-derived, so
+/// `setup_reshard_boundary` seeds splittable state + reads the child id at runtime.
+/// Gated off under spice.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_hint_resolves_across_dynamic_resharding() {
+    init_test_logger();
+    let boundary_account: AccountId = "boundary".parse().unwrap();
+    assert_single_hop_resolves_across_reshard(
+        &boundary_account,
+        setup_reshard_boundary(ReshardKind::DynamicV3, &boundary_account),
+    );
 }
 
 /// Resharding boundary, multi-hop: the `Account` seed (`FromReceipt` reseed) must
@@ -1162,7 +1234,7 @@ fn test_hint_multi_hop_resolves_across_resharding() {
         parent_shard_id,
         child_shard_id,
         ..
-    } = setup_reshard_boundary(&boundary_account);
+    } = setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account);
 
     // Terminal tx, the hop-2 receipt it produced, and the queried child receipt
     // that receipt produced.
@@ -1297,7 +1369,7 @@ fn test_hint_self_parenting_shard_does_not_loop() {
 
     let boundary_account: AccountId = "boundary".parse().unwrap();
     let ReshardBoundary { mut env, h_anchor, unchanged_shard_id, .. } =
-        setup_reshard_boundary(&boundary_account);
+        setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account);
 
     // Hint the unchanged shard with a window spanning the post-split layout,
     // where it is its own parent. No synthetic outcome is injected, so a
@@ -1315,5 +1387,97 @@ fn test_hint_self_parenting_shard_does_not_loop() {
     match result {
         Err(GetReceiptToTxError::UnknownReceipt(id)) => assert_eq!(id, receipt_id),
         other => panic!("expected UnknownReceipt from a terminating walk, got {other:?}"),
+    }
+}
+
+/// Forward gap: mirror of the backward single-hop. Producer lives FORWARD on a
+/// post-split CHILD while the hint names the pre-split PARENT. `hint_lineage` walks
+/// UP, never DOWN, so the parent hint misses the child; the no-hint `Enumerate` seed
+/// covers it (unions every layout's `shard_ids`). Tx-origin injected on the CHILD at
+/// `h_anchor`, query anchored at `h_anchor - 1` so `CenterOut`'s `+window` reaches it.
+/// Gated off under spice.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_hint_forward_gap() {
+    init_test_logger();
+
+    let boundary_account: AccountId = "boundary".parse().unwrap();
+    let ReshardBoundary {
+        mut env,
+        h_anchor,
+        block_hash_anchor,
+        parent_shard_id,
+        child_shard_id,
+        ..
+    } = setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account);
+
+    // Inject tx-origin on the POST-split child shard at the anchor block (forward
+    // mirror of the backward test). Child shard has real outcome rows to append to.
+    let tx_outcome_id = CryptoHash::hash_bytes(b"reshard-forward-gap-synthetic-tx");
+    let child_receipt_id = CryptoHash::hash_bytes(b"reshard-forward-gap-synthetic-child-receipt");
+    let child_receipt = Receipt::new_balance_refund(&boundary_account, Balance::ZERO);
+
+    let store = env.validator().store();
+    let outcome_ids_key = get_block_shard_id(&block_hash_anchor, child_shard_id);
+    let mut outcome_ids =
+        store.get_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, &outcome_ids_key).unwrap_or_default();
+    assert!(!outcome_ids.contains(&tx_outcome_id), "synthetic outcome id must be unique");
+    outcome_ids.push(tx_outcome_id);
+
+    let mut update = store.store_update();
+    update.set_ser(DBCol::OutcomeIds, &outcome_ids_key, &outcome_ids);
+    update.insert_ser(
+        DBCol::TransactionResultForBlock,
+        &get_outcome_id_block_hash(&tx_outcome_id, &block_hash_anchor),
+        &ExecutionOutcomeWithProof {
+            proof: vec![],
+            outcome: ExecutionOutcome {
+                receipt_ids: vec![child_receipt_id],
+                executor_id: boundary_account.clone(),
+                ..Default::default()
+            },
+        },
+    );
+    update.increment_refcount(DBCol::Transactions, tx_outcome_id.as_ref(), &[0u8; 1]);
+    update.increment_refcount(
+        DBCol::Receipts,
+        child_receipt_id.as_ref(),
+        &borsh::to_vec(&child_receipt).unwrap(),
+    );
+    update.commit();
+
+    // Anchor one block before the split (`h_anchor - 1 == h_pre`); `CenterOut`'s
+    // `+window` then reaches `h_anchor` where the producer lives.
+    let anchor = h_anchor - 1;
+
+    // No hint → `Enumerate` unions every layout, incl. the post-split child → resolves.
+    let response = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: child_receipt_id,
+            block_height: Some(anchor),
+            shard_id: None,
+            window: Some(5),
+        },
+    )
+    .expect("no-hint enumerate must resolve the forward-child producer across the reshard");
+    assert_eq!(response.transaction_hash, tx_outcome_id);
+    assert_eq!(response.sender_account_id, boundary_account);
+
+    // Documents the forward-gap boundary: a pre-split parent hint scans up (parent +
+    // ancestors), never the descendant child, so it misses. Flip if the `Hint` seed
+    // ever walks descendants.
+    let result = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: child_receipt_id,
+            block_height: Some(anchor),
+            shard_id: Some(parent_shard_id),
+            window: Some(5),
+        },
+    );
+    match result {
+        Err(GetReceiptToTxError::UnknownReceipt(id)) => assert_eq!(id, child_receipt_id),
+        other => panic!("expected UnknownReceipt from the parent-only hint walk, got {other:?}"),
     }
 }

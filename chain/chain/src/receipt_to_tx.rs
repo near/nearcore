@@ -30,6 +30,23 @@ pub enum Scan {
     Ancestor { max_distance: BlockHeightDelta },
 }
 
+impl Scan {
+    /// Inclusive `(low, high)` bounds this scan visits. Single source of truth:
+    /// `center_out_heights`/`ancestor_heights` and `resolve_scan_shards` all derive
+    /// from it, so a reshard boundary can't be covered by one and missed by another.
+    /// `scan_bounds_match_iterators` locks the iterators to it.
+    pub fn height_bounds(self, anchor: BlockHeight) -> (BlockHeight, BlockHeight) {
+        match self {
+            // `CenterOut` visits `anchor-window ..= anchor+window`.
+            Scan::CenterOut { window } => {
+                (anchor.saturating_sub(window), anchor.saturating_add(window))
+            }
+            // `Ancestor` only walks backward: `anchor-max_distance ..= anchor`.
+            Scan::Ancestor { max_distance } => (anchor.saturating_sub(max_distance), anchor),
+        }
+    }
+}
+
 /// Iterate heights center-out around `block_height` up to `±window`,
 /// saturating at 0. Order: `h, h-1, h+1, h-2, h+2, ...`. Both "hint =
 /// creation block" and "hint = child execution block" interpretations
@@ -57,12 +74,9 @@ fn ancestor_heights(
     block_height: BlockHeight,
     max_distance: BlockHeightDelta,
 ) -> impl Iterator<Item = BlockHeight> {
-    (0..=max_distance).map_while(move |offset| {
-        if offset > block_height {
-            return None;
-        }
-        Some(block_height - offset)
-    })
+    // Derive from `height_bounds` so the range can't drift: `h..=h-max_distance`, sat 0.
+    let (lo, hi) = (Scan::Ancestor { max_distance }).height_bounds(block_height);
+    (lo..=hi).rev()
 }
 
 /// Hint-scan hit. Carries synthesized `ReceiptToTxInfo` + execution block
@@ -249,6 +263,23 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn scan_bounds_match_iterators() {
+        // `height_bounds` must equal the iterators' min/max, else `resolve_scan_shards`
+        // resolves layouts over the wrong window and misses a reshard boundary.
+        for (h, w) in [(100u64, 1u64), (100, 3), (2, 5), (0, 0), (0, 2), (50, 20)] {
+            let co = collect(h, w);
+            let (lo, hi) = (Scan::CenterOut { window: w }).height_bounds(h);
+            assert_eq!(*co.iter().min().unwrap(), lo, "center_out lo h={h} w={w}");
+            assert_eq!(*co.iter().max().unwrap(), hi, "center_out hi h={h} w={w}");
+
+            let anc = collect_ancestor(h, w);
+            let (lo, hi) = (Scan::Ancestor { max_distance: w }).height_bounds(h);
+            assert_eq!(*anc.iter().min().unwrap(), lo, "ancestor lo h={h} w={w}");
+            assert_eq!(*anc.iter().max().unwrap(), hi, "ancestor hi h={h} w={w}");
         }
     }
 }

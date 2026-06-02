@@ -47,7 +47,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
@@ -1420,27 +1420,15 @@ fn handle_receipt_to_tx(
 enum ScanShards {
     /// Caller `shard_id` hint (first scan). Walked back through parent shards so
     /// a hint naming a post-reshard child still reaches the retired parent.
+    /// Ancestors only, not descendants (reshards split forward); the mirror
+    /// (parent hint, producer forward on a child) is uncovered — caller drops the
+    /// hint and `Enumerate` covers it.
     Hint(ShardId),
     /// Predecessor account from a `FromReceipt` hop. Mapped to its shard at each
     /// layout in the window, covering a reshard between producer and anchor.
     Account(AccountId),
     /// No hint, no derivation yet → every shard at any layout the window spans.
     Enumerate,
-}
-
-/// Inclusive height bounds the kernel scan visits, mirroring `center_out_heights`
-/// / `ancestor_heights` in `chain/chain/src/receipt_to_tx.rs`. Layout resolution
-/// must span the same heights the scan reads, or a reshard boundary in the
-/// window picks the wrong shard set.
-fn scan_window_bounds(scan: Scan, anchor: BlockHeight) -> (BlockHeight, BlockHeight) {
-    match scan {
-        // `CenterOut` visits `h-window ..= h+window`.
-        Scan::CenterOut { window } => {
-            (anchor.saturating_sub(window), anchor.saturating_add(window))
-        }
-        // `Ancestor` only walks backward: `h-max_distance ..= h`.
-        Scan::Ancestor { max_distance } => (anchor.saturating_sub(max_distance), anchor),
-    }
 }
 
 /// Resolve the seed to the shards to scan, unioned across every distinct epoch
@@ -1457,7 +1445,7 @@ fn resolve_scan_shards(
     anchor_height: BlockHeight,
     seed: &ScanShards,
 ) -> Result<Option<Vec<ShardId>>, GetReceiptToTxError> {
-    let (lo, hi) = scan_window_bounds(scan, anchor_height);
+    let (lo, hi) = scan.height_bounds(anchor_height);
 
     // Distinct layouts the window spans (tiny — ≤2 in practice).
     let mut seen_epochs: Vec<EpochId> = Vec::new();
@@ -1486,7 +1474,9 @@ fn resolve_scan_shards(
     }
 
     // Union per seed across the window's layouts, deduping in place — a shard
-    // scanned twice double-charges the shared budget on its real rows.
+    // scanned twice double-charges the budget. Coverage-safe: the kernel re-keys
+    // outcomes by `(block_hash, shard_id)` per height, so a deduped id still hits
+    // its rows in every layout.
     let mut shards: Vec<ShardId> = Vec::new();
     let push = |id: ShardId, shards: &mut Vec<ShardId>| {
         if !shards.contains(&id) {
@@ -1504,26 +1494,40 @@ fn resolve_scan_shards(
                 }
             }
             ScanShards::Hint(shard_id) => {
-                // Walk parent shards to the root where the hint is valid;
-                // `try_get_parent_shard_id` errors on an unknown id (child
-                // absent in a pre-reshard layout), ending the walk there.
-                let mut id = *shard_id;
-                push(id, &mut shards);
-                while let Ok(Some(parent)) = layout.try_get_parent_shard_id(id) {
-                    // A shard with no distinct parent in this layout (unchanged
-                    // shard, or V3 non-split-child) reports itself as its own
-                    // parent. Stop at that fixed point, else the walk spins
-                    // forever.
-                    if parent == id {
-                        break;
-                    }
-                    push(parent, &mut shards);
-                    id = parent;
+                for id in hint_lineage(layout, *shard_id)
+                    .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?
+                {
+                    push(id, &mut shards);
                 }
             }
         }
     }
     Ok(Some(shards))
+}
+
+/// Hint's parent lineage in one layout: hint, then each ancestor it split from,
+/// stopping at the self-parent fixed point (an unchanged / V3 non-split shard is
+/// its own parent; the `parent == id` break prevents an infinite loop).
+/// `InvalidShardId` ends the walk (hint absent in this layout — expected); any
+/// other error propagates, so corruption can't look like a miss.
+fn hint_lineage(layout: &ShardLayout, hint: ShardId) -> Result<Vec<ShardId>, ShardLayoutError> {
+    let mut lineage = vec![hint];
+    let mut id = hint;
+    loop {
+        match layout.try_get_parent_shard_id(id) {
+            Ok(Some(parent)) => {
+                if parent == id {
+                    break;
+                }
+                lineage.push(parent);
+                id = parent;
+            }
+            Ok(None) => break,
+            Err(ShardLayoutError::InvalidShardId { .. }) => break,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(lineage)
 }
 
 /// Run the hint scan over every shard the seed resolves to, sharing one budget.
@@ -1860,5 +1864,53 @@ impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
             return None;
         };
         self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
+    }
+}
+
+#[cfg(test)]
+mod hint_lineage_tests {
+    use super::hint_lineage;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::{AccountId, ShardId};
+
+    /// Static (V2) split layout plus its parent (retired), a post-split child,
+    /// and an unchanged self-parenting shard. Mirrors `setup_reshard_boundary`
+    /// in the test-loop tests, but at the layout level — no env needed.
+    fn split_layout() -> (ShardLayout, ShardId, ShardId, ShardId) {
+        let boundary: AccountId = "boundary".parse().unwrap();
+        let base = ShardLayout::multi_shard(3, 3);
+        let parent = base.account_id_to_shard_id(&boundary);
+        let split = ShardLayout::derive_shard_layout(&base, boundary.clone());
+        let child = split.account_id_to_shard_id(&boundary);
+        let unchanged = split
+            .shard_ids()
+            .find(|&s| matches!(split.try_get_parent_shard_id(s), Ok(Some(p)) if p == s))
+            .expect("split layout retains at least one unchanged shard");
+        (split, parent, child, unchanged)
+    }
+
+    #[test]
+    fn self_parent_terminates() {
+        let (split, _parent, _child, unchanged) = split_layout();
+        // Self-parenting shard stops at the fixed point and yields only itself
+        // (revert the `parent == id` break in `hint_lineage` and this hangs).
+        assert_eq!(hint_lineage(&split, unchanged).unwrap(), vec![unchanged]);
+    }
+
+    #[test]
+    fn child_reaches_retired_parent() {
+        let (split, parent, child, _unchanged) = split_layout();
+        // Post-split child walks up to its retired parent, then stops (the
+        // parent is absent from this layout → InvalidShardId ends the walk).
+        assert_eq!(hint_lineage(&split, child).unwrap(), vec![child, parent]);
+    }
+
+    #[test]
+    fn unknown_hint_yields_itself() {
+        let (split, parent, _child, _unchanged) = split_layout();
+        // The retired parent id is not a valid shard in the post-split layout;
+        // the walk ends immediately and the hint is still returned (harmless —
+        // the kernel finds no rows for it).
+        assert_eq!(hint_lineage(&split, parent).unwrap(), vec![parent]);
     }
 }
