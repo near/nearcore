@@ -10,7 +10,7 @@
 * Fix a bug in `receiver` verification for a `DeterministicStateInitAction` inside a `DelegateAction` that made it impossible to create deterministic accounts through meta transactions. ([#15812](https://github.com/near/nearcore/pull/15812))
 
 ### Non-protocol Changes
-* `EXPERIMENTAL_receipt_to_tx` accepts optional `block_height`, `shard_id`, `window` hint params. On a column miss with a hint set, the handler scans execution outcomes around the hint. Best-effort: long emit-to-execute delays and resharding boundaries return `UnknownReceipt` instead of a terminal tx. New node-config knobs: `receipt_to_tx_max_hint_window` (default 20), `receipt_to_tx_max_hop_distance` (default 20), `receipt_to_tx_max_outcomes_per_request` (default 20_000). Operators serving cold-archival queries should consider raising these.
+* `EXPERIMENTAL_receipt_to_tx` accepts optional `block_height`, `shard_id`, `window` hint params. On a column miss with a hint set, the handler scans execution outcomes around the hint. Best-effort: long emit-to-execute delays may return `UnknownReceipt` instead of a terminal tx. Resharding boundaries are handled. New node-config knobs: `receipt_to_tx_max_hint_window` (default 20), `receipt_to_tx_max_hop_distance` (default 20), `receipt_to_tx_max_outcomes_per_request` (default 20_000). Operators serving cold-archival queries should consider raising these.
 * Added pagination to `EXPERIMENTAL_view_state` and the `view_state` query. The request takes `after_key_base64` and `limit`, and the response returns `last_key` to fetch the following page. ([#15743](https://github.com/near/nearcore/pull/15743))
 
 ## [2.12.0]
