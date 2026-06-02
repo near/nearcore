@@ -1,6 +1,6 @@
 use crate::spice::core::{
-    SpiceCoreReader, compute_spice_endorsement_stats, find_newly_certified_block_hashes,
-    record_uncertified_chunks_for_block,
+    SpiceCoreReader, compute_spice_endorsement_stats, credit_chunk_endorsement_stats,
+    find_newly_certified_block_hashes, fold_endorsement_stats, record_uncertified_chunks_for_block,
 };
 use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
@@ -32,8 +32,8 @@ use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    Balance, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
-    SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash,
+    ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
@@ -537,6 +537,48 @@ fn test_endorsement_stats_accumulate_within_epoch() {
     for stat in &after_block3 {
         assert_eq!(stat.produced, stat.expected);
     }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_fold_endorsement_stats_resets_at_epoch_boundary() {
+    let stat = |produced, expected| SpiceChunkEndorsementStats { produced, expected };
+    let contribution = vec![stat(1, 1), stat(0, 1), stat(0, 0)];
+
+    // No prev (epoch boundary or genesis): the accumulator resets to this block's
+    // contribution alone.
+    assert_eq!(fold_endorsement_stats(3, None, &contribution).unwrap(), contribution);
+
+    // Same epoch: the previous accumulator is carried and summed element-wise.
+    let prev = vec![stat(2, 2), stat(1, 1), stat(3, 3)];
+    assert_eq!(
+        fold_endorsement_stats(3, Some(&prev), &contribution).unwrap(),
+        vec![stat(3, 3), stat(1, 2), stat(3, 3)],
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_credit_chunk_endorsement_stats_skips_departed_validators() {
+    let accounts: Vec<AccountId> =
+        ["current0", "current1", "departed"].iter().map(|a| a.parse().unwrap()).collect();
+    let mut stats = vec![SpiceChunkEndorsementStats::default(); 2];
+    credit_chunk_endorsement_stats(
+        &mut stats,
+        accounts.iter(),
+        // `departed` is no longer in the epoch, so it has no validator id.
+        |account| match account.as_str() {
+            "current0" => Some(0),
+            "current1" => Some(1),
+            _ => None,
+        },
+        // Only `current0` endorsed the certified result.
+        |account| account.as_str() == "current0",
+    );
+    // Endorsed: expected and produced. Assigned but did not endorse: expected only.
+    assert_eq!(stats[0], SpiceChunkEndorsementStats { produced: 1, expected: 1 });
+    assert_eq!(stats[1], SpiceChunkEndorsementStats { produced: 0, expected: 1 });
+    // `departed` was ignored: it touched no slot and caused no panic.
 }
 
 fn run_record_uncertified_chunks_for_block(chain: &mut Chain, block: &Block) {
