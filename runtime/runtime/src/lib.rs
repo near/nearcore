@@ -1937,8 +1937,7 @@ impl Runtime {
                         error = &error as &dyn std::error::Error,
                         "gas key transaction failed deposit check, charging gas"
                     );
-                    // All the gas used for converting the transaction to a receipt burnt.
-                    let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
+                    // All gas used for converting the transaction to a receipt is burnt.
                         tx,
                         error,
                         cost.gas_burnt,
