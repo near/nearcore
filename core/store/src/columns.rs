@@ -387,6 +387,9 @@ pub enum DBCol {
     /// header for reward and kickout.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: Vec<[near_primitives::types::SpiceChunkEndorsementStats]>
+    // TODO(spice): each block's value is derived from its parent's, so this must
+    // be seeded at the state-sync boundary block (same as UncertifiedChunks) once
+    // spice state sync exists, otherwise the first post-sync block can't compute it.
     #[cfg(feature = "protocol_feature_spice")]
     SpiceEndorsementStats,
     /// Stores contract accesses (code hashes) per SPICE chunk.
