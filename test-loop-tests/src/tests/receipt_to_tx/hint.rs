@@ -3,6 +3,17 @@
 //! path is source of truth when populated; hint scan is fallback.
 
 use super::*;
+use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithProof};
+use near_primitives::utils::get_outcome_id_block_hash;
+use near_primitives::version::PROTOCOL_VERSION;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// `save_receipt_to_tx=false`, hint at tx execution height → terminal tx
 /// returned. Single-hop column miss falls back to scan, walks same outcome
@@ -859,4 +870,222 @@ fn test_hint_ancestor_gap_band() {
     .expect("ancestor gap band must be covered by hop-1+ scan width");
     assert_eq!(response.transaction_hash, call_tx_hash);
     assert_eq!(response.sender_account_id, sender_account);
+}
+
+/// Resharding boundary: a producing tx outcome written on the pre-split
+/// parent shard is invisible to a hint scan anchored *after* the split.
+///
+/// The hint kernel enumerates shards from the layout at the anchor height
+/// (`shard_ids_for_hint_height`). A reshard mints new child shard ids and
+/// retires the parent; the parent id is absent from the post-split layout,
+/// so a scan anchored after the split never reads the parent shard's
+/// `OutcomeIds` rows even though the producing outcome is fully resolvable
+/// there. The walk wrongly returns `UnknownReceipt`.
+///
+/// This test asserts the CORRECT behavior (resolves to the tx), so it is
+/// RED on current code — the proof the bug is real — and becomes the
+/// regression guard once the head-layout ancestor-scan fix lands.
+///
+/// The real shard split is used only to obtain two adjacent headers whose
+/// layouts differ by a retired parent; the single synthetic tx-origin
+/// outcome is injected on the pre-split parent shard and queried
+/// immediately, so there is no cross-boundary receipt execution, no GC
+/// window, and no block-placement noise.
+///
+/// Gated off under spice, matching the other cross-shard hint tests.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_hint_resolves_across_resharding() {
+    init_test_logger();
+
+    // 1. Drive a real shard split. `boundary_account` lives on the shard
+    //    that splits, so its shard id is the retired parent.
+    let boundary_account: AccountId = "boundary".parse().unwrap();
+    let epoch_length: u64 = 7;
+    let base_shard_layout = ShardLayout::multi_shard(3, 3);
+
+    let validators_spec = create_validators_spec(1, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .protocol_version(PROTOCOL_VERSION - 1)
+        .validators_spec(validators_spec)
+        .shard_layout(base_shard_layout.clone())
+        .epoch_length(epoch_length)
+        .build();
+
+    let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
+    let (new_epoch_config, new_shard_layout) =
+        derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account);
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
+        (genesis.config.protocol_version, Arc::new(base_epoch_config)),
+        (genesis.config.protocol_version + 1, Arc::new(new_epoch_config)),
+    ]));
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .clients(clients)
+        .epoch_config_store(epoch_config_store)
+        // Serving node must track every shard across the split, else the
+        // handler rejects the query outright.
+        .track_all_shards()
+        // Keep the pre-split block + its outcome rows alive for the query.
+        .gc_num_epochs_to_keep(20)
+        .config_modifier(|config, _| {
+            // Force the column miss so the hint scan runs. `save_tx_outcomes`
+            // stays at its default (true), else the scan errors before
+            // reading storage.
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    // Run until the post-split layout is active at the head.
+    let epoch_manager = env.validator().client().epoch_manager.clone();
+    env.validator_runner().run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
+            epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
+        },
+        Duration::seconds((8 * epoch_length) as i64),
+    );
+
+    // 2. Pin H_pre / H_anchor from ACTUAL header layouts (not epoch
+    //    arithmetic): find the adjacent pair where the parent shard id is
+    //    present, then retired. Computing the heights by arithmetic risks
+    //    an anchor that still resolves to the pre-split layout, which would
+    //    pass by accident.
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&boundary_account);
+    let head_height = env.validator().head().height;
+
+    let (h_pre, h_anchor, block_hash_pre, child_shard_id) = {
+        let client = env.validator().client();
+        let layout_has_parent = |height: u64| -> Option<bool> {
+            let header = client.chain.get_block_header_by_height(height).ok()?;
+            let layout = epoch_manager.get_shard_layout(header.epoch_id()).ok()?;
+            Some(layout.shard_ids().any(|s| s == parent_shard_id))
+        };
+
+        let mut flip = None;
+        for h in 1..head_height {
+            if layout_has_parent(h) == Some(true) && layout_has_parent(h + 1) == Some(false) {
+                flip = Some((h, h + 1));
+                break;
+            }
+        }
+        let (h_pre, h_anchor) =
+            flip.expect("must find an adjacent height pair where the parent shard is retired");
+
+        // Assert the flip explicitly (retired-parent guarantee).
+        let pre_header = client.chain.get_block_header_by_height(h_pre).unwrap();
+        let pre_layout = epoch_manager.get_shard_layout(pre_header.epoch_id()).unwrap();
+        let post_header = client.chain.get_block_header_by_height(h_anchor).unwrap();
+        let post_layout = epoch_manager.get_shard_layout(post_header.epoch_id()).unwrap();
+        assert!(
+            pre_layout.shard_ids().any(|s| s == parent_shard_id),
+            "pre-split layout must contain the parent shard"
+        );
+        assert!(
+            !post_layout.shard_ids().any(|s| s == parent_shard_id),
+            "post-split layout must have retired the parent shard"
+        );
+
+        let block_hash_pre = client.chain.get_block_hash_by_height(h_pre).unwrap();
+        let child_shard_id = post_layout.account_id_to_shard_id(&boundary_account);
+        (h_pre, h_anchor, block_hash_pre, child_shard_id)
+    };
+    assert_eq!(
+        h_anchor - h_pre,
+        1,
+        "anchor must be the immediate successor of the pre-split height"
+    );
+
+    // 3. Inject one synthetic tx-origin outcome on the retired parent shard,
+    //    into the serving node's store (node 0 == the single validator).
+    let tx_outcome_id = CryptoHash::hash_bytes(b"reshard-hint-synthetic-tx");
+    let child_receipt_id = CryptoHash::hash_bytes(b"reshard-hint-synthetic-child-receipt");
+    let child_receipt = Receipt::new_balance_refund(&boundary_account, Balance::ZERO);
+
+    let store = env.validator().store();
+    let outcome_ids_key = get_block_shard_id(&block_hash_pre, parent_shard_id);
+    // Append, don't overwrite: H_pre is a real block whose parent-shard
+    // chunk already has outcome rows.
+    let mut outcome_ids =
+        store.get_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, &outcome_ids_key).unwrap_or_default();
+    assert!(!outcome_ids.contains(&tx_outcome_id), "synthetic outcome id must be unique");
+    outcome_ids.push(tx_outcome_id);
+
+    let mut update = store.store_update();
+    update.set_ser(DBCol::OutcomeIds, &outcome_ids_key, &outcome_ids);
+    update.insert_ser(
+        DBCol::TransactionResultForBlock,
+        &get_outcome_id_block_hash(&tx_outcome_id, &block_hash_pre),
+        &ExecutionOutcomeWithProof {
+            proof: vec![],
+            outcome: ExecutionOutcome {
+                receipt_ids: vec![child_receipt_id],
+                executor_id: boundary_account.clone(),
+                ..Default::default()
+            },
+        },
+    );
+    // Present in Transactions, absent in Receipts → classifier reads
+    // `(true, false)` = FromTransaction with `tx_hash = tx_outcome_id`.
+    update.increment_refcount(DBCol::Transactions, tx_outcome_id.as_ref(), &[0u8; 1]);
+    // The queried child receipt must decode as a real `Receipt`.
+    update.increment_refcount(
+        DBCol::Receipts,
+        child_receipt_id.as_ref(),
+        &borsh::to_vec(&child_receipt).unwrap(),
+    );
+    update.commit();
+
+    // 3b. Positive control. Hinting the retired parent shard *explicitly*
+    //     bypasses layout enumeration (`scan_with_optional_shard_enumeration`
+    //     scans the given shard directly), so this resolves on CURRENT code
+    //     and after the fix. It proves the synthetic rows are valid and
+    //     readable when the parent shard is scanned — without it, a broken
+    //     fixture would also go RED and masquerade as the bug below.
+    let control = handle(
+        &mut env,
+        GetReceiptToTx {
+            receipt_id: child_receipt_id,
+            block_height: Some(h_anchor),
+            shard_id: Some(parent_shard_id),
+            window: Some(5),
+        },
+    );
+    assert_eq!(
+        control
+            .expect(
+                "positive control: explicit parent-shard hint must resolve the synthetic outcome"
+            )
+            .transaction_hash,
+        tx_outcome_id,
+        "fixture sanity: producing outcome is readable when the retired parent shard is scanned directly"
+    );
+
+    // 4. Query, anchored in the POST-split epoch. Both sub-cases are RED on
+    //    current code:
+    //    - `None`: the no-hint enumeration walks the anchor layout, which
+    //      only lists the children, so the parent shard is never scanned.
+    //    - `Some(child_shard_id)`: the single-shard path scans only the
+    //      child; a one-element `{child}` set still never reaches the
+    //      parent. Stricter than the no-hint case — it stays RED unless the
+    //      fix also translates a caller-supplied post-split child hint back
+    //      through ancestor layouts.
+    for shard_hint in [None, Some(child_shard_id)] {
+        let result = handle(
+            &mut env,
+            GetReceiptToTx {
+                receipt_id: child_receipt_id,
+                block_height: Some(h_anchor),
+                shard_id: shard_hint,
+                window: Some(5),
+            },
+        );
+        assert_eq!(
+            result.expect("hint scan must resolve across the reshard").transaction_hash,
+            tx_outcome_id,
+            "shard hint {shard_hint:?}: producing outcome on the retired parent shard must resolve"
+        );
+    }
 }
