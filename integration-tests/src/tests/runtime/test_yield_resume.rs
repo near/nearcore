@@ -699,14 +699,7 @@ fn create_with_id_one_yocto_exemption_on_drained_zba() {
     let args_len = args.len() as u64;
     let res = node
         .user()
-        .function_call(
-            alice_id,
-            zba_id.clone(),
-            "call_promise",
-            args,
-            MAX_GAS,
-            Balance::ZERO,
-        )
+        .function_call(alice_id, zba_id.clone(), "call_promise", args, MAX_GAS, Balance::ZERO)
         .unwrap();
 
     assert_eq!(
@@ -759,14 +752,7 @@ fn create_with_id_two_yocto_fails_on_drained_zba() {
     let args_len = args.len() as u64;
     let res = node
         .user()
-        .function_call(
-            alice_id,
-            zba_id.clone(),
-            "call_promise",
-            args,
-            MAX_GAS,
-            Balance::ZERO,
-        )
+        .function_call(alice_id, zba_id.clone(), "call_promise", args, MAX_GAS, Balance::ZERO)
         .unwrap();
 
     let err = match &res.status {
