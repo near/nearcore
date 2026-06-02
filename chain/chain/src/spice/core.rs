@@ -394,6 +394,12 @@ impl SpiceCoreReader {
                 SpiceCoreStatement::Endorsement(endorsement) => {
                     let chunk_id = endorsement.chunk_id();
                     let account_id = endorsement.account_id();
+                    // TODO(spice): reject more than one endorsement per (chunk, account)
+                    // regardless of result hash. `waiting_on_endorsements` is not updated
+                    // within this loop and the duplicate check below is per result hash, so a
+                    // validator can endorse two different results for one chunk in the same
+                    // block. That is provable equivocation and lets a validator's stake count
+                    // toward two result hashes certifying; it should be rejected (and slashed).
                     // Checking contents of waiting_on_endorsements makes sure that
                     // chunk_id and account_id are valid.
                     if !waiting_on_endorsements.contains(&(chunk_id, account_id)) {
@@ -771,25 +777,21 @@ fn endorsement_contribution_of_block(
     let prev_uncertified =
         get_uncertified_chunks(chain_store, credited_block.header().prev_hash())?;
     let statements = credited_block.spice_core_statements();
-    // (chunk, validator, endorsed result hash) for every endorsement accumulated
-    // in prior blocks (present in the prev block's uncertified chunks) and newly
-    // included in this block. The hash is part of the key: a validator may endorse
-    // a result other than the one that ends up certified, and must not be credited
-    // as having produced the certified result. `unchecked_to_stored` is safe here
-    // because the block's endorsement signatures are verified before stats are
-    // computed (see `validate_core_statements_in_block`).
-    let endorsers: HashSet<(&SpiceChunkId, &AccountId, ChunkExecutionResultHash)> =
+    // The result hash each validator endorsed for each chunk, from endorsements
+    // accumulated in prior blocks and newly included in this block.
+    // `unchecked_to_stored` is safe here: signatures are verified in
+    // `validate_core_statements_in_block` before stats are computed.
+    let endorsed_hash: HashMap<(&SpiceChunkId, &AccountId), ChunkExecutionResultHash> =
         prev_uncertified
             .iter()
             .flat_map(|info| {
                 info.present_endorsements.iter().map(|(account, endorsement)| {
-                    (&info.chunk_id, account, endorsement.execution_result_hash.clone())
+                    ((&info.chunk_id, account), endorsement.execution_result_hash.clone())
                 })
             })
             .chain(statements.iter_endorsements().map(|endorsement| {
                 (
-                    endorsement.chunk_id(),
-                    endorsement.account_id(),
+                    (endorsement.chunk_id(), endorsement.account_id()),
                     endorsement.unchecked_to_stored().execution_result_hash,
                 )
             }))
@@ -797,7 +799,7 @@ fn endorsement_contribution_of_block(
 
     let mut stats = vec![SpiceChunkEndorsementStats::default(); epoch_info.validators_iter().len()];
     for (chunk_id, execution_result) in statements.iter_execution_results() {
-        let result_hash = execution_result.compute_hash();
+        let certified_hash = execution_result.compute_hash();
         let chunk_block = epoch_manager.get_block_info(&chunk_id.block_hash)?;
         let assignments = epoch_manager.get_chunk_validator_assignments(
             chunk_block.epoch_id(),
@@ -810,7 +812,8 @@ fn endorsement_contribution_of_block(
             };
             let entry = &mut stats[validator_id as usize];
             entry.expected += 1;
-            if endorsers.contains(&(chunk_id, account_id, result_hash.clone())) {
+            // Credited only when they endorsed the result that actually certified.
+            if endorsed_hash.get(&(chunk_id, account_id)) == Some(&certified_hash) {
                 entry.produced += 1;
             }
         }
