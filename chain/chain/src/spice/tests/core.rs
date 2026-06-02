@@ -1,5 +1,6 @@
 use crate::spice::core::{
-    SpiceCoreReader, find_newly_certified_block_hashes, record_uncertified_chunks_for_block,
+    SpiceCoreReader, compute_spice_endorsement_stats, find_newly_certified_block_hashes,
+    record_uncertified_chunks_for_block,
 };
 use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
@@ -32,7 +33,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     Balance, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
-    SpiceChunkId, SpiceUncertifiedChunkInfo,
+    SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
@@ -449,6 +450,92 @@ fn test_core_statements_for_next_block_contains_all_endorsements() {
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     for endorsement in &all_endorsements {
         assert!(core_statements.contains(endorsement));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_endorsement_stats_only_credit_certified_result() {
+    // Enough validators that the chunk still certifies when one of them endorses
+    // a different result (`required_stake` is strictly more than 2/3).
+    let validators: Vec<String> = (0..7).map(|i| format!("test{i}")).collect();
+    let (mut chain, _core_reader) = setup_with_validators(&validators);
+    let genesis = chain.genesis_block();
+    let block = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    // `wrong_validator` endorses a result other than the one that certifies.
+    let wrong_validator = "test6";
+    let core_statements = block_certification_core_statements_with_wrong_endorser(
+        &block,
+        &validators,
+        wrong_validator,
+    );
+    let next_block = build_block(&chain, &block, core_statements);
+    process_block(&mut chain, next_block.clone());
+
+    let epoch_id = next_block.header().epoch_id();
+    let chain_store = chain.chain_store().chain_store();
+    let stats = compute_spice_endorsement_stats(
+        &chain_store,
+        chain.epoch_manager.as_ref(),
+        epoch_id,
+        next_block.hash(),
+    )
+    .unwrap();
+
+    let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
+    let stats_for = |validator: &str| {
+        let id = *epoch_info.get_validator_id(&validator.parse().unwrap()).unwrap();
+        stats[id as usize]
+    };
+
+    // Expected (assigned) but not produced: it endorsed a non-certified result.
+    let wrong = stats_for(wrong_validator);
+    assert!(wrong.expected > 0);
+    assert_eq!(wrong.produced, 0);
+    // A validator that endorsed the certified result is fully credited.
+    let correct = stats_for("test0");
+    assert!(correct.produced > 0);
+    assert_eq!(correct.produced, correct.expected);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_endorsement_stats_accumulate_within_epoch() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
+    // block2 certifies block1's chunks; block3 certifies block2's chunks.
+    let block2 = build_block(&chain, &block1, block_certification_core_statements(&block1));
+    process_block(&mut chain, block2.clone());
+    let block3 = build_block(&chain, &block2, block_certification_core_statements(&block2));
+    process_block(&mut chain, block3.clone());
+
+    let epoch_id = block3.header().epoch_id();
+    let chain_store = chain.chain_store().chain_store();
+    let stats_after = |prev: &Block| {
+        compute_spice_endorsement_stats(
+            &chain_store,
+            chain.epoch_manager.as_ref(),
+            epoch_id,
+            prev.hash(),
+        )
+        .unwrap()
+    };
+    let total_expected =
+        |stats: &[SpiceChunkEndorsementStats]| stats.iter().map(|s| s.expected as u64).sum::<u64>();
+
+    // The accumulator after block2 covers block1's certifications; after block3 it
+    // also carries block2's, so the running total strictly grows within the epoch.
+    let after_block2 = stats_after(&block2);
+    let after_block3 = stats_after(&block3);
+    assert!(total_expected(&after_block2) > 0);
+    assert!(total_expected(&after_block3) > total_expected(&after_block2));
+    // All validators endorsed the certified result, so produced == expected throughout.
+    for stat in &after_block3 {
+        assert_eq!(stat.produced, stat.expected);
     }
 }
 
@@ -1306,6 +1393,36 @@ fn block_certification_core_statements(block: &Block) -> Vec<SpiceCoreStatement>
     core_statements
 }
 
+/// Like `block_certification_core_statements`, but `wrong_validator` endorses a
+/// different (uncertified) result than the one included as the ChunkExecutionResult.
+fn block_certification_core_statements_with_wrong_endorser(
+    block: &Block,
+    validators: &[String],
+    wrong_validator: &str,
+) -> Vec<SpiceCoreStatement> {
+    let mut core_statements = Vec::new();
+    for chunk in block.chunks().iter_raw() {
+        for validator in validators {
+            let endorsement = if validator == wrong_validator {
+                let signer = create_test_signer(validator);
+                SpiceChunkEndorsement::new(
+                    SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() },
+                    invalid_execution_result_for_chunk(chunk),
+                    &signer,
+                )
+            } else {
+                test_chunk_endorsement(validator, block, chunk)
+            };
+            core_statements.push(endorsement_into_core_statement(endorsement));
+        }
+        core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() },
+            execution_result: test_execution_result_for_chunk(chunk),
+        });
+    }
+    core_statements
+}
+
 fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
     let block_producer = chain
         .epoch_manager
@@ -1339,13 +1456,16 @@ fn test_validators() -> Vec<String> {
 }
 
 fn setup() -> (Chain, SpiceCoreReader) {
+    setup_with_validators(&test_validators())
+}
+
+fn setup_with_validators(validators: &[String]) -> (Chain, SpiceCoreReader) {
     init_test_logger();
 
     let num_shards = 3;
 
     let shard_layout = ShardLayout::multi_shard(num_shards, 0);
 
-    let validators = test_validators();
     let validators_spec =
         ValidatorsSpec::desired_roles(&validators.iter().map(|v| v.as_str()).collect_vec(), &[]);
 
