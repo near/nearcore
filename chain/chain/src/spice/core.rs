@@ -826,10 +826,6 @@ fn get_spice_endorsement_stats(
 /// on `prev_hash`: the previous block's value (carried only within the same
 /// epoch, reset at the boundary) plus this epoch's contribution from the
 /// previous block's body. Indexed by the current epoch's validator id.
-///
-/// Takes `(epoch_id, prev_hash)` rather than a header so the block producer can
-/// call it before the header exists; both inputs are read from the store, so
-/// no in-flight block body is required.
 pub fn compute_spice_endorsement_stats(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,

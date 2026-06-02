@@ -1749,9 +1749,8 @@ impl BlockHeader {
         }
     }
 
-    /// Per-validator chunk endorsement stats accumulated over the epoch, set
-    /// only on the last block of an epoch. Returns `None` for header versions
-    /// prior to V7. See `SpiceChunkEndorsementStats`.
+    /// Set only on the last block of an epoch; `None` before header V7.
+    /// See `SpiceChunkEndorsementStats`.
     #[inline]
     pub fn spice_chunk_endorsement_stats(&self) -> Option<&[SpiceChunkEndorsementStats]> {
         match self {

@@ -62,12 +62,9 @@ fn test_spice_chain() {
     // More than one shard in total allows testing cross-shard communications.
     let shard_layout =
         ShardLayout::multi_shard_custom(vec![accounts[accounts.len() / 2].clone()], 1);
-    // Skewed stakes keep the producer set stable across reward epochs: with
-    // desired_roles and equal stakes, a chunk producer that misses its first
-    // post-genesis chunk earns relatively fewer rewards, which can be enough to
-    // promote a validators-only account into the producer set next epoch (state
-    // sync for a newly-promoted producer is not yet implemented in spice
-    // test-loop).
+    // Skewed stakes keep the producer set stable across reward epochs: with equal
+    // stakes a producer that misses its first post-genesis chunk can earn few enough
+    // rewards to get replaced, and spice test-loop has no state sync for new producers.
     let all_validators: Vec<AccountInfo> = block_and_chunk_producers
         .iter()
         .map(|account_id| AccountInfo {
