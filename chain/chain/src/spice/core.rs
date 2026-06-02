@@ -400,7 +400,7 @@ impl SpiceCoreReader {
                     // within this loop and the duplicate check below is per result hash, so a
                     // validator can endorse two different results for one chunk in the same
                     // block. That is provable equivocation and lets a validator's stake count
-                    // toward two result hashes certifying; it should be rejected (and slashed).
+                    // toward two result hashes certifying; it should be rejected.
                     // Checking contents of waiting_on_endorsements makes sure that
                     // chunk_id and account_id are valid.
                     if !waiting_on_endorsements.contains(&(chunk_id, account_id)) {

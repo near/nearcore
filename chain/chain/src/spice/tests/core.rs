@@ -527,12 +527,32 @@ fn test_endorsement_stats_accumulate_within_epoch() {
     let total_expected =
         |stats: &[SpiceChunkEndorsementStats]| stats.iter().map(|s| s.expected as u64).sum::<u64>();
 
-    // The accumulator after block2 covers block1's certifications; after block3 it
-    // also carries block2's, so the running total strictly grows within the epoch.
+    // Total `expected` for a block's chunks: one per (validator, chunk) assignment slot.
+    let slots_for = |block: &Block| -> u64 {
+        block
+            .chunks()
+            .iter_raw()
+            .map(|chunk| {
+                chain
+                    .epoch_manager
+                    .get_chunk_validator_assignments(
+                        block.header().epoch_id(),
+                        chunk.shard_id(),
+                        block.header().height(),
+                    )
+                    .unwrap()
+                    .assignments()
+                    .len() as u64
+            })
+            .sum()
+    };
     let after_block2 = stats_after(&block2);
     let after_block3 = stats_after(&block3);
-    assert!(total_expected(&after_block2) > 0);
-    assert!(total_expected(&after_block3) > total_expected(&after_block2));
+    // After block2 the accumulator covers block1's certified chunks; after block3 it
+    // also carries block2's, so it is exactly both blocks' assignment slots.
+    assert!(slots_for(&block1) > 0);
+    assert_eq!(total_expected(&after_block2), slots_for(&block1));
+    assert_eq!(total_expected(&after_block3), slots_for(&block1) + slots_for(&block2));
     // All validators endorsed the certified result, so produced == expected throughout.
     for stat in &after_block3 {
         assert_eq!(stat.produced, stat.expected);
