@@ -8,6 +8,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 pub(crate) mod account;
 pub(crate) mod cloud_archival;
 pub(crate) mod contract_distribution;
+pub(crate) mod contracts;
 pub(crate) mod loop_action;
 pub(crate) mod network;
 pub(crate) mod node;

@@ -27,6 +27,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
+use crate::utils::contracts::rs_contract_for_protocol_version;
 use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
@@ -983,14 +984,7 @@ impl TestEnv {
             .runtime_config_store(runtime_config_store.clone())
             .build();
 
-        // `rs_contract` declares host-fn imports for the latest protocol that are
-        // not available at older versions; use the backwards-compatible contract
-        // when the test runs below the latest protocol version.
-        let contract_code = if protocol_version < PROTOCOL_VERSION {
-            near_test_contracts::backwards_compatible_rs_contract()
-        } else {
-            near_test_contracts::rs_contract()
-        };
+        let contract_code = rs_contract_for_protocol_version(protocol_version);
 
         Self {
             env,

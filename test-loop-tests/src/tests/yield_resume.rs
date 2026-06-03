@@ -4,6 +4,7 @@ use crate::tests::yield_timeouts::{
     assert_no_promise_yield_status_in_state, get_yield_data_ids_in_latest_state,
 };
 use crate::utils::account::validators_spec_clients;
+use crate::utils::contracts::rs_contract_for_protocol_version;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -552,7 +553,7 @@ fn test_yield_resume_across_protocol_upgrade() {
     let deploy_contract_tx = SignedTransaction::deploy_contract(
         1,
         &test_account,
-        near_test_contracts::backwards_compatible_rs_contract().into(),
+        rs_contract_for_protocol_version(old_protocol).into(),
         &test_account_signer,
         start_head.last_block_hash,
     );
