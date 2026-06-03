@@ -1501,8 +1501,6 @@ fn slow_test_resharding_v3_storage_operations() {
 }
 
 #[test]
-// Gas keys gate on `ProtocolFeature::GasKeys`, which only ships in nightly.
-#[cfg_attr(not(feature = "nightly"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_gas_key() {

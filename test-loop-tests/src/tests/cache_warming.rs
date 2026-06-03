@@ -58,7 +58,12 @@ fn slow_test_cache_warming_across_vm_config_change() {
         .build();
 
     // Deploy during the old-protocol epoch, exercising the deploy warming hook.
-    let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user);
+    // Uses the backwards-compatible contract since this runs below the latest
+    // protocol version, where `rs_contract`'s newest host-fn imports are absent.
+    let deploy_tx = env.rpc_node().tx_deploy_contract(
+        &user,
+        near_test_contracts::backwards_compatible_rs_contract().to_vec(),
+    );
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
 
     // Calls exercise the pipelining warming path on receipt preparation.
@@ -90,7 +95,7 @@ fn slow_test_cache_warming_across_vm_config_change() {
     // The contract must already be cached under the new protocol's wasm_config.
     // No contract activity has run under new_protocol yet, so this can only
     // have been populated by pre-upgrade warming.
-    let code_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
+    let code_hash = CryptoHash::hash_bytes(near_test_contracts::backwards_compatible_rs_contract());
     let client = &env.test_loop.data.get(&client_handle).client;
     let next_runtime_config = client.runtime_adapter.get_runtime_config(new_protocol);
     let cache = client.runtime_adapter.compiled_contract_cache();

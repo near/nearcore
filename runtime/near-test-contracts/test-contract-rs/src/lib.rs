@@ -270,8 +270,7 @@ extern "C" {
     #[cfg(feature = "test_features")]
     fn burn_gas(gas: u64);
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_transfer_to_gas_key(
         promise_index: u64,
         public_key_len: u64,
@@ -279,8 +278,7 @@ extern "C" {
         amount_ptr: u64,
     );
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_add_gas_key_with_full_access(
         promise_index: u64,
         public_key_len: u64,
@@ -288,8 +286,7 @@ extern "C" {
         num_nonces: u64,
     );
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_add_gas_key_with_function_call(
         promise_index: u64,
         public_key_len: u64,
@@ -2092,8 +2089,7 @@ pub unsafe fn resume_with_large_payload() {
     assert_eq!(success, 1);
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_transfer_to_gas_key(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2102,8 +2098,7 @@ fn promise_batch_action_transfer_to_gas_key(
 ) {
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_add_gas_key_with_full_access(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2112,8 +2107,7 @@ fn promise_batch_action_add_gas_key_with_full_access(
 ) {
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_add_gas_key_with_function_call(
     _promise_index: u64,
     _public_key_len: u64,
