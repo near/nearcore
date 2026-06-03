@@ -122,9 +122,15 @@ impl<'c> EstimatorContext<'c> {
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
-        let cache =
-            FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>, "contract.cache")
-                .expect("create contract cache");
+        // No eviction: estimator measurements must not be perturbed by the
+        // on-disk cache dropping artifacts mid-run.
+        let cache = FilesystemContractRuntimeCache::new(
+            workdir.path(),
+            None::<&str>,
+            "contract.cache",
+            FilesystemContractRuntimeCache::MAX_DISK_CACHE_BYTES,
+        )
+        .expect("create contract cache");
 
         Testbed {
             config: self.config,

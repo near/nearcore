@@ -13103,18 +13103,6 @@
             ],
             "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards."
           },
-          "contract_cache_warming_max_item_count": {
-            "description": "Max warming submissions allowed in the pool's queue. Submissions\nover the cap bump `near_contract_cache_warming_dropped_total`. `0`\ndisables warming (same as setting\n`contract_cache_warming_pool_thread_count` to 0).",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "contract_cache_warming_pool_thread_count": {
-            "description": "Number of worker threads in the contract cache-warming pool. The\npool runs at the lowest realtime priority of any near pool, so the\nthreads yield to chunk application and witness work. Setting this\nto 0 disables warming (the pool is never instantiated). See\n[`contract_cache_warming_max_item_count`] for the other disable knob.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
           "disable_tx_routing": {
             "description": "If true, the node won't forward transactions to next the chunk producers.",
             "type": "boolean"
