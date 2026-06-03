@@ -1,0 +1,10 @@
+# PostQuantumSignatures (ML-DSA-65): price ML-DSA-65 signature verification as
+# gas charged at transaction conversion. Charged once per ML-DSA-65 signature
+# the tx triggers verification of - its own signature (if signed with an
+# ML-DSA-65 key) and each Delegate action with an ML-DSA-65 inner signer. The
+# signer pays this as part of buying the transaction; it does NOT affect
+# receipts created from within contracts (no signing there). The value is the
+# extra verification cost of ML-DSA-65 relative to the classical schemes - an
+# expert decision based on benchmark results. The classical schemes stay 0 for
+# backwards compatibility.
+ml_dsa_65_verification_cost: { old: 0, new: 100_000_000_000 }

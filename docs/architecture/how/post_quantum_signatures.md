@@ -110,7 +110,10 @@ having to carry or store the full 1952-byte pubkey.
 
 Storage impact: an ML-DSA-65 access key occupies 33 bytes in the trie key
 portion versus 1953 if stored raw - about a 98% reduction. Storage stake
-drops from ~0.0195 NEAR to ~0.0005 NEAR per key.
+drops from ~0.0200 NEAR (if stored raw) to ~0.00082 NEAR per full-access key -
+identical to an ed25519 key (same 33-byte trie id), a ~24x reduction once the
+fixed AccessKey body and per-record overhead (present in both forms) are
+counted.
 
 UX consequence: `view_access_key_list` returns `ml-dsa-65-hash:<bs58>` for
 ML-DSA-65 entries. Wallets and indexers must know their own pubkey to match
@@ -142,13 +145,17 @@ integration:
 
 - Concrete verify-time distribution from benches at
   `core/crypto/benches/{signatures.rs, verify_distribution.rs,
-  ml_dsa_worst_case.rs}`: mean ≈ 83 µs, p99.99 ≈ 600 µs, max-of-100k ≈
-  1.3 ms (the single-sample max is noisy and varies ~0.7–1.3 ms run to
-  run), measured on an Intel Core Ultra 9 185H (64 GiB RAM).
-- Adversarial-input analysis: it has been concluded that no
-  maliciously-crafted signature can materially blow up verification time
-  beyond the natural worst case.
-- Tx-level verify gas constant: not yet set. See unresolved issues below.
+  ml_dsa_worst_case.rs}`: mean ≈ 80 µs (vs ~32 µs ed25519); the tail
+  (p99.9 ≈ 170 µs, p99.99+ up to ~1.3 ms) is OS scheduling noise, not
+  signature content - **verified by benchmark**: verify time is flat across
+  all signature hint-weights (and a single fixed signature reproduces the
+  whole distribution), so no maliciously-crafted signature can blow up
+  verification time. Measured single-core on an Intel Core Ultra 9 185H.
+- Pricing: charged as **gas at transaction conversion** via the
+  `ml_dsa_65_verification_cost` runtime parameter (100 Ggas - the extra
+  verification cost of ML-DSA-65 over the classical schemes; an expert
+  decision based on these benchmark results). See the economic-impact item
+  below for the mechanism and rationale.
 
 ### 7. Out-of-scope (and why)
 
@@ -250,16 +257,45 @@ items the team should resolve before stabilizing in 2.13.
 
 ### Before stabilization in 2.13
 
-2. **Economic-impact audit & pricing.** Not started. The strict
-   requirement from the briefing - storage and compute priced correctly -
-   is partially covered: per-key storage stake now scales correctly via
-   `trie_id_len()`. Outstanding work:
-   - Per-byte component on `AddKey` and `DeleteKey` fees.
-   - Tx-level `tx_signature_verify_ml_dsa_65` gas constant. Provisional 10
-     Ggas based on a ~8× safety margin over the empirical worst case
-     (~1.3 ms at 1 Tgas/s); should be tightened after Phase 5.4 calibration.
-   - New `parameters.yaml` diff file gated on `PostQuantumSignatures`.
-   - Snapshot regeneration.
+2. **Economic-impact audit & pricing.** Storage and verification are now
+   priced: per-key storage stake scales correctly via `trie_id_len()`, and
+   signature verification is charged as **gas at transaction conversion**,
+   keyed by signature scheme. `RuntimeFeesConfig` holds a
+   `signature_verification_costs: EnumMap<SignatureKind, Gas>` (the `SignatureKind`
+   enum mirrors `near_crypto::KeyType`; it lives in `near-parameters` so that
+   crate need not depend on `near-crypto`, with the `KeyType -> SignatureKind`
+   match done at the runtime call site). The map holds the *extra* verification
+   cost of a scheme relative to the classical schemes the network already
+   supports: ed25519/secp256k1 stay 0 for backwards compatibility, only
+   ML-DSA-65 carries a charge, fed by the `ml_dsa_65_verification_cost`
+   parameter (gated on `PostQuantumSignatures` in the v154 config diff; base 0,
+   inert pre-feature).
+   - Mechanism: `tx_cost` (`runtime/runtime/src/config.rs`, which takes the
+     whole `&Transaction`) adds, per signature the tx triggers verification of
+     - its own signature plus each `Delegate` action's inner signer -
+     `signature_verification_costs[kind]` to the transaction's *burnt* gas. It
+     is added to `burnt` (not `gas_remaining`), so it raises what the signer
+     pays to buy the transaction but **never** the gas attached to / available
+     for the resulting receipts. Receipts created from within a contract are
+     unaffected (no signing happens there), so existing contracts and their
+     gas estimates do not change; only the off-chain tx-construction side of
+     dapps must buy slightly more gas for ML-DSA-signed transactions.
+     `EXPERIMENTAL_protocol_config` exposes the ML-DSA-65 value
+     (`RuntimeFeesConfigView.ml_dsa_65_verification_cost`) for tooling.
+   - Why gas, not a NEP-455 compute cost: the team chose to price the work the
+     signer imposes directly, since (a) it cannot break contracts (only the
+     gas bought at tx creation rises, not in-contract cross-contract-call
+     budgets), and (b) ML-DSA-65 is a brand-new gated key type, so no existing
+     tooling has gas expectations around it. (`compute == gas` for this
+     parameter, so it also debits the chunk's wall-clock budget.) A
+     compute-cost implementation is preserved in a git stash as a fallback.
+   - Value: 100 Ggas - the extra verification cost of ML-DSA-65 over the
+     classical schemes, an expert decision based on the benchmark results in
+     §6. May be revisited before stabilization.
+   - Still open: a per-byte component on `AddKey`/`DeleteKey` for the
+     ~1952-byte pubkey they carry on the wire, and the separate
+     bandwidth/witness gas-vs-bytes gap (large ML-DSA txs vs the per-chunk
+     size limit) - both out of scope for the verification charge.
 
 3. **Wallet/SDK story for the view-RPC change.** Add the
    `near-api-js`/`near-cli-rs` side of the change, document the hash format,

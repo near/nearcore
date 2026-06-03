@@ -1,5 +1,5 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
-use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
+use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
@@ -49,6 +49,13 @@ pub struct RuntimeFeesConfigView {
     /// Pessimistic gas price inflation ratio.
     #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// Gas charged at transaction conversion per ML-DSA-65 signature the
+    /// transaction triggers verification of (its own signature if ML-DSA-65,
+    /// plus each `Delegate` action with an ML-DSA-65 inner signer). Paid by the
+    /// signer when buying the transaction; tooling needs it to estimate the
+    /// cost of ML-DSA-65-signed transactions. 0 before `PostQuantumSignatures`.
+    pub ml_dsa_65_verification_cost: Gas,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -191,6 +198,8 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
+                ml_dsa_65_verification_cost: config.fees.signature_verification_costs
+                    [SignatureKind::MlDsa65],
             },
             wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {

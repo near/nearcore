@@ -103,7 +103,8 @@ snapshot_kind: text
     "pessimistic_gas_price_inflation_ratio": [
       1,
       1
-    ]
+    ],
+    "ml_dsa_65_verification_cost": 0
   },
   "wasm_config": {
     "ext_costs": {

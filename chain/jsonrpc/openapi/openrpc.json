@@ -10380,6 +10380,14 @@
             ],
             "description": "Describes the cost of creating a data receipt, `DataReceipt`."
           },
+          "ml_dsa_65_verification_cost": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Gas charged at transaction conversion per ML-DSA-65 signature the\ntransaction triggers verification of (its own signature if ML-DSA-65,\nplus each `Delegate` action with an ML-DSA-65 inner signer). Paid by the\nsigner when buying the transaction; tooling needs it to estimate the\ncost of ML-DSA-65-signed transactions. 0 before `PostQuantumSignatures`."
+          },
           "pessimistic_gas_price_inflation_ratio": {
             "description": "Pessimistic gas price inflation ratio.",
             "items": {

@@ -1,7 +1,8 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
 use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
-    ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
+    ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, SignatureKind,
+    StorageUsageConfig,
 };
 use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
@@ -430,6 +431,14 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::DeployGlobalContractExecutionBase)?,
                 deploy_global_contract_execution_per_byte: params
                     .get(Parameter::DeployGlobalContractExecutionPerByte)?,
+                signature_verification_costs: enum_map::enum_map! {
+                    // Extra verification cost relative to the classical schemes.
+                    // They stay 0 for backwards compatibility; only ML-DSA-65
+                    // carries a charge. Adding a new `SignatureKind` variant
+                    // forces a decision here.
+                    SignatureKind::Ed25519 | SignatureKind::Secp256k1 => Gas::ZERO,
+                    SignatureKind::MlDsa65 => params.get(Parameter::MlDsa65VerificationCost)?,
+                },
             }),
             wasm_config: Arc::new(Config {
                 ext_costs: ExtCostsConfig {

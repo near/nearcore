@@ -324,6 +324,8 @@ global_contract_storage_amount_per_byte: 999999999999999999999999999 yN
 deploy_global_contract_execution_base: 0
 deploy_global_contract_execution_per_byte: 0
 
+ml_dsa_65_verification_cost: 0
+
 action_use_global_contract: {
   send_sir: 999_999_999_999_999,
   send_not_sir: 999_999_999_999_999,

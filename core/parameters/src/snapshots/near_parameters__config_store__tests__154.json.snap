@@ -104,7 +104,7 @@ snapshot_kind: text
       1,
       1
     ],
-    "ml_dsa_65_verification_cost": 0
+    "ml_dsa_65_verification_cost": 100000000000
   },
   "wasm_config": {
     "ext_costs": {
@@ -207,7 +207,7 @@ snapshot_kind: text
     "discard_custom_sections": true,
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": true,
-    "gas_key_host_fns": false,
+    "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
     "yield_with_id_host_fns": false,

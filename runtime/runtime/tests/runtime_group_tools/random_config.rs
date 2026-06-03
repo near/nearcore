@@ -29,6 +29,9 @@ pub fn random_config() -> RuntimeConfig {
             min_gas_refund_penalty: Gas::from_gas(rng.next_u64()),
             deploy_global_contract_execution_base: rng.next_u64() % 1_000_000,
             deploy_global_contract_execution_per_byte: rng.next_u64() % 1_000,
+            signature_verification_costs: enum_map::enum_map! {
+                _ => Gas::from_gas(rng.next_u64() % 1_000_000_000)
+            },
         }),
         ..RuntimeConfig::test()
     }
