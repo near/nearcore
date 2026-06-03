@@ -61,7 +61,7 @@ const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
 const EARLY_KICKOUT_MIN_MISSES: u64 = 20;
-const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 95;
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 80;
 const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
 const EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS: u64 = 50;
 
@@ -69,7 +69,7 @@ const EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS: u64 = 50;
 /// A validator is blacklisted on a shard when, within the current epoch:
 ///   - expected >= EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS  (sample-size guard)
 ///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
-///   - produced * 100 < expected * 95                     (production ratio < 95%)
+///   - produced * 100 < expected * 80                     (production ratio < 80%)
 /// Safety valve: if blacklisting would remove every distinct producer on a shard,
 /// that shard is omitted (caller falls through to default sampling).
 pub fn compute_chunk_producer_blacklist(
