@@ -5,6 +5,13 @@
 /// (i.e. a shard that didn't exist in epoch E1 can be looked up using the hash
 /// of the last block in E1, because the write side saves using the next epoch's
 /// shard layout at the boundary).
+///
+/// Scope note (early kickout, PR6): with no chunk misses the blacklist is empty, so
+/// the producer written/read here is the default sampling result. The full behavioral
+/// "node stops producing -> slots reassign mid-epoch" e2e (a multi-validator chain that
+/// actually drops chunks) is intentionally deferred to PR7. This module is NOT a
+/// post-epoch-sync production proof either: seeding boundary `ChunkProducers` after epoch
+/// sync is owned by PR4b.
 #[cfg(feature = "nightly")]
 mod tests {
     use crate::setup::builder::TestLoopBuilder;

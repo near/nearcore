@@ -284,6 +284,115 @@ fn get_chunk_producer_blacklist_blacklists_miss_heavy_producer() {
     assert_eq!(bl, HashMap::from([(shard_id, HashSet::from([0]))]));
 }
 
+/// Drives `count` blocks in epoch 0 simulating `down` as a non-producing node, using
+/// **blacklist-aware** assignment (mirrors the write path): at each height the chunk is
+/// assigned to `sample_chunk_producer_excluding(current_blacklist)`. If that producer is
+/// `down` the chunk is missed (mask=false); otherwise it is produced (mask=true). So once
+/// `down` is blacklisted its slots reassign to a live producer that actually produces —
+/// exactly what happens in production, with no phantom misses for the replacement.
+/// Returns the recorded block hashes (index = height).
+#[cfg(feature = "nightly")]
+fn drive_down_node(handle: &EpochManagerHandle, count: u64, down: ValidatorId) -> Vec<CryptoHash> {
+    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
+    let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    let empty = HashSet::new();
+    let mut prev = h[0];
+    for height in 1..=count {
+        let blacklist = handle.get_chunk_producer_blacklist(&prev).unwrap();
+        let assigned = epoch_info
+            .sample_chunk_producer_excluding(
+                &layout,
+                shard_id,
+                height,
+                blacklist.get(&shard_id).unwrap_or(&empty),
+            )
+            .unwrap();
+        let produced = assigned != down;
+        record_block_with_mask(
+            &mut handle.write(),
+            prev,
+            h[height as usize],
+            height,
+            vec![produced],
+        );
+        prev = h[height as usize];
+    }
+    h
+}
+
+// Anti-flap attribution (headline guard): once validator 0 is blacklisted, its slots
+// reassign to the replacement, which produces. The aggregator must credit the replacement
+// (not validator 0) on the reassigned heights, so validator 0 never recovers and never
+// flaps back in. Forward recompute makes this self-contained in the epoch manager.
+#[cfg(feature = "nightly")]
+#[test]
+fn early_kickout_attribution_does_not_flap() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+
+    // Phase 1: drive until validator 0 is blacklisted. With blacklist-aware assignment the
+    // replacement (1) produces on the reassigned heights, so 1 stays healthy.
+    let count = 200;
+    let h = drive_down_node(&handle, count, 0);
+    let prev = *h.last().unwrap();
+    let epoch_id = handle.get_epoch_id(&prev).unwrap();
+    let shard_id = handle.get_shard_layout(&epoch_id).unwrap().shard_ids().next().unwrap();
+
+    let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
+    assert_eq!(
+        bl,
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+        "validator 0 must be blacklisted after sustained misses"
+    );
+
+    // Snapshot validator 0's and the replacement's stats at the blacklist point.
+    let agg_before = handle.read().get_epoch_info_aggregator_upto_last(&prev).unwrap();
+    let stats = |agg: &crate::epoch_info_aggregator::EpochInfoAggregator, id: ValidatorId| {
+        agg.shard_tracker
+            .get(&shard_id)
+            .and_then(|m| m.get(&id))
+            .map(|s| (s.produced(), s.expected()))
+    };
+    let before_0 = stats(&agg_before, 0).expect("validator 0 should have stats");
+    let before_1 = stats(&agg_before, 1).expect("replacement should have stats");
+
+    // Phase 2: keep driving with 0 still down. Its slots are reassigned to 1, which produces.
+    let mut prev2 = prev;
+    let extra = 80u64;
+    for height in (count + 1)..=(count + extra) {
+        let cur = hash(&height.to_le_bytes());
+        record_block_with_mask(&mut handle.write(), prev2, cur, height, vec![true]);
+        prev2 = cur;
+    }
+
+    let agg_after = handle.read().get_epoch_info_aggregator_upto_last(&prev2).unwrap();
+    let after_0 = stats(&agg_after, 0).expect("validator 0 should still have stats");
+    let after_1 = stats(&agg_after, 1).expect("replacement should still have stats");
+
+    // Validator 0 is no longer assigned, so it accrues neither produced nor expected: it
+    // cannot recover, hence cannot flap back in.
+    assert_eq!(
+        after_0, before_0,
+        "blacklisted validator 0 must not accrue produced/expected (no recovery -> no flap)"
+    );
+    // The replacement absorbs the reassigned heights and produces them.
+    assert!(
+        after_1.0 > before_1.0 && after_1.1 > before_1.1,
+        "replacement must accrue produced/expected on reassigned heights ({before_1:?} -> {after_1:?})"
+    );
+    // And the blacklist is stable: validator 0 stays blacklisted.
+    let bl_after = handle.get_chunk_producer_blacklist(&prev2).unwrap();
+    assert_eq!(
+        bl_after,
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+        "blacklist must remain stable (no flap)"
+    );
+}
+
 // 11. v152+ protocol: at an epoch boundary the aggregator belongs to the previous
 //     epoch, so the accessor returns empty even though epoch 0 stats are miss-heavy.
 #[cfg(feature = "nightly")]
