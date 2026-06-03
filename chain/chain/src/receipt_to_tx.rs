@@ -37,11 +37,9 @@ impl Scan {
     /// `scan_bounds_match_iterators` locks the iterators to it.
     pub fn height_bounds(self, anchor: BlockHeight) -> (BlockHeight, BlockHeight) {
         match self {
-            // `CenterOut` visits `anchor-window ..= anchor+window`.
             Scan::CenterOut { window } => {
                 (anchor.saturating_sub(window), anchor.saturating_add(window))
             }
-            // `Ancestor` only walks backward: `anchor-max_distance ..= anchor`.
             Scan::Ancestor { max_distance } => (anchor.saturating_sub(max_distance), anchor),
         }
     }
@@ -74,7 +72,6 @@ fn ancestor_heights(
     block_height: BlockHeight,
     max_distance: BlockHeightDelta,
 ) -> impl Iterator<Item = BlockHeight> {
-    // Derive from `height_bounds` so the range can't drift: `h..=h-max_distance`, sat 0.
     let (lo, hi) = (Scan::Ancestor { max_distance }).height_bounds(block_height);
     (lo..=hi).rev()
 }

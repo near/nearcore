@@ -1436,9 +1436,11 @@ enum ScanShards {
 /// reshard in the window contributes the pre-reshard layout, whose
 /// `account_id_to_shard_id` / `shard_ids` still name the retired parent.
 ///
-/// `Ok(None)` = no window height locally resolvable (GC'd) → `UnknownReceipt`.
-/// Per-height `DBNotFoundErr` skipped (matches the kernel); other chain/epoch
-/// errors → `InternalError`, so corruption can't masquerade as a missing receipt.
+/// `Ok(None)` = no height in the window has a local block header (all GC'd) →
+/// the caller returns `UnknownReceipt`. A missing header at a single height
+/// (`DBNotFoundErr`) is skipped — the same skip-and-continue the hint scan uses;
+/// other chain/epoch errors → `InternalError`, so corruption can't masquerade as
+/// a missing receipt.
 fn resolve_scan_shards(
     actor: &ViewClientActor,
     scan: Scan,
@@ -1474,9 +1476,9 @@ fn resolve_scan_shards(
     }
 
     // Union per seed across the window's layouts, deduping in place — a shard
-    // scanned twice double-charges the budget. Coverage-safe: the kernel re-keys
-    // outcomes by `(block_hash, shard_id)` per height, so a deduped id still hits
-    // its rows in every layout.
+    // scanned twice double-charges the budget. Coverage-safe: `resolve_receipt_via_hint`
+    // re-keys outcomes by `(block_hash, shard_id)` per height, so a deduped id still
+    // hits its rows in every layout.
     let mut shards: Vec<ShardId> = Vec::new();
     let push = |id: ShardId, shards: &mut Vec<ShardId>| {
         if !shards.contains(&id) {
@@ -1910,7 +1912,7 @@ mod hint_lineage_tests {
         let (split, parent, _child, _unchanged) = split_layout();
         // The retired parent id is not a valid shard in the post-split layout;
         // the walk ends immediately and the hint is still returned (harmless —
-        // the kernel finds no rows for it).
+        // the hint scan finds no rows for it).
         assert_eq!(hint_lineage(&split, parent).unwrap(), vec![parent]);
     }
 }

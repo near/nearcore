@@ -57,8 +57,8 @@ fn test_hint_fallback_resolves_tx_origin() {
 /// doesn't know creating shard → hop 1 enumerates all shards at hint
 /// height + finds tx outcome.
 ///
-/// Gated off under spice: spice execution model places cross-shard tx
-/// outcome on different block than receipt's hint height; scan misses.
+/// Under spice the cross-shard tx outcome lands on a different block than the
+/// receipt's hint height, so the scan misses.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_height_only_resolves_all_shards() {
@@ -109,9 +109,9 @@ fn test_hint_height_only_resolves_all_shards() {
 /// action receipt's execution height. Handler walks both hops server-side
 /// via repeated hint scans.
 ///
-/// Gated off under spice: spice model produces refund + action receipts
-/// on different blocks than standard model; computed hint coords don't
-/// match outcome rows scan inspects.
+/// Under spice the refund + action receipts land on different blocks than the
+/// standard model, so the computed hint coords don't match the outcome rows the
+/// scan inspects.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_fallback_resolves_through_refund_chain() {
@@ -184,9 +184,9 @@ fn test_hint_fallback_resolves_through_refund_chain() {
 /// out of), so the scan targets that small lineage and finds the originating
 /// tx without enumerating all shards.
 ///
-/// Gated off under spice: spice model lands cross-shard refund / action
-/// receipts on different blocks than standard; hint coords don't line up
-/// with outcome rows resolver scans.
+/// Under spice the cross-shard refund / action receipts land on different blocks
+/// than the standard model, so the hint coords don't line up with the outcome
+/// rows the resolver scans.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_cross_shard_walk_resolves_via_predecessor_shard() {
@@ -907,11 +907,11 @@ struct ReshardBoundary {
 enum ReshardKind {
     /// Static V2: protocol upgrade swaps in a layout derived from `boundary_account`.
     /// Split point known ahead of time, content-independent.
-    StaticV2,
+    Static,
     /// Dynamic V3: `force_split_shards` splits the shard at runtime. Split point is
     /// trie-derived, not `boundary_account` (which only picks the shard + a post-split
     /// child); fires only if the target shard has splittable state.
-    DynamicV3,
+    Dynamic,
 }
 
 /// Split `boundary_account`'s shard (V2 or V3 per `kind`), run until the parent is
@@ -929,7 +929,7 @@ fn setup_reshard_boundary(kind: ReshardKind, boundary_account: &AccountId) -> Re
         .validators_spec(validators_spec)
         .shard_layout(base_shard_layout.clone())
         .epoch_length(epoch_length);
-    if matches!(kind, ReshardKind::DynamicV3) {
+    if matches!(kind, ReshardKind::Dynamic) {
         // V3 force-split fires only if the target shard has splittable trie state:
         // `find_mem_usage_split` returns `NotFound` on a sparse shard → no split →
         // parent never retires → flip scan panics. Seed accounts co-located with
@@ -947,7 +947,7 @@ fn setup_reshard_boundary(kind: ReshardKind, boundary_account: &AccountId) -> Re
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(boundary_account);
 
     let epoch_config_store = match kind {
-        ReshardKind::StaticV2 => {
+        ReshardKind::Static => {
             let (new_epoch_config, _) =
                 derive_new_epoch_config_from_boundary(&base_epoch_config, boundary_account);
             EpochConfigStore::test(BTreeMap::from_iter(vec![
@@ -955,7 +955,7 @@ fn setup_reshard_boundary(kind: ReshardKind, boundary_account: &AccountId) -> Re
                 (genesis.config.protocol_version + 1, Arc::new(new_epoch_config)),
             ]))
         }
-        ReshardKind::DynamicV3 => {
+        ReshardKind::Dynamic => {
             let mut dynamic_epoch_config = base_epoch_config.clone();
             dynamic_epoch_config.shard_layout_config = ShardLayoutConfig::Dynamic {
                 dynamic_resharding_config: DynamicReshardingConfig {
@@ -995,8 +995,8 @@ fn setup_reshard_boundary(kind: ReshardKind, boundary_account: &AccountId) -> Re
     // has no precomputed layout to compare. V3 activates later (~epoch 4 vs ~2),
     // so wider budget.
     let timeout_epochs = match kind {
-        ReshardKind::StaticV2 => 8,
-        ReshardKind::DynamicV3 => 12,
+        ReshardKind::Static => 8,
+        ReshardKind::Dynamic => 12,
     };
     let epoch_manager = env.validator().client().epoch_manager.clone();
     env.validator_runner().run_until(
@@ -1171,7 +1171,7 @@ fn assert_single_hop_resolves_across_reshard(
 }
 
 /// Single-hop across a STATIC V2 reshard — the version the fix is most often
-/// exercised against. Gated off under spice.
+/// exercised against.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_resolves_across_resharding() {
@@ -1179,14 +1179,13 @@ fn test_hint_resolves_across_resharding() {
     let boundary_account: AccountId = "boundary".parse().unwrap();
     assert_single_hop_resolves_across_reshard(
         &boundary_account,
-        setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account),
+        setup_reshard_boundary(ReshardKind::Static, &boundary_account),
     );
 }
 
 /// Single-hop across a DYNAMIC V3 reshard — the only test asserting the live
 /// dynamic mode (the rest drive static V2). Split point is trie-derived, so
 /// `setup_reshard_boundary` seeds splittable state + reads the child id at runtime.
-/// Gated off under spice.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_hint_resolves_across_dynamic_resharding() {
@@ -1194,7 +1193,7 @@ fn slow_test_hint_resolves_across_dynamic_resharding() {
     let boundary_account: AccountId = "boundary".parse().unwrap();
     assert_single_hop_resolves_across_reshard(
         &boundary_account,
-        setup_reshard_boundary(ReshardKind::DynamicV3, &boundary_account),
+        setup_reshard_boundary(ReshardKind::Dynamic, &boundary_account),
     );
 }
 
@@ -1218,8 +1217,6 @@ fn slow_test_hint_resolves_across_dynamic_resharding() {
 ///
 /// `derive_new_epoch_config_from_boundary` derives a STATIC (V2) layout → proves
 /// the static half; V3 rides the same code, not asserted here.
-///
-/// Gated off under spice, like the other cross-shard hint tests.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_multi_hop_resolves_across_resharding() {
@@ -1234,7 +1231,7 @@ fn test_hint_multi_hop_resolves_across_resharding() {
         parent_shard_id,
         child_shard_id,
         ..
-    } = setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account);
+    } = setup_reshard_boundary(ReshardKind::Static, &boundary_account);
 
     // Terminal tx, the hop-2 receipt it produced, and the queried child receipt
     // that receipt produced.
@@ -1260,7 +1257,7 @@ fn test_hint_multi_hop_resolves_across_resharding() {
             actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
         }),
     });
-    // The queried child receipt only needs to decode — the kernel reads it to
+    // The queried child receipt only needs to decode — the hint scan reads it to
     // fill `receiver_account_id`; its predecessor is irrelevant to the walk.
     let child_receipt = Receipt::new_balance_refund(&boundary_account, Balance::ZERO);
 
@@ -1360,8 +1357,6 @@ fn test_hint_multi_hop_resolves_across_resharding() {
 ///
 /// Regression guard: revert the `parent == id` break → this test hangs (the
 /// test-loop has no wall-clock escape from a synchronous CPU loop).
-///
-/// Gated off under spice, like the other cross-shard hint tests.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_self_parenting_shard_does_not_loop() {
@@ -1369,7 +1364,7 @@ fn test_hint_self_parenting_shard_does_not_loop() {
 
     let boundary_account: AccountId = "boundary".parse().unwrap();
     let ReshardBoundary { mut env, h_anchor, unchanged_shard_id, .. } =
-        setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account);
+        setup_reshard_boundary(ReshardKind::Static, &boundary_account);
 
     // Hint the unchanged shard with a window spanning the post-split layout,
     // where it is its own parent. No synthetic outcome is injected, so a
@@ -1395,7 +1390,6 @@ fn test_hint_self_parenting_shard_does_not_loop() {
 /// UP, never DOWN, so the parent hint misses the child; the no-hint `Enumerate` seed
 /// covers it (unions every layout's `shard_ids`). Tx-origin injected on the CHILD at
 /// `h_anchor`, query anchored at `h_anchor - 1` so `CenterOut`'s `+window` reaches it.
-/// Gated off under spice.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_hint_forward_gap() {
@@ -1409,7 +1403,7 @@ fn test_hint_forward_gap() {
         parent_shard_id,
         child_shard_id,
         ..
-    } = setup_reshard_boundary(ReshardKind::StaticV2, &boundary_account);
+    } = setup_reshard_boundary(ReshardKind::Static, &boundary_account);
 
     // Inject tx-origin on the POST-split child shard at the anchor block (forward
     // mirror of the backward test). Child shard has real outcome rows to append to.
