@@ -10,7 +10,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, YieldId};
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
     Receipt, ReceivedData, VersionedReceiptEnum,
@@ -258,6 +258,61 @@ pub fn remove_promise_yield_status(
     data_id: CryptoHash,
 ) {
     state_update.remove(TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id });
+}
+
+pub fn set_yield_id_mapping(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    yield_id: YieldId,
+    data_id: CryptoHash,
+) {
+    set(
+        state_update,
+        TrieKey::YieldIdToDataId { receiver_id: receiver_id.clone(), yield_id },
+        &data_id,
+    );
+    set(
+        state_update,
+        TrieKey::DataIdToYieldId { receiver_id: receiver_id.clone(), data_id },
+        &yield_id,
+    );
+}
+
+pub fn get_data_id_for_yield_id(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    yield_id: YieldId,
+) -> Result<Option<CryptoHash>, StorageError> {
+    get(trie, &TrieKey::YieldIdToDataId { receiver_id: receiver_id.clone(), yield_id })
+}
+
+pub fn get_yield_id_for_data_id(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<Option<YieldId>, StorageError> {
+    get(trie, &TrieKey::DataIdToYieldId { receiver_id: receiver_id.clone(), data_id })
+}
+
+pub fn has_yield_id_mapping(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    yield_id: YieldId,
+) -> Result<bool, StorageError> {
+    trie.contains_key(
+        &TrieKey::YieldIdToDataId { receiver_id: receiver_id.clone(), yield_id },
+        AccessOptions::DEFAULT,
+    )
+}
+
+pub fn remove_yield_id_mappings(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    yield_id: YieldId,
+    data_id: CryptoHash,
+) {
+    state_update.remove(TrieKey::YieldIdToDataId { receiver_id: receiver_id.clone(), yield_id });
+    state_update.remove(TrieKey::DataIdToYieldId { receiver_id: receiver_id.clone(), data_id });
 }
 
 pub fn get_buffered_receipt_indices(

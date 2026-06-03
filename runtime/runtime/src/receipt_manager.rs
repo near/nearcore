@@ -180,36 +180,6 @@ impl ReceiptManager {
         });
     }
 
-    /// Resolves a PromiseYield input dependency previously created under given `data_id`,
-    /// if it exists.
-    ///
-    /// # Arguments
-    ///
-    /// * `data_id` - id of the Data receipt being submitted
-    /// * `data` - contents of the Data receipt
-    pub(super) fn checked_resolve_promise_yield(
-        &mut self,
-        data_id: CryptoHash,
-        data: Vec<u8>,
-    ) -> bool {
-        if let Some(receipt_index) = self.promise_yield_receipt_index.remove(&data_id) {
-            // Convert existing PromiseYield to a standard Action receipt
-            let receipt = &mut self.action_receipts[receipt_index];
-            assert!(receipt.is_promise_yield, "receipt should be promise yield");
-            receipt.is_promise_yield = false;
-
-            // Create Data receipt delivering the payload
-            self.data_receipts.push(DataReceiptMetadata {
-                data_id,
-                data: Some(data),
-                is_promise_resume: false,
-            });
-            true
-        } else {
-            false
-        }
-    }
-
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
     /// # Arguments

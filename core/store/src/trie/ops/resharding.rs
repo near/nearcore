@@ -381,6 +381,8 @@ mod tests {
             vec![col::GLOBAL_CONTRACT_CODE]..vec![col::GLOBAL_CONTRACT_CODE + 1],
             vec![col::GLOBAL_CONTRACT_NONCE]..vec![col::GLOBAL_CONTRACT_NONCE + 1],
             vec![col::PROMISE_YIELD_STATUS]..append_key(col::PROMISE_YIELD_STATUS, &alice_account),
+            vec![col::YIELD_ID_TO_DATA_ID]..append_key(col::YIELD_ID_TO_DATA_ID, &alice_account),
+            vec![col::DATA_ID_TO_YIELD_ID]..append_key(col::DATA_ID_TO_YIELD_ID, &alice_account),
         ];
         assert!(left_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in left_intervals.iter().zip_eq(expected_left_intervals.iter()) {
@@ -409,6 +411,10 @@ mod tests {
             vec![col::GLOBAL_CONTRACT_NONCE]..vec![col::GLOBAL_CONTRACT_NONCE + 1],
             append_key(col::PROMISE_YIELD_STATUS, &alice_account)
                 ..vec![col::PROMISE_YIELD_STATUS + 1],
+            append_key(col::YIELD_ID_TO_DATA_ID, &alice_account)
+                ..vec![col::YIELD_ID_TO_DATA_ID + 1],
+            append_key(col::DATA_ID_TO_YIELD_ID, &alice_account)
+                ..vec![col::DATA_ID_TO_YIELD_ID + 1],
         ];
         assert!(right_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in right_intervals.iter().zip_eq(expected_right_intervals.iter()) {
