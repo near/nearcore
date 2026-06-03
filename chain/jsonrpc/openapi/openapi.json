@@ -6668,6 +6668,14 @@
             ],
             "description": "Per byte cost of arguments and method name."
           },
+          "yield_create_with_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for creating a yield promise with a user-provided yield ID\n(covers the additional trie writes for the yield_id<->data_id mapping)."
+          },
           "yield_resume_base": {
             "allOf": [
               {
@@ -20888,6 +20896,10 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
+          },
+          "yield_with_id_host_fns": {
+            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
+            "type": "boolean"
           }
         },
         "type": "object"

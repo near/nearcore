@@ -230,6 +230,10 @@ pub struct Config {
     /// NEP-635: <https://github.com/near/NEPs/pull/635>
     pub p256_verify_host_fn: bool,
 
+    /// Whether to enable the promise_yield_create_with_id and
+    /// promise_yield_resume_with_yield_id host functions.
+    pub yield_with_id_host_fns: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -263,6 +267,7 @@ impl Config {
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
+        self.yield_with_id_host_fns = true;
     }
 }
 
