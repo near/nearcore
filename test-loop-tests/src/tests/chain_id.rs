@@ -6,6 +6,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
+use near_primitives::version::MIN_SUPPORTED_PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
 /// End-to-end: deploy a contract that calls `chain_id` and assert it returns the
@@ -51,6 +52,15 @@ fn test_chain_id_pre_activation_call_fails() {
 
     // chain_id_host_fn is turned on at protocol version 85 (see 85.yaml).
     let pre_activation_pv = 84;
+    // A node can only be built at pre_activation_pv while it stays at or above the
+    // minimum supported version. Once that floor rises past it, chain_id is active
+    // everywhere: delete this test and drop the `#[cfg(feature = "latest_protocol")]`
+    // gate on the chain_id import in test-contract-rs.
+    assert!(
+        MIN_SUPPORTED_PROTOCOL_VERSION <= pre_activation_pv,
+        "chain_id is active on all supported protocol versions; delete this test and \
+         drop the latest_protocol gate on the chain_id import in test-contract-rs"
+    );
     let user = create_account_id("user");
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
