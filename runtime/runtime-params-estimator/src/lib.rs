@@ -320,13 +320,11 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
     (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
-    #[cfg(feature = "nightly")]
     (Cost::YieldCreateBase, yield_create_base),
-    #[cfg(feature = "nightly")]
     (Cost::YieldCreateByte, yield_create_byte),
     #[cfg(feature = "nightly")]
+    (Cost::YieldCreateWithIdBase, yield_create_with_id_base),
     (Cost::YieldResumeBase, yield_resume_base),
-    #[cfg(feature = "nightly")]
     (Cost::YieldResumeByte, yield_resume_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
@@ -1558,7 +1556,6 @@ fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     rocks_db_read_cost(&ctx.config) / total_bytes
 }
 
-#[cfg(feature = "nightly")]
 fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = noop_function_call_cost(ctx);
     let result = if let Some(cost) = &ctx.cached.yield_create_base {
@@ -1573,7 +1570,6 @@ fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
     result.saturating_sub(&(base_cost / 1000), &NonNegativeTolerance::PER_MILLE)
 }
 
-#[cfg(feature = "nightly")]
 fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
     let noop_function_call = noop_function_call_cost(ctx);
     let base_cost = yield_create_base(ctx);
@@ -1593,6 +1589,20 @@ fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 #[cfg(feature = "nightly")]
+fn yield_create_with_id_base(ctx: &mut EstimatorContext) -> GasCost {
+    let base_cost = noop_function_call_cost(ctx);
+    let result = if let Some(cost) = &ctx.cached.yield_create_with_id_base {
+        cost.clone()
+    } else {
+        let (result, count) =
+            fn_cost_count(ctx, "yield_create_with_id_base", ExtCosts::yield_create_with_id_base, 0);
+        assert_eq!(count, 1000);
+        let result = result / count;
+        ctx.cached.yield_create_with_id_base.insert(result).clone()
+    };
+    result.saturating_sub(&(base_cost / 1000), &NonNegativeTolerance::PER_MILLE)
+}
+
 fn yield_resume_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
@@ -1604,7 +1614,6 @@ fn yield_resume_base(ctx: &mut EstimatorContext) -> GasCost {
     )
 }
 
-#[cfg(feature = "nightly")]
 fn yield_resume_byte(ctx: &mut EstimatorContext) -> GasCost {
     let baseline = fn_cost_with_setup(
         ctx,

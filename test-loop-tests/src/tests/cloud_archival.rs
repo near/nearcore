@@ -670,7 +670,9 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
 }
 
 /// A block at one height is lost; the batch entry there is `None` and
-/// `cloud_head` advances past it.
+/// `cloud_head` advances past it. The dropped slot pushes the epoch's sync block
+/// past a mid-epoch bootstrap target, so the reader reconstructs from the
+/// previous epoch's snapshot and applies deltas across the gap.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_single_skipped_slot() {
@@ -685,6 +687,54 @@ fn test_cloud_archival_single_skipped_slot() {
     assert!(h.cloud_head() > dropped_height);
     h.assert_heads_and_gc_ok();
 
+    let (start, target) = (5, 15);
+    let epoch_of = |height| {
+        *cloud_storage.get_block_data(height).unwrap().unwrap().block().header().epoch_id()
+    };
+    // start and target straddle an epoch boundary, so reconstruction crosses it.
+    assert_ne!(epoch_of(start), epoch_of(target), "start and target must be in different epochs");
+    let target_epoch_data = cloud_storage.get_epoch_data(epoch_of(target)).unwrap();
+    let sync_block_height = target_epoch_data.sync_block_height();
+    // The dropped slot is in the target epoch within the bootstrap range; it
+    // pushes that epoch's sync block past the target, so the reader cannot use
+    // the target epoch's own snapshot and must walk back to an earlier one.
+    assert!(
+        target_epoch_data.epoch_start_height() <= dropped_height && dropped_height < target,
+        "dropped slot {dropped_height} must be in the target epoch and the bootstrap range"
+    );
+    assert!(
+        sync_block_height > target,
+        "sync block {sync_block_height} must be past target {target}"
+    );
+
+    h.bootstrap_reader(start, target);
+    h.kill_reader();
+
+    h.shutdown();
+}
+
+/// At cadence 2, `start` (epoch 3) has no snapshot, so the reader resolves the
+/// snapshot to an earlier epoch whose sync block is below the downloaded block
+/// range. Reconstruction loads that snapshot from cloud state parts, so it works
+/// without the sync block being local.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_bootstrap_snapshot_in_earlier_epoch() {
+    let mut h = CloudArchiveHarness::builder().snapshot_every_n_epochs(2).build();
+    h.run_until_epoch(5);
+
+    // Pin the scenario: the resolved snapshot is in an earlier epoch than start.
+    let (start, target) = (35, 38);
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let shard_id = CloudArchiveHarness::all_shard_ids()[0];
+    let (_, snapshot_epoch_id) =
+        find_snapshot_at_or_before(&cloud_storage, start, shard_id).unwrap();
+    let start_epoch_id =
+        *cloud_storage.get_block_data(start).unwrap().unwrap().block().header().epoch_id();
+    assert_ne!(snapshot_epoch_id, start_epoch_id, "snapshot must resolve to an earlier epoch");
+
+    h.bootstrap_reader(start, target);
+    h.kill_reader();
     h.shutdown();
 }
 
