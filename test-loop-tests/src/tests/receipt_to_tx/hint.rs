@@ -1189,7 +1189,7 @@ fn test_hint_resolves_across_resharding() {
 /// Gated off under spice.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_hint_resolves_across_dynamic_resharding() {
+fn slow_test_hint_resolves_across_dynamic_resharding() {
     init_test_logger();
     let boundary_account: AccountId = "boundary".parse().unwrap();
     assert_single_hop_resolves_across_reshard(
