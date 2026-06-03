@@ -400,9 +400,7 @@ impl Default for ActionResult {
 }
 
 /// Receipt-level aggregate built up by folding per-action [`ActionResult`]s
-/// through [`ActionReceiptResult::merge`]. Mirrors `ActionResult` field for
-/// field, except `executed_contract` becomes `executed_contracts`: one entry
-/// per merged action, in action order.
+/// through [`ActionReceiptResult::merge`].
 #[derive(Debug)]
 pub struct ActionReceiptResult {
     pub gas_burnt: Gas,

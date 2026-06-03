@@ -1,6 +1,6 @@
 ---
 source: core/primitives/src/views.rs
-assertion_line: 3142
+assertion_line: 3106
 expression: view
 snapshot_kind: text
 ---
@@ -556,6 +556,11 @@ snapshot_kind: text
       "cost_category": "WASM_HOST_COST",
       "cost": "YIELD_CREATE_BYTE",
       "gas_used": "62"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "YIELD_CREATE_WITH_ID_BASE",
+      "gas_used": "87"
     },
     {
       "cost_category": "WASM_HOST_COST",
