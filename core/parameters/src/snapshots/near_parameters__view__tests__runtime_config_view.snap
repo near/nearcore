@@ -209,6 +209,7 @@ expression: "&view"
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
     "yield_with_id_host_fns": false,
+    "chain_id_host_fn": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,

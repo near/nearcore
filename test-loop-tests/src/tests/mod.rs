@@ -5,6 +5,7 @@ mod block_chunk_signature;
 mod bug_repro;
 mod cache_warming;
 mod catching_up;
+mod chain_id;
 mod chunk_producers;
 mod chunk_validator_failover;
 mod chunk_validator_kickout;

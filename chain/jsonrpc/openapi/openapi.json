@@ -20801,6 +20801,10 @@
       },
       "VMConfigView": {
         "properties": {
+          "chain_id_host_fn": {
+            "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
+            "type": "boolean"
+          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"

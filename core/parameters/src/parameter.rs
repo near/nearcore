@@ -274,6 +274,9 @@ pub enum Parameter {
 
     // Flag to enable yield_create_with_id and yield_resume_with_id host functions
     YieldWithIdHostFns,
+
+    // Flag to enable chain_id host function (NEP-638)
+    ChainIdHostFn,
 }
 
 #[derive(

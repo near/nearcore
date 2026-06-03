@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -210,6 +209,7 @@ snapshot_kind: text
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
     "yield_with_id_host_fns": true,
+    "chain_id_host_fn": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
