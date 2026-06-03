@@ -596,6 +596,14 @@ fn build_target_tx(mapping: &TxMapping, nonce: Nonce) -> Transaction {
         }),
     };
     target_tx.actions_mut().clone_from(&mapping.actions);
+    tracing::debug!(
+        target: "mirror",
+        nonce_kind = ?mapping.nonce_kind,
+        signer_id = %mapping.target_signer_id,
+        receiver_id = %mapping.target_receiver_id,
+        nonce,
+        "built target tx"
+    );
     target_tx
 }
 
@@ -625,6 +633,9 @@ struct MappedTx {
     target_tx: SignedTransaction,
     nonce_updates: HashSet<NonceLookupKey>,
     sent_successfully: bool,
+    // Distinct from `sent_successfully`: a tx can be attempted but rejected (e.g.
+    // InvalidTx); without this we'd keep retrying it on every later send pass.
+    send_attempted: bool,
 }
 
 impl MappedTx {
@@ -641,6 +652,7 @@ impl MappedTx {
             target_tx,
             nonce_updates: mapping.nonce_updates,
             sent_successfully: false,
+            send_attempted: false,
         }
     }
 
@@ -674,6 +686,7 @@ impl TargetChainTx {
                     target_tx,
                     nonce_updates: t.nonce_updates.clone(),
                     sent_successfully: false,
+                    send_attempted: false,
                 });
             }
             Self::Ready(_) => unreachable!(),
@@ -737,10 +750,34 @@ struct MappedBlock {
     chunks: Vec<MappedChunk>,
 }
 
+impl MappedBlock {
+    pub(crate) fn iter_txs(&self) -> impl Iterator<Item = (TxRef, &TargetChainTx)> + '_ {
+        let source_height = self.source_height;
+        self.chunks.iter().flat_map(move |chunk| {
+            let shard_id = chunk.shard_id;
+            chunk
+                .txs
+                .iter()
+                .enumerate()
+                .map(move |(tx_idx, tx)| (TxRef { source_height, shard_id, tx_idx }, tx))
+        })
+    }
+
+    fn all_txs_sent(&self) -> bool {
+        self.iter_txs().all(|(_, tx)| match tx {
+            TargetChainTx::Ready(t) => t.send_attempted,
+            TargetChainTx::AwaitingNonce(_) => false,
+        })
+    }
+
+    fn has_any_awaiting(&self) -> bool {
+        self.iter_txs().any(|(_, tx)| matches!(tx, TargetChainTx::AwaitingNonce(_)))
+    }
+}
+
 #[derive(Debug)]
 struct TxBatch {
     source_height: BlockHeight,
-    source_hash: CryptoHash,
     txs: Vec<(TxRef, TargetChainTx)>,
 }
 
@@ -748,24 +785,37 @@ impl From<&MappedBlock> for TxBatch {
     fn from(block: &MappedBlock) -> Self {
         Self {
             source_height: block.source_height,
-            source_hash: block.source_hash,
-            txs: block
-                .chunks
-                .iter()
-                .flat_map(|c| {
-                    c.txs.iter().enumerate().map(move |(tx_idx, tx)| {
-                        (
-                            TxRef {
-                                source_height: block.source_height,
-                                shard_id: c.shard_id,
-                                tx_idx,
-                            },
-                            tx.clone(),
-                        )
-                    })
-                })
-                .collect(),
+            txs: block.iter_txs().map(|(tx_ref, tx)| (tx_ref, tx.clone())).collect(),
         }
+    }
+}
+
+// Per-block timeout for target-chain nonce resolution. A block's clock starts at first
+// observation (first `expired` call), not when it reaches the queue front, so a run of
+// unresolvable blocks expires together instead of each waiting out the full timeout.
+struct NonceWaitTimers {
+    waiting_since: HashMap<BlockHeight, tokio::time::Instant>,
+    timeout: Duration,
+}
+
+impl NonceWaitTimers {
+    fn new(timeout: Duration) -> Self {
+        Self { waiting_since: HashMap::new(), timeout }
+    }
+
+    // Start a block's clock, unless it's already running.
+    fn start(&mut self, source_height: BlockHeight, now: tokio::time::Instant) {
+        self.waiting_since.entry(source_height).or_insert(now);
+    }
+
+    fn expired(&self, source_height: BlockHeight, now: tokio::time::Instant) -> bool {
+        self.waiting_since
+            .get(&source_height)
+            .is_some_and(|since| now.duration_since(*since) >= self.timeout)
+    }
+
+    fn clear(&mut self, source_height: BlockHeight) {
+        self.waiting_since.remove(&source_height);
     }
 }
 
@@ -807,8 +857,9 @@ async fn fetch_access_key_nonce(
             },
         ))
         .await
-        .unwrap()
-    {
+        .unwrap_or_else(|e| {
+            panic!("ViewAccessKey query for {account_id} {public_key} failed: {e:?}")
+        }) {
         Ok(res) => match res.kind {
             QueryResponseKind::AccessKey(access_key) => Ok(Some(access_key.nonce)),
             other => {
@@ -838,8 +889,9 @@ async fn fetch_gas_key_nonces(
             },
         ))
         .await
-        .unwrap()
-    {
+        .unwrap_or_else(|e| {
+            panic!("ViewGasKeyNonces query for {account_id} {public_key} failed: {e:?}")
+        }) {
         Ok(res) => match res.kind {
             QueryResponseKind::GasKeyNonces(view) => Ok(Some(view.nonces)),
             other => {
@@ -1140,7 +1192,10 @@ impl<T: ChainAccess> TxMirror<T> {
             .await?
         };
 
-        if target_nonce.pending_outcomes.is_empty() && target_nonce.nonce.is_some() {
+        // A tx is ready once we know its target nonce. The nonce is the live target value plus
+        // the txs we've already queued for this key; the target chain is the source of truth, so
+        // we don't gate on having observed any particular prerequisite outcome.
+        if target_nonce.nonce.is_some() {
             Ok(TargetChainTx::new_ready(mapping, target_nonce.nonce.unwrap()))
         } else {
             Ok(TargetChainTx::new_awaiting_nonce(mapping, target_nonce))
@@ -1873,60 +1928,106 @@ impl<T: ChainAccess> TxMirror<T> {
         Ok(())
     }
 
+    // Each pass: send every Ready tx that we haven't attempted yet, across ALL queued
+    // blocks (not just the front one), then hand the contiguous front prefix of fully
+    // sent blocks to the main loop to pop. AwaitingNonce txs are left in the queue so
+    // try_set_nonces() can resolve them in place; their blocks linger (without blocking
+    // later blocks' sends) until they resolve or hit `unresolved_nonce_timeout`.
     async fn send_txs_loop(
-        db: Arc<DB>,
-        blocks_sent: mpsc::Sender<TxBatch>,
+        blocks_sent: mpsc::Sender<BlockHeight>,
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         mut send_time: Pin<Box<tokio::time::Sleep>>,
         send_delay: Arc<Mutex<Duration>>,
         target_client: MultithreadRuntimeHandle<RpcHandlerActor>,
+        unresolved_nonce_timeout: Duration,
     ) -> anyhow::Result<()> {
-        let mut sent_source_height = None;
+        // The highest source height we've already handed off for popping. Blocks linger
+        // in the queue until the main loop pops them, so we skip them on later passes.
+        let mut last_completed_height: Option<BlockHeight> = None;
+        let mut nonce_wait_timers = NonceWaitTimers::new(unresolved_nonce_timeout);
 
         loop {
             (&mut send_time).await;
-
-            let tx_batch = {
-                let tx_block_queue = tx_block_queue.lock();
-                let b = match sent_source_height {
-                    Some(sent_source_height) => {
-                        let mut block_idx = None;
-                        for (idx, b) in tx_block_queue.iter().enumerate() {
-                            if b.source_height > sent_source_height {
-                                block_idx = Some(idx);
-                                break;
-                            }
-                        }
-                        match block_idx {
-                            Some(idx) => tx_block_queue.get(idx),
-                            None => None,
-                        }
-                    }
-                    None => tx_block_queue.get(0),
-                };
-                b.map(|b| TxBatch::from(b))
-            };
-
-            let mut tx_batch = match tx_batch {
-                Some(b) => b,
-                None => {
-                    tokio::time::sleep(Duration::from_millis(200)).await;
-                    continue;
-                }
-            };
-
             let start_time = tokio::time::Instant::now();
 
-            tracing::trace!(target: "mirror", source_height = tx_batch.source_height, "send tx batch");
-            Self::send_transactions(
-                &target_client,
-                tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx),
-            )
-            .await?;
-            set_last_source_height(&db, tx_batch.source_height)?;
-            sent_source_height = Some(tx_batch.source_height);
+            // Across all not-yet-completed blocks, not just the front one. Clone so the
+            // send doesn't hold the queue lock.
+            let mut to_send: Vec<(TxRef, TargetChainTx)> = Vec::new();
+            {
+                let tx_block_queue = tx_block_queue.lock();
+                for block in tx_block_queue.iter() {
+                    if Some(block.source_height) <= last_completed_height {
+                        continue;
+                    }
+                    for (tx_ref, tx) in block.iter_txs() {
+                        let TargetChainTx::Ready(ready) = tx else { continue };
+                        if !ready.send_attempted {
+                            to_send.push((tx_ref, tx.clone()));
+                        }
+                    }
+                }
+            }
 
-            blocks_sent.send(tx_batch).await.context("failed to send block")?;
+            if !to_send.is_empty() {
+                tracing::trace!(target: "mirror", count = to_send.len(), "send tx batch");
+                Self::send_transactions(&target_client, to_send.iter_mut().map(|(_tx_ref, tx)| tx))
+                    .await?;
+            }
+
+            // The send mutated clones; copy the outcome back onto the queued txs, then
+            // collect the front run of fully-sent blocks to pop.
+            let mut completed_heights: Vec<BlockHeight> = Vec::new();
+            {
+                let mut tx_block_queue = tx_block_queue.lock();
+                for (tx_ref, sent) in &to_send {
+                    let TargetChainTx::Ready(sent) = sent else { continue };
+                    let tx = crate::chain_tracker::TxTracker::get_tx(&mut tx_block_queue, tx_ref);
+                    if let TargetChainTx::Ready(queued) = tx {
+                        queued.send_attempted = true;
+                        queued.sent_successfully = sent.sent_successfully;
+                    }
+                }
+
+                let now = tokio::time::Instant::now();
+                // Start the timeout clock on every awaiting block, so a run of unresolvable
+                // blocks counts down together instead of one after another.
+                for block in tx_block_queue.iter() {
+                    if Some(block.source_height) > last_completed_height && block.has_any_awaiting()
+                    {
+                        nonce_wait_timers.start(block.source_height, now);
+                    }
+                }
+                // Pop the longest run of finished blocks from the front: every tx sent, or still
+                // awaiting past the timeout (whose unresolved txs we then drop).
+                for block in tx_block_queue.iter() {
+                    let source_height = block.source_height;
+                    if Some(source_height) <= last_completed_height {
+                        continue;
+                    }
+                    let timed_out =
+                        block.has_any_awaiting() && nonce_wait_timers.expired(source_height, now);
+                    if !block.all_txs_sent() && !timed_out {
+                        break;
+                    }
+                    if timed_out {
+                        tracing::warn!(
+                            target: "mirror",
+                            source_height,
+                            "target chain nonces still unknown after waiting; dropping unresolved txs in this block",
+                        );
+                    }
+                    nonce_wait_timers.clear(source_height);
+                    completed_heights.push(source_height);
+                }
+
+                if let Some(height) = completed_heights.last() {
+                    last_completed_height = Some(*height);
+                }
+            }
+
+            for height in completed_heights {
+                blocks_sent.send(height).await.context("failed to send block")?;
+            }
 
             let send_delay = *send_delay.lock();
             tracing::trace!(target: "mirror", ?send_delay, "sleep before sending more txs");
@@ -1997,6 +2098,16 @@ impl<T: ChainAccess> TxMirror<T> {
                 let mut tracker = tracker.lock();
                 tracker.try_set_nonces(&tx_block_queue, db.as_ref(), access_key_update, nonce)?;
             }
+            // Re-query the target for any txs still awaiting a nonce. Their access key may have
+            // been created by a tx we already sent (possibly in a previous run, whose creating
+            // outcome we won't observe again after a restart), so we ask the target chain
+            // directly rather than waiting to observe the outcome.
+            let awaiting_keys = { tracker.lock().keys_awaiting_nonce() };
+            for nonce_key in awaiting_keys {
+                let nonce = crate::fetch_nonce(&view_client, &nonce_key).await?;
+                let mut tracker = tracker.lock();
+                tracker.resolve_awaiting_nonce(&tx_block_queue, db.as_ref(), &nonce_key, nonce)?;
+            }
         }
     }
 
@@ -2006,7 +2117,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         target_client: MultithreadRuntimeHandle<RpcHandlerActor>,
         target_view_client: MultithreadRuntimeHandle<ViewClientActor>,
-        mut blocks_sent: mpsc::Receiver<TxBatch>,
+        mut blocks_sent: mpsc::Receiver<BlockHeight>,
         mut accounts_to_unstake: mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
         send_delay: Arc<Mutex<Duration>>,
         target_height: Arc<RwLock<BlockHeight>>,
@@ -2023,19 +2134,21 @@ impl<T: ChainAccess> TxMirror<T> {
                     let target_head = *target_head.read();
                     self.queue_txs(&tracker, &tx_block_queue, &target_view_client, target_head, have_stop_height).await?;
                 }
-                tx_batch = blocks_sent.recv() => {
-                    let tx_batch = tx_batch.unwrap();
-                    source_hash = tx_batch.source_hash;
+                popped_height = blocks_sent.recv() => {
+                    let popped_height = popped_height.unwrap();
                     // lock the tracker before removing the block from the queue so that
                     // we don't call on_target_block() in the other thread between removing the block
                     // and calling on_txs_sent(), because that could lead to a bug looking up transactions
                     // in TxTracker::get_tx()
                     let mut tracker = tracker.lock();
-                    {
+                    let tx_batch = {
                         let mut tx_block_queue = tx_block_queue.lock();
                         let b = tx_block_queue.pop_front().unwrap();
-                        assert!(b.source_height == tx_batch.source_height);
+                        assert!(b.source_height == popped_height);
+                        source_hash = b.source_hash;
+                        TxBatch::from(&b)
                     };
+                    set_last_source_height(&self.db, popped_height)?;
                     let target_height = *target_height.read();
                     let new_delay = tracker.on_txs_sent(
                         &tx_block_queue,
@@ -2133,6 +2246,16 @@ impl<T: ChainAccess> TxMirror<T> {
     ) -> anyhow::Result<()> {
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
+
+        // When resuming after having already sent everything up to --stop-height (e.g. a
+        // restart of a finished mirror over a finite source), there are no more blocks to
+        // send and we're done. Without this we'd bail below as if the source were broken.
+        if let Some(stop_height) = stop_height {
+            if last_height >= stop_height {
+                tracing::info!(target: "mirror", stop_height, last_height, "already sent all transactions up to --stop-height");
+                return Ok(());
+            }
+        }
 
         let next_heights =
             self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA + 1).await?;
@@ -2269,20 +2392,22 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let send_delay = Arc::new(Mutex::new(send_delay));
         let send_delay2 = send_delay.clone();
-        let (blocks_sent_tx, blocks_sent_rx) = mpsc::channel(10);
+        let (blocks_sent_tx, blocks_sent_rx) = mpsc::channel::<BlockHeight>(10);
         let tx_block_queue2 = tx_block_queue.clone();
         let rpc_handler2 = rpc_handler.clone();
-        let db = self.db.clone();
+        // Give up on a block's unresolved nonces after ~10 target blocks so a
+        // never-resolving nonce can't keep the queue from draining.
+        let unresolved_nonce_timeout = self.target_min_block_production_delay * 10;
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
         let _send_txs_task = tokio::task::spawn(async move {
             let res = Self::send_txs_loop(
-                db,
                 blocks_sent_tx,
                 tx_block_queue2,
                 send_time,
                 send_delay2,
                 rpc_handler2,
+                unresolved_nonce_timeout,
             )
             .await;
             if let Err(err) = send_txs_done_tx.send(res) {
