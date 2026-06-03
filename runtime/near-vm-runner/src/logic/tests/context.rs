@@ -127,6 +127,11 @@ fn test_chain_id() {
     let want = logic_builder.ext.chain_id();
     let mut logic = logic_builder.build();
     logic.chain_id(0).expect("read chain_id into register from external should be ok");
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: want.len() as u64,
+    });
     logic.assert_read_register(want.as_bytes(), 0);
 }
 
