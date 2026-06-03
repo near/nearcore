@@ -371,17 +371,72 @@ pub struct ActionResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
-    /// Per-action contract list. Each `apply_action` call appends exactly
-    /// one entry: the executed contract for `FunctionCall` actions and
-    /// `AccountContract::None` for all others. After merging the vector
-    /// length equals the receipt's action count. Surfaced via
-    /// `ExecutionMetadata::V4`.
+    /// Contract executed by this action: the resolved contract for
+    /// `FunctionCall`, `AccountContract::None` for all other action kinds.
+    /// Aggregated into [`ActionReceiptResult::executed_contracts`] on merge
+    /// and surfaced via `ExecutionMetadata::V4`.
+    pub executed_contract: AccountContract,
+    pub tokens_burnt: Balance,
+    pub subsidized_amount: Balance,
+}
+
+impl Default for ActionResult {
+    fn default() -> Self {
+        Self {
+            gas_burnt: Gas::ZERO,
+            gas_burnt_for_function_call: Gas::ZERO,
+            gas_used: Gas::ZERO,
+            compute_usage: 0,
+            result: Ok(ReturnData::None),
+            logs: vec![],
+            new_receipts: vec![],
+            validator_proposals: vec![],
+            profile: Default::default(),
+            executed_contract: AccountContract::None,
+            tokens_burnt: Balance::ZERO,
+            subsidized_amount: Balance::ZERO,
+        }
+    }
+}
+
+/// Receipt-level aggregate built up by folding per-action [`ActionResult`]s
+/// through [`ActionReceiptResult::merge`]. Mirrors `ActionResult` field for
+/// field, except `executed_contract` becomes `executed_contracts`: one entry
+/// per merged action, in action order.
+#[derive(Debug)]
+pub struct ActionReceiptResult {
+    pub gas_burnt: Gas,
+    pub gas_burnt_for_function_call: Gas,
+    pub gas_used: Gas,
+    pub compute_usage: Compute,
+    pub result: Result<ReturnData, ActionError>,
+    pub logs: Vec<LogEntry>,
+    pub new_receipts: Vec<Receipt>,
+    pub validator_proposals: Vec<ValidatorStake>,
+    pub profile: Box<ProfileDataV3>,
     pub executed_contracts: Vec<AccountContract>,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
 }
 
-impl ActionResult {
+impl ActionReceiptResult {
+    pub fn new() -> Self {
+        Self {
+            gas_burnt: Gas::ZERO,
+            gas_burnt_for_function_call: Gas::ZERO,
+            gas_used: Gas::ZERO,
+            compute_usage: 0,
+            result: Ok(ReturnData::None),
+            logs: vec![],
+            new_receipts: vec![],
+            validator_proposals: vec![],
+            profile: Default::default(),
+            executed_contracts: vec![],
+            tokens_burnt: Balance::ZERO,
+            subsidized_amount: Balance::ZERO,
+        }
+    }
+
     pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), RuntimeError> {
         assert!(next_result.gas_burnt_for_function_call <= next_result.gas_burnt);
         assert!(
@@ -397,54 +452,45 @@ impl ActionResult {
             .ok_or(IntegerOverflowError)?;
         self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
-        // Profile aggregates by summing; contracts concatenate, so each
-        // per-action `ActionResult` contributes exactly one entry to the
-        // receipt-level vector (in action order).
+        // Profile aggregates by summing; each per-action `ActionResult`
+        // contributes exactly one entry to the receipt-level contract list.
         self.profile.merge(&next_result.profile);
-        self.executed_contracts.append(&mut next_result.executed_contracts);
-        self.result = next_result.result;
+        self.executed_contracts.push(next_result.executed_contract);
         self.logs.append(&mut next_result.logs);
-        if let Ok(ReturnData::ReceiptIndex(ref mut receipt_index)) = self.result {
-            // Shifting local receipt index to be global receipt index.
-            *receipt_index += self.new_receipts.len() as u64;
-        }
-        if self.result.is_ok() {
-            self.new_receipts.append(&mut next_result.new_receipts);
-            self.validator_proposals.append(&mut next_result.validator_proposals);
-            self.tokens_burnt = self
-                .tokens_burnt
-                .checked_add(next_result.tokens_burnt)
-                .ok_or(IntegerOverflowError)?;
-            self.subsidized_amount = self
-                .subsidized_amount
-                .checked_add(next_result.subsidized_amount)
-                .ok_or(IntegerOverflowError)?;
-        } else {
-            self.new_receipts.clear();
-            self.validator_proposals.clear();
-            self.tokens_burnt = Balance::ZERO;
-            self.subsidized_amount = Balance::ZERO;
+        match next_result.result {
+            Ok(mut ret_data) => {
+                if let ReturnData::ReceiptIndex(ref mut receipt_index) = ret_data {
+                    // Shifting local receipt index to be global receipt index.
+                    *receipt_index += self.new_receipts.len() as u64;
+                }
+                self.result = Ok(ret_data);
+                self.new_receipts.append(&mut next_result.new_receipts);
+                self.validator_proposals.append(&mut next_result.validator_proposals);
+                self.tokens_burnt = self
+                    .tokens_burnt
+                    .checked_add(next_result.tokens_burnt)
+                    .ok_or(IntegerOverflowError)?;
+                self.subsidized_amount = self
+                    .subsidized_amount
+                    .checked_add(next_result.subsidized_amount)
+                    .ok_or(IntegerOverflowError)?;
+            }
+            Err(err) => self.set_error(err),
         }
         Ok(())
     }
-}
 
-impl Default for ActionResult {
-    fn default() -> Self {
-        Self {
-            gas_burnt: Gas::ZERO,
-            gas_burnt_for_function_call: Gas::ZERO,
-            gas_used: Gas::ZERO,
-            compute_usage: 0,
-            result: Ok(ReturnData::None),
-            logs: vec![],
-            new_receipts: vec![],
-            validator_proposals: vec![],
-            profile: Default::default(),
-            executed_contracts: vec![],
-            tokens_burnt: Balance::ZERO,
-            subsidized_amount: Balance::ZERO,
-        }
+    /// Marks the receipt as failed: records the error and discards any
+    /// receipt-scoped state that would otherwise leak across the failure
+    /// boundary (queued receipts, proposed validators, burnt/subsidized
+    /// balances). Profile, gas counters, logs and `executed_contracts` are
+    /// kept — they reflect work already done.
+    pub fn set_error(&mut self, err: ActionError) {
+        self.result = Err(err);
+        self.new_receipts.clear();
+        self.validator_proposals.clear();
+        self.tokens_burnt = Balance::ZERO;
+        self.subsidized_amount = Balance::ZERO;
     }
 }
 
@@ -498,10 +544,6 @@ impl Runtime {
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
         let implicit_account_creation_eligible = is_the_only_action && !is_refund;
-        // Populated by `Action::FunctionCall` below; pushed to
-        // `result.executed_contracts` once at the end so every `apply_action`
-        // call contributes exactly one entry to the per-action contract list.
-        let mut executed_contract = AccountContract::None;
 
         // Account validation
         if let Err(e) = check_account_existence(
@@ -512,13 +554,11 @@ impl Runtime {
             implicit_account_creation_eligible,
         ) {
             result.result = Err(e);
-            result.executed_contracts.push(executed_contract);
             return Ok(result);
         }
         // Permission validation
         if let Err(e) = check_actor_permissions(action, account, actor_id, account_id) {
             result.result = Err(e);
-            result.executed_contracts.push(executed_contract);
             return Ok(result);
         }
         match action {
@@ -590,7 +630,7 @@ impl Runtime {
                 let account_contract = account.contract().into_owned();
                 // Record the contract that runs so it can be surfaced via
                 // `ExecutionMetadata::V4` once the feature gate is active.
-                executed_contract = account_contract.clone();
+                result.executed_contract = account_contract.clone();
                 let contract_id = RuntimeContractIdentifier::resolve(
                     account_id,
                     account_contract,
@@ -716,7 +756,6 @@ impl Runtime {
                 )?;
             }
         };
-        result.executed_contracts.push(executed_contract);
         Ok(result)
     }
 
@@ -776,7 +815,7 @@ impl Runtime {
 
         let mut account = get_account(state_update, account_id)?;
         let mut actor_id = receipt.predecessor_id().clone();
-        let mut result = ActionResult::default();
+        let mut result = ActionReceiptResult::new();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
@@ -832,16 +871,13 @@ impl Runtime {
                         set_account(state_update, account_id.clone(), account);
                     }
                     Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-                        result.merge(ActionResult {
-                            result: Err(ActionError {
-                                index: None,
-                                kind: ActionErrorKind::LackBalanceForState {
-                                    account_id: account_id.clone(),
-                                    amount,
-                                },
-                            }),
-                            ..Default::default()
-                        })?;
+                        result.set_error(ActionError {
+                            index: None,
+                            kind: ActionErrorKind::LackBalanceForState {
+                                account_id: account_id.clone(),
+                                amount,
+                            },
+                        });
                     }
                     Err(StorageStakingError::StorageError(err)) => {
                         return Err(RuntimeError::StorageError(
@@ -1079,7 +1115,7 @@ impl Runtime {
         current_gas_price: Balance,
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
-        result: &mut ActionResult,
+        result: &mut ActionReceiptResult,
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
