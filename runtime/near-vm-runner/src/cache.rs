@@ -958,6 +958,7 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
 
     /// Like [`Self::new`], but with no item-count cap — eviction is driven
     /// purely by `max_weight`.
+    #[cfg_attr(windows, allow(dead_code))]
     fn without_item_cap(max_weight: u64) -> Self {
         Self::with_lru(max_weight, lru::LruCache::unbounded())
     }
@@ -973,6 +974,7 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
 
     /// Like [`Self::get`], but yields a mutable reference to the stored value.
     /// Also promotes `key` to most-recently-used.
+    #[cfg_attr(windows, allow(dead_code))]
     fn get_mut(&mut self, key: &K) -> Option<&mut (u64, V)> {
         self.cache.get_mut(key)
     }
@@ -1038,6 +1040,7 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
     /// Drop `key` from the index if present, reclaiming its tracked weight.
     /// Used to keep the index consistent when a file is removed out-of-band
     /// (e.g. the protocol-version sweep unlinks directly on disk).
+    #[cfg_attr(windows, allow(dead_code))]
     fn remove(&mut self, key: &K) {
         if let Some((weight, _)) = self.cache.pop(key) {
             self.current_weight -= weight;
