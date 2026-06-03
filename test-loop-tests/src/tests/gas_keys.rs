@@ -389,7 +389,7 @@ fn test_gas_key_deposit_failed() {
         outcome.outcome_with_id.outcome.status,
     );
 
-    // Verify: all prepaid gas was burnt and tokens_burnt matches gas_burnt * gas_price
+    // Verify: gas was burnt for transaction processing and tokens_burnt matches gas_burnt * gas_price
     let gas_burnt = outcome.outcome_with_id.outcome.gas_burnt;
     let tokens_burnt = outcome.outcome_with_id.outcome.tokens_burnt;
     assert!(gas_burnt.as_gas() > 0);

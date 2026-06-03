@@ -3979,9 +3979,8 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         }
         other => panic!("expected NotEnoughBalanceForDeposit, got {:?}", other),
     }
-    let total_gas = transaction_cost.gas_burnt.checked_add(transaction_cost.gas_remaining).unwrap();
-    assert_eq!(outcome.outcome.gas_burnt, total_gas);
-    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.gas_cost);
+    assert_eq!(outcome.outcome.gas_burnt, transaction_cost.gas_burnt);
+    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.burnt_amount);
 
     // Commit and verify state
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
@@ -3992,7 +3991,7 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
     assert_eq!(
         access_key.gas_key_info().unwrap().balance,
-        gas_key_balance.checked_sub(transaction_cost.gas_cost).unwrap()
+        gas_key_balance.checked_sub(transaction_cost.burnt_amount).unwrap()
     );
 
     // Account balance was NOT deducted

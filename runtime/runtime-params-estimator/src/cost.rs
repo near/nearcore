@@ -800,6 +800,15 @@ pub enum Cost {
     /// arguments.
     YieldCreateByte,
 
+    /// Estimates `yield_create_with_id_base`, the base cost of the host function
+    /// `promise_yield_create_with_id`. Compared to `promise_yield_create`, this variant performs
+    /// two extra trie writes (the bidirectional yield_id <-> data_id mapping) per call.
+    ///
+    /// Estimation: We run a tight loop of 1000 calls with a distinct user-provided yield_id each
+    /// iteration (to avoid duplicate-detection short-circuiting). Other known costs are
+    /// subtracted from the measurement.
+    YieldCreateWithIdBase,
+
     /// Estimates `yield_resume_base`, which covers the base cost of the host function
     /// `promise_yield_resume`.
     ///

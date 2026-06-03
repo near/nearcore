@@ -250,6 +250,7 @@ impl NearVM {
         // memory cache miss, so if it stays true the lookup was served from memory.
         let mut is_memory_hit = true;
         let key = get_contract_cache_key(contract.hash(), &self.config, near_vm_vm_hash());
+        cache.touch(&key);
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             key,
             || {

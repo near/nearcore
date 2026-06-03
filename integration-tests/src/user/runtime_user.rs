@@ -37,6 +37,7 @@ pub struct MockClient {
     pub state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
     pub runtime_config: RuntimeConfig,
+    pub cumulative_subsidized: Balance,
 }
 
 impl MockClient {
@@ -132,6 +133,10 @@ impl RuntimeUser {
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
                 })?;
+            client.cumulative_subsidized = client
+                .cumulative_subsidized
+                .checked_add(apply_result.stats.balance.subsidized_amount)
+                .expect("cumulative_subsidized overflow");
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
                     .borrow_mut()

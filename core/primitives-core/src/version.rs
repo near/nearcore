@@ -402,6 +402,9 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
+    /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
+    /// that allow contracts to provide a custom yield ID for yield/resume.
+    YieldWithId,
 }
 
 impl ProtocolFeature {
@@ -527,6 +530,7 @@ impl ProtocolFeature {
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::PostQuantumSignatures => 154,
+            ProtocolFeature::YieldWithId => 155,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -575,7 +579,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 154;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 155;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

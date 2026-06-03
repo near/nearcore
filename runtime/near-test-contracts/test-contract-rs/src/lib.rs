@@ -198,9 +198,28 @@ extern "C" {
         gas_weight: u64,
         register_id: u64,
     ) -> u64;
+    #[cfg(feature = "nightly")]
+    fn promise_yield_create_with_id(
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+    ) -> u64;
     fn promise_yield_resume(
         data_id_len: u64,
         data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> u32;
+    #[cfg(feature = "nightly")]
+    fn promise_yield_resume_with_yield_id(
+        yield_id_len: u64,
+        yield_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
@@ -1041,6 +1060,37 @@ fn call_promise() {
                     method_names.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(action) = arg.get("yield_create_with_id") {
+                let method_name = action["method_name"].as_str().unwrap().as_bytes();
+                let arguments = from_base64(action["arguments"].as_str().unwrap());
+                let amount: u128 = action
+                    .get("amount")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.parse::<u128>().unwrap())
+                    .unwrap_or(0);
+                let gas = action["gas"].as_i64().unwrap() as u64;
+                let gas_weight = action["gas_weight"].as_i64().unwrap() as u64;
+                let yield_id = from_base64(action["yield_id"].as_str().unwrap());
+                promise_yield_create_with_id(
+                    method_name.len() as u64,
+                    method_name.as_ptr() as u64,
+                    arguments.len() as u64,
+                    arguments.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
+                    gas,
+                    gas_weight,
+                    yield_id.len() as u64,
+                    yield_id.as_ptr() as u64,
+                )
+            } else if let Some(action) = arg.get("yield_resume_with_yield_id") {
+                let yield_id = from_base64(action["yield_id"].as_str().unwrap());
+                let payload = from_base64(action["payload"].as_str().unwrap());
+                promise_yield_resume_with_yield_id(
+                    yield_id.len() as u64,
+                    yield_id.as_ptr() as u64,
+                    payload.len() as u64,
+                    payload.as_ptr() as u64,
+                ) as u64
             } else {
                 unimplemented!()
             };
@@ -2069,4 +2119,39 @@ fn promise_batch_action_add_gas_key_with_function_call(
     _method_names_len: u64,
     _method_names_ptr: u64,
 ) {
+}
+
+// Stubs for yield_with_id host functions on stable, so `call_promise` compiles
+// when the contract is built without the `nightly` feature. The host functions
+// are gated on `ProtocolFeature::YieldWithId`, so reaching these on stable means
+// a test is exercising a nightly-only code path under the wrong build. Panic
+// loudly rather than returning a plausible-looking value that would let the
+// test silently succeed.
+#[cfg(not(feature = "nightly"))]
+fn promise_yield_create_with_id(
+    _method_name_len: u64,
+    _method_name_ptr: u64,
+    _arguments_len: u64,
+    _arguments_ptr: u64,
+    _amount_ptr: u64,
+    _gas: u64,
+    _gas_weight: u64,
+    _yield_id_len: u64,
+    _yield_id_ptr: u64,
+) -> u64 {
+    let msg = b"promise_yield_create_with_id called on non-nightly build";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
+}
+
+#[cfg(not(feature = "nightly"))]
+fn promise_yield_resume_with_yield_id(
+    _yield_id_len: u64,
+    _yield_id_ptr: u64,
+    _payload_len: u64,
+    _payload_ptr: u64,
+) -> u32 {
+    let msg = b"promise_yield_resume_with_yield_id called on non-nightly build";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
 }
