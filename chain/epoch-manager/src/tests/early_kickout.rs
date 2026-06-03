@@ -51,22 +51,22 @@ fn tracker(
     HashMap::from([(shard_id, inner)])
 }
 
-// 1. produced/expected < 95%, missed >= 20, expected >= 50 -> blacklisted.
+// 1. produced/expected < 80%, missed >= 20, expected >= 50 -> blacklisted.
 #[test]
 fn blacklist_below_threshold() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(4);
-    // id 0: 50/100 = 50% < 95%, missed 50; others healthy.
+    // id 0: 50/100 = 50% < 80%, missed 50; others healthy.
     let st = tracker(shard_id, &[(0, 50, 100), (1, 100, 100), (2, 100, 100), (3, 100, 100)]);
     let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
     assert_eq!(bl, HashMap::from([(shard_id, HashSet::from([0]))]));
 }
 
-// 2. produced*100 == expected*95 -> NOT blacklisted (strict `<`), missed >= 20.
+// 2. produced*100 == expected*80 -> NOT blacklisted (strict `<`), missed >= 20.
 #[test]
 fn blacklist_exactly_at_threshold() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(4);
-    // id 0: 380/400 = exactly 95%, missed 20 (>= 20). Strict `<` must exclude it.
-    let st = tracker(shard_id, &[(0, 380, 400), (1, 400, 400), (2, 400, 400), (3, 400, 400)]);
+    // id 0: 320/400 = exactly 80%, missed 80 (>= 20). Strict `<` must exclude it.
+    let st = tracker(shard_id, &[(0, 320, 400), (1, 400, 400), (2, 400, 400), (3, 400, 400)]);
     let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
     assert!(bl.is_empty());
 }
@@ -75,8 +75,8 @@ fn blacklist_exactly_at_threshold() {
 #[test]
 fn blacklist_under_min_misses() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(4);
-    // id 0: 81/100 = 81% < 95% but missed only 19 (< 20).
-    let st = tracker(shard_id, &[(0, 81, 100), (1, 100, 100), (2, 100, 100), (3, 100, 100)]);
+    // id 0: 31/50 = 62% < 80% but missed only 19 (< 20); expected >= 50.
+    let st = tracker(shard_id, &[(0, 31, 50), (1, 100, 100), (2, 100, 100), (3, 100, 100)]);
     let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
     assert!(bl.is_empty());
 }
