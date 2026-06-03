@@ -3,7 +3,7 @@ use super::VMLogicError;
 use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
 use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
-use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
 use std::borrow::Cow;
 
@@ -300,6 +300,22 @@ pub trait External {
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
 
+    /// Create a PromiseYield action receipt with a user-provided yield ID.
+    ///
+    /// Returns `Some((ReceiptIndex, data_id))` of the newly created receipt on success, or
+    /// `None` if a yield with the same `user_yield_id` is already pending for this account.
+    /// The yield_id -> data_id mapping is stored in the trie for duplicate detection.
+    ///
+    /// # Arguments
+    ///
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    /// * `user_yield_id` - user-provided 32-byte yield identifier
+    fn create_promise_yield_receipt_with_id(
+        &mut self,
+        receiver_id: AccountId,
+        user_yield_id: YieldId,
+    ) -> Result<Option<(ReceiptIndex, CryptoHash)>, VMLogicError>;
+
     /// Creates a receipt under the specified `data_id` containing given `data`.
     ///
     /// This function shall return `Ok(true)` if the data dependency of the yield receipt has been
@@ -316,6 +332,23 @@ pub trait External {
     fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError>;
+
+    /// Resume a yield previously created by `promise_yield_create_with_id`, using the user-provided
+    /// `yield_id` instead of the runtime-generated `data_id`.
+    ///
+    /// The runtime looks up the corresponding `data_id` from the trie mapping and submits the
+    /// resume data. Returns `Ok(true)` if the yield was found and resume was submitted,
+    /// `Ok(false)` if no yield exists for the given `yield_id`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_yield_id` - user-provided 32-byte yield identifier from `yield_create_with_id`
+    /// * `data` - contents of the DataReceipt
+    fn submit_promise_resume_data_with_yield_id(
+        &mut self,
+        user_yield_id: YieldId,
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError>;
 

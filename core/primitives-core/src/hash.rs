@@ -247,6 +247,39 @@ pub fn hash(data: &[u8]) -> CryptoHash {
     CryptoHash::hash_bytes(data)
 }
 
+/// User-provided identifier for a yield receipt. Wraps a [`CryptoHash`] to
+/// prevent confusion with the runtime-generated `data_id` in code that handles
+/// both. Borsh / Serde / `AsRef` are forwarded to the inner `CryptoHash`.
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    Hash,
+    derive_more::AsRef,
+    derive_more::From,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[as_ref(forward)]
+#[serde(transparent)]
+pub struct YieldId(pub CryptoHash);
+
+impl YieldId {
+    pub const LENGTH: usize = CryptoHash::LENGTH;
+
+    /// Constructs a `YieldId` from a 32-byte array.
+    pub const fn from_bytes(bytes: [u8; Self::LENGTH]) -> Self {
+        Self(CryptoHash(bytes))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

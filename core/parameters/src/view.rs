@@ -238,6 +238,8 @@ pub struct VMConfigView {
     pub p256_verify_host_fn: bool,
     /// See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).
     pub chain_id_host_fn: bool,
+    /// See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).
+    pub yield_with_id_host_fns: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -279,6 +281,7 @@ impl From<crate::vm::Config> for VMConfigView {
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
             chain_id_host_fn: config.chain_id_host_fn,
+            yield_with_id_host_fns: config.yield_with_id_host_fns,
         }
     }
 }
@@ -304,6 +307,7 @@ impl From<VMConfigView> for crate::vm::Config {
             one_yocto_on_promise: view.one_yocto_on_promise,
             p256_verify_host_fn: view.p256_verify_host_fn,
             chain_id_host_fn: view.chain_id_host_fn,
+            yield_with_id_host_fns: view.yield_with_id_host_fns,
         }
     }
 }
@@ -491,6 +495,9 @@ pub struct ExtCostsConfigView {
     pub yield_create_base: Gas,
     /// Per byte cost of arguments and method name.
     pub yield_create_byte: Gas,
+    /// Base cost for creating a yield promise with a user-provided yield ID
+    /// (covers the additional trie writes for the yield_id<->data_id mapping).
+    pub yield_create_with_id_base: Gas,
     /// Base cost for resuming a yield receipt.
     pub yield_resume_base: Gas,
     /// Per byte cost of resume payload.
@@ -591,6 +598,7 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
                 .gas_cost(ExtCosts::alt_bn128_pairing_check_element),
             yield_create_base: config.gas_cost(ExtCosts::yield_create_base),
             yield_create_byte: config.gas_cost(ExtCosts::yield_create_byte),
+            yield_create_with_id_base: config.gas_cost(ExtCosts::yield_create_with_id_base),
             yield_resume_base: config.gas_cost(ExtCosts::yield_resume_base),
             yield_resume_byte: config.gas_cost(ExtCosts::yield_resume_byte),
             bls12381_p1_sum_base: config.gas_cost(ExtCosts::bls12381_p1_sum_base),
@@ -691,6 +699,7 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
                 ExtCosts::yield_create_base => view.yield_create_base,
                 ExtCosts::yield_create_byte => view.yield_create_byte,
+                ExtCosts::yield_create_with_id_base => view.yield_create_with_id_base,
                 ExtCosts::yield_resume_base => view.yield_resume_base,
                 ExtCosts::yield_resume_byte => view.yield_resume_byte,
                 ExtCosts::bls12381_p1_sum_base => view.bls12381_p1_sum_base,

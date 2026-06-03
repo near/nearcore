@@ -432,6 +432,8 @@ impl StateChanges {
                 // Global contract nonce is internal distribution state, not account data.
                 TrieKey::GlobalContractNonce { .. } => {}
                 TrieKey::PromiseYieldStatus { .. } => {}
+                TrieKey::YieldIdToDataId { .. } => {}
+                TrieKey::DataIdToYieldId { .. } => {}
             }
         }
 

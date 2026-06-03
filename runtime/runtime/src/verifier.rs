@@ -459,22 +459,40 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     }
     let new_gas_key_balance = gas_key_info.balance.checked_sub(gas_cost).unwrap();
 
+    // Calculate new key balance in case of deposit failure. Charges only for the gas burned on
+    // converting the transaction to a receipt.
+    let Some(new_key_balance_on_deposit_failure) = gas_key_info.balance.checked_sub(burnt_amount)
+    else {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
+            signer_id: account_id.clone(),
+            balance: gas_key_info.balance,
+            cost: burnt_amount,
+        });
+    };
+
     // Validate FunctionCall permission constraints if applicable
     if let Some(function_call_permission) = access_key.permission.function_call_permission()
         && let Err(e) = verify_function_call_permission(function_call_permission, tx)
     {
         return TxVerdict::Failed(e);
     }
-    let gas_key_update =
-        AccessKeyUpdate::GasKey { new_balance: new_gas_key_balance, nonce_index, nonce: tx_nonce };
-    let make_result = move |new_account_amount| VerificationResult {
+    let make_result = move |new_account_amount, new_key_amount| VerificationResult {
         gas_burnt,
         compute_burnt,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
         new_account_amount,
-        access_key_update: gas_key_update,
+        access_key_update: AccessKeyUpdate::GasKey {
+            new_balance: new_key_amount,
+            nonce_index,
+            nonce: tx_nonce,
+        },
+    };
+    let make_success_result =
+        move |new_account_amount| make_result(new_account_amount, new_gas_key_balance);
+    let make_deposit_failed_result = move |new_account_amount| {
+        make_result(new_account_amount, new_key_balance_on_deposit_failure)
     };
 
     // Check account has enough balance for deposits, accounting for
@@ -485,7 +503,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
     if available_balance < deposit_cost {
         return TxVerdict::DepositFailed {
-            result: make_result(account.amount()),
+            result: make_deposit_failed_result(account.amount()),
             error: InvalidTxError::NotEnoughBalanceForDeposit {
                 signer_id: account_id.clone(),
                 balance: available_balance,
@@ -501,7 +519,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return TxVerdict::DepositFailed {
-                result: make_result(account.amount()),
+                result: make_deposit_failed_result(account.amount()),
                 error: InvalidTxError::NotEnoughBalanceForDeposit {
                     signer_id: account_id.clone(),
                     balance: new_account_amount,
@@ -515,7 +533,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         }
     };
 
-    TxVerdict::Success(make_result(new_account_amount))
+    TxVerdict::Success(make_success_result(new_account_amount))
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -2401,7 +2419,7 @@ mod tests {
         assert_eq!(
             result.access_key_update,
             AccessKeyUpdate::GasKey {
-                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.gas_cost).unwrap(),
+                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap(),
                 nonce_index: 0,
                 nonce: initial_nonce + 1,
             }

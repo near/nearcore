@@ -63,7 +63,7 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
-        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest\n(the full pubkey is not stored on-chain).",
+        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-256 digest\n(the full pubkey is not stored on-chain).",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
@@ -4207,6 +4207,14 @@
             ],
             "description": "Per byte cost of arguments and method name."
           },
+          "yield_create_with_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for creating a yield promise with a user-provided yield ID\n(covers the additional trie writes for the yield_id<->data_id mapping)."
+          },
           "yield_resume_base": {
             "allOf": [
               {
@@ -7996,18 +8004,6 @@
                 "type": "null"
               }
             ]
-          },
-          "contract_cache_warming_max_item_count": {
-            "description": "Max warming submissions allowed in the pool's queue. Submissions\nover the cap bump `near_contract_cache_warming_dropped_total`. `0`\ndisables warming (same as setting\n`contract_cache_warming_pool_thread_count` to 0).",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "contract_cache_warming_pool_thread_count": {
-            "description": "Number of worker threads in the contract cache-warming pool. The\npool runs at the lowest realtime priority of any near pool, so the\nthreads yield to chunk application and witness work. Setting this\nto 0 disables warming (the pool is never instantiated). See\n[`contract_cache_warming_max_item_count`] for the other disable knob.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
           },
           "disable_tx_routing": {
             "description": "If true, the node won't forward transactions to next the chunk producers.",
@@ -12157,6 +12153,10 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
+          },
+          "yield_with_id_host_fns": {
+            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
+            "type": "boolean"
           }
         },
         "title": "VMConfigView",

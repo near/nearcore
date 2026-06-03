@@ -154,6 +154,7 @@ pub enum Parameter {
     WasmAltBn128G1SumElement,
     WasmYieldCreateBase,
     WasmYieldCreateByte,
+    WasmYieldCreateWithIdBase,
     WasmYieldResumeBase,
     WasmYieldResumeByte,
     WasmBls12381P1SumBase,
@@ -273,6 +274,9 @@ pub enum Parameter {
 
     // Flag to enable chain_id host function (NEP-638)
     ChainIdHostFn,
+
+    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
+    YieldWithIdHostFns,
 }
 
 #[derive(

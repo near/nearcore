@@ -40,6 +40,9 @@ pub const MAX_PEER_ADDRS: usize = 10;
 /// Maximum number of peers to include in a PeersResponse message.
 pub const PEERS_RESPONSE_MAX_PEERS: u32 = 512;
 
+/// Maximum number of block header hashes in a BlockHeadersRequest locator.
+pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
+
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
 /// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
 /// (i.e. whenever it is a block producer/chunk producer/approver for the given epoch),
