@@ -446,9 +446,9 @@ pub enum GcMethod {
     Delete,
     /// GC decrements the key's refcount.
     DecrementRefcount,
-    /// GC-ed only through a dedicated code path, not the generic per-column GC.
+    /// Garbage-collected by a dedicated method or its own subsystem.
     Dedicated,
-    /// Never GC-ed: retained for the lifetime of the node.
+    /// Not garbage-collected; kept for the node's lifetime.
     NotGced,
 }
 
@@ -704,8 +704,15 @@ impl DBCol {
             DBCol::Receipts | DBCol::Transactions => GcMethod::DecrementRefcount,
 
             DBCol::BlockPerHeight  // gc_col_block_per_height
+            | DBCol::FlatState  // flat storage
+            | DBCol::FlatStateChanges  // flat storage
+            | DBCol::FlatStateDeltaMetadata  // flat storage
+            | DBCol::FlatStorageStatus  // flat storage
             | DBCol::OutgoingReceipts  // gc_outgoing_receipts
             | DBCol::State  // gc_state
+            | DBCol::StateShardUIdMapping  // resharding
+            // Unneeded keys are removed as new ones are added.
+            | DBCol::StateSyncHashes  // state sync
             => GcMethod::Dedicated,
 
             DBCol::AccountAnnouncements
@@ -724,10 +731,6 @@ impl DBCol {
             | DBCol::EpochStart
             | DBCol::EpochSyncProof
             | DBCol::EpochValidatorInfo
-            | DBCol::FlatState
-            | DBCol::FlatStateChanges
-            | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus
             | DBCol::_GCCount
             | DBCol::_LastBlockWithNewChunk
             | DBCol::LastComponentNonce
@@ -738,10 +741,6 @@ impl DBCol {
             | DBCol::_ReceiptIdToShardId
             | DBCol::RecentOutboundConnections
             | DBCol::StateChangesForSplitStates
-            | DBCol::StateShardUIdMapping
-            // Note that StateSyncHashes should not ever have too many keys in them
-            // because we remove unneeded keys as we add new ones.
-            | DBCol::StateSyncHashes
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult => GcMethod::NotGced,
             // ChunkProducers is not garbage collected. Once dynamic chunk producer

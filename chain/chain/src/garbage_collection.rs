@@ -1050,7 +1050,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             GcMethod::Dedicated => {
                 panic!(
-                    "{col:?} must be garbage collected via its dedicated gc_* method, not gc_col"
+                    "{col:?} is garbage collected by a dedicated method or subsystem, not gc_col"
                 );
             }
             GcMethod::NotGced => {
