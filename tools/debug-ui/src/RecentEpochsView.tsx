@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { parse } from 'date-fns';
-import { EpochInfoView, fetchEpochInfoLight, fetchFullStatus } from './api';
+import { fetchEpochInfoLight, fetchFullStatus } from './api';
 import './RecentEpochsView.scss';
 import { formatDurationInMillis } from './utils';
 
@@ -103,14 +103,8 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                             <td>{firstBlockColumn}</td>
                             <td>{epochStartColumn}</td>
                             <td>{epochInfo.block_producers.length}</td>
-                            <td>
-                                {epochInfo.chunk_producers?.length ??
-                                    getChunkProducersTotal(epochInfo)}
-                            </td>
-                            <td>
-                                {epochInfo.chunk_validators?.length ??
-                                    getChunkValidatorsTotal(epochInfo)}
-                            </td>
+                            <td>{epochInfo.chunk_producers.length}</td>
+                            <td>{epochInfo.chunk_validators.length}</td>
                         </tr>
                     );
                 })}
@@ -118,27 +112,3 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
         </table>
     );
 };
-
-// TODO(2.6): remove as superseded by chunk_producers field.
-function getChunkProducersTotal(epochInfo: EpochInfoView) {
-    return (
-        epochInfo.validator_info?.current_validators.reduce((acc, it) => {
-            if (it.num_expected_chunks > 0) {
-                acc = acc + 1;
-            }
-            return acc;
-        }, 0) ?? 'N/A'
-    );
-}
-
-// TODO(2.6): remove as superseded by chunk_validators field.
-function getChunkValidatorsTotal(epochInfo: EpochInfoView) {
-    return (
-        epochInfo.validator_info?.current_validators.reduce((acc, it) => {
-            if (it.num_expected_endorsements > 0) {
-                acc = acc + 1;
-            }
-            return acc;
-        }, 0) ?? 'N/A'
-    );
-}
