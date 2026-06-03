@@ -6,7 +6,6 @@ use near_primitives::action::{
 };
 use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::views::FinalExecutionStatus;
 use testlib::fees_utils::FeeHelper;
@@ -223,11 +222,7 @@ fn yield_resume_with_yield_id_op(yield_id: &[u8], payload: &[u8], id: i64) -> se
 
 #[test]
 fn create_with_id_then_resume_with_yield_id() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     let yield_payload = vec![6u8; 16];
     let yield_id = [9u8; 32];
@@ -295,11 +290,7 @@ fn create_with_id_then_resume_with_yield_id() {
 
 #[test]
 fn create_with_id_and_resume_with_yield_id_in_one_call() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     let yield_payload = vec![23u8; 16];
     let yield_id = [3u8; 32];
@@ -341,11 +332,7 @@ fn create_with_id_and_resume_with_yield_id_in_one_call() {
 
 #[test]
 fn resume_with_yield_id_without_yield() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     // Resume with a yield_id that was never created — expect failure (id=0).
     let args = serde_json::json!([yield_resume_with_yield_id_op(&[23u8; 32], &[42u8; 12], 0)]);
@@ -366,11 +353,7 @@ fn resume_with_yield_id_without_yield() {
 
 #[test]
 fn create_with_id_duplicate_in_same_call_returns_sentinel() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     let yield_payload = vec![6u8; 16];
     let yield_id = [5u8; 32];
@@ -398,11 +381,7 @@ fn create_with_id_duplicate_in_same_call_returns_sentinel() {
 
 #[test]
 fn create_with_id_then_resume_with_yield_id_fails() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     let yield_payload = vec![6u8; 16];
     let yield_id = [7u8; 32];
@@ -445,11 +424,7 @@ fn create_with_id_then_resume_with_yield_id_fails() {
 
 #[test]
 fn create_then_resume_with_yield_id_fails() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     let yield_payload = vec![6u8; 16];
 
@@ -512,11 +487,7 @@ fn contract_function_call_reward(
 
 #[test]
 fn create_with_id_deducts_attached_amount() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
     let contract_id: AccountId = "test_contract.alice.near".parse().unwrap();
 
     let balance_before = node.user().view_account(&contract_id).unwrap().amount;
@@ -556,11 +527,7 @@ fn create_with_id_deducts_attached_amount() {
 
 #[test]
 fn create_with_id_fails_when_amount_exceeds_balance() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
     let contract_id: AccountId = "test_contract.alice.near".parse().unwrap();
 
     let balance_before = node.user().view_account(&contract_id).unwrap().amount;
@@ -612,7 +579,7 @@ fn create_with_id_fails_when_amount_exceeds_balance() {
 // within `ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT` (770 bytes) — are exempt from
 // that check (see `verifier.rs::check_storage_stake`).
 //
-// The standard `nightly_rs_contract` is ~104 KB, so it can't be a ZBA. To get
+// The standard `rs_contract` is large (~100 KB), so it can't be a ZBA. To get
 // the rich contract API on a ZBA, we deploy it once as a *global* contract from
 // `alice.near` and have a small account (`zba.alice.near`) reference it via
 // `UseGlobalContract` — that leaves the referencing account at ~150 bytes of
@@ -623,9 +590,9 @@ fn setup_zba_global_contract() -> (RuntimeNode, AccountId) {
     let alice_id = alice_account();
     let zba_id: AccountId = "zba.alice.near".parse().unwrap();
 
-    // Deploy nightly_rs_contract as a global contract owned by alice.near.
+    // Deploy rs_contract as a global contract owned by alice.near.
     let deploy = vec![Action::DeployGlobalContract(DeployGlobalContractAction {
-        code: near_test_contracts::nightly_rs_contract().to_vec().into(),
+        code: near_test_contracts::rs_contract().to_vec().into(),
         deploy_mode: GlobalContractDeployMode::AccountId,
     })];
     let res =
@@ -697,10 +664,6 @@ fn drain_then_yield_args(
 
 #[test]
 fn create_with_id_one_yocto_exemption_on_drained_zba() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     use testlib::runtime_utils::alice_account;
     let (node, zba_id) = setup_zba_global_contract();
     let alice_id = alice_account();
@@ -752,10 +715,6 @@ fn create_with_id_one_yocto_exemption_on_drained_zba() {
 
 #[test]
 fn create_with_id_two_yocto_fails_on_drained_zba() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     use testlib::runtime_utils::alice_account;
     let (node, zba_id) = setup_zba_global_contract();
     let alice_id = alice_account();

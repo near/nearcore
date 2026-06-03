@@ -19,7 +19,3 @@ panic = "abort"
 
 [workspace]
 members = []
-
-[features]
-nightly = [
-]
