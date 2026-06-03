@@ -104,11 +104,11 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                             <td>{epochStartColumn}</td>
                             <td>{epochInfo.block_producers.length}</td>
                             <td>
-                                {epochInfo.chunk_producers?.length ||
+                                {epochInfo.chunk_producers?.length ??
                                     getChunkProducersTotal(epochInfo)}
                             </td>
                             <td>
-                                {epochInfo.chunk_validators?.length ||
+                                {epochInfo.chunk_validators?.length ??
                                     getChunkValidatorsTotal(epochInfo)}
                             </td>
                         </tr>

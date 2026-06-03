@@ -113,15 +113,15 @@ export type SyncStatusView =
     | 'NoSync'
     | {
         EpochSync:
-            | 'NotStarted'
-            | {
-                  InProgress: {
-                      source_peer_height: number;
-                      source_peer_id: string;
-                      attempt_time: string;
-                  };
-              }
-            | 'Done';
+        | 'NotStarted'
+        | {
+            InProgress: {
+                source_peer_height: number;
+                source_peer_id: string;
+                attempt_time: string;
+            };
+        }
+        | 'Done';
     }
     | {
         HeaderSync: {
@@ -401,8 +401,8 @@ function getTargetUrl(addr: string, endpoint: string): string {
 
     if (protocol === 'https:') {
         return getProxyUrl(addr, endpoint);
-    } 
-    
+    }
+
     if (protocol === 'http:') {
         return `http://${addr}/${endpoint}`;
     }
@@ -487,8 +487,9 @@ export function fetchEpochInfo(
 //
 // The debug-ui is released ahead of the node side, so this gracefully falls back to
 // the full `epoch_info` endpoint when talking to a node that predates
-// `epoch_info_light` (it returns 405 for the unknown path / 404 for the id route).
-// The fallback is correct, just heavier.
+// `epoch_info_light`. Such a node has no route for either form, so both fall through
+// to the `/debug/api/{*path}` catch-all and return 405 (we also treat 404 as missing
+// for safety, e.g. behind a proxy).
 // TODO: remove the fallback once all nodes expose `epoch_info_light`.
 export async function fetchEpochInfoLight(
     addr: string,
