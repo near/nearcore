@@ -4,7 +4,7 @@ use crate::metrics::{
     COMPILATION_CACHE_WARMING_DROPPED_TOTAL, COMPILATION_CACHE_WARMING_FAILURES,
     COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS,
 };
-use near_async::thread_pool::background_crt_tasks_pool;
+use near_async::thread_pool::background_runtime_tasks;
 use near_parameters::vm::Config;
 use near_store::contract::ContractStorage;
 use near_vm_runner::logic::errors::{CacheError, CompilationError};
@@ -60,7 +60,7 @@ pub fn cache_keys_differ(a: Arc<Config>, b: Arc<Config>) -> bool {
 /// Precompile `code` against `current_config` synchronously and
 /// — when `next_config` is `Some` and its cache-key signature differs from
 /// `current_config` — additionally enqueue a fire-and-forget warming
-/// compilation against `next_config` on the [`background_crt_tasks_pool`].
+/// compilation against `next_config` on the [`background_runtime_tasks`].
 ///
 /// Errors from either compile are dropped.
 pub(crate) fn precompile_contract_with_warming(
@@ -116,7 +116,7 @@ fn spawn_warming(
         COMPILATION_CACHE_WARMING_DROPPED_TOTAL.inc();
         return;
     }
-    background_crt_tasks_pool().spawn_boxed(Box::new(move || {
+    background_runtime_tasks().spawn_boxed(Box::new(move || {
         release_pending_slot();
         let Some(code) = get_code() else {
             return;

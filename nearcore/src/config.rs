@@ -2,7 +2,7 @@ use crate::download_file::{FileDownloadError, run_download_file};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{Context, anyhow, bail};
 use bytesize::ByteSize;
-use near_async::thread_pool::background_crt_tasks_pool;
+use near_async::thread_pool::background_runtime_tasks;
 use near_async::time::{Clock, Duration};
 use near_chain::runtime::{NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::test_utils::{
@@ -940,17 +940,15 @@ impl NightshadeRuntime {
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
         // refactor...
-        let mut contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
+        let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
             home_dir,
             config.config.store.path.as_ref(),
             &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
             Some("filesystem".to_string()),
             config.config.contract_cache_max_size.as_u64(),
+            Arc::new(|task| background_runtime_tasks().spawn_boxed(task)),
         )?;
-        contract_cache.set_background_job_spawner(Arc::new(|task| {
-            background_crt_tasks_pool().spawn_boxed(task);
-        }));
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),

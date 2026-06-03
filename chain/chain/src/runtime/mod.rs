@@ -7,7 +7,7 @@ use crate::types::{
     StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
-use near_async::thread_pool::{background_crt_tasks_pool, contract_compilation_pool};
+use near_async::thread_pool::{background_runtime_tasks, contract_compilation_pool};
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::{PublicKey, PublicKeyHandle};
@@ -1609,7 +1609,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
         let cache = self.compiled_contract_cache.handle();
         let job = move || cache.on_protocol_version_update(new_protocol_version);
-        background_crt_tasks_pool().spawn_boxed(Box::new(job));
+        background_runtime_tasks().spawn_boxed(Box::new(job));
     }
 
     fn precompile_contracts(
