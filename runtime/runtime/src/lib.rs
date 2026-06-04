@@ -1077,10 +1077,9 @@ impl Runtime {
         let profile = conversions::Convert::convert(*result.profile);
         let metadata =
             if ProtocolFeature::ExecutionMetadataV4.enabled(apply_state.current_protocol_version) {
-                ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 {
-                    profile,
-                    contracts: result.executed_contracts,
-                }))
+                let mut contracts = result.executed_contracts;
+                contracts.resize(action_receipt.actions().len(), AccountContract::None);
+                ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 { profile, contracts }))
             } else {
                 ExecutionMetadata::V3(Box::new(profile))
             };
