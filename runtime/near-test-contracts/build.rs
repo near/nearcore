@@ -23,7 +23,7 @@ fn main() {
 fn try_main() -> Result<(), Error> {
     let mut test_contract_features = vec![];
 
-    let is_nightly = std::env::var_os("CARGO_FEATURE_nightly").is_some();
+    let is_nightly = std::env::var_os("CARGO_FEATURE_NIGHTLY").is_some();
     let test_features = &env::var(TEST_FEATURES_ENV);
     println!("cargo:rerun-if-env-changed={TEST_FEATURES_ENV}");
     println!("debug: test_features = {test_features:?}");

@@ -230,6 +230,13 @@ pub struct Config {
     /// NEP-635: <https://github.com/near/NEPs/pull/635>
     pub p256_verify_host_fn: bool,
 
+    /// Whether to enable the promise_yield_create_with_id and
+    /// promise_yield_resume_with_yield_id host functions.
+    pub yield_with_id_host_fns: bool,
+
+    /// Whether to enable the chain_id host function (NEP-638).
+    pub chain_id_host_fn: bool,
+
     /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
     /// functions. These points lie on the curve but outside the G1/G2
     /// subgroup; previously the host function returned an error for them,
@@ -270,6 +277,8 @@ impl Config {
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
+        self.yield_with_id_host_fns = true;
+        self.chain_id_host_fn = true;
         self.bls12381_not_in_group_fix = true;
     }
 }

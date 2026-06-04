@@ -558,6 +558,11 @@ snapshot_kind: text
     },
     {
       "cost_category": "WASM_HOST_COST",
+      "cost": "YIELD_CREATE_WITH_ID_BASE",
+      "gas_used": "87"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
       "cost": "YIELD_RESUME_BASE",
       "gas_used": "63"
     },

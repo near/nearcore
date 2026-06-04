@@ -237,6 +237,7 @@ wasm_bls12381_p2_decompress_element: 300_000_000_000_000
 
 wasm_yield_create_base: 300_000_000_000_000
 wasm_yield_create_byte: 300_000_000_000_000
+wasm_yield_create_with_id_base: 300_000_000_000_000
 wasm_yield_resume_base: 300_000_000_000_000
 wasm_yield_resume_byte: 300_000_000_000_000
 
@@ -279,6 +280,8 @@ reftypes_bulk_memory: false
 gas_key_host_fns: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
+yield_with_id_host_fns: false
+chain_id_host_fn: false
 bls12381_not_in_group_fix: false
 
 # TODO What should be the config for testnet?

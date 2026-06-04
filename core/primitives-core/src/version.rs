@@ -402,6 +402,9 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
+    /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
+    /// that allow contracts to provide a custom yield ID for yield/resume.
+    YieldWithId,
 }
 
 impl ProtocolFeature {
@@ -514,18 +517,19 @@ impl ProtocolFeature {
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::FixDelegatedDeterministicStateInit
-            | ProtocolFeature::ContinuousEpochSync => 85,
+            | ProtocolFeature::GasKeys
+            | ProtocolFeature::ContinuousEpochSync
+            | ProtocolFeature::DynamicResharding
+            | ProtocolFeature::StickyReshardingValidatorAssignment
+            | ProtocolFeature::YieldWithId => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::GasKeys => 149,
-            ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::StickyReshardingValidatorAssignment => 153,
             ProtocolFeature::PostQuantumSignatures => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

@@ -154,6 +154,7 @@ pub enum Parameter {
     WasmAltBn128G1SumElement,
     WasmYieldCreateBase,
     WasmYieldCreateByte,
+    WasmYieldCreateWithIdBase,
     WasmYieldResumeBase,
     WasmYieldResumeByte,
     WasmBls12381P1SumBase,
@@ -270,6 +271,12 @@ pub enum Parameter {
 
     // Flag to enable the P-256 verification host function
     P256VerifyHostFn,
+
+    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
+    YieldWithIdHostFns,
+
+    // Flag to enable chain_id host function (NEP-638)
+    ChainIdHostFn,
 
     // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
     // functions (NEP-488). These points lie on the curve but outside the G1/G2

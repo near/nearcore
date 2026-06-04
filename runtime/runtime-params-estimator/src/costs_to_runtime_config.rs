@@ -175,6 +175,7 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::alt_bn128_pairing_check_element => Cost::AltBn128PairingCheckElement,
         ExtCosts::yield_create_base => Cost::YieldCreateBase,
         ExtCosts::yield_create_byte => Cost::YieldCreateByte,
+        ExtCosts::yield_create_with_id_base => Cost::YieldCreateWithIdBase,
         ExtCosts::bls12381_p1_sum_base => Cost::Bls12381P1SumBase,
         ExtCosts::bls12381_p1_sum_element => Cost::Bls12381P1SumElement,
         ExtCosts::bls12381_p2_sum_base => Cost::Bls12381P2SumBase,

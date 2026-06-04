@@ -121,13 +121,11 @@ impl CloudStorage {
     pub async fn archive_shard_batch(
         &self,
         hot_store: &Store,
-        genesis_height: BlockHeight,
         shard_layout: &ShardLayout,
         range: &BatchRange,
         shard_uid: ShardUId,
     ) -> Result<(), CloudArchivingError> {
-        let shard_batch =
-            build_shard_batch(hot_store, genesis_height, shard_layout, range, shard_uid)?;
+        let shard_batch = build_shard_batch(hot_store, shard_layout, range, shard_uid)?;
         let batch_id = compute_batch_id(range.start(), self.batch_size());
         let file_id = CloudStorageFileID::ShardBatch(shard_uid.shard_id(), batch_id);
         let blob = borsh::to_vec(&shard_batch).unwrap();

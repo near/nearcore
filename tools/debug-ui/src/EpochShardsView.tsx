@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchEpochInfo } from './api';
+import { fetchEpochInfoLight } from './api';
 import './EpochShardsView.scss';
 
 function humanFileSize(bytes: number, si = false, dp = 1): string {
@@ -32,7 +32,7 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
         data: epochData,
         error: epochError,
         isLoading: epochIsLoading,
-    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr, null));
+    } = useQuery(['epochInfoLight', addr], () => fetchEpochInfoLight(addr, null));
 
     if (epochIsLoading) {
         return <div>Loading...</div>;

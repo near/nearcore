@@ -43,6 +43,8 @@ extern "C" {
     // # Context API #
     // ###############
     fn current_account_id(register_id: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn chain_id(register_id: u64);
     fn signer_account_id(register_id: u64);
     fn signer_account_pk(register_id: u64);
     fn predecessor_account_id(register_id: u64);
@@ -103,25 +105,21 @@ extern "C" {
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_deploy_global_contract(
         promise_index: u64,
         code_len: u64,
         code_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_deploy_global_contract_by_account_id(
         promise_index: u64,
         code_len: u64,
         code_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_use_global_contract(
         promise_index: u64,
         code_hash_len: u64,
         code_hash_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_use_global_contract_by_account_id(
         promise_index: u64,
         account_id_len: u64,
@@ -198,9 +196,28 @@ extern "C" {
         gas_weight: u64,
         register_id: u64,
     ) -> u64;
+    #[cfg(feature = "latest_protocol")]
+    fn promise_yield_create_with_id(
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+    ) -> u64;
     fn promise_yield_resume(
         data_id_len: u64,
         data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> u32;
+    #[cfg(feature = "latest_protocol")]
+    fn promise_yield_resume_with_yield_id(
+        yield_id_len: u64,
+        yield_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
@@ -233,16 +250,12 @@ extern "C" {
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(feature = "latest_protocol")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 
     #[cfg(feature = "test_features")]
@@ -251,8 +264,7 @@ extern "C" {
     #[cfg(feature = "test_features")]
     fn burn_gas(gas: u64);
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_transfer_to_gas_key(
         promise_index: u64,
         public_key_len: u64,
@@ -260,8 +272,7 @@ extern "C" {
         amount_ptr: u64,
     );
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_add_gas_key_with_full_access(
         promise_index: u64,
         public_key_len: u64,
@@ -269,8 +280,7 @@ extern "C" {
         num_nonces: u64,
     );
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_add_gas_key_with_function_call(
         promise_index: u64,
         public_key_len: u64,
@@ -330,6 +340,8 @@ ext_test!(ext_predecessor_account_id, predecessor_account_id);
 ext_test!(ext_signer_pk, signer_account_pk);
 ext_test!(ext_signer_id, signer_account_id);
 ext_test!(ext_account_id, current_account_id);
+#[cfg(feature = "latest_protocol")]
+ext_test!(ext_chain_id, chain_id);
 
 ext_test_u128!(ext_account_balance, account_balance);
 ext_test_u128!(ext_attached_deposit, attached_deposit);
@@ -1044,6 +1056,37 @@ fn call_promise() {
                     method_names.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(action) = arg.get("yield_create_with_id") {
+                let method_name = action["method_name"].as_str().unwrap().as_bytes();
+                let arguments = from_base64(action["arguments"].as_str().unwrap());
+                let amount: u128 = action
+                    .get("amount")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.parse::<u128>().unwrap())
+                    .unwrap_or(0);
+                let gas = action["gas"].as_i64().unwrap() as u64;
+                let gas_weight = action["gas_weight"].as_i64().unwrap() as u64;
+                let yield_id = from_base64(action["yield_id"].as_str().unwrap());
+                promise_yield_create_with_id(
+                    method_name.len() as u64,
+                    method_name.as_ptr() as u64,
+                    arguments.len() as u64,
+                    arguments.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
+                    gas,
+                    gas_weight,
+                    yield_id.len() as u64,
+                    yield_id.as_ptr() as u64,
+                )
+            } else if let Some(action) = arg.get("yield_resume_with_yield_id") {
+                let yield_id = from_base64(action["yield_id"].as_str().unwrap());
+                let payload = from_base64(action["payload"].as_str().unwrap());
+                promise_yield_resume_with_yield_id(
+                    yield_id.len() as u64,
+                    yield_id.as_ptr() as u64,
+                    payload.len() as u64,
+                    payload.as_ptr() as u64,
+                ) as u64
             } else {
                 unimplemented!()
             };
@@ -1358,7 +1401,6 @@ fn attach_unspent_gas_but_use_all_gas() {
     }
 }
 
-#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 fn do_ripemd() {
     let data = b"tesdsst";
@@ -1532,13 +1574,11 @@ pub unsafe fn sanity_check() {
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_deploy_global_contract(
         batch_promise_idx,
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_deploy_global_contract_by_account_id(
         batch_promise_idx,
         contract_code.len() as u64,
@@ -1698,7 +1738,6 @@ pub unsafe fn sanity_check() {
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(feature = "latest_protocol")]
     {
         let buffer = [65u8; 10];
         ripemd160(buffer.len() as u64, buffer.as_ptr() as u64, 1);
@@ -1707,7 +1746,6 @@ pub unsafe fn sanity_check() {
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "latest_protocol")]
     {
         let buffer: [u8; 96] = [
             16, 238, 91, 161, 241, 22, 172, 158, 138, 252, 202, 212, 136, 37, 110, 231, 118, 220,
@@ -2042,8 +2080,7 @@ pub unsafe fn resume_with_large_payload() {
     assert_eq!(success, 1);
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_transfer_to_gas_key(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2052,8 +2089,7 @@ fn promise_batch_action_transfer_to_gas_key(
 ) {
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_add_gas_key_with_full_access(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2062,8 +2098,7 @@ fn promise_batch_action_add_gas_key_with_full_access(
 ) {
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_add_gas_key_with_function_call(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2075,4 +2110,40 @@ fn promise_batch_action_add_gas_key_with_function_call(
     _method_names_len: u64,
     _method_names_ptr: u64,
 ) {
+}
+
+// Stubs for yield_with_id host functions, so `call_promise` compiles when the
+// contract is built without the `latest_protocol` feature (the
+// backwards-compatible build targeting the oldest supported protocol version).
+// The host functions are gated on `ProtocolFeature::YieldWithId` (enabled at
+// protocol version 85), so reaching these on an older protocol means a test is
+// exercising the wrong build. Panic loudly rather than returning a
+// plausible-looking value that would let the test silently succeed.
+#[cfg(not(feature = "latest_protocol"))]
+fn promise_yield_create_with_id(
+    _method_name_len: u64,
+    _method_name_ptr: u64,
+    _arguments_len: u64,
+    _arguments_ptr: u64,
+    _amount_ptr: u64,
+    _gas: u64,
+    _gas_weight: u64,
+    _yield_id_len: u64,
+    _yield_id_ptr: u64,
+) -> u64 {
+    let msg = b"promise_yield_create_with_id called on a build without latest_protocol";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
+}
+
+#[cfg(not(feature = "latest_protocol"))]
+fn promise_yield_resume_with_yield_id(
+    _yield_id_len: u64,
+    _yield_id_ptr: u64,
+    _payload_len: u64,
+    _payload_ptr: u64,
+) -> u32 {
+    let msg = b"promise_yield_resume_with_yield_id called on a build without latest_protocol";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
 }

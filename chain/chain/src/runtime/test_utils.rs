@@ -5,7 +5,9 @@ use near_chain_configs::{
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
-use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
+use near_vm_runner::{
+    ContractRuntimeCache, FilesystemContractRuntimeCache, noop_background_spawner,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -85,6 +87,9 @@ impl NightshadeRuntime {
                 "contract.cache",
                 1,
                 None,
+                // Test runtime never evicts.
+                FilesystemContractRuntimeCache::MAX_DISK_CACHE_BYTES,
+                noop_background_spawner(),
             )
             .expect("filesystem contract cache")
             .handle(),

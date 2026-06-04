@@ -256,6 +256,10 @@ pub enum DebugStatus {
     TrackedShards,
     // Detailed information about last couple epochs.
     EpochInfo(Option<EpochId>),
+    // Same as EpochInfo, but omits the expensive per-validator `validator_info`.
+    // Used by debug-ui views that only need epoch metadata and producer/validator
+    // counts (recent epochs, epoch shards, current peers).
+    EpochInfoLight(Option<EpochId>),
     // Detailed information about last couple blocks.
     BlockStatus(DebugBlockStatusQuery),
     // Consensus related information.
