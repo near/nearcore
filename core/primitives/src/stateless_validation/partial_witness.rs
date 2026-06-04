@@ -7,6 +7,7 @@ use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Formatter};
 
@@ -230,20 +231,13 @@ impl PartialEncodedStateWitnessInnerV2 {
 /// V1 is the legacy format; V2 adds `prev_block_hash` to enable
 /// hash-based chunk-producer lookup against `DBCol::ChunkProducers`.
 ///
-/// Current scope (this PR): wire types and network plumbing only. V2 is
-/// inert — handlers drop V2 unconditionally and
-/// [`VersionedPartialEncodedStateWitness::new`] always returns V1
-/// regardless of `protocol_version`. The `protocol_version` parameter is
-/// plumbed through so the version-gated rollout below lands as a pure
-/// implementation change in the consumer follow-up.
-///
-/// Eventual rollout policy (consumer follow-up PR):
+/// Rollout policy:
 /// - Before EarlyKickout activation: only V1 is emitted and accepted.
 ///   V2 arriving over the wire is dropped.
 /// - At/after EarlyKickout activation: only V2 is emitted and accepted.
 ///   V1 arriving over the wire is dropped.
-/// - [`VersionedPartialEncodedStateWitness::new`] will select the variant
-///   based on the `protocol_version` argument.
+/// - [`VersionedPartialEncodedStateWitness::new`] selects variant based on
+///   `protocol_version` argument.
 ///
 /// Cross-version replay resistance: V1 and V2 use distinct
 /// `signature_differentiator` strings, so a signature produced over V1's
@@ -275,15 +269,25 @@ impl VersionedPartialEncodedStateWitness {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        let _ = protocol_version;
-        Self::V1(PartialEncodedStateWitness::new(
-            epoch_id,
-            chunk_header,
-            part_ord,
-            part,
-            encoded_length,
-            signer,
-        ))
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            Self::V2(PartialEncodedStateWitnessV2::new(
+                epoch_id,
+                chunk_header,
+                part_ord,
+                part,
+                encoded_length,
+                signer,
+            ))
+        } else {
+            Self::V1(PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header,
+                part_ord,
+                part,
+                encoded_length,
+                signer,
+            ))
+        }
     }
 
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
