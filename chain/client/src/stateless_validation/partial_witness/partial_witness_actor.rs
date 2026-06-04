@@ -124,8 +124,10 @@ impl PendingV2WitnessCache {
             pending.push(entry);
             return;
         }
-        // New bucket: `LruCache::put` returns displaced entry on overflow.
-        if self.entries.put(prev_block_hash, vec![entry]).is_some() {
+        // New bucket. `put` returns Some only on key-replace (handled by `get_mut`
+        // above) → eviction metric never fires on overflow. `push` returns the
+        // evicted entry on overflow → here Some always = real eviction.
+        if self.entries.push(prev_block_hash, vec![entry]).is_some() {
             metrics::PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL.inc();
         }
     }
@@ -150,6 +152,8 @@ impl PendingV2WitnessCache {
         out
     }
 
+    /// Bucket count (distinct `prev_block_hash`), NOT total deferred witnesses
+    /// (each bucket holds one entry per validator part).
     pub(super) fn len(&self) -> usize {
         self.entries.len()
     }
@@ -220,14 +224,19 @@ pub(super) fn witness_kicked_out(
 }
 
 /// Classify deferred V2 witness on actor thread before spawner-side
-/// validate+store. Cheap checks only: signer availability, chunk relevance
-/// (`HEAD`/`FINAL_HEAD` window, epoch admissibility), `ensure_chunk_validator`,
-/// V2 producer-DB resolvability. No signature verify — stays on spawner.
+/// validate+store. Cheap checks: signer, chunk relevance (`HEAD`/`FINAL_HEAD`
+/// window, epoch admissibility), `ensure_chunk_validator`, V2 producer-DB. No
+/// signature verify (stays on spawner).
 ///
-/// Transient (`TooEarly`, `UnknownEpochId`, `MissingBlock`,
-/// `ChunkProducerNotInDB`, signer unavailable) → `Requeue` (caller keeps
-/// cached for next notification). Terminal (`TooLate`, `NotAChunkValidator`,
-/// other hard validation errors) → `Retire` (drop).
+/// Pure classifier: never stores/forwards. EarlyKickout gate lives at the
+/// act-sites (`dispatch_partial_encoded_state_witness`,
+/// `replay_forwarded_partial_witness`), not here.
+///
+/// `Requeue` (transient, keep cached): `TooEarly`, `UnknownEpochId`,
+/// `MissingBlock`, `ChunkProducerNotInDB`, `IOErr`, signer unavailable.
+/// `EpochOutOfBounds` → `Requeue` only if V2 prev block not yet known (sync lag);
+/// known prev + mismatched epoch = forged → `Retire`. `Retire` (terminal):
+/// `TooLate`, `NotAChunkValidator`, other hard errors.
 pub(super) fn pre_check_replay(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
@@ -238,7 +247,6 @@ pub(super) fn pre_check_replay(
         return ReplayDisposition::Requeue;
     };
     let validator_account_id = signer.validator_id().clone();
-    drop(signer);
 
     match validate_chunk_relevant_as_validator(
         epoch_manager,
@@ -253,6 +261,16 @@ pub(super) fn pre_check_replay(
         }
         Err(Error::DBNotFoundErr(_)) => return ReplayDisposition::Requeue,
         Err(Error::NotAChunkValidator) => return ReplayDisposition::Retire,
+        // Relevance resolves the epoch via `get_shard_layout` on the *unverified*
+        // signed `epoch_id`, before window/signature, so a bogus epoch surfaces
+        // here. V2: prev block unknown → behind on headers → `Requeue`; prev known
+        // + epoch still mismatched → forged → `Retire`. V1 (no prev) → `Retire`.
+        Err(Error::EpochOutOfBounds(_)) => match witness.prev_block_hash() {
+            Some(prev) if epoch_manager.get_block_info(prev).is_err() => {
+                return ReplayDisposition::Requeue;
+            }
+            _ => return ReplayDisposition::Retire,
+        },
         // Anything else (bad shard, malformed, other epoch-manager failure) won't
         // become valid by waiting. Retire.
         Err(_) => return ReplayDisposition::Retire,
@@ -264,7 +282,14 @@ pub(super) fn pre_check_replay(
         let shard_id = witness.chunk_production_key().shard_id;
         match epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id) {
             Ok(_) => {}
-            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+            // `IOErr` = transient disk failure. No retransmission path → dropping =
+            // permanent loss for that (validator, part). Keep cached, retry next
+            // notification.
+            Err(
+                EpochError::MissingBlock(_)
+                | EpochError::ChunkProducerNotInDB(_, _)
+                | EpochError::IOErr(_),
+            ) => {
                 return ReplayDisposition::Requeue;
             }
             Err(_) => return ReplayDisposition::Retire,
@@ -784,6 +809,15 @@ impl PartialWitnessActor {
         )
     }
 
+    /// Bucket count in this actor's own pending cache (NOT total witnesses). Lets
+    /// integration tests inspect one node's cache instead of the process-global
+    /// `PARTIAL_WITNESS_PENDING_CACHE_SIZE` gauge (every node writes it,
+    /// `handle_block_notification` zeroes it each block).
+    #[cfg(feature = "test_features")]
+    pub fn pending_cache_bucket_count(&self) -> usize {
+        self.pending_v2_witnesses.lock().len()
+    }
+
     /// Scan all deferred V2 witnesses on every block notification, reclassify
     /// each via `pre_check_replay`. Transient → re-insert; terminal → drop;
     /// ready → dispatch via init-emit or forwarded-replay path.
@@ -863,10 +897,25 @@ impl PartialWitnessActor {
     /// `handle_partial_encoded_state_witness` does) — witness already propagated
     /// via another validator's forward, so re-forwarding duplicates what others
     /// received or are about to replay.
-    fn replay_forwarded_partial_witness(
+    pub(super) fn replay_forwarded_partial_witness(
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
     ) {
+        // Kickout gate. Other act-sites self-gate; this replay path did not, so a
+        // forwarded witness on the wrong side of the EarlyKickout boundary would
+        // slip through. `version == None` (epoch unknown) → `false`.
+        let epoch_id = partial_witness.chunk_production_key().epoch_id;
+        let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
+        if witness_kicked_out(version, &partial_witness) {
+            tracing::debug!(
+                target: "client",
+                ?epoch_id,
+                version = partial_witness.version_label(),
+                "dropping replayed forwarded partial witness: kickout gate",
+            );
+            return;
+        }
+
         let Ok(signer) = self.my_validator_signer() else {
             return;
         };
@@ -920,7 +969,7 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
-    fn handle_partial_encoded_state_witness_forward(
+    pub(super) fn handle_partial_encoded_state_witness_forward(
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
@@ -983,6 +1032,22 @@ impl PartialWitnessActor {
                         );
                     }
                     Err(Error::DBNotFoundErr(_)) => {
+                        pending_v2_witnesses
+                            .lock()
+                            .try_defer(partial_witness, DeferOrigin::Forwarded);
+                    }
+                    // `validate_partial_encoded_state_witness` resolves validator
+                    // assignments from the signed `epoch_id` before the V2 producer-DB
+                    // lookup, so an unsynced epoch surfaces as `EpochOutOfBounds`, not
+                    // `DBNotFoundErr`. V2 prev unresolvable → behind on headers → defer
+                    // (forwarded parts never retransmit). Known prev + mismatched epoch
+                    // → forged → fall through to warn-and-drop. Mirrors
+                    // `pre_check_replay`.
+                    Err(Error::EpochOutOfBounds(_))
+                        if partial_witness
+                            .prev_block_hash()
+                            .is_some_and(|prev| epoch_manager.get_block_info(prev).is_err()) =>
+                    {
                         pending_v2_witnesses
                             .lock()
                             .try_defer(partial_witness, DeferOrigin::Forwarded);

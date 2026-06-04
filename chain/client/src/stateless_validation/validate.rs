@@ -116,38 +116,23 @@ pub fn validate_partial_encoded_state_witness(
         VersionedPartialEncodedStateWitness::V2(v2) => {
             let shard_id_label = shard_id.to_string();
             let prev_block_hash = v2.prev_block_hash();
-            let info = match epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
-                Ok(info) => {
-                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
-                        .with_label_values(&[shard_id_label.as_str(), "hit"])
-                        .inc();
-                    info
-                }
-                // Prev block header not in epoch manager yet — common when witness
-                // races its prev block. Defer, don't fail.
-                Err(err @ EpochError::MissingBlock(_)) => {
-                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
-                        .with_label_values(&[shard_id_label.as_str(), "miss_prev_block"])
-                        .inc();
-                    return Err(err.into());
-                }
-                // Block known but `DBCol::ChunkProducers` has no entry for
-                // (block, shard). Steady-state near-zero — persistent miss rate
-                // signals upstream writer bug (header-sync or block processing
-                // failed to populate column).
-                Err(err @ EpochError::ChunkProducerNotInDB(_, _)) => {
-                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
-                        .with_label_values(&[shard_id_label.as_str(), "miss_db_entry"])
-                        .inc();
-                    return Err(err.into());
-                }
-                Err(err) => {
-                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
-                        .with_label_values(&[shard_id_label.as_str(), "error"])
-                        .inc();
-                    return Err(err.into());
-                }
+            let result = epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id);
+            let label = match &result {
+                Ok(_) => "hit",
+                // Prev block header not in epoch manager yet — witness raced its
+                // prev block. Defer, don't fail.
+                Err(EpochError::MissingBlock(_)) => "miss_prev_block",
+                // Block known, no `DBCol::ChunkProducers` entry for (block, shard).
+                // Steady-state ~0; persistent = upstream writer bug.
+                Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
+                Err(_) => "error",
             };
+            metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                .with_label_values(&[shard_id_label.as_str(), label])
+                .inc();
+            // `?` = same `From<EpochError>` conversion; `MissingBlock` /
+            // `ChunkProducerNotInDB` → `DBNotFoundErr` → caller defers.
+            let info = result?;
             // Cross-check signed chunk key against `prev_block_hash` implication.
             // Producer signature authenticates (epoch_id, shard_id, height_created,
             // prev_block_hash); without this check an authenticated producer for
