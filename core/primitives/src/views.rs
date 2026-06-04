@@ -1389,10 +1389,12 @@ impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum AccountContractView {
-    Local(CryptoHash),
-    GlobalHash(CryptoHash),
-    GlobalAccountId(AccountId),
+    Local(CryptoHash) = 0,
+    GlobalHash(CryptoHash) = 1,
+    GlobalAccountId(AccountId) = 2,
 }
 
 impl AccountContractView {
