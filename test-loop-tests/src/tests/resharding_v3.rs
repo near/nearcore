@@ -6,7 +6,6 @@ use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
     check_receipts_presence_at_resharding_block,
 };
-#[cfg(feature = "nightly")]
 use crate::utils::resharding::call_promise_yield_with_id;
 #[cfg(feature = "test_features")]
 use crate::utils::resharding::fork_before_resharding_block;
@@ -147,11 +146,11 @@ struct TestReshardingParameters {
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     #[builder(setter(custom))]
     deploy_test_contract: Vec<AccountId>,
-    /// When true, `deploy_test_contract` deploys the nightly-only build of the test contract
-    /// (`near_test_contracts::nightly_rs_contract()`) instead of the backwards-compatible
-    /// build. Required when the test invokes host functions gated on nightly-only
-    /// protocol features.
-    deploy_nightly_test_contract: bool,
+    /// When true, `deploy_test_contract` deploys the latest-protocol build of the test contract
+    /// (`near_test_contracts::rs_contract()`) instead of the backwards-compatible
+    /// build. Required when the test invokes host functions that are only available
+    /// in the latest stable protocol version.
+    deploy_latest_protocol_test_contract: bool,
     /// Optionally deploy and use test global contracts
     #[builder(setter(custom))]
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
@@ -305,7 +304,9 @@ impl TestReshardingParametersBuilder {
             loop_actions,
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
-            deploy_nightly_test_contract: self.deploy_nightly_test_contract.unwrap_or(false),
+            deploy_latest_protocol_test_contract: self
+                .deploy_latest_protocol_test_contract
+                .unwrap_or(false),
             deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
             use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
             gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
@@ -730,15 +731,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
     for contract_id in &params.deploy_test_contract {
         let node = env.node_for_account(&client_account_id);
-        let code = if params.deploy_nightly_test_contract {
-            #[cfg(feature = "nightly")]
-            {
-                near_test_contracts::nightly_rs_contract().into()
-            }
-            #[cfg(not(feature = "nightly"))]
-            {
-                unreachable!("deploy_nightly_test_contract requires the `nightly` cargo feature")
-            }
+        let code = if params.deploy_latest_protocol_test_contract {
+            near_test_contracts::rs_contract().into()
         } else {
             near_test_contracts::backwards_compatible_rs_contract().into()
         };
@@ -1865,8 +1859,6 @@ fn slow_test_resharding_v3_yield_resume() {
 }
 
 #[test]
-// `YieldWithId` ships in nightly; the with_id host fns are only available there.
-#[cfg(feature = "nightly")]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // See `slow_test_resharding_v3_yield_resume` for the non-x86_64 caveat.
@@ -1877,9 +1869,9 @@ fn slow_test_resharding_v3_yield_resume_with_id() {
     let params = TestReshardingParametersBuilder::default()
         .deploy_test_contract(account_in_left_child.clone())
         .deploy_test_contract(account_in_right_child.clone())
-        // yield_create_with_id / yield_resume_with_yield_id are gated on the
-        // `YieldWithId` nightly feature, so we need the nightly contract build.
-        .deploy_nightly_test_contract(true)
+        // yield_create_with_id / yield_resume_with_yield_id are only available in
+        // the latest stable protocol, so we need the latest-protocol contract build.
+        .deploy_latest_protocol_test_contract(true)
         .add_loop_action(call_promise_yield_with_id(
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
             vec![account_in_left_child.clone(), account_in_right_child.clone()],

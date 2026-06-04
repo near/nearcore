@@ -149,7 +149,6 @@ extern "C" {
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
-    #[cfg(feature = "nightly")]
     fn promise_yield_create_with_id(
         method_len: u64,
         method_ptr: u64,
@@ -1403,7 +1402,6 @@ pub unsafe fn yield_create_base() {
 /// Creates 1000 waiting receipts/yield promises via `promise_yield_create_with_id`.
 /// Each call uses a distinct user-provided yield_id (the loop counter) to avoid
 /// duplicate-detection bailouts.
-#[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
 pub unsafe fn yield_create_with_id_base() {
     const METHOD_NAME: &str = "n";
