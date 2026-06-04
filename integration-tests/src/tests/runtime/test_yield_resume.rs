@@ -580,7 +580,7 @@ fn create_with_id_fails_when_amount_exceeds_balance() {
 // that check (see `verifier.rs::check_storage_stake`).
 //
 // The standard `rs_contract` is large (~100 KB), so it can't be a ZBA. To get
-// the rich contract API on a ZBA, we deploy it once as a *global* contract from
+// the test contract API on a ZBA, we deploy it once as a *global* contract from
 // `alice.near` and have a small account (`zba.alice.near`) reference it via
 // `UseGlobalContract` — that leaves the referencing account at ~150 bytes of
 // storage, well within the ZBA limit.
