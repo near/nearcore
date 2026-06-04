@@ -230,9 +230,11 @@ pub struct Config {
     /// NEP-635: <https://github.com/near/NEPs/pull/635>
     pub p256_verify_host_fn: bool,
 
-    /// Accept BLS12-381 points that are on the curve but not in the G1/G2
-    /// subgroup in sum/multiexp/decompress host functions, as required by
-    /// NEP-488.
+    /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
+    /// functions. These points lie on the curve but outside the G1/G2
+    /// subgroup; previously the host function returned an error for them,
+    /// now they are handled correctly as required by NEP-488. All other
+    /// inputs were already handled correctly.
     pub bls12381_not_in_group_fix: bool,
 
     /// Describes limits for VM and Runtime.

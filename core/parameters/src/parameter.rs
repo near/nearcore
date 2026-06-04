@@ -271,8 +271,11 @@ pub enum Parameter {
     // Flag to enable the P-256 verification host function
     P256VerifyHostFn,
 
-    // Flag to accept BLS12-381 points that are on the curve but not in the
-    // G1/G2 subgroup in sum/multiexp/decompress host functions.
+    // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
+    // functions (NEP-488). These points lie on the curve but outside the G1/G2
+    // subgroup; previously the host function returned an error for them, now
+    // they are handled correctly. All other inputs were already handled
+    // correctly.
     Bls12381NotInGroupFix,
 }
 

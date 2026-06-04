@@ -17,9 +17,10 @@ const BLS_P2_COMPRESS_SIZE: usize = 96;
 // Version of BLS12-381 host function semantics. Each value corresponds to a
 // protocol-gated behavior change; new fixes bump the version.
 //
-// V1: NEP-488 — sum/multiexp/decompress accept points that lie on the curve
-// but outside the G1/G2 subgroup (e.g. `(0, ±2)`). Pre-V1 such points were
-// rejected because blst returns `BLST_POINT_NOT_IN_GROUP` for them.
+// V1: NEP-488 — accept the `(0, ±2)` corner case in sum and decompress. These
+// points lie on the curve but outside the G1/G2 subgroup; pre-V1 the host
+// function returned an error for them, now they are handled correctly. All
+// other inputs were already handled correctly.
 pub(crate) const BLS12381_NOT_IN_GROUP_FIX_VERSION: u32 = 1;
 
 #[macro_export]
