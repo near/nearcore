@@ -402,11 +402,6 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
-    /// Fix BLS12-381 sum/multiexp/decompress host functions to accept points that
-    /// are on the curve but not in the G1/G2 subgroup, as required by NEP-488.
-    /// Previously such points (e.g. (0, ±2)) returned an error instead of the
-    /// expected result.
-    BLS12381NotInGroupFix,
 }
 
 impl ProtocolFeature {
@@ -532,7 +527,6 @@ impl ProtocolFeature {
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::StickyReshardingValidatorAssignment => 153,
             ProtocolFeature::PostQuantumSignatures => 154,
-            ProtocolFeature::BLS12381NotInGroupFix => 155,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

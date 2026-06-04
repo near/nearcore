@@ -1291,7 +1291,7 @@ mod tests {
     /// `(0, 2)` is on `E(Fp)` but outside the `G1` subgroup. Pairing has
     /// its own explicit `in_g1` check (independent of the parse path that
     /// this PR relaxes), so feeding such a point yields the same rejection
-    /// (`1`) under both pre- and post-`BLS12381NotInGroupFix` versions.
+    /// (`1`) regardless of `bls12381_not_in_group_fix`.
     #[test]
     fn test_bls12381_pairing_x_0() {
         let mut zero_x_g1 = vec![0u8; 96];
@@ -1669,10 +1669,10 @@ mod tests {
     /// the G1 subgroup. blst's `blst_p1_deserialize` returns
     /// `BLST_POINT_NOT_IN_GROUP` for it.
     ///
-    /// - Pre-`BLS12381NotInGroupFix` (legacy): parse rejects the input, so
-    ///   the host function returns 1 (failure).
-    /// - Post-`BLS12381NotInGroupFix` (NEP-488): parse accepts it and the
-    ///   sum matches the expected result encoded in the CSV.
+    /// - With `bls12381_not_in_group_fix = false` (legacy): parse rejects the
+    ///   input, so the host function returns 1 (failure).
+    /// - With `bls12381_not_in_group_fix = true` (NEP-488): parse accepts it
+    ///   and the sum matches the expected result encoded in the CSV.
     #[test]
     fn test_bls12381_g1_add_x0_test_vectors() {
         let input_csv = fs::read("src/logic/tests/bls12381_test_vectors/g1_add_x0.csv").unwrap();
