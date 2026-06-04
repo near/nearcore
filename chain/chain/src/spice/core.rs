@@ -7,6 +7,7 @@ use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::merklize;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -218,6 +219,26 @@ impl SpiceCoreReader {
             results.insert(shard_id, result.clone());
         }
         Ok(Some(BlockExecutionResults(results)))
+    }
+
+    /// State root certified as of `block_hash`: the merkle root over per-shard
+    /// state roots of the last fully certified block. Mirrors the non-spice
+    /// `Chunks::compute_state_root`. Returns `None` when the certified block's
+    /// execution results are not all available yet.
+    pub fn last_certified_state_root(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let last_certified = get_last_certified_block_header(&self.chain_store, block_hash)?;
+        let Some(results) = self.get_block_execution_results(&last_certified)? else {
+            return Ok(None);
+        };
+        let shard_layout = self.epoch_manager.get_shard_layout(last_certified.epoch_id())?;
+        let state_roots: Vec<CryptoHash> = shard_layout
+            .shard_ids()
+            .map(|shard_id| *results.0[&shard_id].chunk_extra.state_root())
+            .collect();
+        Ok(Some(merklize(&state_roots).0))
     }
 
     pub fn core_statements_for_next_block(
