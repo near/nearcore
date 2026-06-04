@@ -458,8 +458,8 @@ fn pre_check_replay_requeue_chunk_producer_not_in_db() {
 }
 
 // C6 regression: kickout gate on the replay act-site.
-// `replay_forwarded_partial_witness` was the one ungated act-site; prove a kicked
-// witness is dropped before spawn.
+// `replay_forwarded_partial_witness` was the one act-site missing the gate; prove
+// a kicked witness is dropped before spawn.
 
 /// Counts spawns, doesn't run the closure.
 struct CountingSpawner {
