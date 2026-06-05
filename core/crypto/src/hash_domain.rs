@@ -1,7 +1,7 @@
 /// Domain-separation tags for hashing in the protocol. The tag is prepended
 /// to the input bytes before hashing, so a digest from one domain can never
 /// collide with a digest from another. Each variant is one domain; uses that
-/// deliberately share a digest share a variant.
+/// are meant to produce the same digest must use the same variant.
 #[derive(Debug, Clone, Copy)]
 pub enum HashDomainTag {
     /// `MlDsa65PublicKey`-to-digest derivation. The digest serves as the
