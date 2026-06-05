@@ -153,9 +153,9 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             // Reconstructed from BlockData.
             | DBCol::BlockHeader
             | DBCol::BlockHeight
-            // TODO(cloud-archival): reconstruct from BlockHeight in the reader.
+            // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
             | DBCol::BlockPerHeight
-            // TODO(cloud-archival): reconstruct from Block in the reader.
+            // TODO(cloud_archival): reconstruct from Block in the reader.
             | DBCol::ChunkHashesByHeight
 
             // From ShardData.
@@ -191,13 +191,16 @@ pub fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
     }
     matches!(
         col,
-        // State-sync header, used only transiently for State bootstrap, not persisted.
-        DBCol::StateHeaders
+        // DB-level metadata; the reader maintains its own.
+        DBCol::DbVersion
+            | DBCol::BlockMisc
+            // State-sync header, used only transiently for State bootstrap, not persisted.
+            | DBCol::StateHeaders
             // Resharding bookkeeping; the reader bootstraps State from per-epoch snapshots instead.
             | DBCol::StateChangesForSplitStates
             | DBCol::StateShardUIdMapping
 
-            // TODO(cloud-archival): the reader may need the following for validator /
+            // TODO(cloud_archival): the reader may need the following for validator /
             // light-client / block-ordinal / epoch-sync queries; confirm, and reproduce if so.
             | DBCol::BlockOrdinal
             | DBCol::EpochLightClientBlocks
@@ -220,13 +223,13 @@ mod tests {
     use strum::IntoEnumIterator;
 
     /// A cloud-bootstrapped reader must reproduce every column an archival node
-    /// keeps long-term (in the cold or hot database). Each such column must be in
-    /// exactly one of the two predicates above, so a new one fails this test until
-    /// a cloud-archive decision is made.
+    /// keeps long-term, i.e. `is_in_colddb() || gc_policy() == GcPolicy::Permanent`.
+    /// Each such column must be in exactly one of the two predicates above, so a new
+    /// one fails this test until a cloud-archive decision is made.
     #[test]
     fn every_retained_column_is_classified_for_cloud_archive() {
         for col in DBCol::iter() {
-            let retained = col.is_cold() || matches!(col.gc_policy(), GcPolicy::Permanent);
+            let retained = col.is_in_colddb() || matches!(col.gc_policy(), GcPolicy::Permanent);
             if !retained {
                 continue;
             }
