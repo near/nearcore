@@ -1874,7 +1874,7 @@ impl<T: ChainAccess> TxMirror<T> {
             tracker.on_txs_sent(
                 tx_block_queue,
                 &self.db,
-                crate::chain_tracker::SentBatch::ExtraTxs(txs),
+                crate::chain_tracker::SentBatch::UnstakeTxs(txs),
                 target_height,
             )?;
         }
@@ -2059,6 +2059,10 @@ impl<T: ChainAccess> TxMirror<T> {
             if !resend.is_empty() {
                 deferred_resend.send(resend).await?;
             }
+            // Prune only after this block's access-key updates have been resolved, and only
+            // in the steady-state loop (not during index_target_chain catch-up), so a key that
+            // appeared while we were down is resolved by the restart poll before we drop its txs.
+            tracker.lock().deferred_txs.prune(db.as_ref(), msg_height)?;
         }
     }
 
@@ -2130,7 +2134,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracker.on_txs_sent(
                         &tx_block_queue,
                         &self.db,
-                        crate::chain_tracker::SentBatch::ExtraTxs(txs),
+                        crate::chain_tracker::SentBatch::DeferredResendTxs(txs),
                         target_height,
                     )?;
                 }
