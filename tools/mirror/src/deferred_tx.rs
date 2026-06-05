@@ -100,13 +100,12 @@ impl DeferredTxTracker {
         nonce_key: &NonceLookupKey,
         nonce: &mut Option<Nonce>,
     ) -> Vec<DeferredTx> {
-        if self.txs.get(nonce_key).is_none_or(|txs| txs.is_empty()) {
-            return Vec::new();
-        }
         let Some(next_nonce) = nonce.as_mut() else {
             return Vec::new();
         };
-        let mut txs = self.txs.remove(nonce_key).unwrap();
+        let Some(mut txs) = self.txs.remove(nonce_key) else {
+            return Vec::new();
+        };
         for tx in &mut txs {
             *next_nonce += 1;
             *tx.target_tx.nonce_mut() = *next_nonce;
@@ -117,7 +116,7 @@ impl DeferredTxTracker {
 
     pub(crate) fn prune(&mut self, db: &DB, target_height: BlockHeight) -> anyhow::Result<()> {
         let mut emptied_keys = Vec::new();
-        for (nonce_key, txs) in self.txs.iter_mut() {
+        for (nonce_key, txs) in &mut self.txs {
             let before = txs.len();
             txs.retain(|tx| target_height.saturating_sub(tx.deferred_at) <= TTL);
             let dropped = before - txs.len();
@@ -135,19 +134,11 @@ impl DeferredTxTracker {
         Ok(())
     }
 
-    pub(crate) fn commit_sent(db: &DB, sent: &[(NonceLookupKey, Nonce)]) -> anyhow::Result<()> {
-        let mut by_key: HashMap<&NonceLookupKey, Nonce> = HashMap::new();
-        for (nonce_key, nonce) in sent {
-            by_key
-                .entry(nonce_key)
-                .and_modify(|n| *n = std::cmp::max(*n, *nonce))
-                .or_insert(*nonce);
-        }
-        for (nonce_key, max_nonce) in &by_key {
+    // Clear the DeferredTxs column for keys whose txs were resent and confirmed
+    // sent. The stored target nonce is already advanced by on_tx_sent().
+    pub(crate) fn commit_sent(db: &DB, keys: &[NonceLookupKey]) -> anyhow::Result<()> {
+        for nonce_key in keys {
             Self::db_put(db, nonce_key, &[])?;
-            let mut stored = crate::read_target_nonce(db, nonce_key)?.unwrap();
-            stored.nonce = std::cmp::max(stored.nonce, Some(*max_nonce));
-            crate::put_target_nonce(db, nonce_key, &stored)?;
         }
         Ok(())
     }

@@ -1174,7 +1174,7 @@ impl TxTracker {
         let mut total_sent = 0;
         let now = Instant::now();
         let mut keys_to_remove = HashSet::new();
-        let mut resolved_deferred_sent: Vec<(NonceLookupKey, Nonce)> = Vec::new();
+        let mut resolved_deferred_keys: Vec<NonceLookupKey> = Vec::new();
 
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
@@ -1207,9 +1207,8 @@ impl TxTracker {
                     if t.sent_successfully {
                         let is_deferred_resend = tx_ref.is_none();
                         if is_deferred_resend {
-                            let nonce_key = NonceLookupKey::from_tx(&t.target_tx.transaction);
-                            let nonce = t.target_tx.transaction.nonce().nonce();
-                            resolved_deferred_sent.push((nonce_key, nonce));
+                            resolved_deferred_keys
+                                .push(NonceLookupKey::from_tx(&t.target_tx.transaction));
                         }
                         self.on_tx_sent(
                             tx_block_queue,
@@ -1243,8 +1242,8 @@ impl TxTracker {
                 }
             }
         }
-        if !resolved_deferred_sent.is_empty() {
-            DeferredTxTracker::commit_sent(db, &resolved_deferred_sent)?;
+        if !resolved_deferred_keys.is_empty() {
+            DeferredTxTracker::commit_sent(db, &resolved_deferred_keys)?;
         }
 
         for nonce_key in keys_to_remove {

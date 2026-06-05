@@ -1907,9 +1907,7 @@ impl<T: ChainAccess> TxMirror<T> {
             resolved += 1;
         }
         let unresolved = deferred_keys.len() - resolved;
-        if resolved > 0 || unresolved > 0 {
-            tracing::info!(target: "mirror", resolved, unresolved, resend_count = resend.len(), tag, "deferred tx poll complete");
-        }
+        tracing::info!(target: "mirror", resolved, unresolved, resend_count = resend.len(), tag, "deferred tx poll complete");
         Ok(resend)
     }
 
