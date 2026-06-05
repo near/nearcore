@@ -155,9 +155,9 @@ pub(crate) struct TxTracker {
     // last source block we'll be sending transactions for
     stop_height: Option<BlockHeight>,
     // transactions that were sent before their access key appeared on the target
-    // chain, keyed by the NonceLookupKey they're waiting on. Mirrors the DeferredTxs
-    // DB column so it survives restarts. Resent by try_set_nonces() once the nonce
-    // is known, pruned in the steady-state index loop after DEFERRED_TX_TTL target heights.
+    // chain, keyed by the NonceLookupKey they're waiting on. Held in memory only.
+    // Resent by try_set_nonces() once the nonce is known, pruned in the steady-state
+    // index loop after DEFERRED_TX_TTL target heights.
     pub(crate) deferred_txs: DeferredTxTracker,
 }
 
@@ -170,14 +170,12 @@ impl TxTracker {
         tx_batch_interval: Option<Duration>,
         next_heights: I,
         stop_height: Option<BlockHeight>,
-        db: &DB,
-    ) -> anyhow::Result<Self>
+    ) -> Self
     where
         I: IntoIterator<Item = &'a BlockHeight>,
     {
         let next_heights = next_heights.into_iter().map(Clone::clone).collect();
-        let deferred_txs = DeferredTxTracker::load(db)?;
-        Ok(Self {
+        Self {
             min_block_production_delay,
             next_heights,
             stop_height,
@@ -191,8 +189,8 @@ impl TxTracker {
             height_popped: None,
             height_seen: None,
             recent_block_timestamps: VecDeque::new(),
-            deferred_txs,
-        })
+            deferred_txs: DeferredTxTracker::new(),
+        }
     }
 
     pub(crate) async fn next_heights<T: ChainAccess>(
@@ -1175,9 +1173,7 @@ impl TxTracker {
         let mut total_sent = 0;
         let now = Instant::now();
         let mut keys_to_remove = HashSet::new();
-        let mut resolved_deferred_keys: Vec<NonceLookupKey> = Vec::new();
 
-        let mut is_deferred_resend = false;
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
                 self.height_popped = Some(b.source_height);
@@ -1202,22 +1198,15 @@ impl TxTracker {
                 txs.into_iter().map(|tx| (None, tx)).collect::<Vec<_>>(),
                 String::from("extra unstake transactions"),
             ),
-            SentBatch::DeferredResendTxs(txs) => {
-                is_deferred_resend = true;
-                (
-                    txs.into_iter().map(|tx| (None, tx)).collect::<Vec<_>>(),
-                    String::from("deferred resend transactions"),
-                )
-            }
+            SentBatch::DeferredResendTxs(txs) => (
+                txs.into_iter().map(|tx| (None, tx)).collect::<Vec<_>>(),
+                String::from("deferred resend transactions"),
+            ),
         };
         for (tx_ref, tx) in txs_sent {
             match tx {
                 crate::TargetChainTx::Ready(t) => {
                     if t.sent_successfully {
-                        if is_deferred_resend {
-                            resolved_deferred_keys
-                                .push(NonceLookupKey::from_tx(&t.target_tx.transaction));
-                        }
                         self.on_tx_sent(
                             tx_block_queue,
                             db,
@@ -1246,12 +1235,9 @@ impl TxTracker {
                         &t.nonce_updates,
                         &mut keys_to_remove,
                     )?;
-                    self.deferred_txs.push(db, t, target_height)?;
+                    self.deferred_txs.push(t, target_height);
                 }
             }
-        }
-        if !resolved_deferred_keys.is_empty() {
-            DeferredTxTracker::commit_sent(db, &resolved_deferred_keys)?;
         }
 
         for nonce_key in keys_to_remove {

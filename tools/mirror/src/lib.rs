@@ -68,11 +68,6 @@ enum DBCol {
     // state. Otherwise, we map tx nonces according to the values in this column.
     Nonces,
     AccessKeyOutcomes,
-    // Transactions whose access key had not yet appeared on the target chain by
-    // the time their source block was sent, so we couldn't assign a nonce. Keyed
-    // by the NonceLookupKey they're waiting on, they're resent once that key's
-    // nonce becomes known, or dropped after DEFERRED_TX_TTL target heights.
-    DeferredTxs,
 }
 
 impl DBCol {
@@ -81,7 +76,6 @@ impl DBCol {
             Self::Misc => "miscellaneous",
             Self::Nonces => "nonces",
             Self::AccessKeyOutcomes => "access_key_outcomes",
-            Self::DeferredTxs => "deferred_txs",
         }
     }
 }
@@ -479,7 +473,7 @@ fn open_db<P: AsRef<Path>>(home: P) -> anyhow::Result<DB> {
     Ok(DB::open_cf_descriptors(&options, home.as_ref(), cf_descriptors)?)
 }
 
-#[derive(Clone, Copy, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug)]
 enum MappedTxProvenance {
     MappedSourceTx(BlockHeight, ShardId, usize),
     TxAddKey(BlockHeight, ShardId, usize),
@@ -1886,7 +1880,6 @@ impl<T: ChainAccess> TxMirror<T> {
     async fn poll_deferred_txs(
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         view_client: &MultithreadRuntimeHandle<ViewClientActor>,
-        tag: &str,
     ) -> anyhow::Result<Vec<DeferredTx>> {
         let deferred_keys = tracker.lock().deferred_txs.keys();
         if deferred_keys.is_empty() {
@@ -1901,13 +1894,13 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             let txs = tracker.lock().resolve_deferred_txs(nonce_key, &mut nonce);
             if !txs.is_empty() {
-                tracing::info!(target: "mirror", ?nonce_key, count = txs.len(), tag, "resolved deferred txs");
+                tracing::info!(target: "mirror", ?nonce_key, count = txs.len(), "resolved deferred txs");
                 resend.extend(txs);
             }
             resolved += 1;
         }
         let unresolved = deferred_keys.len() - resolved;
-        tracing::info!(target: "mirror", resolved, unresolved, resend_count = resend.len(), tag, "deferred tx poll complete");
+        tracing::info!(target: "mirror", resolved, unresolved, resend_count = resend.len(), "deferred tx poll complete");
         Ok(resend)
     }
 
@@ -2022,13 +2015,6 @@ impl<T: ChainAccess> TxMirror<T> {
             .send((client.clone(), view_client.clone(), rpc_handler.clone()))
             .map_err(|_| anyhow::anyhow!("failed to send clients"))?;
 
-        {
-            let resend = Self::poll_deferred_txs(&tracker, &view_client, "restart").await?;
-            if !resend.is_empty() {
-                deferred_resend.send(resend).await?;
-            }
-        }
-
         loop {
             let msg = target_stream.recv().await.unwrap();
             let msg_height = msg.block.header.height;
@@ -2042,7 +2028,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 accounts_to_unstake.send(target_block_info.staked_accounts).await?;
             }
             let mut resend = if msg_height % 10 == 0 {
-                Self::poll_deferred_txs(&tracker, &view_client, "poll").await?
+                Self::poll_deferred_txs(&tracker, &view_client).await?
             } else {
                 Vec::new()
             };
@@ -2059,10 +2045,9 @@ impl<T: ChainAccess> TxMirror<T> {
             if !resend.is_empty() {
                 deferred_resend.send(resend).await?;
             }
-            // Prune only after this block's access-key updates have been resolved, and only
-            // in the steady-state loop (not during index_target_chain catch-up), so a key that
-            // appeared while we were down is resolved by the restart poll before we drop its txs.
-            tracker.lock().deferred_txs.prune(db.as_ref(), msg_height)?;
+            // Prune after this block's access-key updates have been resolved, so a key that
+            // appears in this block resolves its deferred txs before we'd drop them.
+            tracker.lock().deferred_txs.prune(msg_height);
         }
     }
 
@@ -2256,8 +2241,7 @@ impl<T: ChainAccess> TxMirror<T> {
             self.config.tx_batch_interval,
             next_heights.iter(),
             stop_height,
-            &self.db,
-        )?));
+        )));
         let target_height = Arc::new(RwLock::new(0));
         let target_head = Arc::new(RwLock::new(CryptoHash::default()));
         let (clients_tx, clients_rx) = tokio::sync::oneshot::channel();
