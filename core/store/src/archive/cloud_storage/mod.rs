@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::DBCol;
 use crate::archive::cloud_storage::batch::compute_batch_id;
 pub use crate::archive::cloud_storage::batch::{BatchId, BatchRange, compute_next_batch};
