@@ -80,6 +80,10 @@ impl DeferredTxTracker {
         self.txs.keys().cloned().collect()
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.txs.is_empty()
+    }
+
     pub(crate) fn push(
         &mut self,
         db: &DB,

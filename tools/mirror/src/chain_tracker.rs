@@ -108,7 +108,8 @@ struct NonceInfo {
 
 pub(crate) enum SentBatch {
     MappedBlock(TxBatch),
-    ExtraTxs(Vec<TargetChainTx>),
+    UnstakeTxs(Vec<TargetChainTx>),
+    DeferredResendTxs(Vec<TargetChainTx>),
 }
 
 // a nonce lookup key along with the id of the tx or receipt that might have updated it
@@ -156,7 +157,7 @@ pub(crate) struct TxTracker {
     // transactions that were sent before their access key appeared on the target
     // chain, keyed by the NonceLookupKey they're waiting on. Mirrors the DeferredTxs
     // DB column so it survives restarts. Resent by try_set_nonces() once the nonce
-    // is known, pruned by on_target_block() after DEFERRED_TX_TTL target heights.
+    // is known, pruned in the steady-state index loop after DEFERRED_TX_TTL target heights.
     pub(crate) deferred_txs: DeferredTxTracker,
 }
 
@@ -228,6 +229,7 @@ impl TxTracker {
             Some(_) => {
                 self.height_popped >= self.stop_height
                     && self.height_seen >= self.nonempty_height_queued
+                    && self.deferred_txs.is_empty()
             }
             None => false,
         }
@@ -888,7 +890,6 @@ impl TxTracker {
     ) -> anyhow::Result<TargetBlockInfo> {
         self.record_block_timestamp(&msg);
         self.log_target_block(&msg);
-        self.deferred_txs.prune(db, msg.block.header.height)?;
 
         let mut access_key_updates = Vec::new();
         let mut staked_accounts = HashMap::new();
@@ -1176,6 +1177,7 @@ impl TxTracker {
         let mut keys_to_remove = HashSet::new();
         let mut resolved_deferred_keys: Vec<NonceLookupKey> = Vec::new();
 
+        let mut is_deferred_resend = false;
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
                 self.height_popped = Some(b.source_height);
@@ -1196,16 +1198,22 @@ impl TxTracker {
                     b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();
                 (txs, format!("source #{}", b.source_height))
             }
-            SentBatch::ExtraTxs(txs) => (
+            SentBatch::UnstakeTxs(txs) => (
                 txs.into_iter().map(|tx| (None, tx)).collect::<Vec<_>>(),
                 String::from("extra unstake transactions"),
             ),
+            SentBatch::DeferredResendTxs(txs) => {
+                is_deferred_resend = true;
+                (
+                    txs.into_iter().map(|tx| (None, tx)).collect::<Vec<_>>(),
+                    String::from("deferred resend transactions"),
+                )
+            }
         };
         for (tx_ref, tx) in txs_sent {
             match tx {
                 crate::TargetChainTx::Ready(t) => {
                     if t.sent_successfully {
-                        let is_deferred_resend = tx_ref.is_none();
                         if is_deferred_resend {
                             resolved_deferred_keys
                                 .push(NonceLookupKey::from_tx(&t.target_tx.transaction));
