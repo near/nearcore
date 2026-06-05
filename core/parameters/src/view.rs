@@ -55,6 +55,8 @@ pub struct RuntimeFeesConfigView {
     /// plus each `Delegate` action with an ML-DSA-65 inner signer). Paid by the
     /// signer when buying the transaction; tooling needs it to estimate the
     /// cost of ML-DSA-65-signed transactions. 0 before `PostQuantumSignatures`.
+    /// Like the other cost views, this exposes only the gas portion; the
+    /// compute cost is a validator-internal concern.
     pub ml_dsa_65_verification_cost: Gas,
 }
 
@@ -199,7 +201,8 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
                 ml_dsa_65_verification_cost: config.fees.signature_verification_costs
-                    [SignatureKind::MlDsa65],
+                    [SignatureKind::MlDsa65]
+                    .gas,
             },
             wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {

@@ -432,11 +432,12 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 deploy_global_contract_execution_per_byte: params
                     .get(Parameter::DeployGlobalContractExecutionPerByte)?,
                 signature_verification_costs: enum_map::enum_map! {
-                    // Extra verification cost relative to the classical schemes.
-                    // They stay 0 for backwards compatibility; only ML-DSA-65
-                    // carries a charge. Adding a new `SignatureKind` variant
-                    // forces a decision here.
-                    SignatureKind::Ed25519 | SignatureKind::Secp256k1 => Gas::ZERO,
+                    // Extra verification cost relative to the classical
+                    // schemes, whose base verification cost is already part of
+                    // `action_receipt_creation`. They stay 0 for backwards
+                    // compatibility; only ML-DSA-65 carries a charge. Adding a
+                    // new `SignatureKind` variant forces a decision here.
+                    SignatureKind::Ed25519 | SignatureKind::Secp256k1 => ParameterCost::ZERO,
                     SignatureKind::MlDsa65 => params.get(Parameter::MlDsa65VerificationCost)?,
                 },
             }),

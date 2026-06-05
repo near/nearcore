@@ -366,15 +366,34 @@ fn permission_exec_fees(
     key_fee.checked_add(nonce_fee.total()).unwrap()
 }
 
-/// Returns the cost of converting `tx` into a receipt.
+/// Returns the total cost of converting a `tx` into a receipt, including the
+/// costs of the spawned receipts.
 pub fn tx_cost(
     config: &RuntimeConfig,
     tx: &Transaction,
     receipt_gas_price: Balance,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let receiver_id = tx.receiver_id();
-    let actions = tx.actions();
-    let sender_is_receiver = receiver_id == tx.signer_id();
+    calculate_tx_cost(
+        tx.receiver_id(),
+        tx.signer_id(),
+        tx.public_key(),
+        tx.actions(),
+        config,
+        receipt_gas_price,
+    )
+}
+
+/// Like [`tx_cost`], for callers that have the transaction's fields but not a
+/// `Transaction` (e.g. the indexer prices transaction views).
+pub fn calculate_tx_cost(
+    receiver_id: &AccountId,
+    signer_id: &AccountId,
+    signer_public_key: &PublicKey,
+    actions: &[Action],
+    config: &RuntimeConfig,
+    receipt_gas_price: Balance,
+) -> Result<TransactionCost, IntegerOverflowError> {
+    let sender_is_receiver = receiver_id == signer_id;
     let fees = &config.fees;
     let mut burnt: ParameterCost =
         fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
@@ -384,12 +403,13 @@ pub fn tx_cost(
         actions,
         receiver_id,
     )?)?;
-    // Burn the signature-verification gas as part of converting the
+    // Burn the signature-verification cost as part of converting the
     // transaction. This raises the gas the signer must buy (burnt_amount /
     // total_cost below) but never `gas_remaining` (the gas attached to / left
     // for the resulting receipts), so on-chain function-call gas budgets are
     // unaffected.
-    burnt = burnt.checked_add_result(signature_verification_cost(fees, tx)?)?;
+    burnt =
+        burnt.checked_add_result(signature_verification_cost(fees, signer_public_key, actions)?)?;
 
     // Calculate `gas_remaining`, which are all gas costs minus what is already
     // burnt in the sending step. Compute is not relevant here, as this gas will
@@ -435,27 +455,28 @@ fn signature_kind(key_type: KeyType) -> SignatureKind {
     }
 }
 
-/// Extra gas burnt at conversion for the signature verifications this
+/// Extra cost burnt at conversion for the signature verifications this
 /// transaction triggers: the signer's own signature plus each `Delegate`
 /// action's inner signer, each looked up by scheme in
 /// `signature_verification_costs`. The charge is the extra verification cost
 /// relative to the classical schemes; only ML-DSA-65 is non-zero, while
-/// ed25519/secp256k1 stay 0 for backwards compatibility. `compute == gas`, so
-/// this also debits the chunk's wall-clock budget.
+/// ed25519/secp256k1 stay 0 for backwards compatibility. The compute cost
+/// debits the chunk's wall-clock budget and may be set independently of the
+/// gas cost.
 fn signature_verification_cost(
     fees: &RuntimeFeesConfig,
-    tx: &Transaction,
+    signer_public_key: &PublicKey,
+    actions: &[Action],
 ) -> Result<ParameterCost, IntegerOverflowError> {
     let costs = &fees.signature_verification_costs;
-    let mut total_gas = costs[signature_kind(tx.public_key().key_type())].as_gas();
-    for action in tx.actions() {
+    let mut total = costs[signature_kind(signer_public_key.key_type())];
+    for action in actions {
         if let Action::Delegate(signed_delegate_action) = action {
             let kind = signature_kind(signed_delegate_action.delegate_action.public_key.key_type());
-            total_gas =
-                total_gas.checked_add(costs[kind].as_gas()).ok_or(IntegerOverflowError {})?;
+            total = total.checked_add_result(costs[kind])?;
         }
     }
-    Ok(ParameterCost::new(Gas::from_gas(total_gas), total_gas))
+    Ok(total)
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.
@@ -549,11 +570,15 @@ mod tests {
 
     const VERIFY_GAS: u64 = 80_000_000_000;
 
-    fn config_with_verify_gas(gas: u64) -> RuntimeConfig {
+    fn config_with_verify_cost(gas: u64, compute: u64) -> RuntimeConfig {
         let mut config = RuntimeConfig::test();
         Arc::make_mut(&mut config.fees).signature_verification_costs[SignatureKind::MlDsa65] =
-            Gas::from_gas(gas);
+            ParameterCost::new(Gas::from_gas(gas), compute);
         config
+    }
+
+    fn config_with_verify_gas(gas: u64) -> RuntimeConfig {
+        config_with_verify_cost(gas, gas)
     }
 
     fn transfer() -> Action {
@@ -645,12 +670,42 @@ mod tests {
         );
     }
 
+    /// The compute cost of the verification charge can be set independently of
+    /// the gas cost (NEP-455): only `compute_burnt` reflects the difference,
+    /// while gas and token amounts follow the gas cost.
+    #[test]
+    fn ml_dsa_65_verify_compute_cost_independent_from_gas() {
+        let compute = 3 * VERIFY_GAS;
+        let config = config_with_verify_cost(VERIFY_GAS, compute);
+        let ed = cost_of(&config, KeyType::ED25519, vec![transfer()]);
+        let pq = cost_of(&config, KeyType::MLDSA65, vec![transfer()]);
+
+        assert_eq!(
+            pq.gas_burnt.as_gas(),
+            ed.gas_burnt.as_gas() + VERIFY_GAS,
+            "gas follows the gas cost"
+        );
+        assert_eq!(
+            pq.compute_burnt,
+            ed.compute_burnt + compute,
+            "compute follows the compute cost, not gas"
+        );
+        // The signer buys gas, not compute: token cost reflects only the gas part.
+        let pq_with_eq_compute =
+            cost_of(&config_with_verify_gas(VERIFY_GAS), KeyType::MLDSA65, vec![transfer()]);
+        assert_eq!(pq.gas_cost, pq_with_eq_compute.gas_cost);
+        assert_eq!(pq.total_cost, pq_with_eq_compute.total_cost);
+    }
+
     /// With the base value (0, before `PostQuantumSignatures`) the charge is
     /// inert: an ML-DSA-65 signer costs exactly the same as ed25519.
     #[test]
     fn ml_dsa_65_verify_gas_zero_by_default() {
         let config = RuntimeConfig::test();
-        assert_eq!(config.fees.signature_verification_costs[SignatureKind::MlDsa65], Gas::ZERO);
+        assert_eq!(
+            config.fees.signature_verification_costs[SignatureKind::MlDsa65],
+            ParameterCost::ZERO
+        );
         let ed = cost_of(&config, KeyType::ED25519, vec![transfer()]);
         let pq = cost_of(&config, KeyType::MLDSA65, vec![transfer()]);
         assert_eq!(pq.gas_burnt, ed.gas_burnt);

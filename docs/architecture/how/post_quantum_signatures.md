@@ -153,9 +153,10 @@ integration:
   verification time. Measured single-core on an Intel Core Ultra 9 185H.
 - Pricing: charged as **gas at transaction conversion** via the
   `ml_dsa_65_verification_cost` runtime parameter (100 Ggas - the extra
-  verification cost of ML-DSA-65 over the classical schemes; an expert
-  decision based on these benchmark results). See the economic-impact item
-  below for the mechanism and rationale.
+  verification cost of ML-DSA-65 over the classical schemes: ~2x the measured
+  ~50 µs mean difference at the 1 Tgas/s calibration target, leaving tail
+  headroom). See the economic-impact item below for the mechanism and
+  rationale.
 
 ### 7. Out-of-scope (and why)
 
@@ -261,15 +262,20 @@ items the team should resolve before stabilizing in 2.13.
    priced: per-key storage stake scales correctly via `trie_id_len()`, and
    signature verification is charged as **gas at transaction conversion**,
    keyed by signature scheme. `RuntimeFeesConfig` holds a
-   `signature_verification_costs: EnumMap<SignatureKind, Gas>` (the `SignatureKind`
-   enum mirrors `near_crypto::KeyType`; it lives in `near-parameters` so that
-   crate need not depend on `near-crypto`, with the `KeyType -> SignatureKind`
-   match done at the runtime call site). The map holds the *extra* verification
-   cost of a scheme relative to the classical schemes the network already
-   supports: ed25519/secp256k1 stay 0 for backwards compatibility, only
-   ML-DSA-65 carries a charge, fed by the `ml_dsa_65_verification_cost`
-   parameter (gated on `PostQuantumSignatures` in the v154 config diff; base 0,
-   inert pre-feature).
+   `signature_verification_costs: EnumMap<SignatureKind, ParameterCost>` (the
+   `SignatureKind` enum mirrors `near_crypto::KeyType`; it lives in
+   `near-parameters` so that crate need not depend on `near-crypto`, with the
+   `KeyType -> SignatureKind` match done at the runtime call site). The map
+   holds the *extra* verification cost of a scheme relative to the classical
+   schemes (whose verification is part of `action_receipt_creation`):
+   ed25519/secp256k1 stay 0 for backwards compatibility, only ML-DSA-65
+   carries a charge, fed by the `ml_dsa_65_verification_cost` parameter (gated
+   on `PostQuantumSignatures` in the v154 config diff; base 0, inert
+   pre-feature). This is also the common pricing path for future schemes
+   (more ML-DSA bits, hash-based schemes, ...): add the `KeyType`, a
+   `SignatureKind` variant and a `<scheme>_verification_cost` parameter; the
+   compiler forces wiring the map entry in `parameter_table.rs` and the
+   charging logic picks it up unchanged.
    - Mechanism: `tx_cost` (`runtime/runtime/src/config.rs`, which takes the
      whole `&Transaction`) adds, per signature the tx triggers verification of
      - its own signature plus each `Delegate` action's inner signer -
@@ -282,16 +288,18 @@ items the team should resolve before stabilizing in 2.13.
      dapps must buy slightly more gas for ML-DSA-signed transactions.
      `EXPERIMENTAL_protocol_config` exposes the ML-DSA-65 value
      (`RuntimeFeesConfigView.ml_dsa_65_verification_cost`) for tooling.
-   - Why gas, not a NEP-455 compute cost: the team chose to price the work the
-     signer imposes directly, since (a) it cannot break contracts (only the
-     gas bought at tx creation rises, not in-contract cross-contract-call
-     budgets), and (b) ML-DSA-65 is a brand-new gated key type, so no existing
-     tooling has gas expectations around it. (`compute == gas` for this
-     parameter, so it also debits the chunk's wall-clock budget.) A
-     compute-cost implementation is preserved in a git stash as a fallback.
-   - Value: 100 Ggas - the extra verification cost of ML-DSA-65 over the
-     classical schemes, an expert decision based on the benchmark results in
-     §6. May be revisited before stabilization.
+   - Why gas, not only a NEP-455 compute cost: the team chose to price the
+     work the signer imposes directly, since (a) it cannot break contracts
+     (only the gas bought at tx creation rises, not in-contract
+     cross-contract-call budgets), and (b) ML-DSA-65 is a brand-new gated key
+     type, so no existing tooling has gas expectations around it. The
+     parameter is a `ParameterCost`, so its compute cost (which debits the
+     chunk's wall-clock budget) defaults to the gas value but can be set
+     independently via the `{gas: ..., compute: ...}` config form if
+     calibration shows verification is undercharged.
+   - Value: 100 Ggas (~100 µs at the 1 Tgas/s calibration target) - about 2x
+     the measured ~50 µs mean extra verify time of ML-DSA-65 over ed25519
+     (§6), leaving tail headroom. May be revisited before stabilization.
    - Still open: a per-byte component on `AddKey`/`DeleteKey` for the
      ~1952-byte pubkey they carry on the wire, and the separate
      bandwidth/witness gas-vs-bytes gap (large ML-DSA txs vs the per-chunk

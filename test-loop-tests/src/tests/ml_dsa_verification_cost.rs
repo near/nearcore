@@ -29,6 +29,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 fn ml_dsa_verify_gas() -> u64 {
     RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).fees.signature_verification_costs
         [SignatureKind::MlDsa65]
+        .gas
         .as_gas()
 }
 

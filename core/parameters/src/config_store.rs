@@ -351,6 +351,28 @@ mod tests {
         );
     }
 
+    /// The signature-verification cost accepts the `{gas, compute}` form, so
+    /// its compute cost can be set independently of the gas cost.
+    #[test]
+    fn test_signature_verification_compute_cost_override() {
+        use crate::cost::{ParameterCost, SignatureKind};
+
+        let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
+        let mock_diff_str = r#"
+        ml_dsa_65_verification_cost: {
+          old: 0,
+          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+        }
+        "#;
+        base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
+        let modified_config = RuntimeConfig::new(&base_params).unwrap();
+
+        assert_eq!(
+            modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
+            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
+        );
+    }
+
     /// Use snapshot testing to check that the JSON representation of the configurations of each version is unchanged.
     /// If tests fail after an intended change, follow the steps below to update the config files:
     /// 1) Run the following to run tests with cargo insta so it generates all the file differences:

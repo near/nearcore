@@ -263,8 +263,9 @@ pub enum Parameter {
     /// an ML-DSA-65 key) plus each `Delegate` action carrying an ML-DSA-65
     /// inner signer. ML-DSA-65 verification is materially slower than the
     /// classical schemes, so this charges its extra cost; the signer pays for
-    /// that work as part of buying the transaction. 0 before
-    /// `PostQuantumSignatures`.
+    /// that work as part of buying the transaction. Accepts the
+    /// `{gas: ..., compute: ...}` form to set the compute cost independently
+    /// of the gas cost. 0 before `PostQuantumSignatures`.
     #[strum(serialize = "ml_dsa_65_verification_cost")]
     MlDsa65VerificationCost,
 

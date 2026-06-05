@@ -493,6 +493,11 @@ impl ExtCosts {
 /// `near_crypto::KeyType`; kept here (rather than reusing `KeyType`) so that
 /// `near-parameters` need not depend on `near-crypto`. Convert with the
 /// `KeyType -> SignatureKind` match at the runtime call site.
+///
+/// To price a future scheme (more ML-DSA bits, hash-based schemes, ...): add
+/// the `KeyType`, add a variant here, and add a `<scheme>_verification_cost`
+/// runtime parameter; the compiler then forces wiring the new entry into the
+/// cost map in `parameter_table.rs`.
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, enum_map::Enum)]
 pub enum SignatureKind {
     Ed25519,
@@ -536,16 +541,17 @@ pub struct RuntimeFeesConfig {
     /// `GlobalContractDistribution` receipt, scaled by deployed code size.
     pub deploy_global_contract_execution_per_byte: Compute,
 
-    /// Gas charged at transaction conversion for each signature the transaction
-    /// triggers verification of, keyed by signature scheme: the signer's own
-    /// signature, plus each `Delegate` action's inner signer. This is the
-    /// *extra* verification cost of a scheme relative to the classical schemes
-    /// the network already supports. ed25519/secp256k1 stay 0 for backwards
-    /// compatibility; only ML-DSA-65 carries a charge (an expert decision based
-    /// on benchmark results). The signer pays it as burnt gas when buying the
-    /// transaction; receipts created from within contracts are unaffected (no
-    /// signing there). All 0 before `PostQuantumSignatures`.
-    pub signature_verification_costs: EnumMap<SignatureKind, Gas>,
+    /// Gas and compute cost charged at transaction conversion for each
+    /// signature the transaction triggers verification of, keyed by signature
+    /// scheme: the signer's own signature, plus each `Delegate` action's inner
+    /// signer. This is the *extra* verification cost of a scheme relative to
+    /// the classical schemes (whose verification is part of
+    /// `action_receipt_creation`). ed25519/secp256k1 stay 0 for backwards
+    /// compatibility; only ML-DSA-65 carries a charge. The signer pays it as
+    /// burnt gas when buying the transaction; receipts created from within
+    /// contracts are unaffected (no signing there). All 0 before
+    /// `PostQuantumSignatures`.
+    pub signature_verification_costs: EnumMap<SignatureKind, ParameterCost>,
 }
 
 /// Describes cost of storage per block
@@ -607,7 +613,7 @@ impl RuntimeFeesConfig {
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
-            signature_verification_costs: enum_map::enum_map! { _ => Gas::ZERO },
+            signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
         }
     }
 
@@ -628,7 +634,7 @@ impl RuntimeFeesConfig {
             min_gas_refund_penalty: Gas::ZERO,
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
-            signature_verification_costs: enum_map::enum_map! { _ => Gas::ZERO },
+            signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
         }
     }
 
