@@ -143,7 +143,8 @@ fn block_on_future<F: Future>(fut: F) -> F::Output {
 }
 
 /// Columns the cloud-archive reader reproduces from cloud data.
-pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
+#[cfg(test)]
+fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
     matches!(
         col,
         // From BlockData.
@@ -183,7 +184,8 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
 }
 
 /// Columns the cloud-archive reader does not reproduce.
-pub fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
+#[cfg(test)]
+fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
     // TODO(spice): decide how the reader handles spice columns.
     #[cfg(feature = "protocol_feature_spice")]
     if col == DBCol::ReceiptProofs {
