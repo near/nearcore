@@ -14,6 +14,15 @@ const BLS_P2_SIZE: usize = 192;
 const BLS_P1_COMPRESS_SIZE: usize = 48;
 const BLS_P2_COMPRESS_SIZE: usize = 96;
 
+// Version of BLS12-381 host function semantics. Each value corresponds to a
+// protocol-gated behavior change; new fixes bump the version.
+//
+// V1: NEP-488 — accept the `(0, ±2)` corner case in sum and decompress. These
+// points lie on the curve but outside the G1/G2 subgroup; pre-V1 the host
+// function returned an error for them, now they are handled correctly. All
+// other inputs were already handled correctly.
+pub(crate) const BLS12381_NOT_IN_GROUP_FIX_VERSION: u32 = 1;
+
 #[macro_export]
 macro_rules! bls12381_impl {
     (
@@ -37,7 +46,12 @@ macro_rules! bls12381_impl {
             self.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
 
             let data = get_memory_or_register!(self, value_ptr, value_len)?;
-            let res_option = super::bls12381::$impl_fn_name(&data)?;
+            let version = if self.config.bls12381_not_in_group_fix {
+                $crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
+            } else {
+                0
+            };
+            let res_option = super::bls12381::$impl_fn_name(&data, version)?;
 
             if let Some(res) = res_option {
                 self.registers.set(
@@ -77,20 +91,24 @@ macro_rules! bls12381_fn {
         $blst_p_mult:ident,
         $read_fp_point:ident,
         $blst_map_to_g:ident,
+        $blst_p_uncompress:ident,
         $PubKeyOrSig:ident,
         $parse_p:ident,
         $serialize_p:ident,
         $bls12381_p:expr,
         $bls12381_map_fp_to_g:expr
     ) => {
-        fn $parse_p(point_data: &[u8]) -> Option<blst::$blst_p> {
+        fn $parse_p(point_data: &[u8], version: u32) -> Option<blst::$blst_p> {
             if point_data[0] & 0x80 != 0 {
                 return None;
             }
 
             let mut pk_aff = blst::$blst_p_affine::default();
             let error_code = unsafe { blst::$blst_p_deserialize(&mut pk_aff, point_data.as_ptr()) };
-            if error_code != blst::BLST_ERROR::BLST_SUCCESS {
+            let success = error_code == blst::BLST_ERROR::BLST_SUCCESS
+                || (version >= $crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
+                    && error_code == blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP);
+            if !success {
                 return None;
             }
 
@@ -116,7 +134,7 @@ macro_rules! bls12381_fn {
             res.to_vec()
         }
 
-        pub(crate) fn $p_sum(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $p_sum(data: &[u8], version: u32) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = BLS_BOOL_SIZE + $BLS_P_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_sum", $bls12381_p))?;
 
@@ -126,7 +144,7 @@ macro_rules! bls12381_fn {
                 let (sign_data, point_data) = item_data.split_at(BLS_BOOL_SIZE);
                 debug_assert_eq!(point_data.len(), $BLS_P_SIZE);
 
-                let mut pk = match $parse_p(point_data) {
+                let mut pk = match $parse_p(point_data, version) {
                     Some(pk) => pk,
                     None => return Ok(None),
                 };
@@ -149,7 +167,7 @@ macro_rules! bls12381_fn {
             Ok(Some($serialize_p(&res_pk)))
         }
 
-        pub(crate) fn $g_multiexp(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $g_multiexp(data: &[u8], version: u32) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_P_SIZE + BLS_SCALAR_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_multiexp", $bls12381_p))?;
 
@@ -159,7 +177,7 @@ macro_rules! bls12381_fn {
                 let (point_data, scalar_data) = item_data.split_at($BLS_P_SIZE);
                 debug_assert_eq!(scalar_data.len(), BLS_SCALAR_SIZE);
 
-                let pk = match $parse_p(point_data) {
+                let pk = match $parse_p(point_data, version) {
                     Some(pk) => pk,
                     None => return Ok(None),
                 };
@@ -181,7 +199,7 @@ macro_rules! bls12381_fn {
             Ok(Some($serialize_p(&res_pk)))
         }
 
-        pub(crate) fn $p_decompress(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $p_decompress(data: &[u8], version: u32) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_P_COMPRESS_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_decompress", $bls12381_p))?;
             let elements_count = data.len() / ITEM_SIZE;
@@ -189,9 +207,32 @@ macro_rules! bls12381_fn {
             let mut res = Vec::<u8>::with_capacity(elements_count * $BLS_P_SIZE);
 
             for item_data in data.chunks_exact(ITEM_SIZE) {
-                let pk_res = blst::min_pk::$PubKeyOrSig::uncompress(item_data);
-                let pk_ser = if let Ok(pk) = pk_res {
-                    pk.serialize()
+                let pk_ser = if item_data[0] & 0x80 != 0 {
+                    if version >= $crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION {
+                        let mut pk = blst::$blst_p_affine::default();
+                        let err = unsafe { blst::$blst_p_uncompress(&mut pk, item_data.as_ptr()) };
+                        if err != blst::BLST_ERROR::BLST_SUCCESS
+                            && err != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP
+                        {
+                            return Ok(None);
+                        }
+
+                        let mut res = [0u8; $BLS_P_SIZE];
+                        unsafe {
+                            blst::$blst_p_affine_serialize(res.as_mut_ptr(), &pk);
+                        }
+
+                        res
+                    } else {
+                        // Legacy path: relies on `min_pk` wrappers, which reject
+                        // `BLST_POINT_NOT_IN_GROUP`.
+                        let pk_res = blst::min_pk::$PubKeyOrSig::uncompress(item_data);
+                        if let Ok(pk) = pk_res {
+                            pk.serialize()
+                        } else {
+                            return Ok(None);
+                        }
+                    }
                 } else {
                     return Ok(None);
                 };
@@ -202,7 +243,7 @@ macro_rules! bls12381_fn {
             Ok(Some(res))
         }
 
-        pub(crate) fn $map_fp_to_g(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $map_fp_to_g(data: &[u8], _version: u32) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_FP_SIZE;
             check_input_size(data, ITEM_SIZE, $bls12381_map_fp_to_g)?;
             let elements_count: usize = data.len() / ITEM_SIZE;
@@ -249,6 +290,7 @@ bls12381_fn!(
     blst_p1_mult,
     read_fp_point,
     blst_map_to_g1,
+    blst_p1_uncompress,
     PublicKey,
     parse_p1,
     serialize_p1,
@@ -276,6 +318,7 @@ bls12381_fn!(
     blst_p2_mult,
     read_fp2_point,
     blst_map_to_g2,
+    blst_p2_uncompress,
     Signature,
     parse_p2,
     serialize_p2,

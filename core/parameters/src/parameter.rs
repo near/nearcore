@@ -277,6 +277,13 @@ pub enum Parameter {
 
     // Flag to enable chain_id host function (NEP-638)
     ChainIdHostFn,
+
+    // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
+    // functions (NEP-488). These points lie on the curve but outside the G1/G2
+    // subgroup; previously the host function returned an error for them, now
+    // they are handled correctly. All other inputs were already handled
+    // correctly.
+    Bls12381NotInGroupFix,
 }
 
 #[derive(

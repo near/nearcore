@@ -520,7 +520,8 @@ impl ProtocolFeature {
             | ProtocolFeature::GasKeys
             | ProtocolFeature::ContinuousEpochSync
             | ProtocolFeature::DynamicResharding
-            | ProtocolFeature::StickyReshardingValidatorAssignment => 85,
+            | ProtocolFeature::StickyReshardingValidatorAssignment
+            | ProtocolFeature::YieldWithId => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -530,8 +531,6 @@ impl ProtocolFeature {
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::PostQuantumSignatures => 154,
-            ProtocolFeature::YieldWithId => 155,
-
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

@@ -1,6 +1,1 @@
-yield_with_id_host_fns: { old: false, new: true }
-# yield_create_with_id charges this base instead of wasm_yield_create_base.
-# Accounts for the two extra trie writes (YieldIdToDataId / DataIdToYieldId
-# mapping) compared to plain yield_create. Value derived from wasm_yield_create_base
-# (153B) plus the cost of two wasm_storage_write_base operations (~64B each).
-wasm_yield_create_with_id_base: { old: 300_000_000_000_000, new: 290_000_000_000 }
+bls12381_not_in_group_fix: { old: false, new: true }
