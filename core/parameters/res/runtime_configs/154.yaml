@@ -1,8 +1,5 @@
-# PostQuantumSignatures: burn gas at tx conversion for each ML-DSA-65
-# signature the tx triggers verification of (its own and each Delegate
-# action's inner signer). The value is the extra cost over classical
-# verification (already part of action_receipt_creation): benchmarks measure
-# ~80us per ML-DSA-65 verify vs ~32us for ed25519, so 100 Ggas (~100us at
-# 1 Tgas/s) is ~2x the measured ~50us difference, leaving tail headroom. See
-# docs/architecture/how/post_quantum_signatures.md.
+# PostQuantumSignatures: The newly introduced ML-DSA-65 signature scheme is more
+# expensive to verify than the existing schemes. The verification cost is added
+# the the transaction conversion cost to cover the difference. 
+# 100 Ggas
 ml_dsa_65_verification_cost: { old: 0, new: 100_000_000_000 }

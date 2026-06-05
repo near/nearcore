@@ -635,9 +635,11 @@ mod tests {
             ed.gas_burnt.as_gas() + VERIFY_GAS,
             "verify gas burnt at conversion"
         );
-        // `compute == gas`: the surcharge also debits the chunk's wall-clock
-        // (compute) budget by the same amount.
-        assert_eq!(pq.compute_burnt, ed.compute_burnt + VERIFY_GAS, "compute debited too");
+        assert_eq!(
+            pq.compute_burnt,
+            ed.compute_burnt + VERIFY_GAS,
+            "verify compute burnt at conversion"
+        );
         // Function-call / attached gas budget is untouched - contracts unaffected.
         assert_eq!(pq.gas_remaining, ed.gas_remaining);
         // The signer pays more tokens for the transaction.
@@ -650,14 +652,13 @@ mod tests {
     #[test]
     fn ml_dsa_65_delegate_inner_verify_charged_as_burnt_gas() {
         let config = config_with_verify_gas(VERIFY_GAS);
-        let baseline =
+        let ed_inner =
             cost_of(&config, KeyType::ED25519, vec![delegate_with_inner(KeyType::ED25519)]);
-
         let pq_inner =
             cost_of(&config, KeyType::ED25519, vec![delegate_with_inner(KeyType::MLDSA65)]);
         assert_eq!(
             pq_inner.gas_burnt.as_gas(),
-            baseline.gas_burnt.as_gas() + VERIFY_GAS,
+            ed_inner.gas_burnt.as_gas() + VERIFY_GAS,
             "inner PQ verify charged once"
         );
 
@@ -665,7 +666,7 @@ mod tests {
         let two = cost_of(&config, KeyType::MLDSA65, vec![delegate_with_inner(KeyType::MLDSA65)]);
         assert_eq!(
             two.gas_burnt.as_gas(),
-            baseline.gas_burnt.as_gas() + 2 * VERIFY_GAS,
+            ed_inner.gas_burnt.as_gas() + 2 * VERIFY_GAS,
             "outer + inner verify charged"
         );
     }
