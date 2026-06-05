@@ -287,6 +287,7 @@ one_yocto_on_promise: false
 p256_verify_host_fn: false
 yield_with_id_host_fns: false
 chain_id_host_fn: false
+bls12381_not_in_group_fix: false
 
 
 # Congestion Control configuration

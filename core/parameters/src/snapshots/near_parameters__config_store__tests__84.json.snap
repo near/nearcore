@@ -211,6 +211,7 @@ snapshot_kind: text
     "p256_verify_host_fn": false,
     "yield_with_id_host_fns": false,
     "chain_id_host_fn": false,
+    "bls12381_not_in_group_fix": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,

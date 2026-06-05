@@ -283,3 +283,4 @@ one_yocto_on_promise                    true
 p256_verify_host_fn                     true
 yield_with_id_host_fns                  true
 chain_id_host_fn                        true
+bls12381_not_in_group_fix               false
