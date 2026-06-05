@@ -2272,8 +2272,8 @@ impl<T: ChainAccess> TxMirror<T> {
         // always locked first.
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
-        let actor_system2 = actor_system.clone();
         let tx_block_queue2 = tx_block_queue.clone();
+        let actor_system2 = actor_system.clone();
         let index_target_task = tokio::task::spawn(async move {
             let res = Self::index_target_loop(
                 tracker2,
@@ -2407,8 +2407,6 @@ impl<T: ChainAccess> TxMirror<T> {
         send_txs_task.abort();
         let _ = index_target_task.await;
         let _ = send_txs_task.await;
-        // Shut down actors while we're still inside the async context so that
-        // the target chain's RocksDB instances are closed before self drops.
         actor_system.stop();
         result
     }
