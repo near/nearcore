@@ -71,7 +71,7 @@ impl RunCmd {
             None
         };
 
-        run_async(crate::run(
+        let result = run_async(crate::run(
             self.source_home,
             self.target_home,
             self.mirror_db_path,
@@ -79,7 +79,13 @@ impl RunCmd {
             self.stop_height,
             self.online_source,
             self.config_path,
-        ))
+        ));
+        // run() aborts spawned tasks, awaits them, and calls
+        // shutdown_all_actors(). By the time we get here the tokio runtime is
+        // dropped and all Arc<DB> refs should be gone. Wait for RocksDB
+        // background threads to finish flushing.
+        near_store::db::RocksDB::block_until_all_instances_are_dropped();
+        result
     }
 }
 

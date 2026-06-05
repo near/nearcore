@@ -2181,7 +2181,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let tx_block_queue2 = tx_block_queue.clone();
-        let _index_target_task = tokio::task::spawn(async move {
+        let index_target_task = tokio::task::spawn(async move {
             let res = Self::index_target_loop(
                 tracker2,
                 tx_block_queue2,
@@ -2275,7 +2275,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let db = self.db.clone();
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
-        let _send_txs_task = tokio::task::spawn(async move {
+        let send_txs_task = tokio::task::spawn(async move {
             let res = Self::send_txs_loop(
                 db,
                 blocks_sent_tx,
@@ -2289,13 +2289,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracing::error!(target: "mirror", ?err, "failed send txs loop res");
             }
         });
-        tokio::select! {
+        let result = tokio::select! {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
                 source_hash, stop_height.is_some(),
             ) => {
-                // TODO: cancel other threads
                 res
             }
             res = target_indexer_done_rx => {
@@ -2308,7 +2307,13 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracing::error!(target: "mirror", ?res, "transaction sending thread exited");
                 res.context("target indexer thread failure")
             }
-        }
+        };
+        index_target_task.abort();
+        send_txs_task.abort();
+        let _ = index_target_task.await;
+        let _ = send_txs_task.await;
+        near_async::shutdown_all_actors();
+        result
     }
 }
 
