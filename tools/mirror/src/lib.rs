@@ -1960,7 +1960,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let near_config =
             indexer_config.load_near_config().context("failed to load near config").unwrap();
         let near_node =
-            Indexer::start_near_node_in(&indexer_config, near_config.clone(), actor_system)
+            Indexer::start_near_node(&indexer_config, near_config.clone(), actor_system)
                 .await
                 .context("failed to start near node")
                 .unwrap();
