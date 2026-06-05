@@ -1,7 +1,6 @@
 use crate::logic::HostError;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use near_primitives_core::types::Balance;
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 #[test]
 fn test_promise_yield_create_empty_method_name() {
@@ -47,10 +46,6 @@ fn test_promise_yield_resume_malformed_data_id() {
 
 #[test]
 fn test_promise_yield_create_with_id_invalid_yield_id_length() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     let mut logic = logic_builder.build();
 
@@ -81,10 +76,6 @@ fn test_promise_yield_create_with_id_invalid_yield_id_length() {
 
 #[test]
 fn test_promise_yield_create_with_id_empty_method_name() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     let mut logic = logic_builder.build();
 
@@ -114,10 +105,6 @@ fn test_promise_yield_create_with_id_empty_method_name() {
 
 #[test]
 fn test_promise_yield_create_with_id_view_prohibited() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::view();
     logic_builder.config.make_free();
     let mut logic = logic_builder.build();
@@ -151,10 +138,6 @@ fn test_promise_yield_create_with_id_view_prohibited() {
 
 #[test]
 fn test_promise_yield_resume_with_yield_id_malformed_yield_id() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     let mut logic = logic_builder.build();
 
@@ -178,10 +161,6 @@ fn test_promise_yield_resume_with_yield_id_malformed_yield_id() {
 
 #[test]
 fn test_promise_yield_resume_with_yield_id_view_prohibited() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::view();
     logic_builder.config.make_free();
     let mut logic = logic_builder.build();
@@ -239,10 +218,6 @@ fn yield_create_with_id_attaching(
 
 #[test]
 fn test_promise_yield_create_with_id_deducts_balance() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     logic_builder.context.account_balance = Balance::from_yoctonear(100);
     logic_builder.context.attached_deposit = Balance::ZERO;
@@ -264,10 +239,6 @@ fn test_promise_yield_create_with_id_deducts_balance() {
 
 #[test]
 fn test_promise_yield_create_with_id_insufficient_balance() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     logic_builder.context.account_balance = Balance::from_yoctonear(10);
     logic_builder.context.attached_deposit = Balance::ZERO;
@@ -289,10 +260,6 @@ fn test_promise_yield_create_with_id_insufficient_balance() {
 
 #[test]
 fn test_promise_yield_create_with_id_zero_amount_succeeds_on_zero_balance() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     logic_builder.context.account_balance = Balance::ZERO;
     logic_builder.context.attached_deposit = Balance::ZERO;
@@ -306,10 +273,6 @@ fn test_promise_yield_create_with_id_zero_amount_succeeds_on_zero_balance() {
 
 #[test]
 fn test_promise_yield_create_with_id_one_yocto_exemption_enabled() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::ZERO;
@@ -341,10 +304,6 @@ fn test_promise_yield_create_with_id_one_yocto_exemption_enabled() {
 
 #[test]
 fn test_promise_yield_create_with_id_one_yocto_exemption_disabled() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     logic_builder.config.one_yocto_on_promise = false;
     logic_builder.context.account_balance = Balance::ZERO;
@@ -362,10 +321,6 @@ fn test_promise_yield_create_with_id_one_yocto_exemption_disabled() {
 
 #[test]
 fn test_promise_yield_create_with_id_one_yocto_deducts_with_nonzero_balance() {
-    if !ProtocolFeature::YieldWithId.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut logic_builder = VMLogicBuilder::free();
     logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::from_yoctonear(1);

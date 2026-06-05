@@ -322,7 +322,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
     (Cost::YieldCreateBase, yield_create_base),
     (Cost::YieldCreateByte, yield_create_byte),
-    #[cfg(feature = "nightly")]
     (Cost::YieldCreateWithIdBase, yield_create_with_id_base),
     (Cost::YieldResumeBase, yield_resume_base),
     (Cost::YieldResumeByte, yield_resume_byte),
@@ -1588,7 +1587,6 @@ fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
     std::cmp::max(compute(method_cost, 100), compute(argument_cost, 1001))
 }
 
-#[cfg(feature = "nightly")]
 fn yield_create_with_id_base(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = noop_function_call_cost(ctx);
     let result = if let Some(cost) = &ctx.cached.yield_create_with_id_base {

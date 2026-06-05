@@ -5,6 +5,7 @@ mod block_chunk_signature;
 mod bug_repro;
 mod cache_warming;
 mod catching_up;
+mod chain_id;
 mod chunk_producers;
 mod chunk_validator_failover;
 mod chunk_validator_kickout;
@@ -17,6 +18,7 @@ mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
+mod debug_epoch_info;
 mod deploy_compute_cost;
 mod deterministic_account_id;
 #[cfg(feature = "test_features")]

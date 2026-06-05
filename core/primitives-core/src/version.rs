@@ -517,20 +517,20 @@ impl ProtocolFeature {
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::FixDelegatedDeterministicStateInit
+            | ProtocolFeature::GasKeys
             | ProtocolFeature::ContinuousEpochSync
             | ProtocolFeature::DynamicResharding
-            | ProtocolFeature::StickyReshardingValidatorAssignment => 85,
+            | ProtocolFeature::StickyReshardingValidatorAssignment
+            | ProtocolFeature::YieldWithId => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::GasKeys => 149,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::PostQuantumSignatures => 154,
-            ProtocolFeature::YieldWithId => 155,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -579,7 +579,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 155;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 154;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

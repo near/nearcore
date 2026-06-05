@@ -28,7 +28,7 @@ pub use cache::FilesystemContractRuntimeCache;
 pub use cache::config_cache_key_signature;
 pub use cache::{
     CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
-    NoContractRuntimeCache, precompile_contract, try_precompile_contract,
+    NoContractRuntimeCache, noop_background_spawner, precompile_contract, try_precompile_contract,
 };
 pub use errors::ContractPrecompilatonResult;
 #[cfg(feature = "metrics")]

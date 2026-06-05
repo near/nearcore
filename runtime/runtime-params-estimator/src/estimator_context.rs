@@ -59,7 +59,6 @@ pub(crate) struct CachedCosts {
     pub(crate) p256_verify_base: Option<GasCost>,
     pub(crate) function_call_base: Option<GasCost>,
     pub(crate) yield_create_base: Option<GasCost>,
-    #[cfg(feature = "nightly")]
     pub(crate) yield_create_with_id_base: Option<GasCost>,
     pub(crate) action_deterministic_state_init_base_per_entry_per_byte:
         Option<(GasCost, GasCost, GasCost)>,
@@ -122,9 +121,15 @@ impl<'c> EstimatorContext<'c> {
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
-        let cache =
-            FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>, "contract.cache")
-                .expect("create contract cache");
+        // No eviction: estimator measurements must not be perturbed by the
+        // on-disk cache dropping artifacts mid-run.
+        let cache = FilesystemContractRuntimeCache::new(
+            workdir.path(),
+            None::<&str>,
+            "contract.cache",
+            FilesystemContractRuntimeCache::MAX_DISK_CACHE_BYTES,
+        )
+        .expect("create contract cache");
 
         Testbed {
             config: self.config,

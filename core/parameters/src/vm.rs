@@ -234,6 +234,9 @@ pub struct Config {
     /// promise_yield_resume_with_yield_id host functions.
     pub yield_with_id_host_fns: bool,
 
+    /// Whether to enable the chain_id host function (NEP-638).
+    pub chain_id_host_fn: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -268,6 +271,7 @@ impl Config {
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
         self.yield_with_id_host_fns = true;
+        self.chain_id_host_fn = true;
     }
 }
 
