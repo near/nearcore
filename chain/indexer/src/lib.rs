@@ -147,7 +147,15 @@ impl Indexer {
         indexer_config: &IndexerConfig,
         near_config: NearConfig,
     ) -> impl Future<Output = anyhow::Result<NearNode>> {
-        nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
+        Self::start_near_node_in(indexer_config, near_config, ActorSystem::new())
+    }
+
+    pub fn start_near_node_in(
+        indexer_config: &IndexerConfig,
+        near_config: NearConfig,
+        actor_system: ActorSystem,
+    ) -> impl Future<Output = anyhow::Result<NearNode>> {
+        nearcore::start_with_config(&indexer_config.home_dir, near_config, actor_system)
     }
 
     pub fn from_near_node(

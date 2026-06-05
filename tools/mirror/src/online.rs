@@ -28,12 +28,15 @@ pub(crate) struct ChainAccess {
 }
 
 impl ChainAccess {
-    pub(crate) async fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
+    pub(crate) async fn new<P: AsRef<Path>>(
+        home: P,
+        actor_system: ActorSystem,
+    ) -> anyhow::Result<Self> {
         let config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
 
-        let node = nearcore::start_with_config(home.as_ref(), config, ActorSystem::new())
+        let node = nearcore::start_with_config(home.as_ref(), config, actor_system)
             .await
             .context("failed to start NEAR node")?;
         Ok(Self { view_client: node.view_client })
