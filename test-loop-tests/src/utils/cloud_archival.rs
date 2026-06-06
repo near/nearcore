@@ -11,29 +11,25 @@ use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
     StateFileType, StateSyncConnection, external_storage_location, list_state_parts,
 };
-use near_primitives::block::Block;
-use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
-use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::CloudStorage;
+use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
 use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
 };
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 #[derive(Clone)]
 pub(crate) struct WriterConfig {
@@ -492,54 +488,90 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// Verifies that all block and epoch columns written by bootstrap_range
-/// are present and consistent in the store.
-pub(crate) fn verify_block_range(
-    store: &Store,
-    start_height: BlockHeight,
-    end_height: BlockHeight,
+/// Asserts the reader's store equals the writer's over `[start, end]` for every
+/// column the cloud-bootstrapped reader reconstructs. Caller must `.disable_gc()`
+/// so the writer retains the bootstrap range.
+pub(crate) fn assert_reader_writer_parity(
+    reader: &Store,
+    writer: &Store,
+    start: BlockHeight,
+    end: BlockHeight,
 ) {
-    let mut prev_hash = None;
-    let mut seen_epochs = HashSet::<EpochId>::new();
-    for height in start_height..=end_height {
-        let block_hash: CryptoHash = store
-            .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
-            .unwrap_or_else(|| panic!("BlockHeight entry missing at height {height}"));
+    let writer_store = writer.chain_store();
+    let in_range_hashes: HashSet<CryptoHash> =
+        (start..=end).filter_map(|h| writer_store.get_block_hash_by_height(h).ok()).collect();
+    let in_range_epoch_ids: HashSet<CryptoHash> = in_range_hashes
+        .iter()
+        .filter_map(|hash| writer_store.get_block_header(hash).ok().map(|h| h.epoch_id().0))
+        .collect();
 
-        // Verify all block-level columns exist.
-        let header: BlockHeader = store
-            .get_ser(DBCol::BlockHeader, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockHeader missing at height {height}"));
-        let _block: Block = store
-            .get_ser(DBCol::Block, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("Block missing at height {height}"));
-        let _block_info: BlockInfo = store
-            .get_ser(DBCol::BlockInfo, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockInfo missing at height {height}"));
-
-        // Verify epoch-level columns exist for each epoch we encounter.
-        let epoch_id = *header.epoch_id();
-        if seen_epochs.insert(epoch_id) {
-            let _epoch_info: EpochInfo = store
-                .get_ser(DBCol::EpochInfo, epoch_id.as_ref())
-                .unwrap_or_else(|| panic!("EpochInfo missing for epoch at height {height}"));
+    for col in DBCol::iter().filter(|&c| is_cloud_archive_reader_bootstrapped(c)) {
+        match col {
+            DBCol::BlockHeight => {
+                assert_block_height_keyed_parity(reader, writer, col, start, end);
+            }
+            DBCol::Block | DBCol::BlockHeader | DBCol::BlockInfo | DBCol::BlockMerkleTree => {
+                assert_block_hash_keyed_parity(reader, writer, col, &in_range_hashes);
+            }
+            DBCol::EpochInfo | DBCol::EpochStart => {
+                assert_block_hash_keyed_parity(reader, writer, col, &in_range_epoch_ids);
+            }
+            // TODO(cloud_archival): handle these columns.
+            DBCol::NextBlockHashes
+            | DBCol::BlockPerHeight
+            | DBCol::ChunkHashesByHeight
+            | DBCol::ChunkExtra
+            | DBCol::ChunkApplyStats
+            | DBCol::IncomingReceipts
+            | DBCol::OutgoingReceipts
+            | DBCol::OutcomeIds
+            | DBCol::TransactionResultForBlock
+            | DBCol::StateChanges
+            | DBCol::Chunks
+            | DBCol::Transactions
+            | DBCol::Receipts
+            | DBCol::ReceiptToTx
+            | DBCol::State => {}
+            _ => unreachable!("{col} is reader-bootstrapped but unhandled by the parity helper"),
         }
-
-        // Verify merkle tree exists and chains correctly from the previous block.
-        let tree: PartialMerkleTree = store
-            .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockMerkleTree missing at height {height}"));
-        if let Some(prev) = prev_hash {
-            assert_eq!(*header.prev_hash(), prev, "prev_hash linkage broken at height {height}");
-            let prev_tree: PartialMerkleTree = store
-                .get_ser(DBCol::BlockMerkleTree, CryptoHash::as_ref(&prev))
-                .expect("prev BlockMerkleTree should exist");
-            assert_eq!(
-                tree.size(),
-                prev_tree.size() + 1,
-                "merkle tree size should increment at height {height}"
-            );
-        }
-        prev_hash = Some(block_hash);
     }
+}
+
+fn assert_block_height_keyed_parity(
+    reader: &Store,
+    writer: &Store,
+    col: DBCol,
+    start: BlockHeight,
+    end: BlockHeight,
+) {
+    let collect = |s: &Store| -> BTreeMap<Box<[u8]>, Box<[u8]>> {
+        s.iter(col)
+            .filter(|(key, _)| {
+                let height_bytes = key[..size_of::<BlockHeight>()].try_into().unwrap();
+                let height = BlockHeight::from_be_bytes(height_bytes);
+                (start..=end).contains(&height)
+            })
+            .collect()
+    };
+    assert_eq!(collect(reader), collect(writer), "{col} parity mismatch");
+}
+
+fn assert_block_hash_keyed_parity(
+    reader: &Store,
+    writer: &Store,
+    col: DBCol,
+    in_range_hashes: &HashSet<CryptoHash>,
+) {
+    let collect = |s: &Store| -> BTreeMap<Box<[u8]>, Box<[u8]>> {
+        s.iter(col)
+            .filter(|(key, _)| {
+                if key.len() < CryptoHash::LENGTH {
+                    return false;
+                }
+                let hash = CryptoHash(key[..CryptoHash::LENGTH].try_into().unwrap());
+                in_range_hashes.contains(&hash)
+            })
+            .collect()
+    };
+    assert_eq!(collect(reader), collect(writer), "{col} parity mismatch");
 }
