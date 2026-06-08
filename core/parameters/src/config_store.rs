@@ -64,6 +64,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (129, include_config!("129.yaml")),
     // PostQuantumSignatures: ML-DSA-65 signature-verification gas.
     (154, include_config!("154.yaml")),
+    (155, include_config!("155.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -211,6 +212,7 @@ expression: config_view
     "p256_verify_host_fn": false,
     "yield_with_id_host_fns": false,
     "chain_id_host_fn": false,
+    "bls12381_not_in_group_fix": false,
     "storage_get_mode": "Trie",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
