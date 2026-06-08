@@ -78,6 +78,14 @@ pub fn validate_partial_encoded_state_witness(
     )
     .entered();
 
+    let encoded_length = partial_witness.encoded_length();
+    if encoded_length > MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize {
+        return Err(Error::InvalidPartialChunkStateWitness(format!(
+            "encoded_length {encoded_length} exceeds witness size cap {}",
+            MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64()
+        )));
+    }
+
     if let VersionedPartialEncodedStateWitness::V2(_) = partial_witness {
         return Err(Error::InvalidPartialChunkStateWitness(
             "V2 validation not implemented".to_string(),
