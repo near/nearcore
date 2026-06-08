@@ -60,6 +60,63 @@ const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
+const EARLY_KICKOUT_MIN_MISSES: u64 = 20;
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 80;
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
+const EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS: u64 = 50;
+
+/// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
+/// A validator is blacklisted on a shard when, within the current epoch:
+///   - expected >= EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS  (sample-size guard)
+///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
+///   - produced * 100 < expected * 80                     (production ratio < 80%)
+/// Safety valve: if blacklisting would remove every distinct producer on a shard,
+/// that shard is omitted (caller falls through to default sampling).
+pub fn compute_chunk_producer_blacklist(
+    shard_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+) -> HashMap<ShardId, HashSet<ValidatorId>> {
+    let mut result = HashMap::new();
+    for (shard_id, validators) in shard_tracker {
+        let Ok(shard_index) = shard_layout.get_shard_index(*shard_id) else { continue };
+        let Some(settlement) = epoch_info.chunk_producers_settlement().get(shard_index) else {
+            continue;
+        };
+        // Distinct chunk PRODUCERS for this shard. shard_tracker also holds
+        // endorsement-only entries (chunk validators that never produced); they must
+        // not be blacklist candidates and must not skew the safety-valve denominator.
+        // (Today expected>=MIN skips them since production.expected==0 — but make it
+        // explicit so demo threshold tuning can't silently reintroduce the bug.)
+        let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
+        let mut blacklisted = HashSet::new();
+        for (&validator_id, stats) in validators {
+            if !producers.contains(&validator_id) {
+                continue;
+            }
+            let (produced, expected) = (stats.produced(), stats.expected());
+            if expected < EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS {
+                continue;
+            }
+            let missed = expected.saturating_sub(produced);
+            // u128 keeps the ratio comparison overflow-proof (this feeds consensus
+            // assignment in PR6).
+            if missed >= EARLY_KICKOUT_MIN_MISSES
+                && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
+                    < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
+            {
+                blacklisted.insert(validator_id);
+            }
+        }
+        // Safety valve: never blacklist every distinct producer on a shard. Backstopped
+        // by sample_chunk_producer_excluding -> None on full exclusion.
+        if !blacklisted.is_empty() && blacklisted.len() < producers.len() {
+            result.insert(*shard_id, blacklisted);
+        }
+    }
+    result
+}
+
 /// In the current architecture, various components have access to the same
 /// shared mutable instance of [`EpochManager`]. This handle manages locking
 /// required for such access.
@@ -1734,11 +1791,11 @@ impl EpochManager {
         if let Some((aggregator, replace)) =
             self.aggregate_epoch_info_upto(last_final_block_hash)?
         {
-            let save = if replace {
-                self.epoch_info_aggregator = aggregator;
-                true
-            } else {
-                self.epoch_info_aggregator.merge(aggregator);
+            // The aggregator now always covers the full `[epoch_start..last_final_block]`
+            // range, so assign it directly (no prefix merge). Save on epoch change or
+            // every `AGGREGATOR_SAVE_PERIOD` heights, as before.
+            self.epoch_info_aggregator = aggregator;
+            let save = replace || {
                 let block_info = self.get_block_info(last_final_block_hash)?;
                 block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
             };
@@ -1761,10 +1818,10 @@ impl EpochManager {
         &self,
         last_block_hash: &CryptoHash,
     ) -> Result<EpochInfoAggregator, EpochError> {
-        if let Some((mut aggregator, replace)) = self.aggregate_epoch_info_upto(last_block_hash)? {
-            if !replace {
-                aggregator.merge_prefix(&self.epoch_info_aggregator);
-            }
+        if let Some((aggregator, _replace)) = self.aggregate_epoch_info_upto(last_block_hash)? {
+            // The aggregator already covers the full `[epoch_start..last_block]` range
+            // (it is seeded from the cached prefix when not replacing), so return it
+            // directly with no prefix merge.
             Ok(aggregator)
         } else {
             Ok(self.epoch_info_aggregator.clone())
@@ -1802,19 +1859,26 @@ impl EpochManager {
         let epoch_id = *self.get_block_info(block_hash)?.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let epoch_protocol_version = epoch_info.protocol_version();
 
-        let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
+        // Collect the range backward (following the `prev_hash` chain), then attribute
+        // forward (increasing height). The forward order is required so that each block
+        // is attributed against the prefix stats `[epoch_start..block.prev]` — the same
+        // stat set the write path reads via `get_chunk_producer_blacklist`. Attributing
+        // backward cannot recompute the blacklist because the suffix walk never holds the
+        // prefix at the block being attributed.
+        let mut collected: Vec<(Arc<BlockInfo>, BlockHeight)> = Vec::new();
         let mut cur_hash = *block_hash;
-        Ok(Some(loop {
+        // `replace` is true when the backward walk reaches the start of the epoch (or
+        // genesis) without meeting the cached aggregator's sync point, i.e. the cached
+        // prefix is not a usable prefix for this epoch and we must reseed fresh.
+        let replace = loop {
             #[cfg(test)]
             {
                 self.epoch_info_aggregator_loop_counter
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
 
-            // To avoid cloning BlockInfo we need to first get reference to the
-            // current block, but then drop it so that we can call
-            // get_block_info for previous block.
             let block_info = self.get_block_info(&cur_hash)?;
             let different_epoch = &epoch_id != block_info.epoch_id();
 
@@ -1825,7 +1889,7 @@ impl EpochManager {
                 // belongs to different epoch or we’re on different fork (though
                 // the latter should never happen).  In either case, the
                 // aggregator contains full epoch information.
-                break (aggregator, true);
+                break true;
             }
 
             let prev_hash = *block_info.prev_hash();
@@ -1849,18 +1913,53 @@ impl EpochManager {
                 Err(e) => return Err(e),
             };
 
-            let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
+            collected.push((block_info, prev_height));
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
                 // aggregator was for a different epoch, we have full info in
                 // our aggregator; otherwise we don’t.
-                break (aggregator, epoch_id != prev_epoch);
+                break epoch_id != prev_epoch;
             }
 
             cur_hash = prev_hash;
-        }))
+        };
+
+        // Seed the running aggregator: fresh on `replace` (the cached prefix is for a
+        // different epoch / fork), otherwise from a clone of the cached prefix so the
+        // returned aggregator always covers the full `[epoch_start..block_hash]` range.
+        let mut running = if replace {
+            EpochInfoAggregator::new(epoch_id, *block_hash)
+        } else {
+            self.epoch_info_aggregator.clone()
+        };
+
+        // Attribute forward (increasing height). When the walk reaches a block, `running`
+        // already holds `[epoch_start..block.prev]`, so the per-block blacklist below is
+        // the same one the write path computed for that block. The blacklist is the only
+        // gated input: empty off-feature, so `running` equals the previous backward
+        // walk + merge result (result-preserving refactor).
+        for (block_info, prev_height) in collected.into_iter().rev() {
+            let blacklist = if ProtocolFeature::EarlyKickout.enabled(epoch_protocol_version) {
+                compute_chunk_producer_blacklist(
+                    &running.shard_tracker,
+                    epoch_info.as_ref(),
+                    &shard_layout,
+                )
+            } else {
+                HashMap::new()
+            };
+            running.update_tail(
+                &block_info,
+                epoch_info.as_ref(),
+                &shard_layout,
+                prev_height,
+                &blacklist,
+            );
+        }
+        running.last_block_hash = *block_hash;
+
+        Ok(Some((running, replace)))
     }
 
     /// Get the shard split to include in the block header, if any.

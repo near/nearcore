@@ -14,13 +14,14 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
-    ShardIndex, ValidatorInfoIdentifier,
+    ShardIndex, ValidatorId, ValidatorInfoIdentifier,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -508,6 +509,16 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError>;
 
+    /// Per-shard chunk-producer blacklist for the epoch the NEXT block
+    /// (height prev+1) belongs to, computed FRESH from the up-to-date aggregator
+    /// keyed by `prev_block_hash`. Gated by `ProtocolFeature::EarlyKickout`:
+    /// returns an empty map when the feature is off (production), so sampling is
+    /// unchanged. Inert in PR5 (no production callers).
+    fn get_chunk_producer_blacklist(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError>;
+
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
         &self,
@@ -991,6 +1002,34 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let height = block_info.height() + 1;
         let cpk = ChunkProductionKey { epoch_id: chunk_epoch_id, height_created: height, shard_id };
         self.get_chunk_producer_info(&cpk)
+    }
+
+    fn get_chunk_producer_blacklist(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        // Runtime gate. Off in production (PROTOCOL_VERSION < 152) -> empty blacklist,
+        // math never runs, sampling unchanged. This is the only production-reachable
+        // entry point for the new code.
+        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
+        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            return Ok(HashMap::new());
+        }
+        let epoch_manager = self.read();
+        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(prev_block_hash)?;
+        // Aggregator belongs to prev_block's epoch. If the next block starts a new epoch,
+        // stats reset -> empty blacklist (boundary reset).
+        if aggregator.epoch_id != epoch_id {
+            return Ok(HashMap::new());
+        }
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        Ok(crate::compute_chunk_producer_blacklist(
+            &aggregator.shard_tracker,
+            epoch_info.as_ref(),
+            &shard_layout,
+        ))
     }
 
     fn get_chunk_validator_assignments(

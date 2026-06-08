@@ -62,6 +62,8 @@ mod split_storage;
 mod stake_nodes;
 mod sync;
 mod tx_inclusion_with_missed_chunks;
+#[cfg(feature = "nightly")]
+mod v2_partial_witness_replay;
 mod validator_key_check;
 mod view_requests;
 mod view_requests_to_archival_node;

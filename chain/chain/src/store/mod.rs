@@ -1839,6 +1839,12 @@ impl<'a> ChainStoreUpdate<'a> {
     /// available from the DB without recomputation.
     ///
     /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
+    ///
+    /// Activation dependency: when the blacklist reassigns a slot, the replacement also
+    /// signs the chunk's state witness. The witness-validation path must resolve the
+    /// producer via `prev_block_hash` against this same `DBCol::ChunkProducers` row (V2
+    /// partial witness, PR #15640) rather than the V1 `ChunkProductionKey` lookup, which
+    /// ignores the blacklist. `EarlyKickout` must not be activated before #15640 lands.
     pub fn save_chunk_producers_for_header(
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -1854,10 +1860,19 @@ impl<'a> ChainStoreUpdate<'a> {
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let height = header.height() + 1;
 
+        // The blacklist excludes chunk producers that have been kicked out
+        // mid-epoch; excluded slots reassign to other producers on the same shard.
+        // Off-feature the blacklist is empty and sampling matches `sample_chunk_producer`.
+        let blacklist = epoch_manager.get_chunk_producer_blacklist(prev_block_hash)?;
+        let empty = HashSet::new();
+
         for shard_id in shard_layout.shard_ids() {
-            if let Some(validator_id) =
-                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
-            {
+            if let Some(validator_id) = epoch_info.sample_chunk_producer_excluding(
+                &shard_layout,
+                shard_id,
+                height,
+                blacklist.get(&shard_id).unwrap_or(&empty),
+            ) {
                 let validator_stake = epoch_info.get_validator(validator_id);
                 self.chain_store_cache_update
                     .chunk_producers
