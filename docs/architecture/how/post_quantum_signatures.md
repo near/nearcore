@@ -305,6 +305,22 @@ items the team should resolve before stabilizing in 2.13.
      bandwidth/witness gas-vs-bytes gap (large ML-DSA txs vs the per-chunk
      size limit) - both out of scope for the verification charge.
 
+   The **size axis** splits into accounting and pricing, and the
+   *accounting* half is now done. `SignedTransaction::get_size()` counts only
+   the inner `Transaction` body, so it under-counted every ML-DSA-65 tx by its
+   ~3.3 KiB signature - including inside `combined_transactions_size_limit`,
+   the bound on transaction bytes carried by the `ChunkStateWitness`.
+   `SignedTransaction::wire_size()` now returns the full borsh length
+   (signature included), and `size_for_limits(protocol_version)` selects it
+   for the `max_transaction_size` and `combined_transactions_size_limit` gates
+   from `PostQuantumSignatures` onward (version-gated to keep chunk production
+   deterministic across the boundary). The mempool counts `wire_size()`
+   unconditionally, since it physically buffers the signature. *Pricing* the
+   extra size - e.g. a per-wire-byte gas surcharge at conversion time,
+   mirroring the verify cost - is **out of scope for now**: the accounting fix
+   closes the witness-honesty gap on its own, independent of any later pricing
+   decision.
+
 3. **Wallet/SDK story for the view-RPC change.** Add the
    `near-api-js`/`near-cli-rs` side of the change, document the hash format,
    and decide whether to expose a separate `view_access_key_hash` endpoint

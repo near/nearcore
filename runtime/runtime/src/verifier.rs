@@ -1845,7 +1845,10 @@ mod tests {
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
         );
-        let transaction_size = signed_tx.get_size();
+        // The size gate uses the full wire size (signature included) once
+        // `PostQuantumSignatures` is enabled, and the body-only size before
+        // that. Mirror that here so the test holds on both stable and nightly.
+        let transaction_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
