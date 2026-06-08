@@ -1,5 +1,5 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
-use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
+use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
@@ -49,6 +49,10 @@ pub struct RuntimeFeesConfigView {
     /// Pessimistic gas price inflation ratio.
     #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// Describes the extra cost of verifying an ML-DSA-65 signature above the
+    /// cost of verifying the standard signature types.
+    pub ml_dsa_65_verification_cost: Gas,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -191,6 +195,9 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
+                ml_dsa_65_verification_cost: config.fees.signature_verification_costs
+                    [SignatureKind::MlDsa65]
+                    .gas,
             },
             wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {
@@ -240,6 +247,8 @@ pub struct VMConfigView {
     pub yield_with_id_host_fns: bool,
     /// See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).
     pub chain_id_host_fn: bool,
+    /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
+    pub bls12381_not_in_group_fix: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -282,6 +291,7 @@ impl From<crate::vm::Config> for VMConfigView {
             p256_verify_host_fn: config.p256_verify_host_fn,
             yield_with_id_host_fns: config.yield_with_id_host_fns,
             chain_id_host_fn: config.chain_id_host_fn,
+            bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
         }
     }
 }
@@ -308,6 +318,7 @@ impl From<VMConfigView> for crate::vm::Config {
             p256_verify_host_fn: view.p256_verify_host_fn,
             yield_with_id_host_fns: view.yield_with_id_host_fns,
             chain_id_host_fn: view.chain_id_host_fn,
+            bls12381_not_in_group_fix: view.bls12381_not_in_group_fix,
         }
     }
 }

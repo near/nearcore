@@ -22,7 +22,7 @@ use near_primitives::utils::{
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::trie_store::maybe_get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::{DBCol, GcMethod, KeyForStateChanges, ShardTries, ShardUId};
+use near_store::{DBCol, GcPolicy, KeyForStateChanges, ShardTries, ShardUId};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -1038,23 +1038,17 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn gc_col(&mut self, col: DBCol, key: &[u8]) {
         let mut store_update = self.store().store_update();
-        // Dispatch on the per-column GC method. Columns with a dedicated GC
-        // path, and columns that are never GC-ed, must not reach this generic
-        // path.
-        match col.gc_method() {
-            GcMethod::Delete => {
+        // Dispatch on the per-column GC policy. `Permanent` and `Other` columns
+        // are never collected through this generic path.
+        match col.gc_policy() {
+            GcPolicy::Delete => {
                 store_update.delete(col, key);
             }
-            GcMethod::DecrementRefcount => {
+            GcPolicy::DecrementRefcount => {
                 store_update.decrement_refcount(col, key);
             }
-            GcMethod::Dedicated => {
-                panic!(
-                    "{col:?} is garbage collected by a dedicated method or subsystem, not gc_col"
-                );
-            }
-            GcMethod::NotGced => {
-                unreachable!("gc_col called on non-GC column {col:?}");
+            GcPolicy::Permanent | GcPolicy::Other => {
+                unreachable!("gc_col called on a column it does not collect: {col:?}");
             }
         }
         self.merge(store_update);
