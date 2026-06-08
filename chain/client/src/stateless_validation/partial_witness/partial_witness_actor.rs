@@ -833,8 +833,8 @@ impl PartialWitnessActor {
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
     ) {
-        // Kickout gate: this replay path was the one ungated act-site, so a forwarded witness on
-        // the wrong side of the EarlyKickout boundary would otherwise slip through.
+        // Kickout gate: this replay path was the one act-site missing the gate, so a forwarded
+        // witness on the wrong side of the EarlyKickout boundary would otherwise slip through.
         let epoch_id = partial_witness.chunk_production_key().epoch_id;
         let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
         if witness_kicked_out(version, &partial_witness) {
