@@ -166,7 +166,7 @@ impl MlDsa65PublicKey {
     pub fn to_public_key_handle(&self) -> MlDsa65PublicKeyHandle {
         use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
-        hasher.update(HashDomainTag::MlDsa65PubkeyHash.as_bytes());
+        hasher.update(HashDomainTag::MlDsa65PubkeyV1.as_bytes());
         hasher.update(&self.0[..]);
         let mut out = [0u8; ML_DSA_65_HASH_LENGTH];
         out.copy_from_slice(&hasher.finalize());
