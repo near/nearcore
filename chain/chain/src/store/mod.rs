@@ -1867,12 +1867,33 @@ impl<'a> ChainStoreUpdate<'a> {
         let empty = HashSet::new();
 
         for shard_id in shard_layout.shard_ids() {
+            let shard_blacklist = blacklist.get(&shard_id).unwrap_or(&empty);
             if let Some(validator_id) = epoch_info.sample_chunk_producer_excluding(
                 &shard_layout,
                 shard_id,
                 height,
-                blacklist.get(&shard_id).unwrap_or(&empty),
+                shard_blacklist,
             ) {
+                // Log a slot reassignment only when the default (un-blacklisted) pick is
+                // itself blacklisted and the exclusion changed the selected producer.
+                // Weighted samplers renormalize on any exclusion, so a differing pick
+                // alone does not imply the default producer was kicked.
+                if !shard_blacklist.is_empty() {
+                    if let Some(default_id) =
+                        epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+                    {
+                        if shard_blacklist.contains(&default_id) && default_id != validator_id {
+                            tracing::info!(
+                                target: "early_kickout",
+                                %shard_id,
+                                height,
+                                kicked = %epoch_info.validator_account_id(default_id),
+                                reassigned_to = %epoch_info.validator_account_id(validator_id),
+                                "chunk producer slot reassigned"
+                            );
+                        }
+                    }
+                }
                 let validator_stake = epoch_info.get_validator(validator_id);
                 self.chain_store_cache_update
                     .chunk_producers

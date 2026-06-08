@@ -105,6 +105,15 @@ pub fn compute_chunk_producer_blacklist(
                 && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
                     < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
             {
+                tracing::info!(
+                    target: "early_kickout",
+                    account_id = %epoch_info.validator_account_id(validator_id),
+                    %shard_id,
+                    produced,
+                    expected,
+                    missed,
+                    "chunk producer blacklisted"
+                );
                 blacklisted.insert(validator_id);
             }
         }
@@ -112,6 +121,12 @@ pub fn compute_chunk_producer_blacklist(
         // by sample_chunk_producer_excluding -> None on full exclusion.
         if !blacklisted.is_empty() && blacklisted.len() < producers.len() {
             result.insert(*shard_id, blacklisted);
+        } else if !blacklisted.is_empty() {
+            tracing::warn!(
+                target: "early_kickout",
+                %shard_id,
+                "skipping blacklist: would exclude all producers on shard"
+            );
         }
     }
     result

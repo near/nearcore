@@ -974,7 +974,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // ChunkProducers DB column (strict — errors on miss).
         // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
         // One option is a large RocksDB memtable for this column.
-        #[cfg(feature = "nightly")]
         {
             use near_primitives::utils::get_block_shard_id;
             use near_primitives::version::ProtocolFeature;
@@ -1025,11 +1024,27 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        Ok(crate::compute_chunk_producer_blacklist(
+        let blacklist = crate::compute_chunk_producer_blacklist(
             &aggregator.shard_tracker,
             epoch_info.as_ref(),
             &shard_layout,
-        ))
+        );
+        if !blacklist.is_empty() {
+            let by_account: HashMap<ShardId, Vec<&AccountId>> = blacklist
+                .iter()
+                .map(|(shard_id, ids)| {
+                    let accounts =
+                        ids.iter().map(|id| epoch_info.validator_account_id(*id)).collect();
+                    (*shard_id, accounts)
+                })
+                .collect();
+            tracing::info!(
+                target: "early_kickout",
+                blacklist = ?by_account,
+                "computed chunk producer blacklist"
+            );
+        }
+        Ok(blacklist)
     }
 
     fn get_chunk_validator_assignments(
