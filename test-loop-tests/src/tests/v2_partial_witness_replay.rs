@@ -1,23 +1,12 @@
-//! Integration smoke test for the V2 partial witness defer/replay path. It
-//! exercises `PartialWitnessActor`'s `PendingV2WitnessCache` end-to-end across
-//! two test-loop nodes: a V2 witness arriving at a receiver that is missing its
-//! `prev_block` defers (receiver's pending cache non-empty), and after the block
-//! lands the BlockNotification scan resolves + dispatches it (cache drains to
-//! empty). Oracle reads the receiver actor's OWN cache via
-//! `pending_cache_bucket_count`, not the process-global
-//! `PARTIAL_WITNESS_PENDING_CACHE_SIZE` gauge (every node writes it,
-//! `handle_block_notification` zeroes it each block → not a per-node oracle).
-//! Nightly-gated because the V2 wire path only activates once
-//! `ProtocolFeature::EarlyKickout` is reachable (`NIGHTLY_PROTOCOL_VERSION >= 152`).
+//! Integration smoke test for the V2 partial witness defer/replay path, exercising
+//! `PartialWitnessActor`'s `PendingV2WitnessCache` end-to-end across two test-loop nodes: a V2
+//! witness arriving before its `prev_block` defers, and the BlockNotification scan resolves and
+//! dispatches it once the block lands. The oracle reads the receiver actor's OWN cache via
+//! `pending_cache_bucket_count`, not the process-global `PARTIAL_WITNESS_PENDING_CACHE_SIZE` gauge
+//! (every node writes the gauge). Nightly-gated: the V2 wire path needs `ProtocolFeature::EarlyKickout`.
 //!
-//! Scope: this proves the actor wiring (BlockResponse → BlockNotification → cache
-//! scan → dispatch) runs, which no unit test reaches. It does NOT pin exactly-once
-//! dispatch or the multi-notification `Requeue` liveness story — those live in
-//! `pre_check_replay` unit tests (`partial_witness_actor_tests.rs`). A prior
-//! two-block "survives two notifications" test was dropped: its `cache > 0` oracle
-//! was a false positive (orphan-block witnesses repopulate the cache, so it passed
-//! even with the requeue path broken). Pinning it correctly needs actor-local
-//! cache-key inspection, deferred to follow-up.
+//! A prior multi-notification `Requeue` test was dropped (its `cache > 0` oracle was a false
+//! positive); pinning it needs actor-local cache-key inspection, deferred to follow-up.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;

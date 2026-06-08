@@ -81,7 +81,6 @@ fn inserts_group_by_prev_block_hash() {
         drained_a.iter().all(|e| e.witness.prev_block_hash() == Some(&block_a)),
         "drained witnesses must all point to block_a",
     );
-    // Origins preserved so replay dispatches correctly.
     assert!(drained_a.iter().any(|e| e.origin == DeferOrigin::InitEmit), "init-emit entry present",);
     assert!(drained_a.iter().any(|e| e.origin == DeferOrigin::Forwarded), "forward entry present",);
 
@@ -104,7 +103,6 @@ fn drain_unknown_block_is_empty() {
 fn capacity_cap_evicts_oldest_block() {
     let signer = create_test_signer("test_account");
     let mut cache = PendingV2WitnessCache::new();
-    // One entry per block hash until cap overflows.
     let total = PENDING_V2_WITNESS_CACHE_SIZE + 2;
     let hashes: Vec<CryptoHash> =
         (0..total).map(|i| CryptoHash::hash_bytes(format!("blk_{i}").as_bytes())).collect();
@@ -115,24 +113,19 @@ fn capacity_cap_evicts_oldest_block() {
         cache.insert(*h, make_witness(&signer, *h, post_kickout_version()), DeferOrigin::InitEmit);
     }
     assert_eq!(cache.len(), PENDING_V2_WITNESS_CACHE_SIZE);
-    // One eviction per insert past capacity.
     let evictions_delta =
         metrics::PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL.get() - evictions_before;
     assert_eq!(evictions_delta, (total - PENDING_V2_WITNESS_CACHE_SIZE) as u64);
 
-    // Oldest entries were evicted.
     for h in &hashes[..total - PENDING_V2_WITNESS_CACHE_SIZE] {
         assert!(cache.drain(h).is_empty(), "oldest block {h:?} should have been evicted",);
     }
-    // Newer entries remain.
     for h in &hashes[total - PENDING_V2_WITNESS_CACHE_SIZE..] {
         assert_eq!(cache.drain(h).len(), 1, "newer block {h:?} must still be cached");
     }
 }
 
-/// V1 witnesses never carry `prev_block_hash`, so never inserted into pending
-/// pool. Guards invariant that V1 discriminants cannot slip through cache
-/// if caller routes wrong.
+/// V1 witnesses never carry `prev_block_hash`, so they can never be deferred.
 #[test]
 fn prev_block_hash_absent_for_v1() {
     let signer = create_test_signer("test_account");
@@ -143,9 +136,7 @@ fn prev_block_hash_absent_for_v1() {
     assert_eq!(v2.prev_block_hash(), Some(&block));
 }
 
-/// `drain_all` is the scan-on-notification replay primitive. Returns every
-/// entry across every bucket (preserving `prev_block_hash` key so caller
-/// can re-insert transient), leaves cache empty.
+/// `drain_all` returns every entry across every bucket and leaves the cache empty.
 #[test]
 fn drain_all_returns_every_entry_and_empties_cache() {
     let signer = create_test_signer("test_account");
@@ -174,12 +165,9 @@ fn drain_all_returns_every_entry_and_empties_cache() {
     assert_eq!(drained.len(), 3, "every entry across both buckets returned");
     assert_eq!(cache.len(), 0, "cache empty after drain_all");
 
-    // Both origin variants survived the drain.
     assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::InitEmit));
     assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::Forwarded));
 
-    // Each entry paired with source prev_block_hash — required by
-    // scan-on-notification caller to re-insert transient entries.
     for (hash, entry) in &drained {
         assert_eq!(
             entry.witness.prev_block_hash(),
@@ -188,7 +176,6 @@ fn drain_all_returns_every_entry_and_empties_cache() {
         );
     }
 
-    // Draining empty cache is safe, returns nothing.
     assert!(cache.drain_all().is_empty());
 }
 
@@ -218,11 +205,8 @@ fn witness_kicked_out_post_kickout_drops_v1_proceeds_v2() {
     assert!(!witness_kicked_out(Some(post_kickout_version()), &v2_witness(&signer)));
 }
 
-/// Unknown epoch (header-sync lag at epoch boundary) must NOT drop either
-/// variant. Dropping V2 here discards legitimate post-kickout traffic whose
-/// epoch info hasn't landed — no part-retransmission loop, loss permanent.
-/// Downstream producer lookup returns `MissingBlock` and defers V2 into
-/// pending cache.
+/// Unknown epoch (header-sync lag) must NOT drop either variant; dropping V2 would discard
+/// legitimate post-kickout traffic that never retransmits.
 #[test]
 fn witness_kicked_out_unknown_epoch_proceeds_both_variants() {
     let signer = create_test_signer("test_account");
@@ -230,9 +214,8 @@ fn witness_kicked_out_unknown_epoch_proceeds_both_variants() {
     assert!(!witness_kicked_out(None, &v2_witness(&signer)));
 }
 
-// `pre_check_replay` arm coverage via `setup()`. Post-setup: HEAD == FINAL_HEAD
-// == genesis, shard 0, validator "test". Pure classifier (no kickout gate), so a
-// V2 fixture in the pre-kickout genesis epoch reaches the arms on stable.
+// `pre_check_replay` arm coverage via `setup()`: HEAD == FINAL_HEAD == genesis, shard 0,
+// validator "test". Pure classifier, so a pre-kickout V2 fixture reaches the arms on stable.
 
 fn build_v2_witness(
     signer: &ValidatorSigner,
@@ -383,9 +366,8 @@ fn pre_check_replay_retire_invalid_shard() {
     );
 }
 
-/// V2 on genesis → Ready. Genesis init populates `DBCol::ChunkProducers` for
-/// every (genesis_hash, shard); strict DB read only runs under nightly
-/// (adapter.rs:958).
+/// V2 on genesis → Ready (genesis init populates `DBCol::ChunkProducers`; strict DB read is
+/// nightly-only).
 #[cfg(feature = "nightly")]
 #[test]
 fn pre_check_replay_ready_when_v2_db_resolves() {
@@ -400,8 +382,7 @@ fn pre_check_replay_ready_when_v2_db_resolves() {
     );
 }
 
-/// Bogus `epoch_id` → `EpochOutOfBounds` at relevance. V2 prev unknown → behind
-/// on headers → Requeue.
+/// Bogus `epoch_id` → `EpochOutOfBounds`, V2 prev unknown → behind on headers → Requeue.
 #[test]
 fn pre_check_replay_requeue_unknown_epoch_unsynced_prev() {
     let (_chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -415,8 +396,7 @@ fn pre_check_replay_requeue_unknown_epoch_unsynced_prev() {
     );
 }
 
-/// Bogus `epoch_id` → `EpochOutOfBounds`, but V2 prev (genesis) IS known →
-/// forged epoch → Retire.
+/// Bogus `epoch_id` → `EpochOutOfBounds`, but V2 prev (genesis) known → forged → Retire.
 #[test]
 fn pre_check_replay_retire_unknown_epoch_known_prev() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -430,9 +410,8 @@ fn pre_check_replay_retire_unknown_epoch_known_prev() {
     );
 }
 
-/// V2 producer-DB miss. Delete the (genesis_hash, shard 0) slot the lookup reads
-/// → `get_chunk_producer_info_db` returns `ChunkProducerNotInDB` → Requeue.
-/// Relevance (epoch-info based) unaffected. Strict DB read = nightly only.
+/// V2 producer-DB miss: delete the (genesis_hash, shard 0) slot → `ChunkProducerNotInDB` →
+/// Requeue. Strict DB read = nightly only.
 #[cfg(feature = "nightly")]
 #[test]
 fn pre_check_replay_requeue_chunk_producer_not_in_db() {
@@ -457,9 +436,8 @@ fn pre_check_replay_requeue_chunk_producer_not_in_db() {
     );
 }
 
-// C6 regression: kickout gate on the replay act-site.
-// `replay_forwarded_partial_witness` was the one act-site missing the gate; prove
-// a kicked witness is dropped before spawn.
+// C6 regression: `replay_forwarded_partial_witness` was the one act-site missing the kickout
+// gate; prove a kicked witness is dropped before spawn.
 
 /// Counts spawns, doesn't run the closure.
 struct CountingSpawner {
@@ -473,8 +451,6 @@ impl AsyncComputationSpawner for CountingSpawner {
 }
 
 /// `PartialWitnessActor` with noop senders + `spawner` in all 3 spawn slots.
-/// Tests hit only `partial_witness_spawner`; gate-drop/defer paths never touch
-/// network/tracker.
 fn build_test_actor(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime: Arc<dyn RuntimeAdapter>,
@@ -502,10 +478,8 @@ fn build_test_actor(
     )
 }
 
-/// Forwarded witness on the wrong side of the EarlyKickout boundary → dropped by
-/// the gate before spawn. Fixture kicked under both builds: V2/pre-kickout
-/// (stable), V1/post-kickout (nightly). Signer present → spawn count 0 = gate,
-/// not missing signer.
+/// Forwarded witness on the wrong side of the EarlyKickout boundary → dropped before spawn.
+/// Fixture is kicked under both builds (V2/pre-kickout on stable, V1/post-kickout on nightly).
 #[test]
 fn replay_forwarded_drops_kicked_witness() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -541,11 +515,8 @@ impl AsyncComputationSpawner for InlineSpawner {
     }
 }
 
-/// Forwarded V2 part for an unsynced epoch must defer, not drop:
-/// `validate_partial_encoded_state_witness` resolves validator assignments from
-/// the signed `epoch_id` first → unknown epoch = `EpochOutOfBounds`, not
-/// `DBNotFoundErr`. Bogus epoch unresolvable → gate no-op (version `None`) → part
-/// reaches spawner → new arm defers. Without fix: dropped, never retransmitted.
+/// Forwarded V2 part for an unsynced epoch must defer, not drop: an unknown epoch surfaces as
+/// `EpochOutOfBounds` (not `DBNotFoundErr`), and the new arm defers it.
 #[cfg(feature = "test_features")]
 #[test]
 fn forward_defers_v2_on_unknown_epoch_unsynced_prev() {

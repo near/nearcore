@@ -1953,9 +1953,7 @@ impl Client {
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
 
-        // Notify chunk validation & partial-witness actors. ChunkValidationActor
-        // drains orphan-witness pool; PartialWitnessActor replays V2 witnesses
-        // deferred when `DBCol::ChunkProducers` lacked prev-block entry.
+        // ChunkValidationActor drains its orphan-witness pool; PartialWitnessActor replays deferred V2 witnesses.
         let block_notification = BlockNotificationMessage { block: block.clone() };
         self.chunk_validation_sender.block_notification.send(block_notification.clone());
         self.partial_witness_adapter.block_notification.send(block_notification.clone());

@@ -106,9 +106,7 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    // Rollout policy + V1/V2 producer-resolution contract: see
-    // `VersionedPartialEncodedStateWitness` docstring. `DBNotFoundErr` on V2 signals
-    // caller to defer — `PendingV2WitnessCache` in `partial_witness_actor.rs`.
+    // V1/V2 producer-resolution contract: see `VersionedPartialEncodedStateWitness` docstring.
     let chunk_producer = match partial_witness {
         VersionedPartialEncodedStateWitness::V1(_) => {
             epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
@@ -119,29 +117,20 @@ pub fn validate_partial_encoded_state_witness(
             let result = epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id);
             let label = match &result {
                 Ok(_) => "hit",
-                // Prev block header not in epoch manager yet — witness raced its
-                // prev block. Defer, don't fail.
+                // Witness raced its prev block; defer, don't fail.
                 Err(EpochError::MissingBlock(_)) => "miss_prev_block",
-                // Block known, no `DBCol::ChunkProducers` entry for (block, shard).
-                // Steady-state ~0; persistent = upstream writer bug.
+                // Block known but no `DBCol::ChunkProducers` entry; steady-state ~0, persistent = writer bug.
                 Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
                 Err(_) => "error",
             };
             metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
                 .with_label_values(&[shard_id_label.as_str(), label])
                 .inc();
-            // `?` = same `From<EpochError>` conversion; `MissingBlock` /
-            // `ChunkProducerNotInDB` → `DBNotFoundErr` → caller defers.
             let info = result?;
-            // Cross-check signed chunk key against `prev_block_hash` implication.
-            // Producer signature authenticates (epoch_id, shard_id, height_created,
-            // prev_block_hash); without this check an authenticated producer for
-            // (prev_block, shard) could sign a witness with any (epoch_id,
-            // height_created) and we would store/forward under forged key.
-            // `prev_block_hash` uniquely determines chunk slot: chunk at next
-            // height in epoch implied by prev block. Both lookups cheap —
-            // `prev_block_hash` already known to epoch manager (just resolved
-            // producer via it), so should not fault.
+            // Cross-check the signed chunk key against what `prev_block_hash` implies. The producer
+            // signature authenticates (epoch_id, shard_id, height_created, prev_block_hash); without
+            // this check an authenticated producer for (prev_block, shard) could sign a witness with
+            // any (epoch_id, height_created) and we would store/forward under a forged key.
             let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
             let expected_height = epoch_manager.get_block_info(prev_block_hash)?.height() + 1;
             if expected_epoch_id != epoch_id || expected_height != height_created {
