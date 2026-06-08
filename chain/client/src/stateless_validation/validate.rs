@@ -79,6 +79,15 @@ pub fn validate_partial_encoded_state_witness(
         tag_witness_distribution = true,
     )
     .entered();
+
+    let encoded_length = partial_witness.encoded_length();
+    if encoded_length > MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize {
+        return Err(Error::InvalidPartialChunkStateWitness(format!(
+            "encoded_length {encoded_length} exceeds witness size cap {}",
+            MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64()
+        )));
+    }
+
     let num_parts =
         epoch_manager.get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?.len();
     if partial_witness.part_ord() >= num_parts {

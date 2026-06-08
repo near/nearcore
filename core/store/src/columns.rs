@@ -439,6 +439,21 @@ pub enum DBKeyType {
     ChunkExecutionResultHash,
 }
 
+/// Garbage-collection policy of a column.
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+pub enum GcPolicy {
+    /// Deletes the key.
+    Delete,
+    /// Decrements the key's refcount.
+    DecrementRefcount,
+    /// Never collected; kept for the node's lifetime as canonical chain data.
+    Permanent,
+    /// Neither generically collected nor permanent: either collected through a
+    /// dedicated path (e.g. state, flat storage), or node-local / operational /
+    /// legacy data (networking, caches, deprecated).
+    Other,
+}
+
 impl DBCol {
     /// Whether data in this column is effectively immutable.
     ///
@@ -640,6 +655,102 @@ impl DBCol {
             => false,
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => false,
+        }
+    }
+
+    /// This column's garbage-collection policy.
+    pub const fn gc_policy(&self) -> GcPolicy {
+        match self {
+            DBCol::Block
+            | DBCol::BlockHeader
+            | DBCol::BlockInfo
+            | DBCol::BlockRefCount
+            | DBCol::BlocksToCatchup
+            | DBCol::ChallengedBlocks
+            | DBCol::ChunkApplyStats
+            | DBCol::ChunkExtra
+            | DBCol::ChunkHashesByHeight
+            | DBCol::Chunks
+            | DBCol::HeaderHashesByHeight
+            | DBCol::IncomingReceipts
+            | DBCol::InvalidChunks
+            | DBCol::InvalidChunkStateWitnesses
+            | DBCol::InvalidWitnessesByIndex
+            | DBCol::LatestChunkStateWitnesses
+            | DBCol::LatestWitnessesByIndex
+            | DBCol::NextBlockHashes
+            | DBCol::OutcomeIds
+            | DBCol::PartialChunks
+            | DBCol::ProcessedBlockHeights
+            | DBCol::ProcessedReceiptIds
+            | DBCol::ReceiptToTx
+            | DBCol::StateChanges
+            | DBCol::StateDlInfos
+            | DBCol::StateHeaders
+            | DBCol::StateParts
+            | DBCol::StatePartsApplied
+            | DBCol::StateSyncNewChunks
+            | DBCol::StateTransitionData
+            | DBCol::TransactionResultForBlock
+            | DBCol::TrieChanges => GcPolicy::Delete,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::AllNextBlockHashes
+            | DBCol::ContractAccesses
+            | DBCol::Endorsements
+            | DBCol::ExecutionResults
+            | DBCol::ReceiptProofs
+            | DBCol::UncertifiedChunks
+            | DBCol::UncertifiedExecutionResults
+            | DBCol::Witnesses => GcPolicy::Delete,
+
+            DBCol::Receipts | DBCol::Transactions => GcPolicy::DecrementRefcount,
+
+            DBCol::BlockHeight  // block sync needs it + genesis should be accessible
+            | DBCol::BlockMerkleTree
+            | DBCol::BlockOrdinal
+            // https://github.com/nearprotocol/nearcore/pull/2952
+            | DBCol::EpochInfo
+            | DBCol::EpochLightClientBlocks
+            | DBCol::EpochStart
+            | DBCol::EpochSyncProof
+            | DBCol::EpochValidatorInfo => GcPolicy::Permanent,
+
+            DBCol::AccountAnnouncements
+            | DBCol::_BlockExtra
+            | DBCol::BlockMisc
+            | DBCol::BlockPerHeight  // gc_col_block_per_height
+            | DBCol::CachedContractCode
+            | DBCol::_ChunkPerHeightShard
+            | DBCol::ComponentEdges
+            | DBCol::DbVersion
+            | DBCol::FlatState
+            | DBCol::FlatStateChanges
+            | DBCol::FlatStateDeltaMetadata
+            | DBCol::FlatStorageStatus
+            | DBCol::_GCCount
+            | DBCol::_LastBlockWithNewChunk
+            | DBCol::LastComponentNonce
+            | DBCol::Misc
+            | DBCol::_NextBlockWithNewChunk
+            | DBCol::OutgoingReceipts  // gc_outgoing_receipts
+            | DBCol::PeerComponent
+            | DBCol::_Peers
+            | DBCol::_ReceiptIdToShardId
+            | DBCol::RecentOutboundConnections
+            | DBCol::State
+            | DBCol::StateChangesForSplitStates
+            | DBCol::StateShardUIdMapping
+            // Unneeded keys are removed as new ones are added.
+            | DBCol::StateSyncHashes
+            | DBCol::_TransactionRefCount
+            | DBCol::_TransactionResult => GcPolicy::Other,
+            // ChunkProducers is not garbage collected. Once dynamic chunk producer
+            // sampling ships, historical assignments cannot be recomputed.
+            // TODO(early-kickout): before moving to stable, add a GC strategy
+            // (e.g. retain only canonical-chain entries or entries within a sliding window)
+            // to prevent unbounded disk growth on long-running nodes.
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => GcPolicy::Other,
         }
     }
 

@@ -6,6 +6,7 @@ use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
     check_receipts_presence_at_resharding_block,
 };
+use crate::utils::resharding::call_promise_yield_with_id;
 #[cfg(feature = "test_features")]
 use crate::utils::resharding::fork_before_resharding_block;
 use crate::utils::resharding::{
@@ -145,6 +146,11 @@ struct TestReshardingParameters {
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     #[builder(setter(custom))]
     deploy_test_contract: Vec<AccountId>,
+    /// When true, `deploy_test_contract` deploys the latest-protocol build of the test contract
+    /// (`near_test_contracts::rs_contract()`) instead of the backwards-compatible
+    /// build. Required when the test invokes host functions that are only available
+    /// in the latest stable protocol version.
+    deploy_latest_protocol_test_contract: bool,
     /// Optionally deploy and use test global contracts
     #[builder(setter(custom))]
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
@@ -298,6 +304,9 @@ impl TestReshardingParametersBuilder {
             loop_actions,
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
+            deploy_latest_protocol_test_contract: self
+                .deploy_latest_protocol_test_contract
+                .unwrap_or(false),
             deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
             use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
             gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
@@ -722,7 +731,11 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
     for contract_id in &params.deploy_test_contract {
         let node = env.node_for_account(&client_account_id);
-        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let code = if params.deploy_latest_protocol_test_contract {
+            near_test_contracts::rs_contract().into()
+        } else {
+            near_test_contracts::backwards_compatible_rs_contract().into()
+        };
         let tx = node.tx_deploy_contract(contract_id, code);
         test_setup_transactions.push(node.submit_tx(tx));
     }
@@ -1482,8 +1495,6 @@ fn slow_test_resharding_v3_storage_operations() {
 }
 
 #[test]
-// Gas keys gate on `ProtocolFeature::GasKeys`, which only ships in nightly.
-#[cfg_attr(not(feature = "nightly"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_gas_key() {
@@ -1832,6 +1843,36 @@ fn slow_test_resharding_v3_yield_resume() {
         .deploy_test_contract(account_in_right_child.clone())
         .add_loop_action(call_promise_yield(
             true,
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            ReceiptKind::PromiseYield,
+        ))
+        .add_loop_action(check_receipts_presence_after_resharding_block(
+            vec![account_in_left_child, account_in_right_child],
+            ReceiptKind::PromiseYield,
+        ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+// See `slow_test_resharding_v3_yield_resume` for the non-x86_64 caveat.
+#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+fn slow_test_resharding_v3_yield_resume_with_id() {
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_contract(account_in_left_child.clone())
+        .deploy_test_contract(account_in_right_child.clone())
+        // yield_create_with_id / yield_resume_with_yield_id are only available in
+        // the latest stable protocol, so we need the latest-protocol contract build.
+        .deploy_latest_protocol_test_contract(true)
+        .add_loop_action(call_promise_yield_with_id(
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
         ))

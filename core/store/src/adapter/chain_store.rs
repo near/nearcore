@@ -7,13 +7,18 @@ use crate::{
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
-use near_primitives::sharding::ReceiptProof;
+use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, ExecutionOutcomeWithProof, SignedTransaction,
+};
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
-use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_primitives::utils::{
+    get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
+    get_receipt_proof_target_shard_prefix, index_to_bytes,
+};
 use near_primitives::views::LightClientBlockView;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -246,6 +251,38 @@ impl ChainStoreAdapter {
         self.store.get_ser(DBCol::BlocksToCatchup, prev_hash.as_ref()).unwrap_or_default()
     }
 
+    pub fn get_receipt_proof(
+        &self,
+        block_hash: &CryptoHash,
+        to_shard_id: ShardId,
+        from_shard_id: ShardId,
+    ) -> Option<ReceiptProof> {
+        let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
+        self.store.get_ser(DBCol::receipt_proofs(), &key)
+    }
+
+    pub fn iter_receipt_proofs_for_shard(
+        &self,
+        block_hash: &CryptoHash,
+        to_shard_id: ShardId,
+    ) -> Vec<ReceiptProof> {
+        let prefix = get_receipt_proof_target_shard_prefix(block_hash, to_shard_id);
+        self.store
+            .iter_prefix_ser::<ReceiptProof>(DBCol::receipt_proofs(), &prefix)
+            .map(|kv| kv.1)
+            .collect()
+    }
+
+    pub fn receipt_proof_exists(
+        &self,
+        block_hash: &CryptoHash,
+        to_shard_id: ShardId,
+        from_shard_id: ShardId,
+    ) -> bool {
+        let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
+        self.store.exists(DBCol::receipt_proofs(), &key)
+    }
+
     pub fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
         self.store.get_ser(DBCol::Transactions, tx_hash.as_ref())
     }
@@ -433,6 +470,151 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
             self.store_update.store.chain_store().get_all_header_hashes_by_height(height);
         hash_set.insert(*header.hash());
         self.set_block_header_hashes_by_height(height, &hash_set);
+    }
+
+    pub fn set_outgoing_receipt(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        outgoing_receipts: &[Receipt],
+    ) {
+        self.store_update.set_ser(
+            DBCol::OutgoingReceipts,
+            &get_block_shard_id(block_hash, shard_id),
+            &outgoing_receipts,
+        );
+    }
+
+    /// Writes the `ProcessedReceiptIds` metadata index and increments the
+    /// refcount of each processed `Receipt` (the `DBCol::Receipts` rc-column).
+    /// The caller builds `metadata` (including any `ReceiptToTxGc` markers gated
+    /// on the `save_receipt_to_tx` config) so this stays raw I/O.
+    pub fn set_processed_receipt_ids(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        metadata: &[ProcessedReceiptMetadata],
+        receipts: &[Receipt],
+    ) {
+        self.store_update.set_ser(
+            DBCol::ProcessedReceiptIds,
+            &get_block_shard_id(block_hash, shard_id),
+            &metadata,
+        );
+        for receipt in receipts {
+            let bytes = borsh::to_vec(receipt).expect("borsh cannot fail");
+            self.store_update.increment_refcount(
+                DBCol::Receipts,
+                receipt.get_hash().as_ref(),
+                &bytes,
+            );
+        }
+    }
+
+    /// Unlike `ChainStoreUpdate::save_outcomes_with_proofs`, this method does not
+    /// consult the `save_tx_outcomes` config gate — the caller decides whether to
+    /// invoke it.
+    pub fn set_outcomes_with_proofs(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        outcomes: Vec<ExecutionOutcomeWithId>,
+        proofs: Vec<MerklePath>,
+    ) {
+        let mut outcome_ids = Vec::with_capacity(outcomes.len());
+        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
+            outcome_ids.push(outcome_with_id.id);
+            self.store_update.insert_ser(
+                DBCol::TransactionResultForBlock,
+                &get_outcome_id_block_hash(&outcome_with_id.id, block_hash),
+                &ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+            );
+        }
+        self.store_update.set_ser(
+            DBCol::OutcomeIds,
+            &get_block_shard_id(block_hash, shard_id),
+            &outcome_ids,
+        );
+    }
+
+    /// Unlike `ChainStoreUpdate::save_receipt_to_tx`, this method does not consult
+    /// the `save_receipt_to_tx` config gate — the caller decides whether to invoke
+    /// it.
+    pub fn set_receipt_to_tx(&mut self, receipt_to_tx: &[(CryptoHash, ReceiptToTxInfo)]) {
+        for (receipt_id, info) in receipt_to_tx {
+            self.store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
+        }
+    }
+
+    pub fn set_spice_final_execution_head(&mut self, tip: &Tip) {
+        self.store_update.set_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY, tip);
+    }
+
+    /// Forward-only: advance the SPICE final execution head to `block`'s last final
+    /// block when that is higher than the current head (or none is set), writing via
+    /// this update, and return the (possibly advanced) head.
+    ///
+    /// The "current head" comparison reads the committed `Store`, not pending writes
+    /// queued in this `StoreUpdate`. That's intentional: this setter is called at
+    /// most once per `apply_block_postprocessing` invocation, which owns its own
+    /// `StoreUpdate` and commits before the next finalize runs. The forward-only
+    /// check guards against inter-update races (a concurrent finalize already
+    /// committed a higher head), not intra-update races.
+    pub fn update_spice_final_execution_head(
+        &mut self,
+        block: &Block,
+    ) -> Result<Option<Arc<Tip>>, Error> {
+        let chain_store = self.store_update.store.chain_store();
+        let current = match chain_store.spice_final_execution_head() {
+            Ok(head) => Some(head),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        if block.header().last_final_block() == &CryptoHash::default() {
+            return Ok(current);
+        }
+        let last_final_header = chain_store.get_block_header(block.header().last_final_block())?;
+        let advance = match &current {
+            None => true,
+            Some(head) => head.height < last_final_header.height(),
+        };
+        if advance {
+            let tip = Arc::new(Tip::from_header(&last_final_header));
+            self.set_spice_final_execution_head(&tip);
+            return Ok(Some(tip));
+        }
+        Ok(current)
+    }
+
+    /// Forward-only: writes the SPICE execution head only when `tip` is higher
+    /// than the current head (or none is set). The execution-head scan only moves
+    /// forward by construction; this is belt-and-suspenders against an
+    /// out-of-order / fork re-run. Differs from
+    /// `ChainStoreUpdate::save_spice_execution_head`, which is unconditional.
+    ///
+    /// Same intra-update caveat as `update_spice_final_execution_head`: the check
+    /// reads the committed `Store`, not pending writes in this `StoreUpdate`. Safe
+    /// because callers issue at most one write per `StoreUpdate`.
+    pub fn set_spice_execution_head(&mut self, tip: &Tip) -> Result<(), Error> {
+        let current_height = match self.store_update.store.chain_store().spice_execution_head() {
+            Ok(head) => Some(head.height),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        let should_write = match current_height {
+            None => true,
+            Some(height) => height < tip.height,
+        };
+        if should_write {
+            self.store_update.set_ser(DBCol::BlockMisc, SPICE_EXECUTION_HEAD_KEY, tip);
+        }
+        Ok(())
+    }
+
+    pub fn set_receipt_proof(&mut self, block_hash: &CryptoHash, receipt_proof: &ReceiptProof) {
+        let ShardProof { from_shard_id, to_shard_id, .. } = receipt_proof.1;
+        let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
+        self.store_update.set_ser(DBCol::receipt_proofs(), &key, receipt_proof);
     }
 }
 

@@ -212,6 +212,7 @@ impl ExtCostsConfig {
             // TODO(yield/resume): replicate fees here after estimation
             ExtCosts::yield_create_base => 300_000_000_000_000,
             ExtCosts::yield_create_byte => 300_000_000_000_000,
+            ExtCosts::yield_create_with_id_base => 300_000_000_000_000,
             ExtCosts::yield_resume_base => 300_000_000_000_000,
             ExtCosts::yield_resume_byte => 300_000_000_000_000,
         }
@@ -332,6 +333,7 @@ pub enum ExtCosts {
     storage_large_read_overhead_byte = 84,
     p256_verify_base = 85,
     p256_verify_byte = 86,
+    yield_create_with_id_base = 87,
 }
 
 // Type of an action, used in fees logic.
@@ -461,6 +463,7 @@ impl ExtCosts {
             ExtCosts::alt_bn128_g1_sum_element => Parameter::WasmAltBn128G1SumElement,
             ExtCosts::yield_create_base => Parameter::WasmYieldCreateBase,
             ExtCosts::yield_create_byte => Parameter::WasmYieldCreateByte,
+            ExtCosts::yield_create_with_id_base => Parameter::WasmYieldCreateWithIdBase,
             ExtCosts::yield_resume_base => Parameter::WasmYieldResumeBase,
             ExtCosts::yield_resume_byte => Parameter::WasmYieldResumeByte,
             ExtCosts::bls12381_p1_sum_base => Parameter::WasmBls12381P1SumBase,
@@ -483,6 +486,23 @@ impl ExtCosts {
             ExtCosts::bls12381_p2_decompress_element => Parameter::WasmBls12381P2DecompressElement,
         }
     }
+}
+
+/// Signature scheme of a transaction (or delegate-action) signer, used as the
+/// key for per-scheme verification-cost lookups. Mirrors the schemes in
+/// `near_crypto::KeyType`; kept here (rather than reusing `KeyType`) so that
+/// `near-parameters` need not depend on `near-crypto`. Convert with the
+/// `KeyType -> SignatureKind` match at the runtime call site.
+///
+/// To price a future scheme (more ML-DSA bits, hash-based schemes, ...): add
+/// the `KeyType`, add a variant here, and add a `<scheme>_verification_cost`
+/// runtime parameter; the compiler then forces wiring the new entry into the
+/// cost map in `parameter_table.rs`.
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, enum_map::Enum)]
+pub enum SignatureKind {
+    Ed25519,
+    Secp256k1,
+    MlDsa65,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -520,6 +540,18 @@ pub struct RuntimeFeesConfig {
     /// Per-byte compute cost charged when applying a
     /// `GlobalContractDistribution` receipt, scaled by deployed code size.
     pub deploy_global_contract_execution_per_byte: Compute,
+
+    /// Gas and compute cost charged at transaction conversion for each
+    /// signature the transaction triggers verification of, keyed by signature
+    /// scheme: the signer's own signature, plus each `Delegate` action's inner
+    /// signer. This is the *extra* verification cost of a scheme relative to
+    /// the classical schemes (whose verification is part of
+    /// `action_receipt_creation`). ed25519/secp256k1 stay 0 for backwards
+    /// compatibility; only ML-DSA-65 carries a charge. The signer pays it as
+    /// burnt gas when buying the transaction; receipts created from within
+    /// contracts are unaffected (no signing there). All 0 before
+    /// `PostQuantumSignatures`.
+    pub signature_verification_costs: EnumMap<SignatureKind, ParameterCost>,
 }
 
 /// Describes cost of storage per block
@@ -581,6 +613,7 @@ impl RuntimeFeesConfig {
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
+            signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
         }
     }
 
@@ -601,6 +634,7 @@ impl RuntimeFeesConfig {
             min_gas_refund_penalty: Gas::ZERO,
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
+            signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
         }
     }
 

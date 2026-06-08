@@ -1,0 +1,1 @@
+bls12381_not_in_group_fix: { old: false, new: true }

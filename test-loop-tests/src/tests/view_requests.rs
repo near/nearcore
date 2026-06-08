@@ -13,7 +13,6 @@ use near_primitives::views::{StateChangeValueView, StateChangesRequestView};
 use near_primitives_core::account::AccessKey;
 
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_access_key_changes_includes_gas_key_nonces() {
     init_test_logger();
 

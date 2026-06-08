@@ -1153,7 +1153,9 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut methods,
         &mut all_schemas,
         "EXPERIMENTAL_receipt_to_tx",
-        "Resolves a receipt ID back to the originating transaction hash and sender account",
+        "Resolves a receipt ID back to the originating transaction hash and sender account. \
+         Best-effort across resharding: layout shifts can miss the producer; the walk returns \
+         `UnknownReceipt` rather than fabricating a result.",
         false,
         &["receipt", "experimental"],
     );

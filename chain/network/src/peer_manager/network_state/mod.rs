@@ -1139,6 +1139,9 @@ impl NetworkState {
                 response.ok().flatten().map(|block| PeerMessage::Block(block))
             }
             PeerMessage::BlockHeadersRequest(hashes) => {
+                if hashes.len() > config::MAX_BLOCK_HEADER_HASHES {
+                    return Err(ReasonForBan::Abusive);
+                }
                 let response = self.client.send_async(BlockHeadersRequest(hashes)).await;
                 response.ok().flatten().map(PeerMessage::BlockHeaders)
             }
