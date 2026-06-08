@@ -20,6 +20,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::merklize;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
@@ -157,6 +158,79 @@ fn test_get_block_execution_results_with_all_execution_results_present() {
         assert!(execution_results.0.contains_key(&chunk_header.shard_id()));
     }
     assert_eq!(execution_results.0.len(), chunks.len());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_last_certified_state_root_when_execution_results_column_is_behind() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+
+    // B2 certifies B1 by carrying its endorsements and execution results in its body.
+    // We never run the core writer actor, so the `execution_results` column stays empty,
+    // simulating the asynchronous writer lagging behind certification.
+    let b2 = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+
+    assert!(core_reader.get_block_execution_results(b1.header()).unwrap().is_none());
+
+    let epoch_id = chain.epoch_manager.get_epoch_id(b1.hash()).unwrap();
+    let shard_layout = chain.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let results = block_execution_results(&b1).0;
+    let state_roots: Vec<CryptoHash> = shard_layout
+        .shard_ids()
+        .map(|shard_id| *results[&shard_id].chunk_extra.state_root())
+        .collect();
+    let expected = merklize(&state_roots).0;
+
+    let root = core_reader.last_certified_state_root(b2.hash()).unwrap();
+    assert_eq!(root, Some(expected));
+    assert_ne!(root, Some(CryptoHash::default()));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_last_certified_state_root_when_execution_results_column_is_partially_written() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+
+    let b2 = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+
+    // Write the column for a single shard with a distinct state root; the other shards stay
+    // unwritten and must be recovered from B2's body. The column value must win for the shard
+    // it covers, exercising the merge of the fast and slow paths.
+    let column_shard = ShardId::new(0);
+    let column_state_root = CryptoHash::hash_bytes(b"column-only-state-root");
+    let column_result = ChunkExecutionResult {
+        chunk_extra: ChunkExtra::new_with_only_state_root(&column_state_root),
+        outgoing_receipts_root: CryptoHash::default(),
+    };
+    save_execution_result_for_block(&chain, &b1, column_shard, column_result);
+
+    let epoch_id = chain.epoch_manager.get_epoch_id(b1.hash()).unwrap();
+    let shard_layout = chain.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let walk_results = block_execution_results(&b1).0;
+    let state_roots: Vec<CryptoHash> = shard_layout
+        .shard_ids()
+        .map(|shard_id| {
+            if shard_id == column_shard {
+                column_state_root
+            } else {
+                *walk_results[&shard_id].chunk_extra.state_root()
+            }
+        })
+        .collect();
+    let expected = merklize(&state_roots).0;
+
+    let root = core_reader.last_certified_state_root(b2.hash()).unwrap();
+    assert_eq!(root, Some(expected));
 }
 
 #[test]

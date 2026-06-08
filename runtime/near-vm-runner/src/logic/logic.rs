@@ -653,6 +653,26 @@ impl<'a> VMLogic<'a> {
         )
     }
 
+    /// Saves the chain ID of the current chain into the register.
+    ///
+    /// # Errors
+    ///
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes`
+    pub fn chain_id(&mut self, register_id: u64) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        let chain_id = self.ext.chain_id();
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            chain_id.as_bytes(),
+        )
+    }
+
     /// All contract calls are a result of some transaction that was signed by some account using
     /// some access key and submitted into a memory pool (either through the wallet using RPC or by
     /// a node itself). This function returns the id of that account. Saves the bytes of the signer

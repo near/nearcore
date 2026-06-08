@@ -234,6 +234,16 @@ pub struct Config {
     /// promise_yield_resume_with_yield_id host functions.
     pub yield_with_id_host_fns: bool,
 
+    /// Whether to enable the chain_id host function (NEP-638).
+    pub chain_id_host_fn: bool,
+
+    /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
+    /// functions. These points lie on the curve but outside the G1/G2
+    /// subgroup; previously the host function returned an error for them,
+    /// now they are handled correctly as required by NEP-488. All other
+    /// inputs were already handled correctly.
+    pub bls12381_not_in_group_fix: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -268,6 +278,8 @@ impl Config {
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
         self.yield_with_id_host_fns = true;
+        self.chain_id_host_fn = true;
+        self.bls12381_not_in_group_fix = true;
     }
 }
 

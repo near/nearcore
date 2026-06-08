@@ -13,12 +13,8 @@ use near_primitives::stateless_validation::partial_witness::{
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 
-/// `PartialEncodedStateWitnessV2` authenticates (epoch_id, shard_id,
-/// height_created, prev_block_hash) under producer signature, but without
-/// cross-check in `validate_partial_encoded_state_witness` a producer authorized
-/// for (prev_block, shard) could sign a witness with inconsistent
-/// `height_created` and have it stored/forwarded under forged key. Test forges
-/// mismatch, asserts dedicated rejection fires.
+/// Forged `height_created` on a V2 witness must be rejected by the cross-check (full rationale
+/// in `validate.rs`).
 #[test]
 fn v2_witness_with_height_mismatch_is_rejected() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
@@ -28,10 +24,7 @@ fn v2_witness_with_height_mismatch_is_rejected() {
     let shard_id = ShardId::new(0);
     let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
 
-    // `prev_block.height + 1 == genesis_height + 1` is value cross-check computes
-    // for chunk on top of genesis. Forge `+ 2` instead — stays inside relevance
-    // window (HEAD == FINAL_HEAD == genesis, so admissible heights are
-    // `(genesis_height, genesis_height + MAX_HEIGHTS_AHEAD]`).
+    // Forge `+ 2` (cross-check expects `+ 1`); still inside the relevance window.
     let forged_height = genesis_height + 2;
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         genesis_hash,

@@ -395,6 +395,7 @@ impl ChunkValidationActor {
             &self.chain_store,
             self.genesis_block.clone(),
             self.epoch_manager.as_ref(),
+            self.runtime_adapter.as_ref(),
         )
         .map_err(|err| {
             CHUNK_WITNESS_VALIDATION_FAILED_TOTAL

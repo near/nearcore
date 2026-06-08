@@ -1,28 +1,21 @@
-//! Integration smoke test for the V2 partial witness defer/replay path. It
-//! exercises `PartialWitnessActor`'s `PendingV2WitnessCache` end-to-end across
-//! two test-loop nodes: a V2 witness arriving at a receiver that is missing its
-//! `prev_block` defers (pending-cache gauge rises), and after the block lands
-//! the BlockNotification scan resolves and dispatches it (gauge drains to 0).
-//! Nightly-gated because the V2 wire path only activates once
-//! `ProtocolFeature::EarlyKickout` is reachable (`NIGHTLY_PROTOCOL_VERSION >= 152`).
+//! Integration smoke test for the V2 partial witness defer/replay path, exercising
+//! `PartialWitnessActor`'s `PendingV2WitnessCache` end-to-end across two test-loop nodes: a V2
+//! witness arriving before its `prev_block` defers, and the BlockNotification scan resolves and
+//! dispatches it once the block lands. The oracle reads the receiver actor's OWN cache via
+//! `pending_cache_bucket_count`, not the process-global `PARTIAL_WITNESS_PENDING_CACHE_SIZE` gauge
+//! (every node writes the gauge). Nightly-gated: the V2 wire path needs `ProtocolFeature::EarlyKickout`.
 //!
-//! Scope: this proves the actor wiring (BlockResponse → BlockNotification → cache
-//! scan → dispatch) runs, which no unit test reaches. It does NOT pin exactly-once
-//! dispatch or the multi-notification `Requeue` liveness story — those live in
-//! `pre_check_replay` unit tests (`partial_witness_actor_tests.rs`). A prior
-//! two-block "survives two notifications" test was dropped: its `cache > 0` oracle
-//! was a false positive (orphan-block witnesses repopulate the cache, so it passed
-//! even with the requeue path broken). Pinning it correctly needs actor-local
-//! cache-key inspection, deferred to follow-up.
+//! A prior multi-notification `Requeue` test was dropped (its `cache > 0` oracle was a false
+//! positive); pinning it needs actor-local cache-key inspection, deferred to follow-up.
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE;
 use near_network::client::BlockResponse;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
@@ -37,7 +30,7 @@ use std::sync::Arc;
 const PRODUCER: &str = "account0";
 const RECEIVER: &str = "account1";
 
-fn make_env() -> crate::setup::env::TestLoopEnv {
+fn make_env() -> TestLoopEnv {
     let accounts = [PRODUCER, RECEIVER];
     let clients = accounts.iter().map(|s| s.parse::<AccountId>().unwrap()).collect_vec();
     let validators_spec = ValidatorsSpec::desired_roles(&[PRODUCER], &[RECEIVER]);
@@ -55,11 +48,6 @@ fn make_env() -> crate::setup::env::TestLoopEnv {
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build()
-}
-
-/// Read `near_partial_witness_pending_cache_size` (no labels).
-fn pending_cache_size() -> i64 {
-    PARTIAL_WITNESS_PENDING_CACHE_SIZE.get()
 }
 
 /// Capture-and-release for `NetworkRequests::Block`. `target_holds` blocks
@@ -84,10 +72,7 @@ impl BlockHolder {
 /// receiver's PM is what fires `NetworkRequests::BlockRequest` (catch-up
 /// sync). Without dropping both, receiver back-fills the held block via the
 /// BlockRequest path and the defer collapses immediately.
-fn register_block_holder(
-    env: &mut crate::setup::env::TestLoopEnv,
-    holder: &Arc<Mutex<BlockHolder>>,
-) {
+fn register_block_holder(env: &mut TestLoopEnv, holder: &Arc<Mutex<BlockHolder>>) {
     let node_handles: Vec<_> =
         env.node_datas.iter().map(|n| n.peer_manager_sender.actor_handle()).collect();
     for handle in node_handles {
@@ -139,14 +124,28 @@ fn test_v2_init_emit_defer_then_replay() {
         .expect("receiver node datas")
         .client_sender
         .clone();
+    // Receiver actor's OWN cache, not the process-global gauge (every node writes
+    // it, zeroed each block). `pending_cache_bucket_count` = distinct
+    // `prev_block_hash` buckets; fine for `> 0` / `== 0`.
+    let receiver_pw_handle = env
+        .node_datas
+        .iter()
+        .find(|n| n.account_id.as_str() == RECEIVER)
+        .expect("receiver node datas")
+        .partial_witness_sender
+        .actor_handle();
     let holder = BlockHolder::new(1);
     register_block_holder(&mut env, &holder);
 
-    // Run the loop until the receiver has buffered at least one V2 witness in
-    // the pending cache. The gauge is a process-global IntGauge; in a 2-node
-    // single-process test-loop only the receiver's actor writes it.
-    env.test_loop.run_until(|_data| pending_cache_size() > 0, Duration::seconds(5));
-    assert!(pending_cache_size() > 0, "receiver should have deferred at least one V2 witness");
+    // Run until receiver buffers >= 1 V2 witness.
+    env.test_loop.run_until(
+        |data| data.get(&receiver_pw_handle).pending_cache_bucket_count() > 0,
+        Duration::seconds(5),
+    );
+    assert!(
+        env.test_loop.data.get(&receiver_pw_handle).pending_cache_bucket_count() > 0,
+        "receiver should have deferred at least one V2 witness",
+    );
     let held_block = {
         let mut h = holder.lock();
         assert_eq!(h.held.len(), 1, "exactly one block held");
@@ -161,11 +160,17 @@ fn test_v2_init_emit_defer_then_replay() {
         .span_wrap(),
     );
 
-    // Wait for the pending cache to drain back to zero. Drain proves the
-    // BlockNotification scan ran and resolved this witness (its prev is now the
-    // just-released block, so the producer-DB lookup succeeds → Ready → dispatch).
-    env.test_loop.run_until(|_data| pending_cache_size() == 0, Duration::seconds(5));
-    assert_eq!(pending_cache_size(), 0, "pending cache must drain after block notification");
+    // Wait for receiver cache to drain. Proves BlockNotification scan ran +
+    // resolved (prev now = released block → producer-DB lookup → Ready → dispatch).
+    env.test_loop.run_until(
+        |data| data.get(&receiver_pw_handle).pending_cache_bucket_count() == 0,
+        Duration::seconds(5),
+    );
+    assert_eq!(
+        env.test_loop.data.get(&receiver_pw_handle).pending_cache_bucket_count(),
+        0,
+        "pending cache must drain after block notification",
+    );
 
     drop(env);
 }

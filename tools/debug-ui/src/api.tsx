@@ -113,15 +113,15 @@ export type SyncStatusView =
     | 'NoSync'
     | {
         EpochSync:
-            | 'NotStarted'
-            | {
-                  InProgress: {
-                      source_peer_height: number;
-                      source_peer_id: string;
-                      attempt_time: string;
-                  };
-              }
-            | 'Done';
+        | 'NotStarted'
+        | {
+            InProgress: {
+                source_peer_height: number;
+                source_peer_id: string;
+                attempt_time: string;
+            };
+        }
+        | 'Done';
     }
     | {
         HeaderSync: {
@@ -401,8 +401,8 @@ function getTargetUrl(addr: string, endpoint: string): string {
 
     if (protocol === 'https:') {
         return getProxyUrl(addr, endpoint);
-    } 
-    
+    }
+
     if (protocol === 'http:') {
         return `http://${addr}/${endpoint}`;
     }
@@ -479,6 +479,31 @@ export function fetchEpochInfo(
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
     return fetchJson(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
+}
+
+// Lightweight variant of the recent-epochs list that omits the heavy per-validator
+// `validator_info`. Use this for views that only need epoch metadata and
+// producer/validator counts (recent epochs, epoch shards, current peers).
+//
+// The debug-ui is released ahead of the node side, so this gracefully falls back to
+// the full `epoch_info` endpoint when talking to a node that predates
+// `epoch_info_light`. Such a node has no route for either form, so both fall through
+// to the `/debug/api/{*path}` catch-all and return 405 (we also treat 404 as missing
+// for safety, e.g. behind a proxy).
+// TODO: remove the fallback once all nodes expose `epoch_info_light`.
+export async function fetchEpochInfoLight(
+    addr: string,
+    epochId: string | null
+): Promise<EpochInfoResponse> {
+    const trailing = epochId ? `/${epochId}` : '';
+    try {
+        return await fetchJson(getTargetUrl(addr, `debug/api/epoch_info_light${trailing}`));
+    } catch (error) {
+        if (error instanceof HttpError && (error.status === 404 || error.status === 405)) {
+            return fetchEpochInfo(addr, epochId);
+        }
+        throw error;
+    }
 }
 
 export function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
