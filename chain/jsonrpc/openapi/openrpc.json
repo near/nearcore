@@ -10368,6 +10368,14 @@
             ],
             "description": "Describes the cost of creating a data receipt, `DataReceipt`."
           },
+          "ml_dsa_65_verification_cost": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Describes the extra cost of verifying an ML-DSA-65 signature above the\ncost of verifying the standard signature types."
+          },
           "pessimistic_gas_price_inflation_ratio": {
             "description": "Pessimistic gas price inflation ratio.",
             "items": {

@@ -258,6 +258,16 @@ pub enum Parameter {
     /// Per-byte compute cost charged when applying a
     /// `GlobalContractDistribution` receipt, scaled by deployed code size.
     DeployGlobalContractExecutionPerByte,
+    /// Gas charged at transaction conversion for each ML-DSA-65 signature the
+    /// transaction triggers verification of: its own signature (if signed with
+    /// an ML-DSA-65 key) plus each `Delegate` action carrying an ML-DSA-65
+    /// inner signer. ML-DSA-65 verification is materially slower than the
+    /// classical schemes, so this charges its extra cost; the signer pays for
+    /// that work as part of buying the transaction. Accepts the
+    /// `{gas: ..., compute: ...}` form to set the compute cost independently
+    /// of the gas cost. 0 before `PostQuantumSignatures`.
+    #[strum(serialize = "ml_dsa_65_verification_cost")]
+    MlDsa65VerificationCost,
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,

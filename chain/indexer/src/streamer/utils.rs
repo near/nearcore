@@ -29,9 +29,15 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
         };
         let actions: Vec<_> =
             tx.actions.iter().cloned().map(Action::try_from).map(Result::unwrap).collect();
-        let cost =
-            calculate_tx_cost(&tx.receiver_id, &tx.signer_id, &actions, &runtime_config, gas_price)
-                .unwrap();
+        let cost = calculate_tx_cost(
+            &tx.receiver_id,
+            &tx.signer_id,
+            &tx.public_key,
+            &actions,
+            runtime_config,
+            gas_price,
+        )
+        .unwrap();
         // Use empty actions here and clone actions from transactions later.
         // Note that we cannot just pass `actions` here since conversion
         // ActionView -> Action -> ActionView does not always preserve the
