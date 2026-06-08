@@ -173,33 +173,32 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
         epoch_selection: EpochSelection,
-    ) -> bool {
-        // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
-        // https://github.com/near/nearcore/issues/4936
+    ) -> Result<bool, EpochError> {
         if let Some(account_id) = account_id {
             let account_cares_about_shard = match epoch_selection {
-                EpochSelection::Previous => self
-                    .epoch_manager
-                    .cared_about_shard_prev_epoch_from_prev_block(prev_hash, account_id, shard_id)
-                    .unwrap_or(false),
+                EpochSelection::Previous => {
+                    self.epoch_manager.cared_about_shard_prev_epoch_from_prev_block(
+                        prev_hash, account_id, shard_id,
+                    )?
+                }
                 EpochSelection::Current => self
                     .epoch_manager
-                    .cares_about_shard_from_prev_block(prev_hash, account_id, shard_id)
-                    .unwrap_or(false),
-                EpochSelection::Next => self
-                    .epoch_manager
-                    .cares_about_shard_next_epoch_from_prev_block(prev_hash, account_id, shard_id)
-                    .unwrap_or(false),
+                    .cares_about_shard_from_prev_block(prev_hash, account_id, shard_id)?,
+                EpochSelection::Next => {
+                    self.epoch_manager.cares_about_shard_next_epoch_from_prev_block(
+                        prev_hash, account_id, shard_id,
+                    )?
+                }
             };
 
             if account_cares_about_shard {
                 // An account has to track this shard because of its validation duties.
-                return true;
+                return Ok(true);
             }
             if !is_me {
                 // We don't know how another node is configured.
                 // It may track all shards, it may track no additional shards.
-                return false;
+                return Ok(false);
             } else {
                 // We have access to the node config. Use the config to find a definite answer.
             }
@@ -208,20 +207,20 @@ impl ShardTracker {
         match self.tracked_shards_config {
             TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
-                false
+                Ok(false)
             }
             TrackedShardsConfig::AllShards => {
                 // Avoid looking up EpochId as a performance optimization.
-                true
+                Ok(true)
             }
             _ => match epoch_selection {
-                EpochSelection::Previous => self
-                    .tracks_shard_prev_epoch_from_prev_block(shard_id, prev_hash)
-                    .unwrap_or(false),
-                EpochSelection::Current => self.tracks_shard(shard_id, prev_hash).unwrap_or(false),
-                EpochSelection::Next => self
-                    .tracks_shard_next_epoch_from_prev_block(shard_id, prev_hash)
-                    .unwrap_or(false),
+                EpochSelection::Previous => {
+                    self.tracks_shard_prev_epoch_from_prev_block(shard_id, prev_hash)
+                }
+                EpochSelection::Current => self.tracks_shard(shard_id, prev_hash),
+                EpochSelection::Next => {
+                    self.tracks_shard_next_epoch_from_prev_block(shard_id, prev_hash)
+                }
             },
         }
     }
@@ -238,6 +237,7 @@ impl ShardTracker {
         shard_id: ShardId,
     ) -> bool {
         let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
+        // Masks `EpochError` as `false`, see [`Self::cares_about_shard`] and #4936.
         self.cares_about_shard_in_epoch_from_prev_hash(
             account_id.as_ref(),
             prev_hash,
@@ -245,6 +245,7 @@ impl ShardTracker {
             true,
             EpochSelection::Previous,
         )
+        .unwrap_or(false)
     }
 
     /// All `ShardUId`s this client tracks in the current epoch at `parent_hash`.
@@ -278,7 +279,22 @@ impl ShardTracker {
     }
 
     /// Whether the client cares about some shard right now.
+    ///
+    /// Masks any `EpochError` from the underlying epoch lookup as `false` (#4936),
+    /// which can spuriously report "not tracked" on restart before epoch data is
+    /// available. Callers that need to distinguish a real lookup error from
+    /// "definitely not tracked" should use [`Self::cares_about_shard_result`].
     pub fn cares_about_shard(&self, parent_hash: &CryptoHash, shard_id: ShardId) -> bool {
+        self.cares_about_shard_result(parent_hash, shard_id).unwrap_or(false)
+    }
+
+    /// Like [`Self::cares_about_shard`] but surfaces the epoch-lookup error
+    /// instead of masking it as `false`.
+    pub fn cares_about_shard_result(
+        &self,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
         let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
         self.cares_about_shard_in_epoch_from_prev_hash(
             account_id.as_ref(),
@@ -295,6 +311,7 @@ impl ShardTracker {
     /// change next epoch, return true if it cares about any shard that `shard_id` will split to
     pub fn will_care_about_shard(&self, parent_hash: &CryptoHash, shard_id: ShardId) -> bool {
         let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
+        // Masks `EpochError` as `false`, see [`Self::cares_about_shard`] and #4936.
         self.cares_about_shard_in_epoch_from_prev_hash(
             account_id.as_ref(),
             parent_hash,
@@ -302,6 +319,7 @@ impl ShardTracker {
             true,
             EpochSelection::Next,
         )
+        .unwrap_or(false)
     }
 
     /// Whether the client cares about some shard in this or next epoch.
@@ -327,20 +345,25 @@ impl ShardTracker {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let cares_about_shard = self.cares_about_shard_in_epoch_from_prev_hash(
-            Some(account_id),
-            parent_hash,
-            shard_id,
-            false,
-            EpochSelection::Current,
-        );
-        let will_care_about_shard = self.cares_about_shard_in_epoch_from_prev_hash(
-            Some(account_id),
-            parent_hash,
-            shard_id,
-            false,
-            EpochSelection::Next,
-        );
+        // Masks `EpochError` as `false`, see [`Self::cares_about_shard`] and #4936.
+        let cares_about_shard = self
+            .cares_about_shard_in_epoch_from_prev_hash(
+                Some(account_id),
+                parent_hash,
+                shard_id,
+                false,
+                EpochSelection::Current,
+            )
+            .unwrap_or(false);
+        let will_care_about_shard = self
+            .cares_about_shard_in_epoch_from_prev_hash(
+                Some(account_id),
+                parent_hash,
+                shard_id,
+                false,
+                EpochSelection::Next,
+            )
+            .unwrap_or(false);
         cares_about_shard || will_care_about_shard
     }
 

@@ -10,26 +10,19 @@ use near_indexer_primitives::{
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
-use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
-use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
-use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
-use parking_lot::RwLock;
+use near_primitives::views::{BlockView, ChunkView, ReceiptView};
 use rocksdb::DB;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 mod errors;
 mod fetchers;
 mod metrics;
 mod utils;
-
-static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
-    Arc<RwLock<HashMap<CryptoHash, ReceiptView>>>,
-> = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 const INTERVAL: Duration = Duration::milliseconds(250);
 
@@ -113,14 +106,15 @@ pub async fn build_streamer_message(
             gas_price,
         );
 
-        // Add local receipts to corresponding outcomes
+        // Pair same-block local receipts (executed in the chunk that produced
+        // them) with their outcomes as a fallback. Delayed local receipts -
+        // executed in a later block - are served from `DBCol::Receipts` by
+        // `fetch_outcomes_with_receipts` instead.
         for receipt in &chunk_local_receipts {
             if let Some(outcome) = receipt_outcomes.get_mut(&receipt.receipt_id) {
                 if outcome.receipt.is_none() {
                     outcome.receipt = Some(receipt.clone());
                 }
-            } else {
-                DELAYED_LOCAL_RECEIPTS_CACHE.write().insert(receipt.receipt_id, receipt.clone());
             }
         }
 
@@ -132,34 +126,13 @@ pub async fn build_streamer_message(
             };
 
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
-            let receipt = if let Some(receipt) = receipt {
-                receipt
-            } else {
-                // Attempt to extract the receipt or decide to fetch it based on cache access success
-                let maybe_receipt =
-                    DELAYED_LOCAL_RECEIPTS_CACHE.write().remove(&execution_outcome.id);
-
-                // Depending on whether you got the receipt from the cache, proceed
-                if let Some(receipt) = maybe_receipt {
-                    // Receipt was found in cache
-                    receipt
-                } else {
-                    // Receipt not found in cache or failed to acquire lock, proceed to look it up
-                    // in the history of blocks (up to 1000 blocks back)
-                    tracing::warn!(
-                        target: INDEXER,
-                        receipt_id = ?execution_outcome.id,
-                        "receipt is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                    );
-                    lookup_delayed_local_receipt_in_previous_blocks(
-                        &client,
-                        &runtime_config,
-                        block.clone(),
-                        execution_outcome.id,
-                        shard_tracker,
-                    )
-                    .await?
-                }
+            let Some(receipt) = receipt else {
+                // A receipt-execution outcome must have its receipt. A `None` here is
+                // unexpected; return an error so the streamer handles the error.
+                return Err(FailedToFetchData::String(format!(
+                    "missing receipt for execution outcome {} in block {}",
+                    execution_outcome.id, block.header.hash,
+                )));
             };
             receipt_execution_outcomes
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
@@ -187,24 +160,28 @@ pub async fn build_streamer_message(
         });
     }
 
-    // Ideally we expect `shards_outcomes` to be empty by this time, but if something went wrong with
-    // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
-    // That might happen before the fix https://github.com/near/nearcore/pull/4228
+    // We expect `shards_outcomes` to be empty by this time: outcomes for shards
+    // the indexer streams were consumed by the per-chunk loop above, and
+    // `fetch_block_new_chunks` surfaces epoch-lookup errors.
+    //
+    // Leftovers can still occur when the indexer's `ShardTracker` excludes a
+    // shard the node itself tracked (so the node has its outcomes but the chunk
+    // was not streamed), or for the post-resharding edge case where a stale
+    // shard id is no longer part of the new layout. We surface the receipt
+    // execution outcomes for such shards.
     for (shard_id, outcomes) in shards_outcomes {
-        // The chunk may be missing and if that happens in the first block after
-        // resharding the shard id would no longer be valid in the new shard
-        // layout. In this case we can skip the chunk.
-        let shard_index = protocol_config_view.shard_layout.get_shard_index(shard_id);
-        let Ok(shard_index) = shard_index else {
+        let Ok(shard_index) = protocol_config_view.shard_layout.get_shard_index(shard_id) else {
             continue;
         };
-
-        indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
-            |outcome| IndexerExecutionOutcomeWithReceipt {
-                execution_outcome: outcome.execution_outcome,
-                receipt: outcome.receipt.expect("`receipt` must be present at this moment"),
-            },
-        ))
+        for outcome in outcomes {
+            let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
+            let Some(receipt) = receipt else {
+                continue;
+            };
+            indexer_shards[shard_index]
+                .receipt_execution_outcomes
+                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
+        }
     }
 
     Ok(StreamerMessage { block, shards: indexer_shards })
@@ -261,112 +238,6 @@ async fn fetch_instant_receipts(
         }
     }
     instant_receipts
-}
-
-// Receipt might be missing only in case of delayed local receipt
-// that appeared in some of the previous blocks
-// we will be iterating over previous blocks until we found the receipt
-// or panic if we didn't find it in 1000 blocks
-async fn lookup_delayed_local_receipt_in_previous_blocks(
-    client: &IndexerViewClientFetcher,
-    runtime_config: &RuntimeConfig,
-    source_block: BlockView,
-    receipt_id: CryptoHash,
-    shard_tracker: &ShardTracker,
-) -> Result<ReceiptView, FailedToFetchData> {
-    let mut block = client.fetch_block(source_block.header.prev_hash).await?;
-    for prev_block_tried in 0..1000 {
-        if prev_block_tried % 100 == 99 {
-            tracing::warn!(
-                target: INDEXER,
-                block_hash = %source_block.header.hash,
-                %receipt_id,
-                prev_block_tried,
-                "still looking for receipt in previous blocks",
-            );
-        }
-        let (prev_block, gas_price) = if block.header.prev_hash == CryptoHash::default() {
-            (None, block.header.gas_price)
-        } else {
-            let prev_block = client.fetch_block(block.header.prev_hash).await?;
-            let gas_price = prev_block.header.gas_price;
-            (Some(prev_block), gas_price)
-        };
-
-        if let Some(receipt) = find_local_receipt_by_id_in_block(
-            receipt_id,
-            &block,
-            client,
-            &runtime_config,
-            shard_tracker,
-            gas_price,
-        )
-        .await?
-        {
-            tracing::debug!(
-                target: INDEXER,
-                %receipt_id,
-                prev_block_tried,
-                "found receipt in previous block",
-            );
-            metrics::LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK.set(prev_block_tried as i64);
-            return Ok(receipt);
-        }
-        block = prev_block.unwrap_or_else(|| {
-            panic!("reached genesis and failed to find local receipt {receipt_id}")
-        });
-    }
-    panic!("failed to find local receipt {receipt_id} in 1000 prev blocks");
-}
-
-async fn find_local_receipt_by_id_in_block(
-    receipt_id: CryptoHash,
-    block: &BlockView,
-    client: &IndexerViewClientFetcher,
-    runtime_config: &RuntimeConfig,
-    shard_tracker: &ShardTracker,
-    gas_price: Balance,
-) -> Result<Option<ReceiptView>, FailedToFetchData> {
-    let new_chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
-    let mut outcomes = client.fetch_outcomes(block.header.hash).await?;
-
-    for chunk in new_chunks {
-        let ChunkView { header, transactions, .. } = chunk;
-        let shard_outcomes = outcomes
-            .remove(&header.shard_id)
-            .expect("execution outcomes for given shard should be present");
-
-        let Some(tx_outcome) = shard_outcomes.into_iter().find(|outcome| {
-            if let ExecutionStatusView::SuccessReceiptId(outcome_receipt_id) =
-                outcome.outcome.status
-            {
-                outcome_receipt_id == receipt_id
-            } else {
-                false
-            }
-        }) else {
-            continue;
-        };
-        let tx_hash = tx_outcome.id;
-        let tx = transactions.into_iter().find(|tx| tx.hash == tx_hash)
-            .unwrap_or_else(|| panic!(
-                "failed to find transaction {} that generated local receipt {} in block {} shard {}",
-                tx_hash, receipt_id, block.header.hash, header.shard_id
-            ));
-        let indexer_tx = IndexerTransactionWithOutcome {
-            transaction: tx,
-            outcome: IndexerExecutionOutcomeWithOptionalReceipt {
-                execution_outcome: tx_outcome,
-                receipt: None,
-            },
-        };
-
-        let local_receipts =
-            convert_transactions_sir_into_local_receipts([&indexer_tx], &runtime_config, gas_price);
-        assert_eq!(local_receipts.len(), 1);
-        return Ok(local_receipts.into_iter().next());
-    }
-    Ok(None)
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status

@@ -8,6 +8,7 @@ use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_indexer::{
     AwaitForNodeSyncedEnum, IndexerConfig, IndexerExecutionOutcomeWithReceipt, StreamerMessage,
     SyncModeEnum, start,
@@ -69,6 +70,61 @@ fn test_indexer_local_receipt() {
     assert_eq!(indexer_chunk.transactions.len(), 1);
     assert_eq!(indexer_chunk.local_receipts.len(), 1);
     assert!(indexer_chunk.receipts.is_empty());
+    assert_eq!(indexer_shard.receipt_execution_outcomes.len(), 1);
+    let receipt_execution_outcome = &indexer_shard.receipt_execution_outcomes[0];
+    assert_eq!(receipt_execution_outcome.receipt.receipt_id, receipt_id);
+    assert_eq!(&receipt_execution_outcome.execution_outcome, receipt_outcome);
+}
+
+/// Regression test for the leftover-outcomes loop in `build_streamer_message`
+/// (see https://github.com/near/nearcore/issues/15867, Mode A).
+///
+/// When a shard's chunk is excluded from `fetch_block_new_chunks`, that shard's
+/// execution outcomes are not consumed by the per-chunk loop and fall into the
+/// leftover loop.
+///
+/// In production a chunk is excluded when `shard_tracker.cares_about_shard`
+/// returns false. But the leftover loop must still
+/// handle a shard the indexer's tracker legitimately excludes without panicking:
+/// transaction outcomes are dropped and the local receipt's execution outcome is preserved.
+/// Here we make that deterministic with a `NoShards` tracker, which routes every outcome
+/// into the leftover loop.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_local_receipt_orphaned_into_leftover_loop() {
+    init_test_logger();
+
+    let mut env = setup();
+    let tx = create_local_tx(&env);
+    let submit_tx_height = env.rpc_node().head().height;
+    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
+    let ExecutionStatusView::SuccessReceiptId(receipt_id) =
+        outcome.transaction_outcome.outcome.status
+    else {
+        panic!("failed to convert transaction to receipt");
+    };
+    assert_eq!(outcome.receipts_outcome.len(), 1);
+    let receipt_outcome = &outcome.receipts_outcome[0];
+
+    // NoShards tracker => `cares_about_shard` is always false => the local
+    // receipt's execution outcome is never consumed by the per-chunk loop and
+    // falls into the leftover loop in `build_streamer_message`.
+    let node_data = &env.node_datas[0];
+    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
+    let no_shards_tracker = ShardTracker::new_empty(client.epoch_manager.clone());
+
+    let tx_included_height = submit_tx_height + 3;
+    let mut indexer_receiver = start_indexer_with_shard_tracker(
+        &env,
+        SyncModeEnum::BlockHeight(tx_included_height),
+        no_shards_tracker,
+    );
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+
+    // With a NoShards tracker the indexer emits no chunk view, but the receipt
+    // execution outcome must still be present and correctly paired.
+    let indexer_shard = &msg.shards[0];
     assert_eq!(indexer_shard.receipt_execution_outcomes.len(), 1);
     let receipt_execution_outcome = &indexer_shard.receipt_execution_outcomes[0];
     assert_eq!(receipt_execution_outcome.receipt.receipt_id, receipt_id);
@@ -455,6 +511,17 @@ fn setup() -> TestLoopEnv {
 
 fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<StreamerMessage> {
     let node_data = &env.node_datas[0];
+    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
+    let shard_tracker = client.shard_tracker.clone();
+    start_indexer_with_shard_tracker(env, sync_mode, shard_tracker)
+}
+
+fn start_indexer_with_shard_tracker(
+    env: &TestLoopEnv,
+    sync_mode: SyncModeEnum,
+    shard_tracker: ShardTracker,
+) -> mpsc::Receiver<StreamerMessage> {
+    let node_data = &env.node_datas[0];
     let indexer_config = IndexerConfig {
         home_dir: NodeExecutionData::homedir(&env.shared_state.tempdir, &node_data.identifier),
         sync_mode,
@@ -463,8 +530,6 @@ fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<S
         validate_genesis: false,
     };
 
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    let shard_tracker = client.shard_tracker.clone();
     let store_config =
         StoreConfig { path: Some(indexer_config.home_dir.clone()), ..Default::default() };
     let (sender, receiver) = tokio::sync::mpsc::channel(100);
