@@ -371,11 +371,12 @@ pub struct ActionResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
-    /// Contract executed by this action: the resolved contract for
-    /// `FunctionCall`, `AccountContract::None` for all other action kinds.
-    /// Aggregated into [`ActionReceiptResult::executed_contracts`] on merge
-    /// and surfaced via `ExecutionMetadata::V4`.
-    pub executed_contract: AccountContract,
+    /// Contract on the receiver account as observed at the start of this
+    /// action, before any state changes from the action are applied. Captured
+    /// for every action kind (`AccountContract::None` when the account does
+    /// not yet exist). Aggregated into [`ActionReceiptResult::current_contracts`]
+    /// on merge and surfaced via `ExecutionMetadata::V4`.
+    pub current_contract: AccountContract,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
 }
@@ -392,7 +393,7 @@ impl Default for ActionResult {
             new_receipts: vec![],
             validator_proposals: vec![],
             profile: Default::default(),
-            executed_contract: AccountContract::None,
+            current_contract: AccountContract::None,
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
         }
@@ -412,7 +413,7 @@ pub struct ActionReceiptResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
-    pub executed_contracts: Vec<AccountContract>,
+    pub current_contracts: Vec<AccountContract>,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
 }
@@ -429,7 +430,7 @@ impl ActionReceiptResult {
             new_receipts: vec![],
             validator_proposals: vec![],
             profile: Default::default(),
-            executed_contracts: vec![],
+            current_contracts: vec![],
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
         }
@@ -453,7 +454,7 @@ impl ActionReceiptResult {
         // Profile aggregates by summing; each per-action `ActionResult`
         // contributes exactly one entry to the receipt-level contract list.
         self.profile.merge(&next_result.profile);
-        self.executed_contracts.push(next_result.executed_contract);
+        self.current_contracts.push(next_result.current_contract);
         self.logs.append(&mut next_result.logs);
         match next_result.result {
             Ok(mut ret_data) => {
@@ -481,7 +482,7 @@ impl ActionReceiptResult {
     /// Marks the receipt as failed: records the error and discards any
     /// receipt-scoped state that would otherwise leak across the failure
     /// boundary (queued receipts, proposed validators, burnt/subsidized
-    /// balances). Profile, gas counters, logs and `executed_contracts` are
+    /// balances). Profile, gas counters, logs and `current_contracts` are
     /// kept — they reflect work already done.
     pub fn set_error(&mut self, err: ActionError) {
         self.result = Err(err);
@@ -538,6 +539,8 @@ impl Runtime {
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
         result.compute_usage = exec_fees.compute;
+        result.current_contract =
+            account.as_ref().map(|a| a.contract().into_owned()).unwrap_or(AccountContract::None);
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
@@ -626,9 +629,6 @@ impl Runtime {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract().into_owned();
-                // Record the contract that runs so it can be surfaced via
-                // `ExecutionMetadata::V4` once the feature gate is active.
-                result.executed_contract = account_contract.clone();
                 let contract_id = RuntimeContractIdentifier::resolve(
                     account_id,
                     account_contract,
@@ -1077,7 +1077,7 @@ impl Runtime {
         let profile = conversions::Convert::convert(*result.profile);
         let metadata =
             if ProtocolFeature::ExecutionMetadataV4.enabled(apply_state.current_protocol_version) {
-                let mut contracts = result.executed_contracts;
+                let mut contracts = result.current_contracts;
                 contracts.resize(action_receipt.actions().len(), AccountContract::None);
                 ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 { profile, contracts }))
             } else {

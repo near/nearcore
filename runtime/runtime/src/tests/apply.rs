@@ -3125,13 +3125,16 @@ fn test_deploy_and_call_local_receipts() {
         ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
     );
 
-    // V4 metadata: one `contracts` entry per receipt action, in receipt order.
-    // o1's receipt is a single DeployContract → `None`. o2's receipt is
+    // V4 metadata: one `contracts` entry per receipt action, recording the
+    // contract on the receiver account before that action ran (in receipt
+    // order). o1's receipt is a single DeployContract on a fresh alice → the
+    // pre-action contract is `None`. o2's receipt is
     // [FunctionCall, DeployContract, FunctionCall]: the first FunctionCall
-    // runs rs_contract just deployed by tx1; DeployContract contributes
-    // `None`; the third action records `Local(trivial_hash)` even though it
-    // fails at method-resolve — the executed contract is resolved before
-    // the call runs, so the failure does not clear the entry.
+    // sees rs_contract just deployed by tx1; the DeployContract action also
+    // sees rs_contract (it then replaces it with trivial_contract); the
+    // trailing FunctionCall sees trivial_contract and records it even though
+    // it fails at method-resolve — the contract is captured before the call
+    // is dispatched.
     let rs_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
     let trivial_hash = CryptoHash::hash_bytes(near_test_contracts::trivial_contract());
     assert_eq!(execution_outcome_contracts(o1), vec![AccountContract::None]);
@@ -3139,7 +3142,7 @@ fn test_deploy_and_call_local_receipts() {
         execution_outcome_contracts(o2),
         vec![
             AccountContract::Local(rs_hash),
-            AccountContract::None,
+            AccountContract::Local(rs_hash),
             AccountContract::Local(trivial_hash),
         ],
     );
@@ -3148,9 +3151,14 @@ fn test_deploy_and_call_local_receipts() {
 /// When a non-final action errors, the action loop breaks before later
 /// actions run. The V4 `contracts` vector is then resized to match the
 /// receipt's action count with `AccountContract::None`, so consumers can
-/// still index by action position. Here action 0 (DeleteKey on a missing
-/// key) fails and the trailing FunctionCall never executes — the slot must
-/// land on `None` via the resize pad, not via a real contract resolution.
+/// still index by action position. Here the receipt is
+/// [DeployContract, DeleteKey(missing), FunctionCall]: action 0 deploys
+/// rs_contract (pre-action contract: `None`), action 1 then fails (pre-action
+/// contract: `Local(rs_hash)` — the deploy from action 0 took effect even
+/// though the receipt as a whole fails), and the trailing FunctionCall never
+/// runs — its slot must land on `None` via the resize pad, not via a real
+/// contract resolution. The `Local(rs_hash)` entry in the middle is what
+/// distinguishes a real per-action capture from the pad.
 #[test]
 fn test_apply_v4_metadata_pads_unexecuted_actions() {
     let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -3166,6 +3174,9 @@ fn test_apply_v4_metadata_pads_unexecuted_actions() {
         alice_account(),
         signers[0].clone(),
         vec![
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            }),
             Action::DeleteKey(Box::new(DeleteKeyAction { public_key: nonexistent_pk })),
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
@@ -3196,12 +3207,13 @@ fn test_apply_v4_metadata_pads_unexecuted_actions() {
         &outcome.status,
         ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
     );
-    assert_eq!(action_error.index, Some(0));
+    assert_eq!(action_error.index, Some(1));
     assert_matches!(action_error.kind, ActionErrorKind::DeleteKeyDoesNotExist { .. });
 
+    let rs_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
     assert_eq!(
         execution_outcome_contracts(outcome),
-        vec![AccountContract::None, AccountContract::None]
+        vec![AccountContract::None, AccountContract::Local(rs_hash), AccountContract::None]
     );
 }
 

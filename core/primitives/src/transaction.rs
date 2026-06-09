@@ -633,9 +633,11 @@ pub enum ExecutionMetadata {
     V2(crate::profile_data_v2::ProfileDataV2) = 1,
     /// V3: With ProfileData by gas parameters
     V3(Box<ProfileDataV3>) = 2,
-    /// V4: With ProfileData by gas parameters and the contract that was
-    /// executed (relevant for function-call receipts, where the receiver
-    /// account and the contract source can differ — e.g. global contracts).
+    /// V4: With ProfileData by gas parameters and the contract attached to
+    /// the receiver account at the time each action ran. Lets consumers
+    /// distinguish receiver from contract source (e.g. global contracts) and
+    /// see what code an account had even on receipts that did not invoke a
+    /// `FunctionCall`.
     V4(Box<ExecutionMetadataV4>) = 3,
 }
 
@@ -644,10 +646,12 @@ pub enum ExecutionMetadata {
 )]
 pub struct ExecutionMetadataV4 {
     pub profile: ProfileDataV3,
-    /// One entry per action in the receipt. For `FunctionCall` actions this
-    /// is the contract that ran; for every other action it is
-    /// `AccountContract::None`. Order matches the receipt's `actions` vector,
-    /// so consumers can correlate a contract with the action that invoked it.
+    /// One entry per action in the receipt: the contract attached to the
+    /// receiver account immediately before that action ran. Captured for
+    /// every action kind, including ones that don't execute a contract;
+    /// `AccountContract::None` when the account did not yet exist (e.g. the
+    /// `CreateAccount` action that materialized it). Order matches the
+    /// receipt's `actions` vector.
     pub contracts: Vec<AccountContract>,
 }
 
