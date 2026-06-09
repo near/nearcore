@@ -411,6 +411,10 @@ pub enum ProtocolFeature {
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
+    /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
+    /// state when validating received block headers, rather than trusting the
+    /// producer-supplied values.
+    ValidateBlockOrdinalAndEpochSyncDataHash,
 }
 
 impl ProtocolFeature {
@@ -529,6 +533,7 @@ impl ProtocolFeature {
             | ProtocolFeature::StickyReshardingValidatorAssignment
             | ProtocolFeature::StrictNonce
             | ProtocolFeature::UniqueChunkTransactions
+            | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
             | ProtocolFeature::YieldWithId => 85,
 
             // Nightly features:

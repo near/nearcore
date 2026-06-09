@@ -18,6 +18,7 @@ use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::{InMemorySigner, KeyType, Signature};
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
@@ -198,9 +199,12 @@ async fn produce_block_with_approvals() {
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     let signer1 = create_test_signer(&block_producer);
+    let epoch_sync_data_hash =
+        actor_handles.epoch_manager.compute_epoch_sync_data_hash(&last_block.header.hash).unwrap();
     let block =
         TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer1))
             .block_merkle_tree(&mut block_merkle_tree)
+            .epoch_sync_data_hash(epoch_sync_data_hash)
             .build();
     actor_handles.client_actor.send(
         BlockResponse {
@@ -279,9 +283,12 @@ async fn invalid_blocks_common(is_requested: bool) {
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     let signer = create_test_signer("test");
+    let epoch_sync_data_hash =
+        actor_handles.epoch_manager.compute_epoch_sync_data_hash(&last_block.header.hash).unwrap();
     let valid_block = Arc::unwrap_or_clone(
         TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer))
             .block_merkle_tree(&mut block_merkle_tree)
+            .epoch_sync_data_hash(epoch_sync_data_hash)
             .build(),
     );
 
@@ -538,7 +545,11 @@ fn test_time_attack() {
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
+    let epoch_sync_data_hash =
+        client.epoch_manager.compute_epoch_sync_data_hash(genesis.hash()).unwrap();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .epoch_sync_data_hash(epoch_sync_data_hash)
+        .build();
     let timestamp = b1.header().timestamp();
     Arc::make_mut(&mut b1)
         .mut_header()
@@ -569,7 +580,11 @@ fn test_invalid_gas_price() {
     let signer = client.validator_signer.get().unwrap();
 
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
+    let epoch_sync_data_hash =
+        client.epoch_manager.compute_epoch_sync_data_hash(genesis.hash()).unwrap();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .epoch_sync_data_hash(epoch_sync_data_hash)
+        .build();
     Arc::make_mut(&mut b1).mut_header().set_next_gas_price(Balance::ZERO);
     Arc::make_mut(&mut b1).mut_header().resign(signer.as_ref());
 
@@ -2963,12 +2978,15 @@ fn test_reorg_reintroduces_old_branch_tx_when_pool_is_full() {
     let block_merkle_tree_raw =
         env.clients[0].chain.chain_store().get_block_merkle_tree(genesis_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree_raw);
+    let epoch_sync_data_hash =
+        env.clients[0].epoch_manager.compute_epoch_sync_data_hash(genesis_block.hash()).unwrap();
     let block_b = TestBlockBuilder::from_prev_block(clock, &genesis_block, validator_signer)
         .height(2)
         .chunks(vec![chunk_header_b])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement_b.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut block_merkle_tree)
+        .epoch_sync_data_hash(epoch_sync_data_hash)
         .build();
     env.clients[0]
         .distribute_and_persist_encoded_chunk(
@@ -3090,12 +3108,15 @@ fn test_reorg_skips_overlap_txs_during_reintroduction() {
     let merkle_raw =
         env.clients[0].chain.chain_store().get_block_merkle_tree(genesis_block.hash()).unwrap();
     let mut merkle = PartialMerkleTree::clone(&merkle_raw);
+    let epoch_sync_data_hash =
+        env.clients[0].epoch_manager.compute_epoch_sync_data_hash(genesis_block.hash()).unwrap();
     let block_b = TestBlockBuilder::from_prev_block(clock, &genesis_block, validator_signer)
         .height(2)
         .chunks(vec![chunk_header_b])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement_b.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut merkle)
+        .epoch_sync_data_hash(epoch_sync_data_hash)
         .build();
     env.clients[0]
         .distribute_and_persist_encoded_chunk(chunk_b, encoded_paths_b, receipts_b, validator_id)

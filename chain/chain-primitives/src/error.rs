@@ -232,6 +232,12 @@ pub enum Error {
     /// Invalid block merkle root.
     #[error("Invalid Block Merkle Root")]
     InvalidBlockMerkleRoot,
+    /// Invalid block ordinal.
+    #[error("Invalid Block Ordinal")]
+    InvalidBlockOrdinal,
+    /// Invalid epoch sync data hash.
+    #[error("Invalid Epoch Sync Data Hash")]
+    InvalidEpochSyncDataHash,
     /// Invalid split shard ids.
     #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
     InvalidSplitShardsIds(ShardId, ShardId),
@@ -368,6 +374,8 @@ impl Error {
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
+            | Error::InvalidBlockOrdinal
+            | Error::InvalidEpochSyncDataHash
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
@@ -455,6 +463,8 @@ impl Error {
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkle_root",
+            Error::InvalidBlockOrdinal => "invalid_block_ordinal",
+            Error::InvalidEpochSyncDataHash => "invalid_epoch_sync_data_hash",
             Error::InvalidProtocolVersion => "invalid_protocol_version",
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
