@@ -1188,6 +1188,38 @@
             ],
             "title": "GasKeyBalanceTooHigh",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "DelegateAction nonce index is outside the gas key's nonce range",
+            "properties": {
+              "DelegateActionInvalidNonceIndex": {
+                "properties": {
+                  "nonce_index": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "num_nonces": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce_index",
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DelegateActionInvalidNonceIndex"
+            ],
+            "title": "DelegateActionInvalidNonceIndex",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -1391,6 +1423,35 @@
               "Delegate"
             ],
             "title": "Delegate",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DelegateV2": {
+                "properties": {
+                  "delegate_action": {
+                    "$ref": "#/components/schemas/DelegateAction"
+                  },
+                  "extension": {
+                    "$ref": "#/components/schemas/DelegateActionExtension"
+                  },
+                  "signature": {
+                    "$ref": "#/components/schemas/Signature"
+                  }
+                },
+                "required": [
+                  "delegate_action",
+                  "extension",
+                  "signature"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DelegateV2"
+            ],
+            "title": "DelegateV2",
             "type": "object"
           },
           {
@@ -3228,6 +3289,37 @@
         ],
         "title": "DelegateAction",
         "type": "object"
+      },
+      "DelegateActionExtension": {
+        "description": "Extra information carried by a `SignedDelegateActionV2` alongside the inner\n`DelegateAction`. New delegate-action capabilities add a variant here rather\nthan a whole new signed action type.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Signed by a gas key. `nonce_index` selects one of the gas key's parallel\nnonces, which the `DelegateAction.nonce` advances.",
+            "properties": {
+              "GasKey": {
+                "properties": {
+                  "nonce_index": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce_index"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKey"
+            ],
+            "title": "GasKey",
+            "type": "object"
+          }
+        ],
+        "title": "DelegateActionExtension"
       },
       "DeleteAccountAction": {
         "properties": {
@@ -5955,8 +6047,18 @@
             "type": "string"
           },
           {
+<<<<<<< HEAD
             "const": "DelegateActionRequiresNonGasKey",
             "description": "Gas keys track nonces per index in dedicated storage, which the delegate\naction path does not support, so a gas key can't sign a delegate action.",
+=======
+            "const": "RequiresNonGasKey",
+            "description": "Gas keys track nonces per index in dedicated storage, which a plain\n`Delegate` action does not support, so a gas key must sign a `DelegateV2`\nwith a `GasKey` extension instead.",
+            "type": "string"
+          },
+          {
+            "const": "RequiresGasKey",
+            "description": "A `DelegateV2` with a `GasKey` extension must be signed by a gas key.",
+>>>>>>> 0dc2ee58e (chore(gas-keys): regenerate openapi and protocol schema)
             "type": "string"
           }
         ],
@@ -10759,6 +10861,27 @@
           "signature"
         ],
         "title": "SignedDelegateAction",
+        "type": "object"
+      },
+      "SignedDelegateActionV2": {
+        "description": "Meta transaction carrying a `DelegateAction` plus extensible extra info in\n`extension`. The signature binds the inner action and the extension together.",
+        "properties": {
+          "delegate_action": {
+            "$ref": "#/components/schemas/DelegateAction"
+          },
+          "extension": {
+            "$ref": "#/components/schemas/DelegateActionExtension"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        },
+        "required": [
+          "delegate_action",
+          "extension",
+          "signature"
+        ],
+        "title": "SignedDelegateActionV2",
         "type": "object"
       },
       "SignedTransaction": {
