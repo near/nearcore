@@ -1,5 +1,7 @@
-use near_crypto::PublicKey;
-use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_crypto::{InMemorySigner, PublicKey, SecretKey};
+use near_primitives::action::delegate::{
+    DelegateAction, SignedDelegateAction, SignedDelegateActionV2,
+};
 use near_primitives::receipt::{DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
@@ -39,13 +41,32 @@ fn map_action(
             Some(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }))
         }
         Action::Delegate(delegate) => {
-            if delegate_allowed {
-                map_delegate_action(delegate, secret, default_key)
-            } else {
-                // This should not happen, but we handle the case here defensively
+            if !delegate_allowed {
                 tracing::warn!(target: "mirror", ?delegate, "a delegate action was contained inside another delegate action");
-                None
+                return None;
             }
+            let resign = |action: DelegateAction, key: SecretKey| {
+                let tx_hash = action.get_nep461_hash();
+                let signature = key.sign(tx_hash.as_ref());
+                Action::Delegate(Box::new(SignedDelegateAction {
+                    delegate_action: action,
+                    signature,
+                }))
+            };
+            map_delegate_action(&delegate.delegate_action, secret, default_key, resign)
+        }
+        Action::DelegateV2(delegate) => {
+            if !delegate_allowed {
+                tracing::warn!(target: "mirror", ?delegate, "a delegate action was contained inside another delegate action");
+                return None;
+            }
+            let resign = |action: DelegateAction, key: SecretKey| {
+                let signer = InMemorySigner::from_secret_key(action.sender_id.clone(), key);
+                let signed =
+                    SignedDelegateActionV2::sign(&signer, action, delegate.extension.clone());
+                Action::DelegateV2(Box::new(signed))
+            };
+            map_delegate_action(&delegate.delegate_action, secret, default_key, resign)
         }
         // We don't want to mess with the set of validators in the target chain
         Action::Stake(_) => None,
@@ -53,12 +74,15 @@ fn map_action(
     }
 }
 
+/// Shared key/account remapping for delegate-style actions. `resign` rebuilds
+/// the signed action from the mapped inner action and the mapped signing key.
 fn map_delegate_action(
-    delegate: &SignedDelegateAction,
+    delegate_action: &DelegateAction,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
     default_key: &PublicKey,
+    resign: impl FnOnce(DelegateAction, SecretKey) -> Action,
 ) -> Option<Action> {
-    let source_actions = delegate.delegate_action.get_actions();
+    let source_actions = delegate_action.get_actions();
     let mut actions = Vec::with_capacity(source_actions.len());
 
     let mut account_created = false;
@@ -92,21 +116,16 @@ fn map_delegate_action(
             .unwrap(),
         );
     }
-    let mapped_key = crate::key_mapping::map_key(&delegate.delegate_action.public_key, secret);
+    let mapped_key = crate::key_mapping::map_key(&delegate_action.public_key, secret);
     let mapped_action = DelegateAction {
-        sender_id: crate::key_mapping::map_account(&delegate.delegate_action.sender_id, secret),
-        receiver_id: crate::key_mapping::map_account(&delegate.delegate_action.receiver_id, secret),
+        sender_id: crate::key_mapping::map_account(&delegate_action.sender_id, secret),
+        receiver_id: crate::key_mapping::map_account(&delegate_action.receiver_id, secret),
         actions,
-        nonce: delegate.delegate_action.nonce,
-        max_block_height: delegate.delegate_action.max_block_height,
+        nonce: delegate_action.nonce,
+        max_block_height: delegate_action.max_block_height,
         public_key: mapped_key.public_key(),
     };
-    let tx_hash = mapped_action.get_nep461_hash();
-    let d = SignedDelegateAction {
-        delegate_action: mapped_action,
-        signature: mapped_key.sign(tx_hash.as_ref()),
-    };
-    Some(Action::Delegate(Box::new(d)))
+    Some(resign(mapped_action, mapped_key))
 }
 
 // map all the account IDs and keys in this receipt and its actions, and skip any stake actions
