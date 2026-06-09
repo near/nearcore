@@ -166,7 +166,8 @@ pub struct EpochSyncProofLastEpochData {
 
 impl EpochSyncProofLastEpochData {
     /// Canonical computation of the `epoch_sync_data_hash` carried by the first
-    /// block of the next epoch.
+    /// block of the next epoch. Shared by the block producer, header validation,
+    /// and epoch sync proof verification.
     pub fn compute_epoch_sync_data_hash(&self) -> CryptoHash {
         CryptoHash::hash_borsh(&(
             &self.first_block_in_epoch,

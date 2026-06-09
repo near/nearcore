@@ -102,7 +102,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
 
     /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.
-    /// It is `Some` only for the first block of an epoch.
+    /// It is `Some` only for the first block of an epoch. Used by the block producer,
+    /// header validation, and tests.
     fn compute_epoch_sync_data_hash(
         &self,
         prev_hash: &CryptoHash,
