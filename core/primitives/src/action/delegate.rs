@@ -325,6 +325,34 @@ mod tests {
         assert_eq!(Action::try_from_slice(&bytes).unwrap(), action);
     }
 
+    #[test]
+    fn test_non_delegate_action_rejects_delegate_v2() {
+        let action: Action = SignedDelegateActionV2 {
+            delegate_action: DelegateAction {
+                sender_id: "alice.near".parse().unwrap(),
+                receiver_id: "bob.near".parse().unwrap(),
+                actions: vec![],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            extension: DelegateActionExtension::GasKey { nonce_index: 0 },
+            signature: Signature::empty(KeyType::ED25519),
+        }
+        .into();
+
+        // A DelegateV2 can't be wrapped as the inner action of a delegate action.
+        assert!(NonDelegateAction::try_from(action.clone()).is_err());
+
+        // Borsh deserialization rejects the nested tag too.
+        let bytes = borsh::to_vec(&action).unwrap();
+        assert_eq!(bytes[0], ACTION_DELEGATE_V2_NUMBER);
+        assert_eq!(
+            NonDelegateAction::try_from_slice(&bytes).map_err(|e| e.kind()),
+            Err(ErrorKind::InvalidInput)
+        );
+    }
+
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
     ///
     /// We want this to be parsable and accepted by protocol versions with meta
