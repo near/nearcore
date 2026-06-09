@@ -412,8 +412,7 @@ pub enum ProtocolFeature {
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
     /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
-    /// state when validating received block headers, rather than trusting the
-    /// producer-supplied values.
+    /// state when validating received block headers.
     ValidateBlockOrdinalAndEpochSyncDataHash,
 }
 
