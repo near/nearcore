@@ -217,7 +217,6 @@ fn test_gas_key_delegate_v2_meta_transaction() {
         block_hash,
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Sign a delegate action with the gas key at `nonce_index`, wrapping a
     // transfer to `receiver`.
@@ -261,7 +260,6 @@ fn test_gas_key_delegate_v2_meta_transaction() {
         "meta transaction failed: {:?}",
         outcome.status,
     );
-    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Only the chosen nonce index advanced.
     let updated_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
