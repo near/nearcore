@@ -147,8 +147,7 @@ fn validate_action_with_mode(
         Action::Delegate(a) => {
             validate_delegate_action(limit_config, a, receiver, current_protocol_version, mode)
         }
-        // Gas-key delegate execution lands in a follow-up; until then the
-        // variant exists on the wire but is not accepted.
+        // TODO(gas-keys): accept DelegateV2 once execution lands; rejected until then.
         Action::DelegateV2(_) => Err(ActionsValidationError::UnsupportedProtocolFeature {
             protocol_feature: "GasKeys".to_owned(),
             version: current_protocol_version,
