@@ -18,6 +18,8 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
     Transaction, TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
+#[cfg(feature = "clock")]
+use crate::types::SpiceChunkEndorsementStats;
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{
     AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, NumBlocks, ShardId,
@@ -936,6 +938,7 @@ pub struct TestBlockBuilder {
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
     newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
     prev_last_certified_block_epoch_id: Option<EpochId>,
+    spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
 
 #[cfg(feature = "clock")]
@@ -980,6 +983,7 @@ impl TestBlockBuilder {
             } else {
                 None
             },
+            spice_chunk_endorsement_stats: Vec::new(),
             prev_header,
         }
     }
@@ -1085,6 +1089,11 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn spice_chunk_endorsement_stats(mut self, stats: Vec<SpiceChunkEndorsementStats>) -> Self {
+        self.spice_chunk_endorsement_stats = stats;
+        self
+    }
+
     pub fn chunk_endorsements(
         mut self,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
@@ -1136,6 +1145,7 @@ impl TestBlockBuilder {
                     prev_last_certified_block_epoch_id: self
                         .prev_last_certified_block_epoch_id
                         .expect("prev_last_certified_block_epoch_id not set for spice block"),
+                    spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
                 }
             }),
         );
