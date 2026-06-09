@@ -298,7 +298,7 @@ impl ReceiptPreparationPipeline {
                     any_function_calls = true;
                 }
                 // No need to handle this receipt as it only generates other new receipts.
-                Action::Delegate(_) => {}
+                Action::Delegate(_) | Action::DelegateV2(_) => {}
                 // No handling for these.
                 Action::Transfer(_)
                 | Action::Stake(_)
