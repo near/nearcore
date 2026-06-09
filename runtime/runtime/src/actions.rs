@@ -695,13 +695,19 @@ fn validate_delegate_action_key(
                 .into());
                 return Ok(());
             }
+            // The index is range-checked above and gas keys initialize every
+            // nonce row at creation, so a missing row is inconsistent state.
             let current_nonce = get_gas_key_nonce(
                 state_update,
                 &delegate_action.sender_id,
                 &delegate_action.public_key,
                 nonce_index,
             )?
-            .unwrap_or(0);
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "gas key nonce row missing for in-range index {nonce_index}"
+                ))
+            })?;
             (current_nonce, DelegateNonceUpdate::GasKey { nonce_index })
         }
     };
@@ -2041,6 +2047,21 @@ mod tests {
         let sender_pub_key = delegate_action.public_key.clone();
         let apply_state = create_apply_state(delegate_action.max_block_height);
         let mut state_update = setup_account(&sender_id, &sender_pub_key, access_key);
+
+        // Real gas keys seed every nonce row at creation; mirror that so
+        // validation reads an existing row rather than treating it as missing.
+        // Seed below the action's nonce so the action remains valid.
+        if let Some(gas_key_info) = access_key.gas_key_info() {
+            for index in 0..gas_key_info.num_nonces {
+                set_gas_key_nonce(
+                    &mut state_update,
+                    sender_id.clone(),
+                    sender_pub_key.clone(),
+                    index,
+                    delegate_action.nonce - 1,
+                );
+            }
+        }
 
         let mut result = ActionResult::default();
         validate_delegate_action_key(
