@@ -302,7 +302,7 @@ impl ContractCodeResponseV1 {
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
     ) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts)?;
+        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
         Ok(Self { next_chunk, compressed_contracts })
     }
 }
@@ -341,7 +341,7 @@ pub struct ContractCodeResponseV2Inner {
 
 impl ContractCodeResponseV2Inner {
     fn encode(next_chunk: ChunkProductionKey, contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts)?;
+        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
         Ok(Self {
             next_chunk,
             compressed_contracts,
