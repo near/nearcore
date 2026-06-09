@@ -8,9 +8,6 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::TestBlockBuilder;
 use std::sync::Arc;
 
-// `validate_header` recomputes `block_ordinal` and `epoch_sync_data_hash`. The first
-// block after genesis is epoch-start, so it carries a real (`Some`) epoch_sync_data_hash;
-// forging either field is rejected while the honest header is accepted.
 #[test]
 fn validate_header_recomputes_block_ordinal_and_epoch_sync_data_hash() {
     init_test_logger();
