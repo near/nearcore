@@ -513,7 +513,8 @@ impl ProtocolFeature {
             | ProtocolFeature::YieldResumeImprovements
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
-            ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::Wasmtime
+            | ProtocolFeature::EarlyKickout => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::FixDelegatedDeterministicStateInit
@@ -521,7 +522,6 @@ impl ProtocolFeature {
             | ProtocolFeature::ContinuousEpochSync
             | ProtocolFeature::DynamicResharding
             | ProtocolFeature::StickyReshardingValidatorAssignment
-            | ProtocolFeature::EarlyKickout
             | ProtocolFeature::YieldWithId => 85,
 
             // Nightly features:
@@ -575,7 +575,9 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
+/// forknet/early-kickout demo: capped at 84 (EarlyKickout's version) so nodes never
+/// vote up to 85, where the dynamic-resharding epoch config would activate.
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 155;
