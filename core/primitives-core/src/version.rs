@@ -357,6 +357,12 @@ pub enum ProtocolFeature {
     /// subtracted, overstating storage usage for accounts with global
     /// contracts and making them marginally harder to delete.
     FixDeleteAccountGlobalContractStorageUsage,
+    /// Skip transactions whose hash already appeared earlier in the same chunk.
+    /// A transaction hash is also its outcome id, and outcomes are committed
+    /// (via the chunk outcome root) keyed by that id. Including a transaction
+    /// twice would otherwise commit two conflicting outcomes (a success and an
+    /// InvalidNonce failure) under one id.
+    UniqueChunkTransactions,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
@@ -523,6 +529,7 @@ impl ProtocolFeature {
             | ProtocolFeature::StickyReshardingValidatorAssignment
             | ProtocolFeature::StrictNonce
             | ProtocolFeature::PostQuantumSignatures
+            | ProtocolFeature::UniqueChunkTransactions
             | ProtocolFeature::YieldWithId => 85,
 
             // Nightly features:

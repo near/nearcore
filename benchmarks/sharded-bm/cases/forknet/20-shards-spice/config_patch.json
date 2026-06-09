@@ -1,0 +1,16 @@
+{
+    "consensus": {
+        "min_block_production_delay": {
+            "secs": 0,
+            "nanos": 600000000
+        },
+        "max_block_production_delay": {
+            "secs": 3,
+            "nanos": 0
+        },
+        "max_block_wait_delay": {
+            "secs": 8,
+            "nanos": 0
+        }
+    }
+}
