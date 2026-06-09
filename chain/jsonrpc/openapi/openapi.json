@@ -8379,6 +8379,13 @@
               "DepositWithFunctionCall"
             ],
             "type": "string"
+          },
+          {
+            "description": "Gas keys track nonces per index in dedicated storage, which the delegate\naction path does not support, so a gas key can't sign a delegate action.",
+            "enum": [
+              "RequiresNonGasKey"
+            ],
+            "type": "string"
           }
         ]
       },
