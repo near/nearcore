@@ -18,10 +18,11 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
     Transaction, TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
+#[cfg(feature = "clock")]
+use crate::types::SpiceChunkEndorsementStats;
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{
     AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, NumBlocks, ShardId,
-    SpiceChunkEndorsementStats,
 };
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
