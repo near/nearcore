@@ -500,7 +500,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     .into();
 
                     operations.extend(delegated_operations);
-                }
+                } // TODO(#8469): Implement delegate action support, for now they are ignored.
                 near_primitives::transaction::Action::DelegateV2(_) => {
                     // TODO(gas-keys): model DelegateV2 (and its extension) in
                     // Rosetta; ignored for now.
