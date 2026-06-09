@@ -6,13 +6,14 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 use strum::IntoStaticStr;
 
@@ -205,6 +206,21 @@ pub fn validate_contract_code_request(
     Ok(ChunkRelevance::Relevant)
 }
 
+pub fn validate_contract_code_response(
+    epoch_manager: &dyn EpochManagerAdapter,
+    response: &ContractCodeResponse,
+    store: &Store,
+) -> Result<ChunkRelevance, Error> {
+    let key = response.chunk_production_key();
+    require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+    if ProtocolFeature::SignedContractCodeResponse.enabled(protocol_version) {
+        validate_witness_contract_code_response_signature(epoch_manager, response)?;
+    }
+
+    Ok(ChunkRelevance::Relevant)
+}
+
 fn validate_chunk_relevant_as_validator(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk: &ChunkProductionKey,
@@ -348,6 +364,17 @@ fn validate_witness_contract_accesses_signature(
     let chunk_producer = epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
+    }
+    Ok(())
+}
+
+fn validate_witness_contract_code_response_signature(
+    epoch_manager: &dyn EpochManagerAdapter,
+    response: &ContractCodeResponse,
+) -> Result<(), Error> {
+    let chunk_producer = epoch_manager.get_chunk_producer_info(response.chunk_production_key())?;
+    if !response.verify_signature(chunk_producer.public_key()) {
+        return Err(Error::Other("Invalid witness contract code response signature".to_owned()));
     }
     Ok(())
 }

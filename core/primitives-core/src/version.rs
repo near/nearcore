@@ -405,6 +405,12 @@ pub enum ProtocolFeature {
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
+    /// Authenticate `ContractCodeResponse` messages with a chunk-producer
+    /// signature, matching the signed-message pattern already used by
+    /// `ChunkContractAccesses` and `ContractCodeRequest`. Senders emit
+    /// `ContractCodeResponseV2` (with a signed inner payload); receivers
+    /// require a verifiable signature before processing the response.
+    SignedContractCodeResponse,
 }
 
 impl ProtocolFeature {
@@ -522,7 +528,8 @@ impl ProtocolFeature {
             | ProtocolFeature::DynamicResharding
             | ProtocolFeature::StickyReshardingValidatorAssignment
             | ProtocolFeature::StrictNonce
-            | ProtocolFeature::YieldWithId => 85,
+            | ProtocolFeature::YieldWithId
+            | ProtocolFeature::SignedContractCodeResponse => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
