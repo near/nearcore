@@ -720,9 +720,6 @@ mod tests {
         }))
     }
 
-    /// Regression guard: the recursive cost/fee functions must descend into a
-    /// V2 delegate action's inner actions (deposit) and charge its inner
-    /// signer's verification cost, exactly like a plain delegate action.
     #[test]
     fn delegate_v2_inner_costs_counted() {
         assert_eq!(

@@ -334,10 +334,6 @@ mod tests {
         assert_eq!(Action::try_from_slice(&bytes).unwrap(), action);
     }
 
-    /// Pins all three encodings of "delegate action" to `Action::is_delegate`
-    /// (the exhaustive source of truth): the borsh-number reject set, the schema
-    /// name list, and that `NonDelegateAction` actually refuses to nest one. A
-    /// new delegate variant therefore can't silently slip past the guard.
     #[test]
     fn test_delegate_variant_encodings_match() {
         let delegate_v2: Action = SignedDelegateActionV2 {
