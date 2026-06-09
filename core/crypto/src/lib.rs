@@ -16,6 +16,7 @@ mod traits;
 mod util;
 
 mod errors;
+pub mod hash_domain;
 pub mod key_conversion;
 mod key_file;
 mod signature;

@@ -298,7 +298,7 @@ pub struct QueryError {
 /// Describes information about an access key including its on-trie
 /// identifier. For ed25519/secp256k1 access keys the `public_key` field
 /// is the full public key (string form unchanged from before); for
-/// ML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest
+/// ML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-256 digest
 /// (the full pubkey is not stored on-chain).
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -2056,6 +2056,7 @@ pub struct TxStatusView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
     None = 0,

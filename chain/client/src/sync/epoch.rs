@@ -312,7 +312,7 @@ impl EpochSync {
         Ok(())
     }
 
-    fn verify_proof(
+    pub fn verify_proof(
         &self,
         proof: &EpochSyncProofV1,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -334,6 +334,13 @@ impl EpochSync {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid block producers for second epoch after genesis".to_string(),
             ));
+        }
+        if all_epochs[0].last_final_block_header.epoch_id() != &second_next_epoch_id_after_genesis {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "epoch_id mismatch for all_epochs[0] last final block header: expected {:?}, got {:?}",
+                second_next_epoch_id_after_genesis,
+                all_epochs[0].last_final_block_header.epoch_id(),
+            )));
         }
         Self::verify_final_block_endorsement(&all_epochs[0])?;
 
@@ -360,6 +367,16 @@ impl EpochSync {
                 return Err(Error::InvalidEpochSyncProof(format!(
                     "invalid block producer handoff to epoch index {}",
                     epoch_index
+                )));
+            }
+            if epoch.last_final_block_header.epoch_id()
+                != prev_epoch.last_final_block_header.next_epoch_id()
+            {
+                return Err(Error::InvalidEpochSyncProof(format!(
+                    "epoch_id mismatch at all_epochs[{}]: expected {:?}, got {:?}",
+                    epoch_index,
+                    prev_epoch.last_final_block_header.next_epoch_id(),
+                    epoch.last_final_block_header.epoch_id(),
                 )));
             }
             Self::verify_final_block_endorsement(epoch)?;

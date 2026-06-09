@@ -22,7 +22,7 @@ use near_parameters::{
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
-use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
@@ -650,6 +650,26 @@ impl<'a> VMLogic<'a> {
             &self.config.limit_config,
             register_id,
             self.context.current_account_id.as_bytes(),
+        )
+    }
+
+    /// Saves the chain ID of the current chain into the register.
+    ///
+    /// # Errors
+    ///
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes`
+    pub fn chain_id(&mut self, register_id: u64) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        let chain_id = self.ext.chain_id();
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            chain_id.as_bytes(),
         )
     }
 
@@ -3433,6 +3453,101 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         Ok(new_promise_idx)
     }
 
+    /// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
+    /// The yield ID must be exactly 32 bytes. The yield is resumed via
+    /// [`promise_yield_resume_with_yield_id`] using the same yield ID.
+    ///
+    /// Returns `u64::MAX` if a yield with the same `yield_id` is already pending for this
+    /// account; otherwise returns the new promise index. Contracts can branch on this to
+    /// recover from duplicates without aborting execution.
+    pub fn promise_yield_create_with_id(
+        &mut self,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+    ) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_yield_create_with_id".to_string(),
+            }
+            .into());
+        }
+        self.result_state.gas_counter.pay_base(yield_create_with_id_base)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
+
+        let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName.into());
+        }
+        let arguments = get_memory_or_register!(self, arguments_ptr, arguments_len)?;
+
+        // Read and validate the yield ID (must be exactly 32 bytes)
+        let yield_id_bytes = get_memory_or_register!(self, yield_id_ptr, yield_id_len)?;
+        let yield_id: [u8; YieldId::LENGTH] =
+            (&*yield_id_bytes).try_into().map_err(|_| HostError::YieldIdMalformed)?;
+        let user_yield_id = YieldId::from_bytes(yield_id);
+
+        let method_name = method_name.into_owned();
+        let arguments = arguments.into_owned();
+
+        // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
+        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        self.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
+
+        // Attempt to create the yield receipt. Returns None when a yield with the same
+        // user_yield_id is already pending; in that case we return a sentinel without
+        // charging for receipt creation.
+        let Some((new_receipt_idx, _data_id)) = self.ext.create_promise_yield_receipt_with_id(
+            self.context.current_account_id.clone(),
+            user_yield_id,
+        )?
+        else {
+            return Ok(u64::MAX);
+        };
+
+        // Prepay gas for the callback so that it cannot be used for this execution any longer.
+        self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
+        // Charge gas for the new receipt with a single data dependency.
+        self.pay_gas_for_new_receipt(true, &[true])?;
+
+        let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
+        self.pay_action_base(ActionCosts::function_call_base, true)?;
+        self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, true)?;
+        // Allow attaching exactly 1 yoctoNEAR with the `one_yocto_on_promise`
+        // exemption (mirrors `promise_batch_action_function_call_weight`).
+        let skip_deduct = amount == Balance::from_yoctonear(1)
+            && self.config.one_yocto_on_promise
+            && self.result_state.current_account_balance.is_zero();
+        if skip_deduct {
+            self.result_state.subsidized_amount = self
+                .result_state
+                .subsidized_amount
+                .checked_add(amount)
+                .expect("subsidized_amount overflow");
+        } else {
+            self.result_state.deduct_balance(amount)?;
+        }
+        self.ext.append_action_function_call_weight(
+            new_receipt_idx,
+            method_name,
+            arguments,
+            amount,
+            Gas::from_gas(gas),
+            GasWeight(gas_weight),
+        )?;
+
+        Ok(new_promise_idx)
+    }
+
     /// Submits the data for a yield promise which is awaiting its value.
     ///
     /// The `data_id` pair of parameters must refer to a resumption token generated by a call to
@@ -3491,6 +3606,45 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let data_id = CryptoHash(data_id);
         let payload = payload.into_owned();
         self.ext.submit_promise_resume_data(data_id, payload).map(u32::from)
+    }
+
+    /// Like [`promise_yield_resume`], but accepts the user-provided `yield_id` (from
+    /// [`promise_yield_create_with_id`]) instead of the runtime-generated `data_id`. The runtime looks
+    /// up the corresponding `data_id` internally.
+    ///
+    /// Returns `1` if the yield was found and resume was submitted, `0` otherwise.
+    pub fn promise_yield_resume_with_yield_id(
+        &mut self,
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> Result<u32, VMLogicError> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_yield_resume_with_yield_id".to_string(),
+            }
+            .into());
+        }
+        self.result_state.gas_counter.pay_base(yield_resume_base)?;
+        self.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+        let yield_id = get_memory_or_register!(self, yield_id_ptr, yield_id_len)?;
+        let payload = get_memory_or_register!(self, payload_ptr, payload_len)?;
+        let payload_len = payload.len() as u64;
+        if payload_len > self.config.limit_config.max_yield_payload_size {
+            return Err(HostError::YieldPayloadLength {
+                length: payload_len,
+                limit: self.config.limit_config.max_yield_payload_size,
+            }
+            .into());
+        }
+
+        let yield_id: [_; YieldId::LENGTH] =
+            (&*yield_id).try_into().map_err(|_| HostError::YieldIdMalformed)?;
+        let yield_id = YieldId::from_bytes(yield_id);
+        let payload = payload.into_owned();
+        self.ext.submit_promise_resume_data_with_yield_id(yield_id, payload).map(u32::from)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the

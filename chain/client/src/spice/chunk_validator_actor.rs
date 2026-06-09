@@ -35,7 +35,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
-use rand::Rng as _;
 use std::collections::{HashMap, HashSet};
 use std::iter::repeat_n;
 use std::num::NonZeroUsize;
@@ -576,18 +575,16 @@ impl SpiceChunkValidatorActor {
             .collect();
 
         if !missing.is_empty() {
-            let mut producers = self
-                .epoch_manager
-                .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
-            let target = producers.swap_remove(rand::thread_rng().gen_range(0..producers.len()));
             let signer = self
                 .validator_signer
                 .get()
                 .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
             let request = SpiceContractCodeRequest::new(chunk_id.clone(), missing.clone(), &signer);
-            // TODO(spice),TODO(spice-contract-distribution): retry with different producers if request fails or times out.
+            // Request from the node that sent us the accesses: it executed the chunk
+            // (deriving the accesses from the apply result) so it has the contract code.
+            // TODO(spice),TODO(spice-contract-distribution): retry with another sender if request fails or times out.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::SpiceContractCodeRequest(target, request),
+                NetworkRequests::SpiceContractCodeRequest(sender.clone(), request),
             ));
         }
 
@@ -744,13 +741,9 @@ impl SpiceChunkValidatorActor {
             .collect();
 
         if !missing.is_empty() {
-            let mut producers = self
-                .epoch_manager
-                .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
-            let target = producers.swap_remove(rand::thread_rng().gen_range(0..producers.len()));
             let request = SpiceContractCodeRequest::new(chunk_id.clone(), missing.clone(), &signer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::SpiceContractCodeRequest(target, request),
+                NetworkRequests::SpiceContractCodeRequest(sender.clone(), request),
             ));
         }
 

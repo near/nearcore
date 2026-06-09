@@ -647,6 +647,181 @@ pub(crate) fn call_promise_yield(
     LoopAction::new(action_fn, succeeded)
 }
 
+/// Like [`call_promise_yield`] but exercises the YieldWithId host functions:
+/// `promise_yield_create_with_id` before resharding, and
+/// `promise_yield_resume_with_yield_id` two blocks after resharding.
+///
+/// This indirectly verifies that the `YieldIdToDataId` / `DataIdToYieldId`
+/// trie rows survive a shard split — without that, the post-resharding resume
+/// would either fail to look up the data_id (returning 0) or the runtime would
+/// panic in `shard_split_handle_key_value` on the new columns.
+///
+/// Each signer is paired with a deterministic 32-byte yield_id so both the
+/// pre- and post-resharding transactions agree without inter-tx storage.
+pub(crate) fn call_promise_yield_with_id(
+    signer_ids: Vec<AccountId>,
+    receiver_ids: Vec<AccountId>,
+) -> LoopAction {
+    use base64::Engine;
+    let resharding_height: Cell<Option<u64>> = Cell::new(None);
+    let txs = Cell::new(vec![]);
+    let latest_height = Cell::new(0);
+    let create_txs_sent = Cell::new(false);
+    let nonce = Cell::new(102);
+    let yield_payload: Vec<u8> = vec![6, 6, 6];
+    let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
+
+    // Deterministic yield_id per signer position so create and resume agree.
+    let yield_ids: Vec<[u8; 32]> =
+        (0..signer_ids.len()).map(|i| [(i as u8).wrapping_add(1); 32]).collect();
+
+    let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+    let make_create_args = {
+        let yield_payload = yield_payload.clone();
+        move |yield_id: &[u8; 32]| -> Vec<u8> {
+            let args = serde_json::json!([{
+                "yield_create_with_id": {
+                    "method_name": "check_promise_result_return_value",
+                    "arguments": b64(&yield_payload),
+                    "gas": 0,
+                    "gas_weight": 1,
+                    "yield_id": b64(yield_id),
+                },
+                "id": 0,
+            }]);
+            serde_json::to_vec(&args).unwrap()
+        }
+    };
+    let make_resume_args = {
+        move |yield_id: &[u8; 32]| -> Vec<u8> {
+            // `promise_yield_resume_with_yield_id` returns 1 on success and the
+            // test contract's `call_promise` dispatcher asserts it matches `"id"`.
+            let args = serde_json::json!([{
+                "yield_resume_with_yield_id": {
+                    "yield_id": b64(yield_id),
+                    "payload": b64(&yield_payload),
+                },
+                "id": 1,
+            }]);
+            serde_json::to_vec(&args).unwrap()
+        }
+    };
+
+    let action_fn = Box::new(
+        move |node_datas: &[NodeExecutionData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            match (resharding_height.get(), latest_height.get()) {
+                // Two blocks after resharding: send resume_with_yield_id. We skip
+                // resharding+1 (first block of new epoch) to avoid Expired tx
+                // rejections seen by `call_promise_yield`.
+                (Some(resharding), latest) if latest == resharding + 2 => {
+                    for ((signer_id, receiver_id), yield_id) in signer_ids
+                        .clone()
+                        .into_iter()
+                        .zip(receiver_ids.clone().into_iter())
+                        .zip(yield_ids.iter())
+                    {
+                        let signer: Signer = create_user_test_signer(&signer_id).into();
+                        nonce.set(nonce.get() + 1);
+                        let tx = SignedTransaction::call(
+                            nonce.get(),
+                            signer_id.clone(),
+                            receiver_id.clone(),
+                            &signer,
+                            Balance::from_yoctonear(1),
+                            "call_promise".to_string(),
+                            make_resume_args(yield_id),
+                            Gas::from_teragas(300),
+                            tip.last_block_hash,
+                        );
+                        store_and_submit_tx(
+                            &node_datas,
+                            &client_account_id,
+                            &txs,
+                            &signer_id,
+                            &receiver_id,
+                            tip.height,
+                            tx,
+                        );
+                    }
+                }
+                (Some(resharding), latest) if latest >= resharding + 4 => {
+                    check_txs_with_retry(&client_actor.client, &txs, &checked_transactions);
+                }
+                (Some(_), _) => {}
+                (None, _) => {
+                    let epoch_manager = client_actor.client.epoch_manager.as_ref();
+                    if next_block_has_new_shard_layout(epoch_manager, &tip) {
+                        tracing::debug!(
+                            target: "test",
+                            height = tip.height,
+                            "resharding height set",
+                        );
+                        resharding_height.set(Some(tip.height));
+                        return;
+                    }
+                    if create_txs_sent.get() {
+                        return;
+                    }
+                    let will_reshard =
+                        epoch_manager.will_shard_layout_change(&tip.prev_block_hash).unwrap();
+                    if !will_reshard {
+                        return;
+                    }
+                    let epoch_length = client_actor.client.config.epoch_length;
+                    let epoch_start =
+                        epoch_manager.get_epoch_start_height(&tip.last_block_hash).unwrap();
+                    if tip.height + 5 < epoch_start + epoch_length {
+                        return;
+                    }
+
+                    for ((signer_id, receiver_id), yield_id) in signer_ids
+                        .clone()
+                        .into_iter()
+                        .zip(receiver_ids.clone().into_iter())
+                        .zip(yield_ids.iter())
+                    {
+                        let signer: Signer = create_user_test_signer(&signer_id).into();
+                        nonce.set(nonce.get() + 1);
+                        let tx = SignedTransaction::call(
+                            nonce.get(),
+                            signer_id.clone(),
+                            receiver_id.clone(),
+                            &signer,
+                            Balance::ZERO,
+                            "call_promise".to_string(),
+                            make_create_args(yield_id),
+                            Gas::from_teragas(300),
+                            tip.last_block_hash,
+                        );
+                        store_and_submit_tx(
+                            &node_datas,
+                            &client_account_id,
+                            &txs,
+                            &signer_id,
+                            &receiver_id,
+                            tip.height,
+                            tx,
+                        );
+                    }
+                    create_txs_sent.set(true);
+                }
+            }
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
+}
+
 /// After resharding and gc-period, assert the deleted `account_id`
 /// is still accessible through archival node view client (if available),
 /// and it is not accessible through a regular, RPC node.

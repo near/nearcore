@@ -469,6 +469,40 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+/// `EXPERIMENTAL_receipt_to_tx` requests by terminal outcome (ok / error
+/// variant). Operators read column vs scanner mix + error rates from labels.
+pub(crate) static RECEIPT_TO_TX_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_receipt_to_tx_total",
+        "EXPERIMENTAL_receipt_to_tx requests by terminal outcome",
+        &["outcome"],
+    )
+    .unwrap()
+});
+
+/// `(shard, block height)` pairs inspected by hint-scan fallback across
+/// all requests. Combine with `receipt_to_tx_hint_outcomes_scanned_total`
+/// for average scanner cost per request.
+pub(crate) static RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_receipt_to_tx_hint_heights_scanned_total",
+            "Total block heights visited by EXPERIMENTAL_receipt_to_tx hint-fallback scans",
+        )
+        .unwrap()
+    });
+
+/// Outcome rows read by hint-scan fallback across all `(shard, block height)`
+/// visits + requests.
+pub(crate) static RECEIPT_TO_TX_HINT_OUTCOMES_SCANNED_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_receipt_to_tx_hint_outcomes_scanned_total",
+            "Total outcome rows read by EXPERIMENTAL_receipt_to_tx hint-fallback scans",
+        )
+        .unwrap()
+    });
+
 pub(crate) static STATE_SYNC_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_request_time",

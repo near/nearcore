@@ -62,7 +62,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
-    (149, include_config!("149.yaml")),
+    // PostQuantumSignatures: ML-DSA-65 signature-verification gas.
+    (154, include_config!("154.yaml")),
+    (155, include_config!("155.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -345,6 +347,28 @@ mod tests {
         assert_eq!(
             base_config.storage_amount_per_byte(),
             modified_config.storage_amount_per_byte()
+        );
+    }
+
+    /// The signature-verification cost accepts the `{gas, compute}` form, so
+    /// its compute cost can be set independently of the gas cost.
+    #[test]
+    fn test_signature_verification_compute_cost_override() {
+        use crate::cost::{ParameterCost, SignatureKind};
+
+        let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
+        let mock_diff_str = r#"
+        ml_dsa_65_verification_cost: {
+          old: 0,
+          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+        }
+        "#;
+        base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
+        let modified_config = RuntimeConfig::new(&base_params).unwrap();
+
+        assert_eq!(
+            modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
+            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
         );
     }
 

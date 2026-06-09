@@ -80,8 +80,6 @@ fn get_gas_key_nonce(
 }
 
 #[test]
-// TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transaction() {
     init_test_logger();
 
@@ -177,8 +175,6 @@ fn test_gas_key_transaction() {
 }
 
 #[test]
-// TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_refund() {
     init_test_logger();
 
@@ -281,7 +277,6 @@ fn test_gas_key_refund() {
 /// tx directly into the pool and using ProduceWithoutTxVerification mode.
 #[test]
 #[cfg(feature = "test_features")]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_deposit_failed() {
     use near_client::NetworkAdversarialMessage;
     use near_client::client_actor::AdvProduceChunksMode;
@@ -394,7 +389,7 @@ fn test_gas_key_deposit_failed() {
         outcome.outcome_with_id.outcome.status,
     );
 
-    // Verify: all prepaid gas was burnt and tokens_burnt matches gas_burnt * gas_price
+    // Verify: gas was burnt for transaction processing and tokens_burnt matches gas_burnt * gas_price
     let gas_burnt = outcome.outcome_with_id.outcome.gas_burnt;
     let tokens_burnt = outcome.outcome_with_id.outcome.tokens_burnt;
     assert!(gas_burnt.as_gas() > 0);
@@ -501,12 +496,12 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
         nonce
     };
 
-    // Deploy the nightly test contract
+    // Deploy the test contract
     let block_hash = env.rpc_node().head().last_block_hash;
     let deploy_tx = SignedTransaction::deploy_contract(
         next_nonce(),
         &account,
-        near_test_contracts::nightly_rs_contract().to_vec(),
+        near_test_contracts::rs_contract().to_vec(),
         &create_user_test_signer(&account),
         block_hash,
     );
@@ -519,7 +514,6 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
 /// Test that a contract can fund a gas key using the
 /// `promise_batch_action_transfer_to_gas_key` host function.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transfer_host_function() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -617,7 +611,6 @@ fn test_gas_key_transfer_host_function() {
 
 /// Test that a contract can create a gas key with full access using the host function.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_full_access_host_function() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -667,7 +660,6 @@ fn test_gas_key_add_full_access_host_function() {
 
 /// Test that a contract can create a gas key with function call permission using the host function.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_function_call_host_function() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -728,7 +720,6 @@ fn test_gas_key_add_function_call_host_function() {
 
 /// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -795,7 +786,6 @@ fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
 
 /// Test creating a gas key via host function, funding it, then using it to send a transaction.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_then_fund_then_use() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -912,13 +902,11 @@ impl GasKeyKind {
 }
 
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_fee_parity_full_access() {
     test_gas_key_fee_parity(GasKeyKind::FullAccess);
 }
 
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_fee_parity_function_call() {
     test_gas_key_fee_parity(GasKeyKind::FunctionCall);
 }

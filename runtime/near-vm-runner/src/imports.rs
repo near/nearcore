@@ -118,6 +118,7 @@ imports! {
     // # Context API #
     // ###############
     current_account_id<[register_id: u64] -> []>,
+    #[chain_id_host_fn] chain_id<[register_id: u64] -> []>,
     signer_account_id<[register_id: u64] -> []>,
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
@@ -301,9 +302,26 @@ imports! {
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
+    #[yield_with_id_host_fns] promise_yield_create_with_id<[
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64
+    ] -> [u64]>,
     promise_yield_resume<[
         data_id_len: u64,
         data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64
+    ] -> [u32]>,
+    #[yield_with_id_host_fns] promise_yield_resume_with_yield_id<[
+        yield_id_len: u64,
+        yield_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,

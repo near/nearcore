@@ -39,6 +39,7 @@ pub mod orphan;
 pub mod pending;
 mod pending_shard_jobs;
 pub mod rayon_spawner;
+pub mod receipt_to_tx;
 pub mod resharding;
 pub mod runtime;
 pub mod sharding;

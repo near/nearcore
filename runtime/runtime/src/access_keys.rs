@@ -21,8 +21,8 @@ fn access_key_storage_usage(
 ) -> StorageUsage {
     let storage_usage_config = &fee_config.storage_usage_config;
     // Use the on-trie identifier length, not the borsh-serialized pubkey
-    // length: ML-DSA-65 access keys live in the trie as a SHA3-384 hash
-    // (49 bytes incl. type tag), not as a 1953-byte full pubkey.
+    // length: ML-DSA-65 access keys live in the trie as a SHA3-256 hash
+    // (33 bytes incl. type tag), not as a 1953-byte full pubkey.
     public_key.trie_id_len() as u64
         + borsh::object_length(access_key).unwrap() as u64
         + storage_usage_config.num_extra_bytes_record
@@ -1193,10 +1193,11 @@ mod tests {
     }
 
     /// `access_key_storage_usage` uses `public_key.trie_id_len()`, which for
-    /// ML-DSA-65 is the SHA3-384 hash form (1 tag + 48 bytes = 49 bytes),
-    /// not the 1953-byte borsh-encoded full pubkey. Verify that the
-    /// post-hashing storage delta vs an ed25519 key is just the hash-vs-raw
-    /// difference (~16 bytes), not the full-pubkey gap (~1920 bytes).
+    /// ML-DSA-65 is the SHA3-256 hash form (1 tag + 32 bytes = 33 bytes),
+    /// not the 1953-byte borsh-encoded full pubkey. The 32-byte digest is the
+    /// same size as an ed25519 key, so the storage usage of an ML-DSA-65
+    /// access key matches an ed25519 one exactly - rather than the
+    /// ~1920-byte-larger figure a raw pubkey would produce.
     #[test]
     fn test_ml_dsa_65_access_key_storage_scales() {
         let config = RuntimeConfig::test();
@@ -1212,16 +1213,16 @@ mod tests {
         let ed_usage = access_key_storage_usage(&config.fees, &ed_pk, &access_key);
         let pq_usage = access_key_storage_usage(&config.fees, &pq_pk, &access_key);
 
-        assert!(
-            pq_usage > ed_usage,
-            "ML-DSA storage usage ({pq_usage}) must exceed ed25519 ({ed_usage})"
+        // The trie-id encoded lengths are identical:
+        // ML-DSA-65: [tag=3] + 32-byte SHA3-256 hash = 33 bytes.
+        // ED25519:   [tag=0] + 32-byte raw pubkey    = 33 bytes.
+        // So storage usage matches exactly. Stored raw, the ML-DSA-65 pubkey
+        // would be 1953 bytes and the usage would be ~1920 bytes larger.
+        assert_eq!(
+            pq_usage, ed_usage,
+            "ML-DSA-65 storage usage ({pq_usage}) must match ed25519 ({ed_usage}); \
+             both are 33-byte trie ids"
         );
-        // Difference reduces to the trie-id encoded length delta:
-        // ML-DSA-65: [tag=3] + 48-byte SHA3-384 hash = 49 bytes.
-        // ED25519:   [tag=0] + 32-byte raw pubkey   = 33 bytes.
-        // Expected delta: 49 - 33 = 16 bytes.
-        let delta = pq_usage - ed_usage;
-        assert_eq!(delta, 16, "expected exactly +16-byte storage delta (hash form), got {delta}");
     }
 
     /// Pre-hash sanity: the borsh-serialized full pubkey for ML-DSA-65 is
@@ -1232,7 +1233,7 @@ mod tests {
         let pq_pk: PublicKey =
             near_crypto::SecretKey::from_seed(near_crypto::KeyType::MLDSA65, "trie-id-len")
                 .public_key();
-        assert_eq!(pq_pk.trie_id_len(), 1 + 48);
+        assert_eq!(pq_pk.trie_id_len(), 1 + 32);
         assert_eq!(pq_pk.len(), 1 + 1952); // borsh form still reports full
     }
 }

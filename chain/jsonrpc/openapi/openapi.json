@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.7"
+    "version": "1.2.9"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1132,7 +1132,7 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
-        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-384 digest\n(the full pubkey is not stored on-chain).",
+        "description": "Describes information about an access key including its on-trie\nidentifier. For ed25519/secp256k1 access keys the `public_key` field\nis the full public key (string form unchanged from before); for\nML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-256 digest\n(the full pubkey is not stored on-chain).",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
@@ -6667,6 +6667,14 @@
               }
             ],
             "description": "Per byte cost of arguments and method name."
+          },
+          "yield_create_with_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for creating a yield promise with a user-provided yield ID\n(covers the additional trie writes for the yield_id<->data_id mapping)."
           },
           "yield_resume_base": {
             "allOf": [
@@ -13095,18 +13103,6 @@
             ],
             "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards."
           },
-          "contract_cache_warming_max_item_count": {
-            "description": "Max warming submissions allowed in the pool's queue. Submissions\nover the cap bump `near_contract_cache_warming_dropped_total`. `0`\ndisables warming (same as setting\n`contract_cache_warming_pool_thread_count` to 0).",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "contract_cache_warming_pool_thread_count": {
-            "description": "Number of worker threads in the contract cache-warming pool. The\npool runs at the lowest realtime priority of any near pool, so the\nthreads yield to chunk application and witness work. Setting this\nto 0 disables warming (the pool is never instantiated). See\n[`contract_cache_warming_max_item_count`] for the other disable knob.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
           "disable_tx_routing": {
             "description": "If true, the node won't forward transactions to next the chunk producers.",
             "type": "boolean"
@@ -13295,6 +13291,24 @@
               }
             ],
             "description": "Determines whether client should exit if the protocol version is not supported\nfor the next or next next epoch."
+          },
+          "receipt_to_tx_max_hint_window": {
+            "description": "Max `±window` accepted on `EXPERIMENTAL_receipt_to_tx` requests.\nCaps caller's `window`. Applies to pre-first-scan `CenterOut`\nagainst caller's literal hint; ancestor scans use\n`receipt_to_tx_max_hop_distance` instead. Operators raising this\nshould also raise `receipt_to_tx_max_hop_distance` so backward reach\nmatches caller's wider hint scope. Requests with `window` over this\nrejected with `WindowTooLarge`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_to_tx_max_hop_distance": {
+            "description": "Max block-distance ancestor scan walks per hop once any scan in\nwalk refreshed `current_height`. Subsequent column-miss scans visit\n`h, h-1, ..., h-max_hop_distance` from most-recent scan-refreshed\nanchor, regardless of column hits between. Anchor included —\nsame-shard local receipts execute in same block as producing\noutcome. Raise if cold archival traffic shows ancestor misses —\ngap = scan-refreshed anchor to producer-outcome height of receipt\nwith missing column row (column hits don't reset anchor). Default\n20 (matches `receipt_to_tx_max_hint_window`).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_to_tx_max_outcomes_per_request": {
+            "description": "Per-request ceiling on outcome rows the `EXPERIMENTAL_receipt_to_tx`\nhint-fallback scanner reads across hops + shards. Caps cold-RocksDB\nworst case on unauthenticated public endpoint. Default 20_000.\nOperators serving cold archival traffic with deep walks or sparse\noutcomes may raise; benchmark first (see TODO in\n`view_client_actor.rs`). Mid-scan exhaustion fails with\n`BudgetExceeded { scanned, limit }`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "resharding_config": {
             "$ref": "#/components/schemas/MutableConfigValue"
@@ -16267,13 +16281,149 @@
               "info"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "OUTCOMES_NOT_STORED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "maximum": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "requested",
+                  "maximum"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "WINDOW_TOO_LARGE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "MALFORMED_HINT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "scanned": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "scanned",
+                  "limit"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "BUDGET_EXCEEDED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
           }
         ]
       },
       "RpcReceiptToTxRequest": {
         "properties": {
+          "block_height": {
+            "description": "Block height near where receipt was created. Enables hint fallback\nscan on column miss. Anchor refreshes to each scan-resolved parent's\nexact execution height; later ancestors bounded via causality\n(emit before execute), so subsequent column-miss scans go\n`Ancestor`. Bump `receipt_to_tx_max_hop_distance` if cold archival\ngaps exceed default 20.\n\nCold-storage cost: per-row latency orders of magnitude over hot. To\nbound request cost:\n  - Supply `block_height` within parent's `±window` (default 5).\n  - Supply `shard_id`. Omit → all-shards enumeration until walker\n    crosses `FromReceipt` hop, multiplying cold-read cost.\n  - Don't widen `window` beyond indexer's accuracy; budget shared\n    across full ancestry walk.\n\nReceipt-id-only queries against periods with `save_receipt_to_tx`\ndisabled stay unsupported: column never written, no self-locating.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "receipt_id": {
             "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Shard hint. Narrows scan to this shard at hint height. Omit to\nenumerate all tracked shards (higher cost). After walker crosses a\nreceipt-origin hop, shard derived from parent's predecessor account\nand hint no longer applies. Best-effort across resharding: layout\nshifts can miss producer, walk returns `UnknownReceipt`."
+          },
+          "window": {
+            "description": "Pre-first-scan width: `±window` heights around hint. Caps at\n`receipt_to_tx_max_hint_window` (default 20). Ignored after first\nscan-resolved hop — walker switches to `Ancestor` mode at\n`receipt_to_tx_max_hop_distance` width.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
@@ -19105,6 +19255,14 @@
             ],
             "description": "Describes the cost of creating a data receipt, `DataReceipt`."
           },
+          "ml_dsa_65_verification_cost": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Describes the extra cost of verifying an ML-DSA-65 signature above the\ncost of verifying the standard signature types."
+          },
           "pessimistic_gas_price_inflation_ratio": {
             "description": "Pessimistic gas price inflation ratio.",
             "items": {
@@ -20651,6 +20809,14 @@
       },
       "VMConfigView": {
         "properties": {
+          "bls12381_not_in_group_fix": {
+            "description": "See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).",
+            "type": "boolean"
+          },
+          "chain_id_host_fn": {
+            "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
+            "type": "boolean"
+          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"
@@ -20746,6 +20912,10 @@
               }
             ],
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
+          },
+          "yield_with_id_host_fns": {
+            "description": "See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).",
+            "type": "boolean"
           }
         },
         "type": "object"

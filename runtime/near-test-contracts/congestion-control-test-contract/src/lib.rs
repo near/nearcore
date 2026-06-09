@@ -89,7 +89,6 @@ extern "C" {
         amount_ptr: u64,
         gas: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_function_call_weight(
         promise_index: u64,
         method_name_len: u64,
@@ -183,16 +182,12 @@ extern "C" {
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(feature = "latest_protocol")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 
     #[cfg(feature = "test_features")]

@@ -2889,15 +2889,26 @@ fn test_reorg_reintroduces_old_branch_tx_when_pool_is_full() {
     // the chain allows zero; that check is orthogonal to what this exercises.
     genesis.config.min_gas_price = Balance::ZERO;
 
-    // A send_money tx in these tests is 112 bytes, so a 120-byte limit holds
-    // exactly one such tx; a second insert fails with `NoSpaceLeft`.
+    // Size the pool to hold exactly one `send_money` transaction; a second
+    // insert then fails with `NoSpaceLeft`. The pool accounts for the full
+    // `wire_size` (body + signature), so measure that rather than hard-coding
+    // a byte count.
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let one_tx_size = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        CryptoHash::default(),
+    )
+    .wire_size();
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .transaction_pool_size_limit(Some(120))
+        .transaction_pool_size_limit(Some(one_tx_size))
         .build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator_signer = Arc::new(create_test_signer("test0"));
     let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     let shard_uid = ShardUId::single_shard();

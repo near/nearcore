@@ -149,6 +149,17 @@ extern "C" {
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
+    fn promise_yield_create_with_id(
+        method_len: u64,
+        method_ptr: u64,
+        arg_len: u64,
+        arg_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+    ) -> u64;
     // #######################
     // # Promise API actions #
     // #######################
@@ -1384,6 +1395,31 @@ pub unsafe fn yield_create_base() {
     const METHOD_NAME: &str = "n";
     for _ in 0..1000 {
         promise_yield_create(METHOD_NAME.len() as u64, METHOD_NAME.as_ptr() as u64, 0, 0, 0, 1, 0);
+    }
+}
+
+/// Function to measure `yield_create_with_id_base` fee.
+/// Creates 1000 waiting receipts/yield promises via `promise_yield_create_with_id`.
+/// Each call uses a distinct user-provided yield_id (the loop counter) to avoid
+/// duplicate-detection bailouts.
+#[unsafe(no_mangle)]
+pub unsafe fn yield_create_with_id_base() {
+    const METHOD_NAME: &str = "n";
+    let amount: u128 = 0;
+    for i in 0..1000u64 {
+        let mut yield_id = [0u8; 32];
+        yield_id[..8].copy_from_slice(&i.to_le_bytes());
+        promise_yield_create_with_id(
+            METHOD_NAME.len() as u64,
+            METHOD_NAME.as_ptr() as u64,
+            0,
+            0,
+            &amount as *const u128 as u64,
+            0,
+            1,
+            yield_id.len() as u64,
+            yield_id.as_ptr() as u64,
+        );
     }
 }
 

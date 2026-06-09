@@ -221,11 +221,32 @@ impl EncodedChunksCache {
     }
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
-        if let Some(entry) = self.encoded_chunks.remove(chunk_hash) {
-            self.remove_chunk_from_incomplete_chunks(entry.header.prev_block_hash(), chunk_hash);
-            Some(entry)
-        } else {
-            None
+        let entry = self.encoded_chunks.remove(chunk_hash)?;
+        self.remove_chunk_from_incomplete_chunks(entry.header.prev_block_hash(), chunk_hash);
+        self.remove_chunk_from_height_to_shard_to_chunk(
+            entry.header.height_created(),
+            entry.header.shard_id(),
+            chunk_hash,
+        );
+        Some(entry)
+    }
+
+    fn remove_chunk_from_height_to_shard_to_chunk(
+        &mut self,
+        height: BlockHeight,
+        shard_id: ShardId,
+        chunk_hash: &ChunkHash,
+    ) {
+        let Occupied(mut height_entry) = self.height_to_shard_to_chunk.entry(height) else {
+            return;
+        };
+        let shard_to_chunk = height_entry.get_mut();
+        if shard_to_chunk.get(&shard_id) != Some(chunk_hash) {
+            return;
+        }
+        shard_to_chunk.remove(&shard_id);
+        if shard_to_chunk.is_empty() {
+            height_entry.remove();
         }
     }
 
