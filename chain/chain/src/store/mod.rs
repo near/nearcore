@@ -2168,7 +2168,6 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        #[cfg(feature = "nightly")]
         for ((block_hash, shard_id), validator_stake) in
             &self.chain_store_cache_update.chunk_producers
         {
