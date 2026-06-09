@@ -45,6 +45,7 @@ use crate::{SignedValidPeriodTransactions, metrics};
 use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
+use near_primitives::action::delegate::DelegateActionExtension;
 use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
 use near_primitives::transaction::Action;
 use near_primitives::trie_key::TrieKey;
@@ -118,11 +119,22 @@ impl TriePrefetcher {
                             self.prefetch_trie_key(trie_key)?;
                         }
                         Action::DelegateV2(delegate_action) => {
-                            let trie_key = TrieKey::access_key(
-                                delegate_action.delegate_action.sender_id.clone(),
-                                &delegate_action.delegate_action.public_key,
-                            );
+                            let inner = &delegate_action.delegate_action;
+                            let trie_key =
+                                TrieKey::access_key(inner.sender_id.clone(), &inner.public_key);
                             self.prefetch_trie_key(trie_key)?;
+                            // A gas key delegate action also reads the per-index
+                            // nonce row during validation; prefetch it too.
+                            match delegate_action.extension {
+                                DelegateActionExtension::GasKey { nonce_index } => {
+                                    let trie_key = TrieKey::gas_key_nonce(
+                                        inner.sender_id.clone(),
+                                        &inner.public_key,
+                                        nonce_index,
+                                    );
+                                    self.prefetch_trie_key(trie_key)?;
+                                }
+                            }
                         }
                         Action::AddKey(add_key_action) => {
                             let trie_key =
