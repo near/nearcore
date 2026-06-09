@@ -992,7 +992,7 @@ impl Display for InvalidAccessKeyError {
                 )
             }
             InvalidAccessKeyError::RequiresNonGasKey => {
-                write!(f, "gas keys can't be used to sign a delegate action")
+                write!(f, "Gas keys can't be used to sign a delegate action")
             }
         }
     }
