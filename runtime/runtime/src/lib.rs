@@ -676,8 +676,7 @@ impl Runtime {
                     &mut result,
                 )?;
             }
-            // Rejected during validation until gas-key delegate execution
-            // lands; fail the action gracefully rather than panic if reached.
+            // TODO(gas-keys): execute DelegateV2; rejected at validation until then.
             Action::DelegateV2(_) => {
                 result.result = Err(ActionErrorKind::NewReceiptValidationError(
                     ReceiptValidationError::ActionsValidation(
