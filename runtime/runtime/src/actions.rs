@@ -14,7 +14,9 @@ use near_parameters::{
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
 };
-use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{
+    DelegateAction, DelegateActionExtension, SignedDelegateAction, SignedDelegateActionV2,
+};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -24,7 +26,9 @@ use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, StakeAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochInfoProvider, StorageUsage};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochInfoProvider, NonceIndex, StorageUsage,
+};
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
@@ -32,7 +36,7 @@ use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
     StorageError, TrieAccess, TrieUpdate, compute_gas_key_balance_sum, get_access_key,
-    remove_account, set_access_key,
+    get_gas_key_nonce, remove_account, set_access_key, set_gas_key_nonce,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::{
@@ -488,9 +492,49 @@ pub(crate) fn apply_delegate_action(
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
-    let delegate_action = &signed_delegate_action.delegate_action;
+    apply_delegate_action_inner(
+        state_update,
+        apply_state,
+        action_receipt,
+        sender_id,
+        &signed_delegate_action.delegate_action,
+        signed_delegate_action.verify(),
+        None,
+        result,
+    )
+}
 
-    if !signed_delegate_action.verify() {
+pub(crate) fn apply_delegate_action_v2(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    action_receipt: &VersionedActionReceipt,
+    sender_id: &AccountId,
+    signed_delegate_action: &SignedDelegateActionV2,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    apply_delegate_action_inner(
+        state_update,
+        apply_state,
+        action_receipt,
+        sender_id,
+        &signed_delegate_action.delegate_action,
+        signed_delegate_action.verify(),
+        Some(&signed_delegate_action.extension),
+        result,
+    )
+}
+
+fn apply_delegate_action_inner(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    action_receipt: &VersionedActionReceipt,
+    sender_id: &AccountId,
+    delegate_action: &DelegateAction,
+    signature_valid: bool,
+    extension: Option<&DelegateActionExtension>,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    if !signature_valid {
         result.result = Err(ActionErrorKind::DelegateActionInvalidSignature.into());
         return Ok(());
     }
@@ -507,7 +551,7 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     }
 
-    validate_delegate_action_key(state_update, apply_state, delegate_action, result)?;
+    validate_delegate_action_key(state_update, apply_state, delegate_action, extension, result)?;
     if result.result.is_err() {
         // Validation failed. Need to return Ok() because this is not a runtime error.
         // "result.result" will be return to the User as the action execution result.
@@ -598,6 +642,7 @@ fn validate_delegate_action_key(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     delegate_action: &DelegateAction,
+    extension: Option<&DelegateActionExtension>,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // 'delegate_action.sender_id' account existence must be checked by a caller
@@ -619,21 +664,58 @@ fn validate_delegate_action_key(
         }
     };
 
-    // Gas keys keep their nonces per index in dedicated storage, while the
-    // delegate path only tracks the single access_key.nonce. Reject them rather
-    // than silently advancing an unrelated counter and bypassing the gas key balance.
-    if access_key.gas_key_info().is_some() {
-        result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-            InvalidAccessKeyError::RequiresNonGasKey,
-        )
-        .into());
-        return Ok(());
-    }
+    // A plain delegate action (no extension) advances the single
+    // access_key.nonce and forbids gas keys; a gas key delegate action advances
+    // one of the gas key's nonces selected by nonce_index.
+    let (current_nonce, nonce_update) = match extension {
+        None => {
+            if access_key.gas_key_info().is_some() {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::RequiresNonGasKey,
+                )
+                .into());
+                return Ok(());
+            }
+            (access_key.nonce, DelegateNonceUpdate::AccessKey)
+        }
+        Some(DelegateActionExtension::GasKey { nonce_index }) => {
+            let nonce_index = *nonce_index;
+            let Some(gas_key_info) = access_key.gas_key_info() else {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::RequiresGasKey,
+                )
+                .into());
+                return Ok(());
+            };
+            if nonce_index >= gas_key_info.num_nonces {
+                result.result = Err(ActionErrorKind::DelegateActionInvalidNonceIndex {
+                    nonce_index,
+                    num_nonces: gas_key_info.num_nonces,
+                }
+                .into());
+                return Ok(());
+            }
+            // The index is range-checked above and gas keys initialize every
+            // nonce row at creation, so a missing row is inconsistent state.
+            let current_nonce = get_gas_key_nonce(
+                state_update,
+                &delegate_action.sender_id,
+                &delegate_action.public_key,
+                nonce_index,
+            )?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "gas key nonce row missing for in-range index {nonce_index}"
+                ))
+            })?;
+            (current_nonce, DelegateNonceUpdate::GasKey { nonce_index })
+        }
+    };
 
-    if delegate_action.nonce <= access_key.nonce {
+    if delegate_action.nonce <= current_nonce {
         result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
             delegate_nonce: delegate_action.nonce,
-            ak_nonce: access_key.nonce,
+            ak_nonce: current_nonce,
         }
         .into());
         return Ok(());
@@ -649,8 +731,6 @@ fn validate_delegate_action_key(
         .into());
         return Ok(());
     }
-
-    access_key.nonce = delegate_action.nonce;
 
     let actions = delegate_action.get_actions();
 
@@ -713,14 +793,35 @@ fn validate_delegate_action_key(
         }
     };
 
-    set_access_key(
-        state_update,
-        delegate_action.sender_id.clone(),
-        delegate_action.public_key.clone(),
-        &access_key,
-    );
+    match nonce_update {
+        DelegateNonceUpdate::AccessKey => {
+            access_key.nonce = delegate_action.nonce;
+            set_access_key(
+                state_update,
+                delegate_action.sender_id.clone(),
+                delegate_action.public_key.clone(),
+                &access_key,
+            );
+        }
+        DelegateNonceUpdate::GasKey { nonce_index } => {
+            set_gas_key_nonce(
+                state_update,
+                delegate_action.sender_id.clone(),
+                delegate_action.public_key.clone(),
+                nonce_index,
+                delegate_action.nonce,
+            );
+        }
+    }
 
     Ok(())
+}
+
+/// How a validated delegate action's nonce is persisted: a plain action bumps
+/// the access key nonce, a gas key action bumps the selected gas key nonce.
+enum DelegateNonceUpdate {
+    AccessKey,
+    GasKey { nonce_index: NonceIndex },
 }
 
 pub(crate) fn check_actor_permissions(
@@ -765,7 +866,8 @@ pub(crate) fn check_actor_permissions(
         | Action::FunctionCall(_)
         | Action::Transfer(_)
         | Action::TransferToGasKey(_) => (),
-        Action::Delegate(_) | Action::DelegateV2(_) => (),
+        Action::Delegate(_) => (),
+        Action::DelegateV2(_) => (),
         Action::DeterministicStateInit(_) => (),
     };
     Ok(())
@@ -1449,6 +1551,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            None,
             &mut result,
         )
         .expect("Expect ok");
@@ -1460,6 +1563,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            None,
             &mut result,
         )
         .expect("Expect ok");
@@ -1480,6 +1584,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &delegate_action,
+            None,
             &mut result,
         )
         .expect("Expect ok");
@@ -1506,6 +1611,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            None,
             &mut result,
         )
         .expect("Expect ok");
@@ -1540,6 +1646,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            None,
             &mut result,
         )
         .expect("Expect ok");
@@ -1568,6 +1675,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            None,
             &mut result,
         )
         .expect("Expect ok");
@@ -1596,6 +1704,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &delegate_action,
+            None,
             &mut result,
         )
         .expect("Expect ok");
@@ -1767,6 +1876,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &delegate_action,
+            None,
             &mut result,
         )
         .expect("validate_delegate_action_key must not return a RuntimeError");
@@ -1921,6 +2031,227 @@ mod tests {
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresNonGasKey,
+            )
+            .into())
+        );
+    }
+
+    // Validates a delegate action with a gas key nonce index, returning the
+    // result and the state so the test can inspect the gas key nonce.
+    fn validate_gas_key_delegate(
+        access_key: &AccessKey,
+        delegate_action: &DelegateAction,
+        nonce_index: NonceIndex,
+    ) -> (ActionResult, TrieUpdate) {
+        let sender_id = delegate_action.sender_id.clone();
+        let sender_pub_key = delegate_action.public_key.clone();
+        let apply_state = create_apply_state(delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, access_key);
+
+        // Real gas keys seed every nonce row at creation; mirror that so
+        // validation reads an existing row rather than treating it as missing.
+        // Seed below the action's nonce so the action remains valid.
+        if let Some(gas_key_info) = access_key.gas_key_info() {
+            for index in 0..gas_key_info.num_nonces {
+                set_gas_key_nonce(
+                    &mut state_update,
+                    sender_id.clone(),
+                    sender_pub_key.clone(),
+                    index,
+                    delegate_action.nonce - 1,
+                );
+            }
+        }
+
+        let mut result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            delegate_action,
+            Some(&DelegateActionExtension::GasKey { nonce_index }),
+            &mut result,
+        )
+        .expect("Expect ok");
+        (result, state_update)
+    }
+
+    #[test]
+    fn test_gas_key_delegate_action_full_access_advances_nonce() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey::gas_key_full_access(TEST_GAS_KEY_NUM_NONCES);
+        let delegate_action = signed_delegate_action.delegate_action;
+        let nonce_index = 0;
+
+        let (result, state_update) =
+            validate_gas_key_delegate(&access_key, &delegate_action, nonce_index);
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+
+        let stored = get_gas_key_nonce(
+            &state_update,
+            &delegate_action.sender_id,
+            &delegate_action.public_key,
+            nonce_index,
+        )
+        .unwrap();
+        assert_eq!(stored, Some(delegate_action.nonce));
+    }
+
+    #[test]
+    fn test_gas_key_delegate_action_requires_gas_key() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey::full_access();
+        let delegate_action = signed_delegate_action.delegate_action;
+        let nonce_index = 0;
+
+        let (result, _) = validate_gas_key_delegate(&access_key, &delegate_action, nonce_index);
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresGasKey,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_gas_key_delegate_action_invalid_nonce_index() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey::gas_key_full_access(TEST_GAS_KEY_NUM_NONCES);
+        let delegate_action = signed_delegate_action.delegate_action;
+        let nonce_index = TEST_GAS_KEY_NUM_NONCES; // invalid
+
+        let (result, _) = validate_gas_key_delegate(&access_key, &delegate_action, nonce_index);
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionInvalidNonceIndex {
+                nonce_index,
+                num_nonces: TEST_GAS_KEY_NUM_NONCES,
+            }
+            .into())
+        );
+    }
+
+    // A gas key delegate action with `GasKeyFunctionCall` permission runs the
+    // same function call restrictions as a regular function call access key.
+    fn gas_key_function_call_delegate_result(
+        permission: FunctionCallPermission,
+        actions: Vec<NonDelegateAction>,
+    ) -> ActionResult {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey::gas_key_function_call(TEST_GAS_KEY_NUM_NONCES, permission);
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.actions = actions;
+        let nonce_index = 0;
+        validate_gas_key_delegate(&access_key, &delegate_action, nonce_index).0
+    }
+
+    fn function_call_action(method_name: &str, deposit: Balance) -> NonDelegateAction {
+        non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+            args: Vec::new(),
+            deposit,
+            gas: Gas::from_gas(300),
+            method_name: method_name.parse().unwrap(),
+        })))
+    }
+
+    fn function_call_permission(
+        receiver_id: &str,
+        method_names: Vec<String>,
+    ) -> FunctionCallPermission {
+        FunctionCallPermission {
+            allowance: None,
+            receiver_id: receiver_id.to_string(),
+            method_names,
+        }
+    }
+
+    #[test]
+    fn test_gas_key_delegate_function_call_ok() {
+        let result = gas_key_function_call_delegate_result(
+            function_call_permission("token.test.near", vec!["test_method".to_string()]),
+            vec![function_call_action("test_method", Balance::ZERO)],
+        );
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+    }
+
+    #[test]
+    fn test_gas_key_delegate_function_call_incorrect_action() {
+        let result = gas_key_function_call_delegate_result(
+            function_call_permission("token.test.near", vec!["test_method".to_string()]),
+            vec![non_delegate_action(Action::CreateAccount(CreateAccountAction {}))],
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_gas_key_delegate_function_call_actions_number() {
+        let result = gas_key_function_call_delegate_result(
+            function_call_permission("token.test.near", vec!["test_method".to_string()]),
+            vec![
+                function_call_action("test_method", Balance::ZERO),
+                function_call_action("test_method", Balance::ZERO),
+            ],
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_gas_key_delegate_function_call_deposit() {
+        let result = gas_key_function_call_delegate_result(
+            function_call_permission("token.test.near", Vec::new()),
+            vec![function_call_action("test_method", Balance::from_yoctonear(1))],
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::DepositWithFunctionCall,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_gas_key_delegate_function_call_receiver_id() {
+        let result = gas_key_function_call_delegate_result(
+            function_call_permission("another.near", Vec::new()),
+            vec![function_call_action("test_method", Balance::ZERO)],
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: "token.test.near".parse().unwrap(),
+                    ak_receiver: "another.near".parse().unwrap(),
+                },
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_gas_key_delegate_function_call_method() {
+        let result = gas_key_function_call_delegate_result(
+            function_call_permission("token.test.near", vec!["another_method".to_string()]),
+            vec![function_call_action("test_method", Balance::ZERO)],
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::MethodNameMismatch {
+                    method_name: "test_method".parse().unwrap(),
+                },
             )
             .into())
         );
