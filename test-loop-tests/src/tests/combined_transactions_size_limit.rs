@@ -49,6 +49,10 @@ fn config_with_tx_size_limit(limit: usize) -> RuntimeConfigStore {
 /// Chunk packing stops at `combined_transactions_size_limit`, and the limit
 /// counts the ML-DSA-65 signature (i.e. uses `wire_size`, not `get_size`).
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// Spice prepares/includes transactions differently, so the per-chunk packing
+// this test inspects does not hold there (no transfers land in the chunks).
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_combined_tx_size_limit_counts_ml_dsa_signature() {
     init_test_logger();
     if !ProtocolFeature::PostQuantumSignatures.enabled(PROTOCOL_VERSION) {
