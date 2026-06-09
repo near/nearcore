@@ -833,6 +833,12 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for SIGNED_DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    /// Specified for DELEGATE_ACTION operations of a `DelegateV2` action so the
+    /// extension (e.g. a gas key's nonce index) round-trips through operations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub delegate_action_extension:
+        Option<near_primitives::action::delegate::DelegateActionExtension>,
 }
 
 impl OperationMetadata {
