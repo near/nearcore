@@ -11802,19 +11802,6 @@
               "WithdrawFromGasKey"
             ],
             "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "description": "Meta transaction carrying a `DelegateAction` plus extensible extra info.",
-            "properties": {
-              "DelegateV2": {
-                "$ref": "#/components/schemas/SignedDelegateActionV2"
-              }
-            },
-            "required": [
-              "DelegateV2"
-            ],
-            "type": "object"
           }
         ]
       },
