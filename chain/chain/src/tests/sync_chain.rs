@@ -10,14 +10,22 @@ use near_primitives::test_utils::TestBlockBuilder;
 #[test]
 fn chain_sync_headers() {
     init_test_logger();
-    let (mut chain, _, _, bls_signer) = setup(Clock::real());
+    let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
     assert_eq!(chain.header_head().unwrap().height, 0);
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     let mut block_merkle_tree = PartialMerkleTree::default();
     for i in 0..4 {
+        // Only the first block after genesis is epoch-start; later prev blocks are
+        // not yet in the epoch manager, so compute the hash only where it applies.
+        let epoch_sync_data_hash = if blocks[i].header().is_genesis() {
+            epoch_manager.compute_epoch_sync_data_hash(blocks[i].hash()).unwrap()
+        } else {
+            None
+        };
         blocks.push(
             TestBlockBuilder::from_prev_block(Clock::real(), &blocks[i], bls_signer.clone())
                 .block_merkle_tree(&mut block_merkle_tree)
+                .epoch_sync_data_hash(epoch_sync_data_hash)
                 .build(),
         )
     }
@@ -36,9 +44,15 @@ fn chain_sync_headers_records_spice_block_info() {
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     let mut block_merkle_tree = PartialMerkleTree::default();
     for i in 0..3 {
+        let epoch_sync_data_hash = if blocks[i].header().is_genesis() {
+            epoch_manager.compute_epoch_sync_data_hash(blocks[i].hash()).unwrap()
+        } else {
+            None
+        };
         blocks.push(
             TestBlockBuilder::from_prev_block(Clock::real(), &blocks[i], bls_signer.clone())
                 .block_merkle_tree(&mut block_merkle_tree)
+                .epoch_sync_data_hash(epoch_sync_data_hash)
                 .build(),
         )
     }

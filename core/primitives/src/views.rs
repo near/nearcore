@@ -2062,6 +2062,7 @@ pub struct TxStatusView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
     None = 0,

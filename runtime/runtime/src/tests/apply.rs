@@ -3547,6 +3547,105 @@ fn test_expired_transaction() {
 }
 
 #[test]
+fn test_duplicate_transaction_in_chunk_skipped() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let send_money = |nonce| {
+        SignedTransaction::send_money(
+            nonce,
+            alice_account(),
+            bob_account(),
+            &alice_signer,
+            Balance::from_near(1),
+            CryptoHash::default(),
+        )
+    };
+    let tx = send_money(1);
+    // A distinct transaction (different nonce, different hash) that must not be skipped.
+    let other = send_money(2);
+    let (tx_hash, other_hash) = (tx.get_hash(), other.get_hash());
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    assert!(ProtocolFeature::UniqueChunkTransactions.enabled(PROTOCOL_VERSION));
+
+    // [T, U, T]: the repeat of T is non-adjacent to the original.
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), other, tx], vec![true; 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // The repeat of T is skipped, leaving a single success outcome under its
+    // hash rather than a success and a conflicting InvalidNonce failure, while
+    // the distinct transaction U is processed normally.
+    let tx_outcomes = |id| apply_result.outcomes.iter().filter(|o| o.id == id).collect::<Vec<_>>();
+    let (tx_outcomes, other_outcomes) = (tx_outcomes(tx_hash), tx_outcomes(other_hash));
+    assert_eq!(tx_outcomes.len(), 1, "duplicate transaction must be skipped");
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_eq!(other_outcomes.len(), 1, "distinct transaction must not be skipped");
+    assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_duplicate_transaction_in_chunk_prior_behavior() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let tx = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &alice_signer,
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let tx_hash = tx.get_hash();
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::UniqueChunkTransactions.protocol_version() - 1;
+
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), tx], vec![true, true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // Without the feature both copies are processed: the second records a
+    // conflicting InvalidNonce failure under the same id as the success.
+    let tx_outcomes: Vec<_> = apply_result.outcomes.iter().filter(|o| o.id == tx_hash).collect();
+    assert_eq!(tx_outcomes.len(), 2);
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(
+        tx_outcomes[1].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidNonce { .. }
+        ))
+    );
+}
+
+#[test]
 fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],

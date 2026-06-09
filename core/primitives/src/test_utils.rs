@@ -20,7 +20,8 @@ use crate::transaction::{
 };
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{
-    AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, ShardId, SpiceChunkEndorsementStats,
+    AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, NumBlocks, ShardId,
+    SpiceChunkEndorsementStats,
 };
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
@@ -683,6 +684,34 @@ impl BlockHeader {
         }
     }
 
+    pub fn set_block_ordinal(&mut self, value: NumBlocks) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.block_ordinal = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.block_ordinal = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.block_ordinal = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.block_ordinal = value,
+        }
+    }
+
+    pub fn set_epoch_sync_data_hash(&mut self, value: Option<CryptoHash>) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.epoch_sync_data_hash = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.epoch_sync_data_hash = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.epoch_sync_data_hash = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.epoch_sync_data_hash = value,
+        }
+    }
+
     pub fn set_chunk_endorsements(&mut self, value: ChunkEndorsementsBitmap) {
         match self {
             BlockHeader::BlockHeaderV1(_)
@@ -901,6 +930,7 @@ pub struct TestBlockBuilder {
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    epoch_sync_data_hash: Option<CryptoHash>,
     timestamp_nanos: Option<u64>,
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
@@ -938,6 +968,7 @@ impl TestBlockBuilder {
             block_merkle_root: tree.root(),
             chunks: prev_chunks,
             chunk_endorsements: vec![vec![]; chunks_len],
+            epoch_sync_data_hash: None,
             timestamp_nanos: None,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(crate::block_body::SpiceCoreStatements::new(vec![]))
@@ -1023,6 +1054,13 @@ impl TestBlockBuilder {
         self
     }
 
+    /// Sets the `epoch_sync_data_hash`, which must be `Some` for epoch-start blocks.
+    /// Compute it with `EpochManagerAdapter::compute_epoch_sync_data_hash(prev_hash)`.
+    pub fn epoch_sync_data_hash(mut self, epoch_sync_data_hash: Option<CryptoHash>) -> Self {
+        self.epoch_sync_data_hash = epoch_sync_data_hash;
+        self
+    }
+
     pub fn chunks(mut self, chunks: impl IntoIterator<Item = ShardChunkHeader>) -> Self {
         self.chunks = chunks.into_iter().collect();
         self
@@ -1085,7 +1123,7 @@ impl TestBlockBuilder {
             self.chunk_endorsements,
             self.epoch_id,
             self.next_epoch_id,
-            None,
+            self.epoch_sync_data_hash,
             self.approvals,
             num_rational::Ratio::new(0, 1),
             Balance::ZERO,

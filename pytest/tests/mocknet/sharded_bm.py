@@ -596,22 +596,27 @@ def handle_get_traces(args):
 
     trace_file = os.path.join(args.output_dir, f"trace_{start_time}.json")
 
-    response = requests.post(
-        f"http://{args.forknet_details['tracing_server_external_ip']}:8080/raw_trace",
-        headers={
-            'Content-Type': 'application/json',
-            'Accept-Encoding': 'gzip, deflate',
-            'Accept': '*/*'
-        },
-        json={
-            "start_timestamp_unix_ms": start_time,
-            "end_timestamp_unix_ms": end_time,
-            "filter": {
-                "nodes": [],
-                "threads": []
-            }
-        },
-        stream=True)
+    try:
+        response = requests.post(
+            f"http://{args.forknet_details['tracing_server_external_ip']}:8080/raw_trace",
+            headers={
+                'Content-Type': 'application/json',
+                'Accept-Encoding': 'gzip, deflate',
+                'Accept': '*/*'
+            },
+            json={
+                "start_timestamp_unix_ms": start_time,
+                "end_timestamp_unix_ms": end_time,
+                "filter": {
+                    "nodes": [],
+                    "threads": []
+                }
+            },
+            stream=True)
+    except requests.exceptions.RequestException as e:
+        logger.error(
+            f"failed to download traces from the tracing server, skipping: {e}")
+        return
 
     if response.status_code == 200:
         content_encoding = response.headers.get('content-encoding', 'none')

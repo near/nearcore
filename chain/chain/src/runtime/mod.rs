@@ -965,7 +965,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
-                if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
+                if total_size.saturating_add(tx_peek.size_for_limits(protocol_version))
+                    > size_limit as u64
+                {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
@@ -1041,12 +1043,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let nonce_index = validated_tx.nonce().nonce_index();
-                let (account, key_entry) = signer_overlay.get_or_load_entry_mut(
+                let Some((account, key_entry)) = signer_overlay.get_or_load_entry_mut(
                     &state_update,
                     validated_tx.signer_id(),
                     validated_tx.public_key(),
                     nonce_index,
-                )?;
+                )?
+                else {
+                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction whose signer state is missing");
+                    rejected_invalid_tx += 1;
+                    continue;
+                };
 
                 // Check pending transaction queue constraints.
                 let has_contract =
@@ -1108,7 +1115,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
-                        total_size += validated_tx.get_size();
+                        total_size += validated_tx.size_for_limits(protocol_version);
                         prepared_transactions.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;
@@ -1653,15 +1660,12 @@ fn peek_nonce_for_gap_check(
     account_id: &AccountId,
     public_key: &PublicKey,
     nonce_index: Option<NonceIndex>,
-) -> Result<Option<Nonce>, Error> {
+) -> Result<Option<Nonce>, StorageError> {
     let throwaway_trie = trie.recording_reads_new_recorder();
     if let Some(idx) = nonce_index {
         get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)
-            .map_err(|_| Error::InvalidTransactions)
     } else {
-        let access_key = get_access_key(&throwaway_trie, account_id, public_key)
-            .map_err(|_| Error::InvalidTransactions)?;
-        Ok(access_key.map(|ak| ak.nonce))
+        Ok(get_access_key(&throwaway_trie, account_id, public_key)?.map(|ak| ak.nonce))
     }
 }
 

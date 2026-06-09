@@ -1,4 +1,4 @@
-pub use crate::columns::{DBCol, GcMethod};
+pub use crate::columns::{DBCol, GcPolicy};
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,

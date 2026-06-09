@@ -8,6 +8,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::merklize;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -220,6 +221,86 @@ impl SpiceCoreReader {
             results.insert(shard_id, result.clone());
         }
         Ok(Some(BlockExecutionResults(results)))
+    }
+
+    /// State root certified as of `block_hash`: the merkle root over per-shard
+    /// state roots of the last fully certified block. Mirrors the non-spice
+    /// `Chunks::compute_state_root`. Returns `None` when the certified block's
+    /// execution results are not all available yet.
+    pub fn last_certified_state_root(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let last_certified = get_last_certified_block_header(&self.chain_store, block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(last_certified.epoch_id())?;
+
+        // Fast path: `DBCol::execution_results`, written asynchronously by
+        // `SpiceCoreWriterActor`. By the time a block is fully certified the writer has
+        // almost always recorded its results, so this usually returns everything.
+        let mut results = self.get_execution_results_by_shard_id(&last_certified)?;
+
+        // Slow path: when the writer has not caught up yet some shards are missing. Recover
+        // them from the ancestry's block bodies, which is also the only source for shards
+        // this node does not track. Genesis carries no certifying statements, so its results
+        // only ever come from the fast path above.
+        let all_present = shard_layout.shard_ids().all(|shard_id| results.contains_key(&shard_id));
+        if !all_present && !last_certified.is_genesis() {
+            let relevant_blocks = HashSet::from([*last_certified.hash()]);
+            let mut results_by_block = HashMap::new();
+            self.collect_certified_execution_results_from_ancestry(
+                block_hash,
+                &last_certified,
+                &relevant_blocks,
+                &mut results_by_block,
+            )?;
+            for (shard_id, result) in
+                results_by_block.remove(last_certified.hash()).unwrap_or_default()
+            {
+                results.entry(shard_id).or_insert(result);
+            }
+        }
+
+        let mut state_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
+        for shard_id in shard_layout.shard_ids() {
+            let Some(result) = results.get(&shard_id) else {
+                return Ok(None);
+            };
+            state_roots.push(*result.chunk_extra.state_root());
+        }
+        Ok(Some(merklize(&state_roots).0))
+    }
+
+    /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
+    /// `stop_header`, collecting `ChunkExecutionResult` core statements whose certified
+    /// chunk belongs to a block in `relevant_blocks`, grouped by block hash and shard.
+    /// Reads block bodies because `DBCol::execution_results` is written asynchronously by
+    /// `SpiceCoreWriterActor`. Pre-existing entries in `results_by_block` take precedence.
+    fn collect_certified_execution_results_from_ancestry(
+        &self,
+        from_hash: &CryptoHash,
+        stop_header: &BlockHeader,
+        relevant_blocks: &HashSet<CryptoHash>,
+        results_by_block: &mut HashMap<CryptoHash, HashMap<ShardId, Arc<ChunkExecutionResult>>>,
+    ) -> Result<(), Error> {
+        let mut current_hash = *from_hash;
+        while current_hash != *stop_header.hash() {
+            let block = self.chain_store.get_block(&current_hash)?;
+            if block.header().height() <= stop_header.height() {
+                break;
+            }
+            for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
+                if !relevant_blocks.contains(&chunk_id.block_hash) {
+                    continue;
+                }
+                results_by_block
+                    .entry(chunk_id.block_hash)
+                    .or_default()
+                    .entry(chunk_id.shard_id)
+                    .or_insert_with(|| Arc::new(result.clone()));
+            }
+            current_hash = *block.header().prev_hash();
+        }
+        Ok(())
     }
 
     pub fn core_statements_for_next_block(
@@ -608,27 +689,14 @@ impl SpiceCoreReader {
                 .or_insert_with(|| Arc::new(result.clone()));
         }
 
-        // Walk backwards from block_header through ancestry, collecting execution results
-        // from each block's core statements. We can't depend on DBCol::execution_results
-        // which SpiceCoreWriterActor writes asynchronously.
-        let mut current_hash = *block_header.hash();
-        while current_hash != *old_last_certified.hash() {
-            let block = self.chain_store.get_block(&current_hash)?;
-            if block.header().height() <= old_last_certified.height() {
-                break;
-            }
-            for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
-                if !newly_certified_set.contains(&chunk_id.block_hash) {
-                    continue;
-                }
-                results_by_block
-                    .entry(chunk_id.block_hash)
-                    .or_default()
-                    .entry(chunk_id.shard_id)
-                    .or_insert_with(|| Arc::new(result.clone()));
-            }
-            current_hash = *block.header().prev_hash();
-        }
+        // Collect execution results from the ancestry's block bodies, keeping any
+        // already seeded from `core_statements_for_next_block` above.
+        self.collect_certified_execution_results_from_ancestry(
+            block_header.hash(),
+            &old_last_certified,
+            &newly_certified_set,
+            &mut results_by_block,
+        )?;
 
         // Build result for each newly certified block, oldest-first.
         let mut result = Vec::with_capacity(newly_certified_hashes.len());

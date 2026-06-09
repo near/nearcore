@@ -86,6 +86,7 @@ fn chunk_header_proposed_split_validation() {
         chain_store,
         genesis_block,
         epoch_manager,
+        client.chain.runtime_adapter.as_ref(),
     )
     .expect("Pre-validation of the original witness should succeed");
 
