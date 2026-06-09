@@ -17,7 +17,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfigStore, SignatureKind};
 use near_primitives::account::AccessKey;
-use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{DelegateAction, DelegateActionV0, SignedDelegateAction};
 use near_primitives::action::{AddKeyAction, TransferAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
@@ -175,14 +175,14 @@ fn run_meta_tx(
         .view_access_key_query(inner_sender, &inner_signer.public_key())
         .unwrap()
         .nonce;
-    let delegate_action = DelegateAction {
+    let delegate_action = DelegateAction::V0(DelegateActionV0 {
         sender_id: inner_sender.clone(),
         receiver_id: receiver.clone(),
         actions: vec![Action::Transfer(TransferAction { deposit: amount }).try_into().unwrap()],
         nonce: inner_nonce + 1,
         max_block_height: BlockHeight::MAX,
         public_key: inner_signer.public_key(),
-    };
+    });
     let signed_delegate_action = SignedDelegateAction::sign(inner_signer, delegate_action);
     let tx = env.rpc_node().tx_from_actions(
         relayer,

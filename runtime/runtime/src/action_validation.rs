@@ -175,11 +175,16 @@ fn validate_delegate_action(
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
+    // A V1 delegate action selects a gas key nonce by index, which only exists
+    // once gas keys are enabled.
+    if signed_delegate_action.delegate_action.nonce_index().is_some() {
+        require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+    }
     let actions = signed_delegate_action.delegate_action.get_actions();
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
             // This is the correct receiver id to use for the check.
-            &signed_delegate_action.delegate_action.receiver_id
+            &signed_delegate_action.delegate_action.receiver_id()
         } else {
             // This is a bug fixed with `FixDelegatedDeterministicStateInit` that
             // validated against the wrong id. This makes it impossible to
@@ -472,7 +477,7 @@ mod tests {
     use near_crypto::{KeyType, PublicKey, Signature};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::GlobalContractDeployMode;
-    use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::delegate::{DelegateAction, DelegateActionV0, NonDelegateAction};
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
@@ -729,14 +734,14 @@ mod tests {
             let actions =
                 inner.into_iter().map(|a| NonDelegateAction::try_from(a).unwrap()).collect();
             Action::Delegate(Box::new(SignedDelegateAction {
-                delegate_action: DelegateAction {
+                delegate_action: DelegateAction::V0(DelegateActionV0 {
                     sender_id: "bob.test.near".parse().unwrap(),
                     receiver_id: "token.test.near".parse().unwrap(),
                     actions,
                     nonce: 19000001,
                     max_block_height: 57,
                     public_key: PublicKey::empty(KeyType::ED25519),
-                },
+                }),
                 signature: Signature::default(),
             }))
         };
@@ -1001,7 +1006,7 @@ mod tests {
     fn test_delegate_action_must_be_only_one() {
         let receiver = "alice.near".parse().unwrap();
         let signed_delegate_action = SignedDelegateAction {
-            delegate_action: DelegateAction {
+            delegate_action: DelegateAction::V0(DelegateActionV0 {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
@@ -1011,7 +1016,7 @@ mod tests {
                 nonce: 19000001,
                 max_block_height: 57,
                 public_key: PublicKey::empty(KeyType::ED25519),
-            },
+            }),
             signature: Signature::default(),
         };
         assert_eq!(

@@ -32,7 +32,9 @@ use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_parameters::RuntimeConfig;
-use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{
+    DelegateAction, DelegateActionV0, NonDelegateAction, SignedDelegateAction,
+};
 use near_primitives::block::Block;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
@@ -771,7 +773,7 @@ impl TestEnv {
         let tip = self.clients[0].chain.head().unwrap();
         let user_nonce = tip.height + 1;
         let relayer_nonce = tip.height + 1;
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateAction::V0(DelegateActionV0 {
             sender_id: inner_signer.get_account_id(),
             receiver_id,
             actions: actions
@@ -781,7 +783,7 @@ impl TestEnv {
             nonce: user_nonce,
             max_block_height: tip.height + 100,
             public_key: inner_signer.public_key(),
-        };
+        });
         let signature = inner_signer.sign(delegate_action.get_nep461_hash().as_bytes());
         let signed_delegate_action = SignedDelegateAction { delegate_action, signature };
         SignedTransaction::from_actions(

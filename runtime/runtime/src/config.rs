@@ -131,7 +131,7 @@ pub fn total_send_fees(
                         config,
                         sender_is_receiver,
                         &delegate_action.get_actions(),
-                        &delegate_action.receiver_id,
+                        &delegate_action.receiver_id(),
                     )?)
                     .unwrap()
             }
@@ -232,13 +232,14 @@ pub fn total_prepaid_send_fees(
         let delta = match action {
             Delegate(signed_delegate_action) => {
                 let delegate_action = &signed_delegate_action.delegate_action;
-                let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
+                let sender_is_receiver =
+                    delegate_action.sender_id() == delegate_action.receiver_id();
 
                 total_send_fees(
                     config,
                     sender_is_receiver,
                     &delegate_action.get_actions(),
-                    &delegate_action.receiver_id,
+                    &delegate_action.receiver_id(),
                 )?
             }
             _ => ParameterCost::ZERO,
@@ -472,7 +473,8 @@ fn signature_verification_cost(
     let mut total = costs[signature_kind(signer_public_key.key_type())];
     for action in actions {
         if let Action::Delegate(signed_delegate_action) = action {
-            let kind = signature_kind(signed_delegate_action.delegate_action.public_key.key_type());
+            let kind =
+                signature_kind(signed_delegate_action.delegate_action.public_key().key_type());
             total = total.checked_add_result(costs[kind])?;
         }
     }
@@ -495,12 +497,12 @@ pub fn total_prepaid_exec_fees(
             delta = total_prepaid_exec_fees(
                 config,
                 &actions,
-                &signed_delegate_action.delegate_action.receiver_id,
+                &signed_delegate_action.delegate_action.receiver_id(),
             )?;
             delta = delta.checked_add_result(exec_fee(
                 config,
                 action,
-                &signed_delegate_action.delegate_action.receiver_id,
+                &signed_delegate_action.delegate_action.receiver_id(),
             ))?;
             delta =
                 delta.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
@@ -564,7 +566,9 @@ mod tests {
     use super::*;
     use near_crypto::SecretKey;
     use near_primitives::action::TransferAction;
-    use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+    use near_primitives::action::delegate::{
+        DelegateAction, DelegateActionV0, SignedDelegateAction,
+    };
     use near_primitives::transaction::TransactionV0;
     use std::sync::Arc;
 
@@ -591,14 +595,14 @@ mod tests {
         let public_key = SecretKey::from_seed(inner_key_type, "inner").public_key();
         let signature = SecretKey::from_seed(KeyType::ED25519, "dummy").sign(b"x");
         Action::Delegate(Box::new(SignedDelegateAction {
-            delegate_action: DelegateAction {
+            delegate_action: DelegateAction::V0(DelegateActionV0 {
                 sender_id: "alice.near".parse().unwrap(),
                 receiver_id: "bob.near".parse().unwrap(),
                 actions: vec![transfer().try_into().unwrap()],
                 nonce: 1,
                 max_block_height: 100,
                 public_key,
-            },
+            }),
             signature,
         }))
     }

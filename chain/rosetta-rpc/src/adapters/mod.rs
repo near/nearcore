@@ -472,7 +472,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         crate::models::OperationIdentifier::new(&operations);
 
                     operations.push(validated_operations::initiate_delegate_action::InitiateDelegateActionOperation{
-                        sender_account: action.delegate_action.sender_id.clone().into()
+                        sender_account: action.delegate_action.sender_id().clone().into()
                     }.into_related_operation(initiate_delegate_action_operation_id.clone(), vec![signed_delegate_action_operation_id]));
 
                     let delegate_action_operation_id =
@@ -488,14 +488,9 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     // We know that there are no delegate actions inside so this is guaranteed to
                     // be a single-level recursion.
                     let delegated_operations: Vec<crate::models::Operation> = NearActions {
-                        sender_account_id: action.delegate_action.sender_id.clone(),
-                        receiver_account_id: action.delegate_action.receiver_id.clone(),
-                        actions: action
-                            .delegate_action
-                            .actions
-                            .into_iter()
-                            .map(|a| a.into())
-                            .collect::<Vec<near_primitives::transaction::Action>>(),
+                        sender_account_id: action.delegate_action.sender_id().clone(),
+                        receiver_account_id: action.delegate_action.receiver_id().clone(),
+                        actions: action.delegate_action.get_actions(),
                     }
                     .into();
 
@@ -814,41 +809,47 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 
                     let delegate_action: near_primitives::transaction::Action =
                         near_primitives::action::delegate::SignedDelegateAction {
-                            delegate_action: near_primitives::action::delegate::DelegateAction {
-                                sender_id: initiate_delegate_action_operation
-                                    .sender_account
-                                    .address
-                                    .into(),
-                                receiver_id: delegate_action_operation.receiver_id.address.into(),
-                                actions: {
-                                    let mut non_delegate_actions = vec![];
-                                    for action in actions {
-                                        non_delegate_actions.push(match action.try_into() {
-                                            Ok(a) => a,
-                                            Err(_) => {
-                                                return Err(
-                                                    crate::errors::ErrorKind::InvalidInput(
-                                                        "Nested delegate actions not allowed"
-                                                            .to_string(),
-                                                    ),
-                                                );
-                                            }
-                                        });
-                                    }
-                                    non_delegate_actions
+                            delegate_action: near_primitives::action::delegate::DelegateAction::V0(
+                                near_primitives::action::delegate::DelegateActionV0 {
+                                    sender_id: initiate_delegate_action_operation
+                                        .sender_account
+                                        .address
+                                        .into(),
+                                    receiver_id: delegate_action_operation
+                                        .receiver_id
+                                        .address
+                                        .into(),
+                                    actions: {
+                                        let mut non_delegate_actions = vec![];
+                                        for action in actions {
+                                            non_delegate_actions.push(match action.try_into() {
+                                                Ok(a) => a,
+                                                Err(_) => {
+                                                    return Err(
+                                                        crate::errors::ErrorKind::InvalidInput(
+                                                            "Nested delegate actions not allowed"
+                                                                .to_string(),
+                                                        ),
+                                                    );
+                                                }
+                                            });
+                                        }
+                                        non_delegate_actions
+                                    },
+                                    nonce: delegate_action_operation.nonce,
+                                    max_block_height: delegate_action_operation.max_block_height,
+                                    public_key: match (&delegate_action_operation.public_key)
+                                        .try_into()
+                                    {
+                                        Ok(o) => o,
+                                        Err(_) => {
+                                            return Err(crate::errors::ErrorKind::InvalidInput(
+                                                "Invalid public key on delegate action".to_string(),
+                                            ));
+                                        }
+                                    },
                                 },
-                                nonce: delegate_action_operation.nonce,
-                                max_block_height: delegate_action_operation.max_block_height,
-                                public_key: match (&delegate_action_operation.public_key).try_into()
-                                {
-                                    Ok(o) => o,
-                                    Err(_) => {
-                                        return Err(crate::errors::ErrorKind::InvalidInput(
-                                            "Invalid public key on delegate action".to_string(),
-                                        ));
-                                    }
-                                },
-                            },
+                            ),
                             signature: signed_delegate_action_operation.signature,
                         }
                         .into();
@@ -964,7 +965,9 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 mod tests {
     use super::*;
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+    use near_primitives::action::delegate::{
+        DelegateAction, DelegateActionV0, SignedDelegateAction,
+    };
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::Gas;
 
@@ -1130,7 +1133,7 @@ mod tests {
             sender_account_id: "proxy.near".parse().unwrap(),
             receiver_account_id: "account.near".parse().unwrap(),
             actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
-                delegate_action: DelegateAction {
+                delegate_action: DelegateAction::V0(DelegateActionV0 {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
                     actions: vec![
@@ -1141,7 +1144,7 @@ mod tests {
                     nonce: 0,
                     max_block_height: 0,
                     public_key: sk.public_key(),
-                },
+                }),
                 signature: sk.sign(&[0]),
             }))],
         };

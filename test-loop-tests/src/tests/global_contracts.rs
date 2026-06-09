@@ -6,7 +6,7 @@ use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfigStore, RuntimeFeesConfig};
-use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{DelegateAction, DelegateActionV0, SignedDelegateAction};
 use near_primitives::action::{
     Action, GlobalContractDeployMode, GlobalContractIdentifier, UseGlobalContractAction,
 };
@@ -308,14 +308,14 @@ impl GlobalContractsTestEnv {
         let use_action =
             Action::UseGlobalContract(UseGlobalContractAction { contract_identifier }.into());
         let user_signer = create_user_test_signer(&user);
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateAction::V0(DelegateActionV0 {
             sender_id: user.clone(),
             receiver_id: user.clone(),
             actions: vec![use_action.try_into().unwrap()],
             nonce: self.next_nonce(),
             max_block_height: BlockHeight::MAX,
             public_key: user_signer.public_key(),
-        };
+        });
         let signed_delegate_action = SignedDelegateAction::sign(&user_signer, delegate_action);
         let tx = SignedTransaction::from_actions(
             self.next_nonce(),

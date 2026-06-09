@@ -9,14 +9,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature, Signer};
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::types::{AccountId, Nonce};
+use near_primitives_core::types::{AccountId, Nonce, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use serde::{Deserialize, Serialize};
-use std::io::{Error, ErrorKind, Read};
+use std::io::{Error, ErrorKind, Read, Write};
 
 /// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
-/// This action allows to execute the inner actions behalf of the defined sender.
+/// Version tag prefixed to the borsh encoding of a `DelegateActionV1`.
+const DELEGATE_ACTION_V1_TAG: u8 = 1;
+
+/// Fields shared by all delegate action versions.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -29,7 +32,7 @@ const ACTION_DELEGATE_NUMBER: u8 = 8;
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DelegateAction {
+pub struct DelegateActionV0 {
     /// Signer of the delegated actions
     pub sender_id: AccountId,
     /// Receiver of the delegated actions.
@@ -47,6 +50,179 @@ pub struct DelegateAction {
     pub max_block_height: BlockHeight,
     /// Public key used to sign this delegated action.
     pub public_key: PublicKey,
+}
+
+/// Delegate action signed by a gas key, /// nonces, selected by `nonce_index`.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DelegateActionV1 {
+    /// Signer of the delegated actions
+    pub sender_id: AccountId,
+    /// Receiver of the delegated actions.
+    pub receiver_id: AccountId,
+    /// List of actions to be executed.
+    pub actions: Vec<NonDelegateAction>,
+    /// Nonce for the gas key nonce at `nonce_index`. After this action is
+    /// processed the nonce for `nonce_index` increments.
+    pub nonce: Nonce,
+    /// The maximal height of the block in the blockchain below which the given DelegateAction is valid.
+    pub max_block_height: BlockHeight,
+    /// Public key used to sign this delegated action.
+    pub public_key: PublicKey,
+    /// Index of the gas key nonce this action advances.
+    pub nonce_index: NonceIndex,
+}
+
+/// This action allows to execute the inner actions behalf of the defined sender.
+///
+/// `V0` is the original NEP-366 form. `V1` additionally carries a `nonce_index`
+/// so a gas key can use one of its parallel nonces.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum DelegateAction {
+    V0(DelegateActionV0),
+    V1(DelegateActionV1),
+}
+
+impl BorshSerialize for DelegateAction {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            DelegateAction::V0(action) => BorshSerialize::serialize(action, writer),
+            DelegateAction::V1(action) => {
+                BorshSerialize::serialize(&DELEGATE_ACTION_V1_TAG, writer)?;
+                BorshSerialize::serialize(action, writer)
+            }
+        }
+    }
+}
+
+impl BorshDeserialize for DelegateAction {
+    /// Disambiguate V0 from V1 by the first two bytes, mirroring `Transaction`.
+    ///
+    /// V0 begins with `sender_id`, a borsh `String` whose 4-byte little-endian
+    /// length is at least 2 (the minimum AccountId length), so its second byte
+    /// is always 0. V1 is prefixed with the tag byte 1 followed by a struct that
+    /// also starts with that length, whose second byte is nonzero. Therefore
+    /// `u2 == 0` implies V0, and `u1 == 1` with `u2 != 0` implies V1.
+    fn deserialize_reader<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+
+        // Erase the chained reader to `&mut dyn Read` before recursing. A
+        // delegate action can transitively contain another one (actions ->
+        // Action -> Delegate), so monomorphizing the inner deserialize on the
+        // chained reader type would recurse without bound.
+        if u2 == 0 {
+            let prefix = [u1, u2];
+            let mut chained = prefix.chain(reader);
+            let mut reader: &mut dyn Read = &mut chained;
+            return Ok(DelegateAction::V0(DelegateActionV0::deserialize_reader(&mut reader)?));
+        }
+        if u1 == DELEGATE_ACTION_V1_TAG {
+            let prefix = [u2];
+            let mut chained = prefix.chain(reader);
+            let mut reader: &mut dyn Read = &mut chained;
+            return Ok(DelegateAction::V1(DelegateActionV1::deserialize_reader(&mut reader)?));
+        }
+        Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("invalid delegate action version tag: {u1}"),
+        ))
+    }
+}
+
+/// Flat serde representation shared by both versions, keeping V0's JSON shape
+/// unchanged. `nonce_index` is present iff the value is a V1.
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+struct DelegateActionRepr {
+    sender_id: AccountId,
+    receiver_id: AccountId,
+    actions: Vec<NonDelegateAction>,
+    nonce: Nonce,
+    max_block_height: BlockHeight,
+    public_key: PublicKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nonce_index: Option<NonceIndex>,
+}
+
+impl From<&DelegateAction> for DelegateActionRepr {
+    fn from(action: &DelegateAction) -> Self {
+        DelegateActionRepr {
+            sender_id: action.sender_id().clone(),
+            receiver_id: action.receiver_id().clone(),
+            actions: action.actions().to_vec(),
+            nonce: action.nonce(),
+            max_block_height: action.max_block_height(),
+            public_key: action.public_key().clone(),
+            nonce_index: action.nonce_index(),
+        }
+    }
+}
+
+impl From<DelegateActionRepr> for DelegateAction {
+    fn from(repr: DelegateActionRepr) -> Self {
+        let DelegateActionRepr {
+            sender_id,
+            receiver_id,
+            actions,
+            nonce,
+            max_block_height,
+            public_key,
+            nonce_index,
+        } = repr;
+        match nonce_index {
+            None => DelegateAction::V0(DelegateActionV0 {
+                sender_id,
+                receiver_id,
+                actions,
+                nonce,
+                max_block_height,
+                public_key,
+            }),
+            Some(nonce_index) => DelegateAction::V1(DelegateActionV1 {
+                sender_id,
+                receiver_id,
+                actions,
+                nonce,
+                max_block_height,
+                public_key,
+                nonce_index,
+            }),
+        }
+    }
+}
+
+impl Serialize for DelegateAction {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        DelegateActionRepr::from(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DelegateAction {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        DelegateActionRepr::deserialize(deserializer).map(DelegateAction::from)
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for DelegateAction {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "DelegateAction".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        DelegateActionRepr::json_schema(generator)
+    }
 }
 
 #[derive(
@@ -70,7 +246,7 @@ impl SignedDelegateAction {
     pub fn verify(&self) -> bool {
         let delegate_action = &self.delegate_action;
         let hash = delegate_action.get_nep461_hash();
-        let public_key = &delegate_action.public_key;
+        let public_key = delegate_action.public_key();
 
         self.signature.verify(hash.as_ref(), public_key)
     }
@@ -88,8 +264,72 @@ impl From<SignedDelegateAction> for Action {
 }
 
 impl DelegateAction {
+    pub fn sender_id(&self) -> &AccountId {
+        match self {
+            DelegateAction::V0(action) => &action.sender_id,
+            DelegateAction::V1(action) => &action.sender_id,
+        }
+    }
+
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            DelegateAction::V0(action) => &action.receiver_id,
+            DelegateAction::V1(action) => &action.receiver_id,
+        }
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            DelegateAction::V0(action) => &action.public_key,
+            DelegateAction::V1(action) => &action.public_key,
+        }
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        match self {
+            DelegateAction::V0(action) => action.nonce,
+            DelegateAction::V1(action) => action.nonce,
+        }
+    }
+
+    pub fn max_block_height(&self) -> BlockHeight {
+        match self {
+            DelegateAction::V0(action) => action.max_block_height,
+            DelegateAction::V1(action) => action.max_block_height,
+        }
+    }
+
+    /// Gas key nonce index for V1, `None` for V0.
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            DelegateAction::V0(_) => None,
+            DelegateAction::V1(action) => Some(action.nonce_index),
+        }
+    }
+
+    pub fn actions(&self) -> &[NonDelegateAction] {
+        match self {
+            DelegateAction::V0(action) => &action.actions,
+            DelegateAction::V1(action) => &action.actions,
+        }
+    }
+
+    pub fn actions_mut(&mut self) -> &mut Vec<NonDelegateAction> {
+        match self {
+            DelegateAction::V0(action) => &mut action.actions,
+            DelegateAction::V1(action) => &mut action.actions,
+        }
+    }
+
+    pub fn nonce_mut(&mut self) -> &mut Nonce {
+        match self {
+            DelegateAction::V0(action) => &mut action.nonce,
+            DelegateAction::V1(action) => &mut action.nonce,
+        }
+    }
+
     pub fn get_actions(&self) -> Vec<Action> {
-        self.actions.iter().map(|a| a.clone().into()).collect()
+        self.actions().iter().map(|a| a.clone().into()).collect()
     }
 
     /// Delegate action hash used for NEP-461 signature scheme which tags
@@ -197,6 +437,17 @@ mod tests {
     use crate::action::CreateAccountAction;
     use near_crypto::KeyType;
 
+    fn delegate_action_v0(actions: Vec<NonDelegateAction>) -> DelegateAction {
+        DelegateAction::V0(DelegateActionV0 {
+            sender_id: "aaa".parse().unwrap(),
+            receiver_id: "bbb".parse().unwrap(),
+            actions,
+            nonce: 1,
+            max_block_height: 2,
+            public_key: PublicKey::empty(KeyType::ED25519),
+        })
+    }
+
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
     ///
     /// We want this to be parsable and accepted by protocol versions with meta
@@ -211,18 +462,10 @@ mod tests {
     );
 
     fn create_delegate_action(actions: Vec<Action>) -> Action {
+        let actions =
+            actions.iter().map(|a| NonDelegateAction::try_from(a.clone()).unwrap()).collect();
         Action::Delegate(Box::new(SignedDelegateAction {
-            delegate_action: DelegateAction {
-                sender_id: "aaa".parse().unwrap(),
-                receiver_id: "bbb".parse().unwrap(),
-                actions: actions
-                    .iter()
-                    .map(|a| NonDelegateAction::try_from(a.clone()).unwrap())
-                    .collect(),
-                nonce: 1,
-                max_block_height: 2,
-                public_key: PublicKey::empty(KeyType::ED25519),
-            },
+            delegate_action: delegate_action_v0(actions),
             signature: Signature::empty(KeyType::ED25519),
         }))
     }
@@ -272,6 +515,56 @@ mod tests {
             Action::try_from_slice(&serialized_delegate_action).expect("Expect ok"),
             delegate_action
         );
+    }
+
+    fn delegate_action_v1(nonce_index: NonceIndex) -> DelegateAction {
+        DelegateAction::V1(DelegateActionV1 {
+            sender_id: "aaa".parse().unwrap(),
+            receiver_id: "bbb".parse().unwrap(),
+            actions: vec![],
+            nonce: 1,
+            max_block_height: 2,
+            public_key: PublicKey::empty(KeyType::ED25519),
+            nonce_index,
+        })
+    }
+
+    #[test]
+    fn test_delegate_action_version_borsh_roundtrip() {
+        for action in [delegate_action_v0(vec![]), delegate_action_v1(7)] {
+            let bytes = borsh::to_vec(&action).unwrap();
+            assert_eq!(DelegateAction::try_from_slice(&bytes).unwrap(), action);
+        }
+    }
+
+    #[test]
+    fn test_delegate_action_v0_borsh_unchanged_by_versioning() {
+        // V0 must serialize identically to the bare inner struct so existing
+        // signatures and stored receipts stay valid.
+        let DelegateAction::V0(inner) = delegate_action_v0(vec![]) else { unreachable!() };
+        assert_eq!(
+            borsh::to_vec(&DelegateAction::V0(inner.clone())).unwrap(),
+            borsh::to_vec(&inner).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_v1_borsh_is_tagged() {
+        let bytes = borsh::to_vec(&delegate_action_v1(0)).unwrap();
+        assert_eq!(bytes[0], DELEGATE_ACTION_V1_TAG);
+    }
+
+    #[test]
+    fn test_delegate_action_serde_roundtrip_and_shape() {
+        let v0 = delegate_action_v0(vec![]);
+        let v0_json = serde_json::to_value(&v0).unwrap();
+        assert!(v0_json.get("nonce_index").is_none(), "V0 JSON must stay flat without nonce_index");
+        assert_eq!(serde_json::from_value::<DelegateAction>(v0_json).unwrap(), v0);
+
+        let v1 = delegate_action_v1(7);
+        let v1_json = serde_json::to_value(&v1).unwrap();
+        assert_eq!(v1_json.get("nonce_index").and_then(|v| v.as_u64()), Some(7));
+        assert_eq!(serde_json::from_value::<DelegateAction>(v1_json).unwrap(), v1);
     }
 
     #[cfg(feature = "schemars")]

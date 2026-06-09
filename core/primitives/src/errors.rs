@@ -359,6 +359,8 @@ pub enum InvalidAccessKeyError {
     /// Gas keys track nonces per index in dedicated storage, which the delegate
     /// action path does not support, so a gas key can't sign a delegate action.
     RequiresNonGasKey = 6,
+    /// A versioned delegate action carrying a nonce index requires a gas key.
+    RequiresGasKey = 7,
 }
 
 /// Describes the error for validating a list of actions.
@@ -836,6 +838,11 @@ pub enum ActionErrorKind {
         public_key: Option<Box<PublicKey>>,
         balance: Balance,
     } = 25,
+    /// DelegateAction nonce index is outside the gas key's nonce range
+    DelegateActionInvalidNonceIndex {
+        nonce_index: NonceIndex,
+        num_nonces: NonceIndex,
+    } = 26,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -994,6 +1001,9 @@ impl Display for InvalidAccessKeyError {
             InvalidAccessKeyError::RequiresNonGasKey => {
                 write!(f, "gas keys can't be used to sign a delegate action")
             }
+            InvalidAccessKeyError::RequiresGasKey => {
+                write!(f, "a delegate action with a nonce index requires a gas key")
+            }
         }
     }
 }
@@ -1135,6 +1145,11 @@ impl Display for ActionErrorKind {
                 f,
                 "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}",
                 delegate_nonce, upper_bound
+            ),
+            ActionErrorKind::DelegateActionInvalidNonceIndex { nonce_index, num_nonces } => write!(
+                f,
+                "DelegateAction nonce index {} must be smaller than the gas key nonce count {}",
+                nonce_index, num_nonces
             ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)

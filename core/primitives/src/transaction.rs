@@ -1067,7 +1067,9 @@ mod tests {
     /// `validate_delegate_action` and `validate_add_key_action`.
     #[test]
     fn test_check_valid_for_config_ml_dsa_in_delegate_gated() {
-        use crate::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+        use crate::action::delegate::{
+            DelegateAction, DelegateActionV0, NonDelegateAction, SignedDelegateAction,
+        };
 
         let config = RuntimeConfig::test();
 
@@ -1082,14 +1084,14 @@ mod tests {
             access_key: AccessKey::full_access(),
         }));
 
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateAction::V0(DelegateActionV0 {
             sender_id: "carol.near".parse().unwrap(),
             receiver_id: "bob.near".parse().unwrap(),
             actions: vec![NonDelegateAction::try_from(inner_add_key).unwrap()],
             nonce: 1,
             max_block_height: 1,
             public_key: inner_signer.public_key(),
-        };
+        });
         let signed_delegate = SignedDelegateAction::sign(&inner_signer, delegate_action);
 
         // Outer transaction is signed with a classical ed25519 key, so the

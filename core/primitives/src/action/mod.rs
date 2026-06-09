@@ -421,7 +421,7 @@ impl Action {
             // its signature, and a nested set of actions; any of them can
             // transport post-quantum key material.
             Action::Delegate(sda) => {
-                sda.delegate_action.public_key.key_type().is_post_quantum()
+                sda.delegate_action.public_key().key_type().is_post_quantum()
                     || sda.signature.key_type().is_post_quantum()
                     || sda
                         .delegate_action

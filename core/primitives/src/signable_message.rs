@@ -223,7 +223,7 @@ impl From<SignableMessageType> for MessageDiscriminant {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+    use crate::action::delegate::{DelegateAction, DelegateActionV0, SignedDelegateAction};
     use near_crypto::{InMemorySigner, PublicKey};
 
     // happy path for NEP-366 signature
@@ -280,14 +280,13 @@ mod tests {
         receiver_id: AccountId,
         public_key: PublicKey,
     ) -> DelegateAction {
-        let delegate_action = DelegateAction {
+        DelegateAction::V0(DelegateActionV0 {
             sender_id,
             receiver_id,
             actions: vec![],
             nonce: 0,
             max_block_height: 1000,
             public_key,
-        };
-        delegate_action
+        })
     }
 }

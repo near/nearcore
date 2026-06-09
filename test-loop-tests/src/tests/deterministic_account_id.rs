@@ -34,7 +34,9 @@ use near_crypto::{KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::AccessKey;
-use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{
+    DelegateAction, DelegateActionV0, NonDelegateAction, SignedDelegateAction,
+};
 use near_primitives::action::{
     Action, AddKeyAction, DeployContractAction, DeterministicStateInitAction,
     GlobalContractDeployMode, GlobalContractIdentifier, TransferAction,
@@ -129,7 +131,7 @@ fn test_deterministic_state_init_via_meta_tx() {
 /// meta transactions.
 ///
 /// With the old (buggy) code, `validate_delegate_action` used
-/// `outer_tx.receiver_id` instead of `delegate_action.receiver_id` when
+/// `outer_tx.receiver_id` instead of `delegate_action.receiver_id()` when
 /// checking inner actions. The exploit tx therefore passes initial tx
 /// validation. The exploit is prevented by a following `validate_receipt` check
 /// when the meta transaction is unpacked.
@@ -240,14 +242,14 @@ fn try_meta_tx_deterministic_receiver_exploit(
         deposit: Balance::ZERO,
     }));
     let delegate_nonce = env.next_nonce_for(&det_account_b);
-    let delegate_action = DelegateAction {
+    let delegate_action = DelegateAction::V0(DelegateActionV0 {
         sender_id: det_account_b.clone(),
         receiver_id: det_account_a,
         actions: vec![NonDelegateAction::try_from(inner_action).unwrap()],
         nonce: delegate_nonce,
         max_block_height: 1_000_000,
         public_key: meta_tx_sender_signer.public_key(),
-    };
+    });
     let signed_delegate_action =
         SignedDelegateAction::sign(&meta_tx_sender_signer, delegate_action);
     let tx = SignedTransaction::from_actions(
@@ -1077,14 +1079,14 @@ impl TestEnv {
             deposit: balance,
         }));
 
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateAction::V0(DelegateActionV0 {
             sender_id: user_account.clone(),
             receiver_id: det_account,
             actions: vec![NonDelegateAction::try_from(inner_action).unwrap()],
             nonce: self.next_nonce(),
             max_block_height: 1_000_000,
             public_key: user_signer.public_key(),
-        };
+        });
         let signed_delegate_action = SignedDelegateAction::sign(&user_signer, delegate_action);
         let tx = SignedTransaction::from_actions(
             self.next_nonce(),

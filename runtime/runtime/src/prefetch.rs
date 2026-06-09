@@ -112,8 +112,8 @@ impl TriePrefetcher {
                     match action {
                         Action::Delegate(delegate_action) => {
                             let trie_key = TrieKey::access_key(
-                                delegate_action.delegate_action.sender_id.clone(),
-                                &delegate_action.delegate_action.public_key,
+                                delegate_action.delegate_action.sender_id().clone(),
+                                delegate_action.delegate_action.public_key(),
                             );
                             self.prefetch_trie_key(trie_key)?;
                         }

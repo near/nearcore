@@ -1,5 +1,5 @@
 use near_crypto::PublicKey;
-use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{DelegateAction, DelegateActionV0, SignedDelegateAction};
 use near_primitives::receipt::{DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
@@ -92,15 +92,18 @@ fn map_delegate_action(
             .unwrap(),
         );
     }
-    let mapped_key = crate::key_mapping::map_key(&delegate.delegate_action.public_key, secret);
-    let mapped_action = DelegateAction {
-        sender_id: crate::key_mapping::map_account(&delegate.delegate_action.sender_id, secret),
-        receiver_id: crate::key_mapping::map_account(&delegate.delegate_action.receiver_id, secret),
+    let mapped_key = crate::key_mapping::map_key(&delegate.delegate_action.public_key(), secret);
+    let mapped_action = DelegateAction::V0(DelegateActionV0 {
+        sender_id: crate::key_mapping::map_account(&delegate.delegate_action.sender_id(), secret),
+        receiver_id: crate::key_mapping::map_account(
+            &delegate.delegate_action.receiver_id(),
+            secret,
+        ),
         actions,
-        nonce: delegate.delegate_action.nonce,
-        max_block_height: delegate.delegate_action.max_block_height,
+        nonce: delegate.delegate_action.nonce(),
+        max_block_height: delegate.delegate_action.max_block_height(),
         public_key: mapped_key.public_key(),
-    };
+    });
     let tx_hash = mapped_action.get_nep461_hash();
     let d = SignedDelegateAction {
         delegate_action: mapped_action,
@@ -312,7 +315,9 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 mod test {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, GasKeyInfo};
-    use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+    use near_primitives::action::delegate::{
+        DelegateAction, DelegateActionV0, SignedDelegateAction,
+    };
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::state_record::StateRecord;
@@ -390,7 +395,7 @@ mod test {
         });
 
         let secret_key = SecretKey::from_random(KeyType::ED25519);
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateAction::V0(DelegateActionV0 {
             sender_id: "d4156e03cb09f47117ddfde4fdcd5f3b8b087dccb364e228b8b3ed91d69054f4"
                 .parse()
                 .unwrap(),
@@ -408,7 +413,7 @@ mod test {
                 .try_into()
                 .unwrap(),
             ],
-        };
+        });
         let tx_hash = delegate_action.get_nep461_hash();
         let signature = secret_key.sign(tx_hash.as_ref());
 
@@ -438,7 +443,7 @@ mod test {
         });
 
         let mapped_secret_key = crate::key_mapping::map_key(&secret_key.public_key(), None);
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateAction::V0(DelegateActionV0 {
             sender_id: "799185fe8173d8adf46b0c088d57887b2550642c08aafdc20ccce67b5ad51976"
                 .parse()
                 .unwrap(),
@@ -456,7 +461,7 @@ mod test {
                 .try_into()
                 .unwrap(),
             ],
-        };
+        });
         let tx_hash = delegate_action.get_nep461_hash();
         let signature = mapped_secret_key.sign(tx_hash.as_ref());
         let want_receipt1 = Receipt::V0(ReceiptV0 {

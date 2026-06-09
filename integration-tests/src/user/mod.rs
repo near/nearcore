@@ -2,7 +2,9 @@ pub use crate::user::runtime_user::RuntimeUser;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
-use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{
+    DelegateAction, DelegateActionV0, NonDelegateAction, SignedDelegateAction,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::create_user_test_signer;
@@ -296,7 +298,7 @@ pub trait User {
             .get_access_key(&signer_id, &inner_signer.public_key())
             .expect("failed reading user's nonce for access key")
             .nonce;
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateAction::V0(DelegateActionV0 {
             sender_id: signer_id.clone(),
             receiver_id,
             actions: actions
@@ -306,7 +308,7 @@ pub trait User {
             nonce: user_nonce + 1,
             max_block_height: 100,
             public_key: inner_signer.public_key(),
-        };
+        });
         let signature = inner_signer.sign(delegate_action.get_nep461_hash().as_bytes());
         let signed_delegate_action = SignedDelegateAction { delegate_action, signature };
 

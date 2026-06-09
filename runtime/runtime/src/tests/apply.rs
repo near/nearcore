@@ -16,7 +16,9 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+use near_primitives::action::delegate::{
+    DelegateAction, DelegateActionV0, NonDelegateAction, SignedDelegateAction,
+};
 use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -529,7 +531,7 @@ fn generate_delegate_actions(deposit: Balance, n: u64) -> Vec<Receipt> {
                 deposit: deposit,
             }))];
 
-            let delegate_action = DelegateAction {
+            let delegate_action = DelegateAction::V0(DelegateActionV0 {
                 sender_id: sender_id.clone(),
                 receiver_id: receiver_id.clone(),
                 actions: inner_actions
@@ -539,7 +541,7 @@ fn generate_delegate_actions(deposit: Balance, n: u64) -> Vec<Receipt> {
                 nonce: 2 + i as u64,
                 max_block_height: 10000,
                 public_key: signer.public_key(),
-            };
+            });
             let signed_delegate_action = Action::Delegate(Box::new(SignedDelegateAction {
                 signature: signer.sign(delegate_action.get_nep461_hash().as_bytes()),
                 delegate_action,
