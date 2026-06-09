@@ -481,14 +481,6 @@ fn signature_kind(key_type: KeyType) -> SignatureKind {
     }
 }
 
-/// Extra cost burnt at conversion for the signature verifications this
-/// transaction triggers: the signer's own signature plus each `Delegate`
-/// action's inner signer, each looked up by scheme in
-/// `signature_verification_costs`. The charge is the extra verification cost
-/// relative to the classical schemes; only ML-DSA-65 is non-zero, while
-/// ed25519/secp256k1 stay 0 for backwards compatibility. The compute cost
-/// debits the chunk's wall-clock budget and may be set independently of the
-/// gas cost.
 /// Inner delegate action of a delegate-style action (`Delegate` or
 /// `DelegateV2`), used by the recursive cost/fee functions so both variants are
 /// handled identically.
@@ -500,6 +492,14 @@ fn delegate_inner_action(action: &Action) -> Option<&DelegateAction> {
     }
 }
 
+/// Extra cost burnt at conversion for the signature verifications this
+/// transaction triggers: the signer's own signature plus each `Delegate`
+/// action's inner signer, each looked up by scheme in
+/// `signature_verification_costs`. The charge is the extra verification cost
+/// relative to the classical schemes; only ML-DSA-65 is non-zero, while
+/// ed25519/secp256k1 stay 0 for backwards compatibility. The compute cost
+/// debits the chunk's wall-clock budget and may be set independently of the
+/// gas cost.
 fn signature_verification_cost(
     fees: &RuntimeFeesConfig,
     signer_public_key: &PublicKey,

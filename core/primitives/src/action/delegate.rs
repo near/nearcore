@@ -26,7 +26,7 @@ const DELEGATE_VARIANT_NUMBERS: [u8; 2] = [ACTION_DELEGATE_NUMBER, ACTION_DELEGA
 /// JSON-schema variant names of the delegate actions, excluded from
 /// `NonDelegateAction`'s schema. Must list exactly the variants for which
 /// `Action::is_delegate` is true; cross-checked in
-/// `test_delegate_variant_names_match_is_delegate`.
+/// `test_delegate_variant_encodings_match`.
 #[cfg(feature = "schemars")]
 const DELEGATE_VARIANT_NAMES: [&str; 2] = ["Delegate", "DelegateV2"];
 /// This action allows to execute the inner actions behalf of the defined sender.

@@ -495,7 +495,8 @@ mod tests {
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::GlobalContractDeployMode;
     use near_primitives::action::delegate::{
-        DelegateAction, NonDelegateAction, SignedDelegateAction,
+        DelegateAction, DelegateActionExtension, NonDelegateAction, SignedDelegateAction,
+        SignedDelegateActionV2,
     };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -990,6 +991,31 @@ mod tests {
                 &"alice.near".parse().unwrap(),
                 protocol_version,
             ),
+            Err(ActionsValidationError::UnsupportedProtocolFeature {
+                protocol_feature: "GasKeys".to_owned(),
+                version: protocol_version,
+            })
+        );
+    }
+
+    #[test]
+    fn test_validate_action_invalid_delegate_v2_before_protocol_feature() {
+        let delegate_action = DelegateAction {
+            sender_id: alice_account(),
+            receiver_id: "bob.near".parse().unwrap(),
+            actions: vec![],
+            nonce: 1,
+            max_block_height: 1000,
+            public_key: PublicKey::empty(KeyType::ED25519),
+        };
+        let action = Action::DelegateV2(Box::new(SignedDelegateActionV2 {
+            delegate_action,
+            extension: DelegateActionExtension::GasKey { nonce_index: 0 },
+            signature: Signature::empty(KeyType::ED25519),
+        }));
+        let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;
+        assert_eq!(
+            validate_action(&test_limit_config(), &action, &alice_account(), protocol_version),
             Err(ActionsValidationError::UnsupportedProtocolFeature {
                 protocol_feature: "GasKeys".to_owned(),
                 version: protocol_version,
