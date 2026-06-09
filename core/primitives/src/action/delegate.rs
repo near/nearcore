@@ -18,6 +18,17 @@ use std::io::{Error, ErrorKind, Read};
 const ACTION_DELEGATE_NUMBER: u8 = 8;
 /// This is an index number of Action::DelegateV2 in Action enumeration
 const ACTION_DELEGATE_V2_NUMBER: u8 = 14;
+/// Borsh discriminants of the delegate actions, rejected by `NonDelegateAction`
+/// so a delegate action can't be nested. Must list exactly the variants for
+/// which `Action::is_delegate` is true; cross-checked in
+/// `test_delegate_variant_encodings_match`.
+const DELEGATE_VARIANT_NUMBERS: [u8; 2] = [ACTION_DELEGATE_NUMBER, ACTION_DELEGATE_V2_NUMBER];
+/// JSON-schema variant names of the delegate actions, excluded from
+/// `NonDelegateAction`'s schema. Must list exactly the variants for which
+/// `Action::is_delegate` is true; cross-checked in
+/// `test_delegate_variant_names_match_is_delegate`.
+#[cfg(feature = "schemars")]
+const DELEGATE_VARIANT_NAMES: [&str; 2] = ["Delegate", "DelegateV2"];
 /// This action allows to execute the inner actions behalf of the defined sender.
 #[derive(
     BorshSerialize,
@@ -215,12 +226,12 @@ impl schemars::JsonSchema for NonDelegateAction {
         if let Some(one_of) = action_schema.get_mut("oneOf")
             && let Some(arr) = one_of.as_array_mut()
         {
-            // Remove the Delegate variant
+            // Remove every delegate-style variant; none may be nested.
             arr.retain(|variant| {
                 !variant
                     .get("properties")
                     .and_then(|p| p.as_object())
-                    .map(|p| p.contains_key("Delegate"))
+                    .map(|p| DELEGATE_VARIANT_NAMES.iter().any(|name| p.contains_key(*name)))
                     .unwrap_or(false)
             });
         }
@@ -254,18 +265,14 @@ mod private_non_delegate_action {
         type Error = IsDelegateAction;
 
         fn try_from(action: Action) -> Result<Self, IsDelegateAction> {
-            if matches!(action, Action::Delegate(_) | Action::DelegateV2(_)) {
-                Err(IsDelegateAction)
-            } else {
-                Ok(Self(action))
-            }
+            if action.is_delegate() { Err(IsDelegateAction) } else { Ok(Self(action)) }
         }
     }
 
     impl borsh::de::BorshDeserialize for NonDelegateAction {
         fn deserialize_reader<R: Read>(rd: &mut R) -> ::core::result::Result<Self, Error> {
             match u8::deserialize_reader(rd)? {
-                ACTION_DELEGATE_NUMBER | ACTION_DELEGATE_V2_NUMBER => Err(Error::new(
+                n if DELEGATE_VARIANT_NUMBERS.contains(&n) => Err(Error::new(
                     ErrorKind::InvalidInput,
                     "DelegateAction mustn't contain a nested one",
                 )),
@@ -325,9 +332,13 @@ mod tests {
         assert_eq!(Action::try_from_slice(&bytes).unwrap(), action);
     }
 
+    /// Pins all three encodings of "delegate action" to `Action::is_delegate`
+    /// (the exhaustive source of truth): the borsh-number reject set, the schema
+    /// name list, and that `NonDelegateAction` actually refuses to nest one. A
+    /// new delegate variant therefore can't silently slip past the guard.
     #[test]
-    fn test_non_delegate_action_rejects_delegate_v2() {
-        let action: Action = SignedDelegateActionV2 {
+    fn test_delegate_variant_encodings_match() {
+        let delegate_v2: Action = SignedDelegateActionV2 {
             delegate_action: DelegateAction {
                 sender_id: "alice.near".parse().unwrap(),
                 receiver_id: "bob.near".parse().unwrap(),
@@ -340,17 +351,31 @@ mod tests {
             signature: Signature::empty(KeyType::ED25519),
         }
         .into();
+        let delegates = [create_delegate_action(vec![]), delegate_v2];
 
-        // A DelegateV2 can't be wrapped as the inner action of a delegate action.
-        assert!(NonDelegateAction::try_from(action.clone()).is_err());
+        for action in &delegates {
+            assert!(action.is_delegate());
+            let bytes = borsh::to_vec(action).unwrap();
+            assert!(DELEGATE_VARIANT_NUMBERS.contains(&bytes[0]));
+            // NonDelegateAction refuses it via both the typed and borsh paths.
+            assert!(NonDelegateAction::try_from(action.clone()).is_err());
+            assert_eq!(
+                NonDelegateAction::try_from_slice(&bytes).map_err(|e| e.kind()),
+                Err(ErrorKind::InvalidInput)
+            );
+            #[cfg(feature = "schemars")]
+            assert!(DELEGATE_VARIANT_NAMES.contains(&action.as_ref()));
+        }
+        assert_eq!(DELEGATE_VARIANT_NUMBERS.len(), delegates.len());
+        #[cfg(feature = "schemars")]
+        assert_eq!(DELEGATE_VARIANT_NAMES.len(), delegates.len());
 
-        // Borsh deserialization rejects the nested tag too.
-        let bytes = borsh::to_vec(&action).unwrap();
-        assert_eq!(bytes[0], ACTION_DELEGATE_V2_NUMBER);
-        assert_eq!(
-            NonDelegateAction::try_from_slice(&bytes).map_err(|e| e.kind()),
-            Err(ErrorKind::InvalidInput)
-        );
+        // A non-delegate is accepted and absent from the reject set.
+        let non_delegate = Action::CreateAccount(CreateAccountAction {});
+        assert!(!non_delegate.is_delegate());
+        let bytes = borsh::to_vec(&non_delegate).unwrap();
+        assert!(!DELEGATE_VARIANT_NUMBERS.contains(&bytes[0]));
+        assert!(NonDelegateAction::try_from(non_delegate).is_ok());
     }
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
@@ -451,48 +476,32 @@ mod tests {
             .as_array()
             .expect("NonDelegateAction oneOf must be an array");
 
-        // Verify that none of the variants have a Delegate property
-        for variant in one_of {
-            if let Some(properties) = variant.get("properties") {
-                if let Some(props_obj) = properties.as_object() {
-                    assert!(
-                        !props_obj.contains_key("Delegate"),
-                        "NonDelegateAction schema should not contain Delegate variant"
-                    );
-                }
-            }
-        }
+        // No delegate-style variant may appear.
+        let has_delegate_variant = |variant: &serde_json::Value| {
+            variant
+                .get("properties")
+                .and_then(|p| p.as_object())
+                .map(|p| DELEGATE_VARIANT_NAMES.iter().any(|name| p.contains_key(*name)))
+                .unwrap_or(false)
+        };
+        assert!(
+            !one_of.iter().any(has_delegate_variant),
+            "NonDelegateAction schema must not contain any delegate variant"
+        );
 
-        // Verify that the Action schema (for comparison) does include Delegate
+        // Action (for comparison) includes all delegate variants.
         let action_schema = Action::json_schema(&mut generator);
         let action_json = serde_json::to_value(&action_schema).unwrap();
-
-        // Action MUST have a oneOf array
         let action_one_of = action_json
             .get("oneOf")
             .expect("Action schema must have oneOf")
             .as_array()
             .expect("Action oneOf must be an array");
 
-        // Count how many variants have Delegate
-        let delegate_count = action_one_of
-            .iter()
-            .filter(|variant| {
-                variant
-                    .get("properties")
-                    .and_then(|p| p.as_object())
-                    .map(|p| p.contains_key("Delegate"))
-                    .unwrap_or(false)
-            })
-            .count();
+        let delegate_count = action_one_of.iter().filter(|v| has_delegate_variant(v)).count();
+        assert_eq!(delegate_count, DELEGATE_VARIANT_NAMES.len());
 
-        assert_eq!(delegate_count, 1, "Action schema should contain exactly one Delegate variant");
-
-        // NonDelegateAction should have one less variant than Action
-        assert_eq!(
-            one_of.len(),
-            action_one_of.len() - 1,
-            "NonDelegateAction should have one less variant than Action (excluding Delegate)"
-        );
+        // NonDelegateAction excludes exactly the delegate variants.
+        assert_eq!(one_of.len(), action_one_of.len() - DELEGATE_VARIANT_NAMES.len());
     }
 }

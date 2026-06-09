@@ -378,6 +378,29 @@ const _: () = assert!(
 );
 
 impl Action {
+    /// Whether this is a delegate action (meta transaction). Delegate actions
+    /// must not be nested inside one another, so this is the single predicate
+    /// the nesting guard and JSON schema filter rely on. Exhaustive by design:
+    /// a new variant must be classified here.
+    pub fn is_delegate(&self) -> bool {
+        match self {
+            Action::Delegate(_) | Action::DelegateV2(_) => true,
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::Stake(_)
+            | Action::AddKey(_)
+            | Action::DeleteKey(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::DeterministicStateInit(_)
+            | Action::TransferToGasKey(_)
+            | Action::WithdrawFromGasKey(_) => false,
+        }
+    }
+
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
