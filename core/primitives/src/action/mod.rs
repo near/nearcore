@@ -365,6 +365,8 @@ pub enum Action {
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
     TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
     WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
+    /// Meta transaction carrying a `DelegateAction` plus extensible extra info.
+    DelegateV2(Box<delegate::SignedDelegateActionV2>) = 14,
 }
 
 const _: () = assert!(
@@ -421,6 +423,15 @@ impl Action {
             // its signature, and a nested set of actions; any of them can
             // transport post-quantum key material.
             Action::Delegate(sda) => {
+                sda.delegate_action.public_key.key_type().is_post_quantum()
+                    || sda.signature.key_type().is_post_quantum()
+                    || sda
+                        .delegate_action
+                        .get_actions()
+                        .iter()
+                        .any(Action::post_quantum_signatures_required)
+            }
+            Action::DelegateV2(sda) => {
                 sda.delegate_action.public_key.key_type().is_post_quantum()
                     || sda.signature.key_type().is_post_quantum()
                     || sda

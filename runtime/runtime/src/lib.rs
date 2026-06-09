@@ -676,6 +676,17 @@ impl Runtime {
                     &mut result,
                 )?;
             }
+            Action::DelegateV2(signed_delegate_action) => {
+                metrics::ACTION_CALLED_COUNT.delegate.inc();
+                apply_delegate_action_v2(
+                    state_update,
+                    apply_state,
+                    action_receipt,
+                    account_id,
+                    signed_delegate_action,
+                    &mut result,
+                )?;
+            }
             Action::TransferToGasKey(transfer_to_gas_key) => {
                 metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
                 action_transfer_to_gas_key(

@@ -234,6 +234,71 @@ pub struct NearActions {
     pub actions: Vec<near_primitives::transaction::Action>,
 }
 
+/// Pushes the rosetta operations for a delegate action (`Delegate` or
+/// `DelegateV2`) onto `operations`. A `DelegateV2` extension (e.g. a gas key's
+/// nonce index) is not modeled.
+fn push_delegate_action_operations(
+    operations: &mut Vec<crate::models::Operation>,
+    sender_account_identifier: &crate::models::AccountIdentifier,
+    receiver_account_identifier: &crate::models::AccountIdentifier,
+    signature: near_crypto::Signature,
+    delegate_action: near_primitives::action::delegate::DelegateAction,
+) {
+    let initiate_signed_delegate_action_operation_id =
+        crate::models::OperationIdentifier::new(operations);
+    operations.push(
+        validated_operations::InitiateSignedDelegateActionOperation {
+            sender_account: sender_account_identifier.clone(),
+        }
+        .into_operation(initiate_signed_delegate_action_operation_id.clone()),
+    );
+
+    let signed_delegate_action_operation_id = crate::models::OperationIdentifier::new(operations);
+    operations.push(
+        validated_operations::signed_delegate_action::SignedDelegateActionOperation {
+            receiver_id: receiver_account_identifier.clone(),
+            signature,
+        }
+        .into_related_operation(
+            signed_delegate_action_operation_id.clone(),
+            vec![initiate_signed_delegate_action_operation_id],
+        ),
+    );
+
+    let initiate_delegate_action_operation_id = crate::models::OperationIdentifier::new(operations);
+    operations.push(
+        validated_operations::initiate_delegate_action::InitiateDelegateActionOperation {
+            sender_account: delegate_action.sender_id.clone().into(),
+        }
+        .into_related_operation(
+            initiate_delegate_action_operation_id.clone(),
+            vec![signed_delegate_action_operation_id],
+        ),
+    );
+
+    let delegate_action_operation_id = crate::models::OperationIdentifier::new(operations);
+    let delegate_action_operation: validated_operations::DelegateActionOperation =
+        delegate_action.clone().into();
+    operations.push(delegate_action_operation.into_related_operation(
+        delegate_action_operation_id,
+        vec![initiate_delegate_action_operation_id],
+    ));
+
+    // We know that there are no delegate actions inside so this is guaranteed to
+    // be a single-level recursion.
+    let delegated_operations: Vec<crate::models::Operation> = NearActions {
+        sender_account_id: delegate_action.sender_id.clone(),
+        receiver_account_id: delegate_action.receiver_id.clone(),
+        actions: delegate_action
+            .actions
+            .into_iter()
+            .map(|a| a.into())
+            .collect::<Vec<near_primitives::transaction::Action>>(),
+    }
+    .into();
+    operations.extend(delegated_operations);
+}
+
 impl From<NearActions> for Vec<crate::models::Operation> {
     /// Convert NEAR Actions to Rosetta Operations. It never fails.
     fn from(near_actions: NearActions) -> Self {
@@ -445,62 +510,23 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     operations.push(deploy_contract_operation);
                 }
                 near_primitives::transaction::Action::Delegate(action) => {
-                    let initiate_signed_delegate_action_operation_id =
-                        crate::models::OperationIdentifier::new(&operations);
-                    operations.push(
-                        validated_operations::InitiateSignedDelegateActionOperation {
-                            sender_account: sender_account_identifier.clone(),
-                        }
-                        .into_operation(initiate_signed_delegate_action_operation_id.clone()),
+                    push_delegate_action_operations(
+                        &mut operations,
+                        &sender_account_identifier,
+                        &receiver_account_identifier,
+                        action.signature,
+                        action.delegate_action,
                     );
-
-                    let signed_delegate_action_operation_id =
-                        crate::models::OperationIdentifier::new(&operations);
-
-                    operations.push(
-                        validated_operations::signed_delegate_action::SignedDelegateActionOperation {
-                            receiver_id: receiver_account_identifier.clone(),
-                            signature: action.signature,
-                        }
-                        .into_related_operation(
-                            signed_delegate_action_operation_id.clone(),
-                            vec![initiate_signed_delegate_action_operation_id],
-                        )
+                }
+                near_primitives::transaction::Action::DelegateV2(action) => {
+                    push_delegate_action_operations(
+                        &mut operations,
+                        &sender_account_identifier,
+                        &receiver_account_identifier,
+                        action.signature,
+                        action.delegate_action,
                     );
-
-                    let initiate_delegate_action_operation_id =
-                        crate::models::OperationIdentifier::new(&operations);
-
-                    operations.push(validated_operations::initiate_delegate_action::InitiateDelegateActionOperation{
-                        sender_account: action.delegate_action.sender_id.clone().into()
-                    }.into_related_operation(initiate_delegate_action_operation_id.clone(), vec![signed_delegate_action_operation_id]));
-
-                    let delegate_action_operation_id =
-                        crate::models::OperationIdentifier::new(&operations);
-                    let delegate_action_operation: validated_operations::DelegateActionOperation =
-                        action.delegate_action.clone().into();
-
-                    operations.push(delegate_action_operation.into_related_operation(
-                        delegate_action_operation_id,
-                        vec![initiate_delegate_action_operation_id],
-                    ));
-
-                    // We know that there are no delegate actions inside so this is guaranteed to
-                    // be a single-level recursion.
-                    let delegated_operations: Vec<crate::models::Operation> = NearActions {
-                        sender_account_id: action.delegate_action.sender_id.clone(),
-                        receiver_account_id: action.delegate_action.receiver_id.clone(),
-                        actions: action
-                            .delegate_action
-                            .actions
-                            .into_iter()
-                            .map(|a| a.into())
-                            .collect::<Vec<near_primitives::transaction::Action>>(),
-                    }
-                    .into();
-
-                    operations.extend(delegated_operations);
-                } // TODO(#8469): Implement delegate action support, for now they are ignored.
+                }
                 near_primitives::transaction::Action::DeployGlobalContract(_)
                 | near_primitives::transaction::Action::UseGlobalContract(_) => {
                     // TODO(#12639): Implement global contracts support, ignored for now.

@@ -2,7 +2,7 @@ use crate::config::total_prepaid_gas;
 use crate::verifier::ValidateReceiptMode;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::action::delegate::{DelegateAction, DelegateActionExtension};
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
     GlobalContractIdentifier, UseGlobalContractAction,
@@ -111,7 +111,7 @@ pub(crate) fn validate_actions_with_mode(
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);
             }
         } else {
-            if let Action::Delegate(_) = action {
+            if let Action::Delegate(_) | Action::DelegateV2(_) = action {
                 if found_delegate_action {
                     return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
                 }
@@ -153,8 +153,30 @@ fn validate_action_with_mode(
         Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
-        Action::Delegate(a) => {
-            validate_delegate_action(limit_config, a, receiver, current_protocol_version, mode)
+        Action::Delegate(a) => validate_delegate_action(
+            limit_config,
+            &a.delegate_action,
+            receiver,
+            current_protocol_version,
+            mode,
+        ),
+        Action::DelegateV2(a) => {
+            match &a.extension {
+                // A gas key delegate action selects a gas key nonce by index,
+                // which only exists once gas keys are enabled.
+                DelegateActionExtension::GasKey { .. } => require_protocol_feature(
+                    ProtocolFeature::GasKeys,
+                    "GasKeys",
+                    current_protocol_version,
+                )?,
+            }
+            validate_delegate_action(
+                limit_config,
+                &a.delegate_action,
+                receiver,
+                current_protocol_version,
+                mode,
+            )
         }
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver)
@@ -170,16 +192,16 @@ fn validate_action_with_mode(
 
 fn validate_delegate_action(
     limit_config: &LimitConfig,
-    signed_delegate_action: &SignedDelegateAction,
+    delegate_action: &DelegateAction,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
-    let actions = signed_delegate_action.delegate_action.get_actions();
+    let actions = delegate_action.get_actions();
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
             // This is the correct receiver id to use for the check.
-            &signed_delegate_action.delegate_action.receiver_id
+            &delegate_action.receiver_id
         } else {
             // This is a bug fixed with `FixDelegatedDeterministicStateInit` that
             // validated against the wrong id. This makes it impossible to
@@ -472,7 +494,9 @@ mod tests {
     use near_crypto::{KeyType, PublicKey, Signature};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::GlobalContractDeployMode;
-    use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::delegate::{
+        DelegateAction, NonDelegateAction, SignedDelegateAction,
+    };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };

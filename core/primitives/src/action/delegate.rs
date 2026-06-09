@@ -9,13 +9,15 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature, Signer};
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::types::{AccountId, Nonce};
+use near_primitives_core::types::{AccountId, Nonce, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind, Read};
 
 /// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
+/// This is an index number of Action::DelegateV2 in Action enumeration
+const ACTION_DELEGATE_V2_NUMBER: u8 = 14;
 /// This action allows to execute the inner actions behalf of the defined sender.
 #[derive(
     BorshSerialize,
@@ -84,6 +86,88 @@ impl SignedDelegateAction {
 impl From<SignedDelegateAction> for Action {
     fn from(delegate_action: SignedDelegateAction) -> Self {
         Self::Delegate(Box::new(delegate_action))
+    }
+}
+
+/// Extra information carried by a `SignedDelegateActionV2` alongside the inner
+/// `DelegateAction`. New delegate-action capabilities add a variant here rather
+/// than a whole new signed action type.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum DelegateActionExtension {
+    /// Signed by a gas key. `nonce_index` selects one of the gas key's parallel
+    /// nonces, which the `DelegateAction.nonce` advances.
+    GasKey { nonce_index: NonceIndex } = 0,
+}
+
+/// Meta transaction carrying a `DelegateAction` plus extensible extra info in
+/// `extension`. The signature binds the inner action and the extension together.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct SignedDelegateActionV2 {
+    pub delegate_action: DelegateAction,
+    pub extension: DelegateActionExtension,
+    pub signature: Signature,
+}
+
+/// Borsh payload signed for a V2 delegate action: the inner action plus the
+/// extension, so a signature can't be replayed across extensions.
+#[derive(BorshSerialize)]
+struct DelegateActionV2Signable<'a> {
+    delegate_action: &'a DelegateAction,
+    extension: &'a DelegateActionExtension,
+}
+
+impl SignedDelegateActionV2 {
+    fn nep461_hash(
+        delegate_action: &DelegateAction,
+        extension: &DelegateActionExtension,
+    ) -> CryptoHash {
+        let payload = DelegateActionV2Signable { delegate_action, extension };
+        let signable = SignableMessage::new(&payload, SignableMessageType::DelegateAction);
+        hash(&borsh::to_vec(&signable).expect("failed to serialize"))
+    }
+
+    pub fn verify(&self) -> bool {
+        let hash = Self::nep461_hash(&self.delegate_action, &self.extension);
+        self.signature.verify(hash.as_ref(), &self.delegate_action.public_key)
+    }
+
+    pub fn sign(
+        signer: &Signer,
+        delegate_action: DelegateAction,
+        extension: DelegateActionExtension,
+    ) -> Self {
+        let signature = signer.sign(Self::nep461_hash(&delegate_action, &extension).as_bytes());
+        Self { delegate_action, extension, signature }
+    }
+}
+
+impl From<SignedDelegateActionV2> for Action {
+    fn from(action: SignedDelegateActionV2) -> Self {
+        Self::DelegateV2(Box::new(action))
     }
 }
 
@@ -170,7 +254,7 @@ mod private_non_delegate_action {
         type Error = IsDelegateAction;
 
         fn try_from(action: Action) -> Result<Self, IsDelegateAction> {
-            if matches!(action, Action::Delegate(_)) {
+            if matches!(action, Action::Delegate(_) | Action::DelegateV2(_)) {
                 Err(IsDelegateAction)
             } else {
                 Ok(Self(action))
@@ -181,7 +265,7 @@ mod private_non_delegate_action {
     impl borsh::de::BorshDeserialize for NonDelegateAction {
         fn deserialize_reader<R: Read>(rd: &mut R) -> ::core::result::Result<Self, Error> {
             match u8::deserialize_reader(rd)? {
-                ACTION_DELEGATE_NUMBER => Err(Error::new(
+                ACTION_DELEGATE_NUMBER | ACTION_DELEGATE_V2_NUMBER => Err(Error::new(
                     ErrorKind::InvalidInput,
                     "DelegateAction mustn't contain a nested one",
                 )),
@@ -195,7 +279,51 @@ mod private_non_delegate_action {
 mod tests {
     use super::*;
     use crate::action::CreateAccountAction;
-    use near_crypto::KeyType;
+    use near_crypto::{InMemorySigner, KeyType};
+
+    #[test]
+    fn test_signed_delegate_action_v2_verify() {
+        let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
+        let delegate_action = DelegateAction {
+            sender_id: "alice.near".parse().unwrap(),
+            receiver_id: "bob.near".parse().unwrap(),
+            actions: vec![],
+            nonce: 1,
+            max_block_height: 1000,
+            public_key: signer.public_key(),
+        };
+        let extension = DelegateActionExtension::GasKey { nonce_index: 3 };
+        let signed = SignedDelegateActionV2::sign(&signer, delegate_action.clone(), extension);
+        assert!(signed.verify());
+
+        // A signature bound to nonce index 3 must not verify for another index.
+        let forged = SignedDelegateActionV2 {
+            extension: DelegateActionExtension::GasKey { nonce_index: 4 },
+            delegate_action,
+            signature: signed.signature,
+        };
+        assert!(!forged.verify());
+    }
+
+    #[test]
+    fn test_delegate_action_v2_borsh_roundtrip() {
+        let action: Action = SignedDelegateActionV2 {
+            delegate_action: DelegateAction {
+                sender_id: "alice.near".parse().unwrap(),
+                receiver_id: "bob.near".parse().unwrap(),
+                actions: vec![],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            extension: DelegateActionExtension::GasKey { nonce_index: 7 },
+            signature: Signature::empty(KeyType::ED25519),
+        }
+        .into();
+        let bytes = borsh::to_vec(&action).unwrap();
+        assert_eq!(bytes[0], ACTION_DELEGATE_V2_NUMBER);
+        assert_eq!(Action::try_from_slice(&bytes).unwrap(), action);
+    }
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
     ///
