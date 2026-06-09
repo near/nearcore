@@ -522,6 +522,7 @@ impl ProtocolFeature {
             | ProtocolFeature::DynamicResharding
             | ProtocolFeature::StickyReshardingValidatorAssignment
             | ProtocolFeature::StrictNonce
+            | ProtocolFeature::PostQuantumSignatures
             | ProtocolFeature::YieldWithId => 85,
 
             // Nightly features:
@@ -530,7 +531,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::PostQuantumSignatures => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
