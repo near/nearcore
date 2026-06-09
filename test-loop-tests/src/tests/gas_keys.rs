@@ -234,7 +234,7 @@ fn test_gas_key_delegate_v2_meta_transaction() {
             Action::Transfer(TransferAction { deposit: transfer_amount }).try_into().unwrap(),
         ],
         nonce: gas_key_nonce + 1,
-        max_block_height: 1000,
+        max_block_height: 1_000_000,
         public_key: gas_key_signer.public_key(),
     };
     let signed_delegate = SignedDelegateActionV2::sign(

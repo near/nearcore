@@ -1003,7 +1003,10 @@ impl Display for InvalidAccessKeyError {
                 write!(f, "Gas key delegate action requires a gas key")
             }
             InvalidAccessKeyError::RequiresNonGasKey => {
-                write!(f, "Gas keys can't be used to sign a delegate action")
+                write!(
+                    f,
+                    "Gas keys can't sign a plain Delegate action; use a DelegateV2 with a GasKey extension"
+                )
             }
         }
     }

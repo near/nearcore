@@ -705,7 +705,8 @@ fn validate_delegate_action_key(
             )?
             .ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
-                    "gas key nonce row missing for in-range index {nonce_index}"
+                    "gas key nonce row missing for {} {} at in-range index {nonce_index} (num_nonces {})",
+                    delegate_action.sender_id, delegate_action.public_key, gas_key_info.num_nonces,
                 ))
             })?;
             (current_nonce, DelegateNonceUpdate::GasKey { nonce_index })
