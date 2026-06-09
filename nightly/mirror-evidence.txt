@@ -1,0 +1,23 @@
+# Evidence-gathering runs for the offline mirror test (branch darioush/mirror-nayduck-evidence).
+# Submit with: python3 scripts/nayduck.py --test-file nightly/mirror-evidence.txt
+# Each line gets a distinct label arg so nayduck treats them as distinct tests.
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run1
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run2
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run3
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run4
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run5
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run6
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run7
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run8
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run9
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run10
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run11
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run12
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run13
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run14
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run15
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run16
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run17
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run18
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run19
+pytest --timeout=20m ../tools/mirror/offline_test_nayduck.py run20

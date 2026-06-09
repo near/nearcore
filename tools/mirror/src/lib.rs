@@ -1948,6 +1948,7 @@ impl<T: ChainAccess> TxMirror<T> {
         accounts_to_unstake: mpsc::Sender<HashMap<(AccountId, PublicKey), AccountId>>,
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
+        actor_system: near_async::ActorSystem,
     ) -> anyhow::Result<()> {
         let indexer_config = near_indexer::IndexerConfig {
             home_dir,
@@ -1958,10 +1959,11 @@ impl<T: ChainAccess> TxMirror<T> {
         };
         let near_config =
             indexer_config.load_near_config().context("failed to load near config").unwrap();
-        let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
-            .await
-            .context("failed to start near node")
-            .unwrap();
+        let near_node =
+            Indexer::start_near_node(&indexer_config, near_config.clone(), actor_system)
+                .await
+                .context("failed to start near node")
+                .unwrap();
         let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
         let mut target_stream = target_indexer.streamer();
         let NearNode { client, view_client, rpc_handler, .. } = near_node;
@@ -2130,9 +2132,20 @@ impl<T: ChainAccess> TxMirror<T> {
         self,
         stop_height: Option<BlockHeight>,
         target_home: PathBuf,
+        actor_system: near_async::ActorSystem,
     ) -> anyhow::Result<()> {
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
+
+        // When resuming after having already sent everything up to --stop-height (e.g. a
+        // restart of a finished mirror over a finite source), there are no more blocks to
+        // send and we're done. Without this we'd bail below as if the source were broken.
+        if let Some(stop_height) = stop_height {
+            if last_height >= stop_height {
+                tracing::info!(target: "mirror", stop_height, last_height, "already sent all transactions up to --stop-height");
+                return Ok(());
+            }
+        }
 
         let next_heights =
             self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA + 1).await?;
@@ -2181,7 +2194,8 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let tx_block_queue2 = tx_block_queue.clone();
-        let _index_target_task = tokio::task::spawn(async move {
+        let actor_system2 = actor_system.clone();
+        let index_target_task = tokio::task::spawn(async move {
             let res = Self::index_target_loop(
                 tracker2,
                 tx_block_queue2,
@@ -2191,6 +2205,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 unstake_tx,
                 target_height2,
                 target_head2,
+                actor_system2,
             )
             .await;
             if let Err(res) = target_indexer_done_tx.send(res) {
@@ -2275,7 +2290,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let db = self.db.clone();
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
-        let _send_txs_task = tokio::task::spawn(async move {
+        let send_txs_task = tokio::task::spawn(async move {
             let res = Self::send_txs_loop(
                 db,
                 blocks_sent_tx,
@@ -2289,13 +2304,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracing::error!(target: "mirror", ?err, "failed send txs loop res");
             }
         });
-        tokio::select! {
+        let result = tokio::select! {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
                 source_hash, stop_height.is_some(),
             ) => {
-                // TODO: cancel other threads
                 res
             }
             res = target_indexer_done_rx => {
@@ -2308,7 +2322,13 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracing::error!(target: "mirror", ?res, "transaction sending thread exited");
                 res.context("target indexer thread failure")
             }
-        }
+        };
+        index_target_task.abort();
+        send_txs_task.abort();
+        let _ = index_target_task.await;
+        let _ = send_txs_task.await;
+        actor_system.stop();
+        result
     }
 }
 
@@ -2330,6 +2350,7 @@ async fn run<P: AsRef<Path>>(
         }
         None => Default::default(),
     };
+    let actor_system = near_async::ActorSystem::new();
     if !online_source {
         let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
         let stop_height = stop_height.unwrap_or(
@@ -2342,17 +2363,17 @@ async fn run<P: AsRef<Path>>(
             secret,
             config,
         )?
-        .run(Some(stop_height), target_home.as_ref().to_path_buf())
+        .run(Some(stop_height), target_home.as_ref().to_path_buf(), actor_system)
         .await
     } else {
         TxMirror::new(
-            crate::online::ChainAccess::new(source_home).await?,
+            crate::online::ChainAccess::new(source_home, actor_system.clone()).await?,
             target_home.as_ref(),
             mirror_db_path.as_deref(),
             secret,
             config,
         )?
-        .run(stop_height, target_home.as_ref().to_path_buf())
+        .run(stop_height, target_home.as_ref().to_path_buf(), actor_system)
         .await
     }
 }
