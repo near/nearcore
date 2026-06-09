@@ -18,6 +18,7 @@ use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
+use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
 use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
@@ -26,7 +27,7 @@ use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -488,90 +489,144 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// Asserts the reader's store equals the writer's over `[start, end]` for every
-/// column the cloud-bootstrapped reader reconstructs. Caller must `.disable_gc()`
-/// so the writer retains the bootstrap range.
+/// How the reader is checked against the writer over the in-range keys.
+enum Parity {
+    /// Reader must equal the in-range writer rows exactly, holding no extra rows.
+    Equality,
+    /// Reader must contain every in-range writer row, but may hold extra rows
+    /// (e.g. blocks backfilled below `start` to complete the merkle tree chain).
+    Containment,
+}
+
+/// Asserts the reader reproduces the writer's rows over `[start, end]` for every
+/// column the cloud-bootstrapped reader reconstructs today. Caller must
+/// `.disable_gc()` so the writer retains the bootstrap range.
 pub(crate) fn assert_reader_writer_parity(
     reader: &Store,
     writer: &Store,
     start: BlockHeight,
     end: BlockHeight,
 ) {
-    let writer_store = writer.chain_store();
-    let in_range_hashes: HashSet<CryptoHash> =
-        (start..=end).filter_map(|h| writer_store.get_block_hash_by_height(h).ok()).collect();
-    let in_range_epoch_ids: HashSet<CryptoHash> = in_range_hashes
-        .iter()
-        .filter_map(|hash| writer_store.get_block_header(hash).ok().map(|h| h.epoch_id().0))
+    // TODO(cloud_archival): compare the skipped columns too.
+    let cols: Vec<DBCol> = DBCol::iter()
+        .filter(|&c| {
+            is_cloud_archive_reader_bootstrapped(c)
+                && !matches!(
+                    c,
+                    // Not reconstructed yet.
+                    DBCol::NextBlockHashes
+                        | DBCol::BlockPerHeight
+                        | DBCol::ChunkHashesByHeight
+                        | DBCol::ChunkExtra
+                        | DBCol::ChunkApplyStats
+                        | DBCol::IncomingReceipts
+                        | DBCol::OutgoingReceipts
+                        | DBCol::OutcomeIds
+                        | DBCol::TransactionResultForBlock
+                        | DBCol::StateChanges
+                        | DBCol::Chunks
+                        | DBCol::Transactions
+                        | DBCol::Receipts
+                        | DBCol::ReceiptToTx
+                        | DBCol::State
+                        // Reconstructed, but keyed off-height (genesis BlockInfo under
+                        // CryptoHash::default(), EpochInfo under AGGREGATOR_KEY), so the
+                        // height walk can't reproduce their key sets.
+                        | DBCol::BlockInfo
+                        | DBCol::EpochInfo
+                        | DBCol::EpochStart
+                )
+        })
         .collect();
 
-    for col in DBCol::iter().filter(|&c| is_cloud_archive_reader_bootstrapped(c)) {
-        match col {
-            DBCol::BlockHeight => {
-                assert_block_height_keyed_parity(reader, writer, col, start, end);
+    let writer_in_range = in_range_kvs(writer, &cols, start, end);
+
+    for &col in &cols {
+        let parity = match col {
+            // The reader backfills these columns below `start` to complete the merkle
+            // tree chain, so it holds extra rows: check containment, not equality.
+            DBCol::BlockHeight | DBCol::Block | DBCol::BlockHeader | DBCol::BlockMerkleTree => {
+                Parity::Containment
             }
-            DBCol::Block | DBCol::BlockHeader | DBCol::BlockInfo | DBCol::BlockMerkleTree => {
-                assert_block_hash_keyed_parity(reader, writer, col, &in_range_hashes);
+            _ => Parity::Equality,
+        };
+        assert_keyed_parity(reader, col, &writer_in_range[&col], parity);
+    }
+}
+
+/// Compares the writer's in-range rows in `col` against the full reader.
+fn assert_keyed_parity(
+    reader: &Store,
+    col: DBCol,
+    writer_in_range_kvs: &BTreeMap<Vec<u8>, Vec<u8>>,
+    parity: Parity,
+) {
+    let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
+        reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
+    match parity {
+        Parity::Equality => {
+            assert_eq!(&reader_all_kvs, writer_in_range_kvs, "{col} parity mismatch")
+        }
+        Parity::Containment => {
+            for (key, writer_value) in writer_in_range_kvs {
+                assert_eq!(
+                    reader_all_kvs.get(key),
+                    Some(writer_value),
+                    "{col}: writer key {key:?} missing or different at reader"
+                );
             }
-            DBCol::EpochInfo | DBCol::EpochStart => {
-                assert_block_hash_keyed_parity(reader, writer, col, &in_range_epoch_ids);
-            }
-            // TODO(cloud_archival): handle these columns.
-            DBCol::NextBlockHashes
-            | DBCol::BlockPerHeight
-            | DBCol::ChunkHashesByHeight
-            | DBCol::ChunkExtra
-            | DBCol::ChunkApplyStats
-            | DBCol::IncomingReceipts
-            | DBCol::OutgoingReceipts
-            | DBCol::OutcomeIds
-            | DBCol::TransactionResultForBlock
-            | DBCol::StateChanges
-            | DBCol::Chunks
-            | DBCol::Transactions
-            | DBCol::Receipts
-            | DBCol::ReceiptToTx
-            | DBCol::State => {}
-            _ => unreachable!("{col} is reader-bootstrapped but unhandled by the parity helper"),
         }
     }
 }
 
-fn assert_block_height_keyed_parity(
-    reader: &Store,
+/// Returns the writer's key-values within `[start, end]`, one map per column in `cols`.
+fn in_range_kvs(
     writer: &Store,
-    col: DBCol,
+    cols: &[DBCol],
     start: BlockHeight,
     end: BlockHeight,
-) {
-    let collect = |s: &Store| -> BTreeMap<Box<[u8]>, Box<[u8]>> {
-        s.iter(col)
-            .filter(|(key, _)| {
-                let height_bytes = key[..size_of::<BlockHeight>()].try_into().unwrap();
-                let height = BlockHeight::from_be_bytes(height_bytes);
-                (start..=end).contains(&height)
-            })
-            .collect()
-    };
-    assert_eq!(collect(reader), collect(writer), "{col} parity mismatch");
-}
+) -> HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> {
+    let writer_store = writer.chain_store();
+    let chain_head = writer_store.head().unwrap().height;
 
-fn assert_block_hash_keyed_parity(
-    reader: &Store,
-    writer: &Store,
-    col: DBCol,
-    in_range_hashes: &HashSet<CryptoHash>,
-) {
-    let collect = |s: &Store| -> BTreeMap<Box<[u8]>, Box<[u8]>> {
-        s.iter(col)
-            .filter(|(key, _)| {
-                if key.len() < CryptoHash::LENGTH {
-                    return false;
-                }
-                let hash = CryptoHash(key[..CryptoHash::LENGTH].try_into().unwrap());
-                in_range_hashes.contains(&hash)
-            })
-            .collect()
-    };
-    assert_eq!(collect(reader), collect(writer), "{col} parity mismatch");
+    let mut in_range: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
+        cols.iter().map(|&c| (c, BTreeMap::new())).collect();
+    let mut out_of_range: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
+        cols.iter().map(|&c| (c, BTreeMap::new())).collect();
+
+    // Walk the chain, reading each column's row at height `h` into the in-range or
+    // out-of-range map.
+    for h in 0..=chain_head {
+        let Ok(block_hash) = writer_store.get_block_hash_by_height(h) else {
+            continue;
+        };
+        let kvs = if (start..=end).contains(&h) { &mut in_range } else { &mut out_of_range };
+        let height_key = index_to_bytes(h).to_vec();
+        if let Some(value) = writer.get(DBCol::BlockHeight, &height_key) {
+            kvs.get_mut(&DBCol::BlockHeight).unwrap().insert(height_key, value.to_vec());
+        }
+        for col in [DBCol::Block, DBCol::BlockHeader, DBCol::BlockMerkleTree] {
+            let key = block_hash.as_ref().to_vec();
+            if let Some(value) = writer.get(col, &key) {
+                kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
+            }
+        }
+    }
+
+    // TODO(cloud_archival): add a negative test (follow-up PR) that tampers a
+    // reader row and confirms these checks catch it.
+    // The walk must reproduce each writer column exactly, keys and values.
+    for &col in cols {
+        let writer_all: BTreeMap<Vec<u8>, Vec<u8>> =
+            writer.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
+        let mut seen = in_range[&col].clone();
+        seen.extend(out_of_range[&col].clone());
+        assert_eq!(seen, writer_all, "{col}: walk did not reproduce writer's column");
+        assert!(
+            in_range[&col].keys().all(|k| !out_of_range[&col].contains_key(k)),
+            "{col}: key in both in-range and out-of-range",
+        );
+    }
+
+    in_range
 }
