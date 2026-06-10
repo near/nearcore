@@ -84,6 +84,12 @@ impl RunCmd {
         // run() aborts spawned tasks, awaits them, and calls actor_system.stop(). By the time we
         // get here the tokio runtime is dropped and all Arc<DB> refs should be gone. Wait for RocksDB
         // background threads to finish flushing.
+        //
+        // The signal handlers installed by run() died with its runtime: a signal
+        // delivered now would be swallowed, making the process unkillable except by
+        // SIGKILL if the wait below ever hangs. Keep a small runtime alive for the
+        // duration of the wait whose only job is to exit on SIGTERM/SIGINT.
+        let _signal_runtime = spawn_exit_on_signal_runtime();
         with_stall_diagnostics("rocksdb instances to close", || {
             near_store::db::RocksDB::block_until_all_instances_are_dropped();
         });
@@ -262,6 +268,29 @@ impl ShowKeysCmd {
         }
         Ok(())
     }
+}
+
+fn spawn_exit_on_signal_runtime() -> tokio::runtime::Runtime {
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    runtime.spawn(async {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let (Ok(mut sigterm), Ok(mut sigint)) =
+                (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
+            else {
+                return;
+            };
+            tokio::select! {
+                _ = sigterm.recv() => {}
+                _ = sigint.recv() => {}
+            }
+            tracing::warn!(target: "mirror", "got termination signal during shutdown, exiting immediately");
+            std::process::exit(1);
+        }
+    });
+    runtime
 }
 
 fn run_async<F: std::future::Future + 'static>(f: F) -> F::Output {
