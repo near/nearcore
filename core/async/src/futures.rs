@@ -1,3 +1,4 @@
+use crate::future_registry::track_future;
 use futures::FutureExt;
 pub use futures::future::BoxFuture; // pub for macros
 use near_time::Duration;
@@ -63,8 +64,8 @@ pub fn respawn_for_parallelism<T: Send + 'static>(
 pub struct TokioRuntimeFutureSpawner(pub Arc<tokio::runtime::Runtime>);
 
 impl FutureSpawner for TokioRuntimeFutureSpawner {
-    fn spawn_boxed(&self, _description: &'static str, f: BoxFuture<'static, ()>) {
-        self.0.spawn(f);
+    fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
+        self.0.spawn(track_future("tokio runtime", description, f));
     }
 }
 

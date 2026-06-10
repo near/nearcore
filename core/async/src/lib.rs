@@ -1,6 +1,7 @@
 pub use near_async_derive::{MultiSend, MultiSenderFrom};
 
 mod functional;
+pub mod future_registry;
 pub mod futures;
 pub mod instrumentation;
 pub mod messaging;

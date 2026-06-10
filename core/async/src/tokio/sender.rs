@@ -1,3 +1,4 @@
+use crate::future_registry::track_future;
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::instrumentation::InstrumentedThreadWriterSharedPart;
 use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
@@ -69,9 +70,10 @@ where
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
         tracing::trace!(target: "tokio_runtime", description, "spawning future");
+        let f = track_future(self.instrumentation.actor_name(), description, f);
         self.runtime_handle.spawn(InstrumentingFuture::new(
             description,
-            f,
+            f.boxed(),
             self.instrumentation.clone(),
         ));
     }
@@ -90,7 +92,7 @@ where
         let seq = next_message_sequence_num();
         tracing::debug!(target: "tokio_runtime", seq, name, "sending delayed action");
         let handle = self.clone();
-        self.runtime_handle.spawn(async move {
+        let future = track_future(self.instrumentation.actor_name(), name, async move {
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
             let message = TokioRuntimeMessage {
@@ -102,6 +104,7 @@ where
             // It's ok for this to fail; it means the runtime is shutting down already.
             handle.send_message(message).ok();
         });
+        self.runtime_handle.spawn(future);
     }
 }
 

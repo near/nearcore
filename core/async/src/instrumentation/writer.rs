@@ -111,6 +111,10 @@ impl InstrumentedThreadWriterSharedPart {
         self.clock.now().duration_since(self.reference_instant).as_nanos() as u64
     }
 
+    pub(crate) fn actor_name(&self) -> &str {
+        &self.actor_name
+    }
+
     pub fn queue(&self) -> &InstrumentedQueue {
         &self.queue
     }

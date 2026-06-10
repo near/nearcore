@@ -1,6 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_async::ActorSystem;
+use near_async::future_registry::with_stall_diagnostics;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_client::client_actor::ShutdownReason;
@@ -638,7 +639,9 @@ impl RunCmd {
             }
         });
         tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
-        RocksDB::block_until_all_instances_are_dropped();
+        with_stall_diagnostics("rocksdb instances to close", || {
+            RocksDB::block_until_all_instances_are_dropped();
+        });
     }
 }
 

@@ -1,16 +1,19 @@
+use crate::future_registry::track_future;
 use crate::futures::FutureSpawner;
 use crate::tokio::runtime::AsyncDroppableRuntime;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct CancellableFutureSpawner {
     pub(super) runtime_handle: tokio::runtime::Handle,
+    thread_name: Arc<str>,
 }
 
 impl CancellableFutureSpawner {
     pub(crate) fn new(cancel: CancellationToken, thread_name: String) -> Self {
         let runtime = tokio::runtime::Builder::new_multi_thread()
-            .thread_name(thread_name)
+            .thread_name(&thread_name)
             .enable_all()
             .build()
             .expect("Failed to create Tokio runtime");
@@ -20,7 +23,7 @@ impl CancellableFutureSpawner {
             let _runtime = AsyncDroppableRuntime::new(runtime);
             cancel.cancelled().await;
         });
-        Self { runtime_handle }
+        Self { runtime_handle, thread_name: thread_name.into() }
     }
 
     pub(crate) fn future_spawner(&self) -> Box<dyn FutureSpawner> {
@@ -31,6 +34,6 @@ impl CancellableFutureSpawner {
 impl FutureSpawner for CancellableFutureSpawner {
     fn spawn_boxed(&self, description: &'static str, f: crate::futures::BoxFuture<'static, ()>) {
         tracing::trace!(target: "cancellable_tokio_runtime", description, "spawning future");
-        self.runtime_handle.spawn(f);
+        self.runtime_handle.spawn(track_future(&self.thread_name, description, f));
     }
 }
