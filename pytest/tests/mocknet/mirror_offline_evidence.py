@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Evidence-gathering wrapper around offline_test.py for nayduck flake measurement.
+"""Evidence-gathering nayduck launcher for the offline mirror test.
 
-Runs the real test as a subprocess and uploads all artifacts (test output, node
-logs, mirror logs, configs) to a GCS bucket with anonymous object-create access.
-ALWAYS exits 0 so nayduck never retries the test; a retry would overwrite the
-logs in the nayduck UI, which is exactly the evidence we are trying to keep.
+The real test lives in pytest/tools/mirror/offline_test.py, which is outside
+pytest/tests and therefore not directly runnable by NayDuck; this launcher is
+the NayDuck entry point. It builds the addkey contract the test deploys, runs
+the test as a subprocess, and uploads all artifacts (test output, node logs,
+mirror logs, configs) to a GCS bucket with anonymous object-create access.
 
-The actual verdict lives in the uploaded object path (runs/PASS/..., runs/FAIL/...,
-runs/TIMEOUT/...) and in the EVIDENCE-RESULT line printed to stdout. Grep the
-nayduck test output for EVIDENCE-RUN-ID to correlate it with the bucket object.
+It ALWAYS exits 0 so nayduck never retries the test; a retry would overwrite
+the logs in the nayduck UI, which is exactly the evidence we are trying to
+keep. The actual verdict lives in the uploaded object path (runs/PASS/...,
+runs/FAIL/..., runs/TIMEOUT/..., runs/BROKEN/...) and in the EVIDENCE-RESULT
+line printed to stdout. Grep the nayduck test output for EVIDENCE-RUN-ID to
+correlate it with the bucket object.
 """
 import json
 import os
@@ -25,16 +29,52 @@ import traceback
 import uuid
 
 BUCKET = os.environ.get('EVIDENCE_BUCKET', 'darioush-mirror-evidence')
-# nayduck kills us at --timeout=20m; stop the test early enough to upload.
-INNER_TIMEOUT = 16 * 60
+# nayduck kills us at --timeout=25m; budget build + test + upload below that.
+CONTRACT_BUILD_TIMEOUT = 8 * 60
+INNER_TIMEOUT = 14 * 60
 DOT_NEAR = pathlib.Path.home() / '.near'
-TEST_SCRIPT = pathlib.Path(__file__).resolve().parent / 'offline_test.py'
+PYTEST_DIR = pathlib.Path(__file__).resolve().parents[2]
+TEST_SCRIPT = PYTEST_DIR / 'tools' / 'mirror' / 'offline_test.py'
+CONTRACT_DIR = PYTEST_DIR / 'tools' / 'mirror' / 'contract'
 MAX_FILE_SIZE = 200 * 1024 * 1024
 
 run_id = '%s-%s-%s' % (time.strftime('%Y%m%d-%H%M%S'), socket.gethostname(),
                        uuid.uuid4().hex[:8])
 output_path = pathlib.Path('/tmp') / f'evidence-{run_id}-test-output.log'
+contract_log_path = pathlib.Path('/tmp') / f'evidence-{run_id}-contract.log'
 tarball_path = pathlib.Path('/tmp') / f'evidence-{run_id}.tar.gz'
+
+
+def build_contract():
+    """Builds the addkey contract wasm the test deploys. Returns True on success.
+
+    The contract is a standalone crate that the neard build does not produce.
+    Clear the inherited rustflags: CI sets `-fuse-ld=lld` for the native build,
+    which rust-lld rejects when linking the wasm target.
+    """
+    env = dict(os.environ)
+    env['RUSTFLAGS'] = ''
+    env.pop('CARGO_ENCODED_RUSTFLAGS', None)
+    try:
+        result = subprocess.run(
+            [
+                'cargo', 'build', '--target', 'wasm32-unknown-unknown',
+                '--release'
+            ],
+            cwd=CONTRACT_DIR,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=CONTRACT_BUILD_TIMEOUT,
+        )
+        output, returncode = result.stdout, result.returncode
+    except subprocess.TimeoutExpired as e:
+        output, returncode = e.stdout or b'', -1
+    contract_log_path.write_bytes(output)
+    sys.stdout.buffer.write(output)
+    sys.stdout.buffer.flush()
+    print(f'EVIDENCE: contract build exited with {returncode}')
+    return returncode == 0
 
 
 def tee(stream, output_file):
@@ -46,8 +86,7 @@ def tee(stream, output_file):
 
 
 def run_test():
-    """Returns (status, exit_code, duration)."""
-    start = time.time()
+    """Returns (status, exit_code)."""
     with open(output_path, 'wb') as output_file:
         process = subprocess.Popen(
             [sys.executable, '-u', str(TEST_SCRIPT)],
@@ -77,7 +116,7 @@ def run_test():
                 pass
             process.wait()
         reader.join(timeout=30)
-    return status, exit_code, time.time() - start
+    return status, exit_code
 
 
 def want_file(path):
@@ -95,22 +134,23 @@ def collect_artifacts(status, exit_code, duration):
         'argv': sys.argv,
         'hostname': socket.gethostname(),
         'platform': platform.platform(),
-        'started_by': 'offline_test_nayduck.py',
+        'started_by': 'mirror_offline_evidence.py',
         'time': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
     }
     try:
         metadata['git_sha'] = subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'],
-            cwd=pathlib.Path(__file__).resolve().parent,
-            text=True).strip()
+            ['git', 'rev-parse', 'HEAD'], cwd=PYTEST_DIR, text=True).strip()
     except (subprocess.CalledProcessError, OSError):
         pass
 
     with tarfile.open(tarball_path, 'w:gz') as tar:
-        tar.add(output_path, arcname='test-output.log')
         metadata_path = pathlib.Path('/tmp') / f'evidence-{run_id}-meta.json'
         metadata_path.write_text(json.dumps(metadata, indent=2))
         tar.add(metadata_path, arcname='metadata.json')
+        if output_path.exists():
+            tar.add(output_path, arcname='test-output.log')
+        if contract_log_path.exists():
+            tar.add(contract_log_path, arcname='contract-build.log')
         if not DOT_NEAR.exists():
             return
         for root, dirs, files in os.walk(DOT_NEAR):
@@ -151,16 +191,18 @@ def upload(status):
 def main():
     print(f'EVIDENCE-RUN-ID: {run_id}')
     print(f'EVIDENCE: uploading to bucket {BUCKET}, label={sys.argv[1:]}')
-    status, exit_code, duration = 'BROKEN', None, 0.0
+    start = time.time()
+    status, exit_code = 'BROKEN', None
     upload_location = None
     try:
-        status, exit_code, duration = run_test()
-        collect_artifacts(status, exit_code, duration)
+        if build_contract():
+            status, exit_code = run_test()
+        collect_artifacts(status, exit_code, time.time() - start)
         upload_location = upload(status)
     except Exception:
         traceback.print_exc()
     print(f'EVIDENCE-RESULT: run_id={run_id} status={status} '
-          f'exit_code={exit_code} duration={int(duration)}s '
+          f'exit_code={exit_code} duration={int(time.time() - start)}s '
           f'upload={upload_location}')
     # Always pass: a nayduck retry would replace this run's logs in the UI.
     sys.exit(0)
