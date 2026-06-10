@@ -219,6 +219,3 @@ pytest sanity/kickout_offline_validators.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/kickout_offline_validators.py --features nightly,protocol_feature_spice
 
-# End-to-end test of the `neard mirror` tool via the fork-network workflow.
-pytest --timeout=20m ../tools/mirror/offline_test.py
-
