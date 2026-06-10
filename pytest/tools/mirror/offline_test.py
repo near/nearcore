@@ -93,11 +93,7 @@ class ImplicitAccountTest(MirrorTestCase):
         time.sleep(2)
         self.implicit2.transfer_to(ctx.node, ctx.signer_key, 10**24, ctx.bhash,
                                    ctx.next_nonce())
-        # Only implicit1 (in the forked state, so its mapped key is known to
-        # the mirror) drives traffic. implicit2's txs never replay: the mirror
-        # drops txs whose target nonce is unknown at send time, and implicit2's
-        # never resolves, so its traffic only inflates the source tx count.
-        return [self.implicit1]
+        return [self.implicit1, self.implicit2]
 
     def check(self, node):
         mapped_id = mirror_utils.map_account_no_secret(
