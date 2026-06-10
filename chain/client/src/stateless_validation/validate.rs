@@ -372,19 +372,23 @@ fn validate_witness_contract_code_response_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     response: &ContractCodeResponse,
 ) -> Result<(), Error> {
-    match response {
-        ContractCodeResponse::V1(_) => Err(Error::Other(
+    let Some(responder) = response.responder() else {
+        return Err(Error::Other(
             "Unsigned contract code response in epoch where signature is required".to_owned(),
-        )),
-        ContractCodeResponse::V2(_) => {
-            let chunk_producer =
-                epoch_manager.get_chunk_producer_info(response.chunk_production_key())?;
-            if !response.verify_signature(chunk_producer.public_key()) {
-                return Err(Error::Other(
-                    "Invalid witness contract code response signature".to_owned(),
-                ));
-            }
-            Ok(())
-        }
+        ));
+    };
+    let key = response.chunk_production_key();
+    let chunk_producers =
+        epoch_manager.get_epoch_chunk_producers_for_shard(&key.epoch_id, key.shard_id)?;
+    if !chunk_producers.contains(responder) {
+        return Err(Error::Other(format!(
+            "Contract code response responder {responder} is not a chunk producer for shard {} in epoch {:?}",
+            key.shard_id, key.epoch_id,
+        )));
     }
+    let validator = epoch_manager.get_validator_by_account_id(&key.epoch_id, responder)?;
+    if !response.verify_signature(validator.public_key()) {
+        return Err(Error::Other("Invalid witness contract code response signature".to_owned()));
+    }
+    Ok(())
 }
