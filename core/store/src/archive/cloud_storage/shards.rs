@@ -34,6 +34,8 @@ pub enum ShardDataV1 {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct NewChunkData {
+    /// Hash of the containing block.
+    block_hash: CryptoHash,
     /// Read from `DBCol::Chunks`.
     chunk: ShardChunk,
     /// Read from `DBCol::IncomingReceipts`. `None` when no new chunk in
@@ -56,6 +58,8 @@ pub struct NewChunkData {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct CarriedData {
+    /// Hash of the containing block.
+    block_hash: CryptoHash,
     /// Read from `DBCol::ChunkExtra`.
     chunk_extra: ChunkExtra,
     /// Read from `DBCol::ChunkApplyStats`.
@@ -109,6 +113,7 @@ pub fn build_shard_data(
 
     if !chunk_header.is_new_chunk(block_height) {
         return Ok(Some(ShardData::V1(ShardDataV1::Carried(CarriedData {
+            block_hash,
             chunk_extra,
             chunk_apply_stats,
             state_changes,
@@ -123,6 +128,7 @@ pub fn build_shard_data(
     let receipt_to_tx = build_receipt_to_tx(store, &block_hash, shard_id)?;
 
     Ok(Some(ShardData::V1(ShardDataV1::NewChunk(NewChunkData {
+        block_hash,
         chunk,
         incoming_receipts,
         outgoing_receipts,
@@ -213,6 +219,13 @@ fn get_state_changes(
 }
 
 impl ShardData {
+    pub fn block_hash(&self) -> &CryptoHash {
+        match self {
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.block_hash,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.block_hash,
+        }
+    }
+
     pub fn chunk(&self) -> Option<&ShardChunk> {
         match self {
             ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.chunk),
@@ -253,6 +266,13 @@ impl ShardData {
     pub fn receipt_to_tx(&self) -> Option<&[(CryptoHash, ReceiptToTxInfo)]> {
         match self {
             ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.receipt_to_tx),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
+        }
+    }
+
+    pub fn outgoing_receipts(&self) -> Option<&[Receipt]> {
+        match self {
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.outgoing_receipts),
             ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }

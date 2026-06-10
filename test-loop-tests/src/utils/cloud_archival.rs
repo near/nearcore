@@ -14,11 +14,12 @@ use near_client::sync::external::{
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
-use near_primitives::utils::index_to_bytes;
+use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
 use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
@@ -489,11 +490,11 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// How the reader is checked against the writer over the in-range keys.
+/// How the reader is checked against a set of writer rows.
 enum Parity {
-    /// Reader must equal the in-range writer rows exactly, holding no extra rows.
+    /// Reader must equal the given writer rows exactly, holding no extra rows.
     Equality,
-    /// Reader must contain every in-range writer row, but may hold extra rows
+    /// Reader must contain every given writer row, but may hold extra rows
     /// (e.g. blocks backfilled below `start` to complete the merkle tree chain).
     Containment,
 }
@@ -518,13 +519,10 @@ pub(crate) fn assert_reader_writer_parity(
                         | DBCol::BlockPerHeight
                         | DBCol::ChunkHashesByHeight
                         | DBCol::ChunkExtra
-                        | DBCol::ChunkApplyStats
                         | DBCol::IncomingReceipts
-                        | DBCol::OutgoingReceipts
                         | DBCol::OutcomeIds
                         | DBCol::TransactionResultForBlock
                         | DBCol::StateChanges
-                        | DBCol::Chunks
                         | DBCol::Transactions
                         | DBCol::Receipts
                         | DBCol::ReceiptToTx
@@ -539,7 +537,7 @@ pub(crate) fn assert_reader_writer_parity(
         })
         .collect();
 
-    let writer_in_range = in_range_kvs(writer, &cols, start, end);
+    let writer_kvs = writer_kvs(writer, &cols, start, end);
 
     for &col in &cols {
         let parity = match col {
@@ -550,25 +548,25 @@ pub(crate) fn assert_reader_writer_parity(
             }
             _ => Parity::Equality,
         };
-        assert_keyed_parity(reader, col, &writer_in_range[&col], parity);
+        assert_keyed_parity(reader, col, &writer_kvs[&col], parity);
     }
 }
 
-/// Compares the writer's in-range rows in `col` against the full reader.
+/// Compares the writer's rows in `col` against the full reader.
 fn assert_keyed_parity(
     reader: &Store,
     col: DBCol,
-    writer_in_range_kvs: &BTreeMap<Vec<u8>, Vec<u8>>,
+    writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>,
     parity: Parity,
 ) {
     let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
         reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
     match parity {
         Parity::Equality => {
-            assert_eq!(&reader_all_kvs, writer_in_range_kvs, "{col} parity mismatch")
+            assert_eq!(&reader_all_kvs, writer_kvs, "{col} parity mismatch")
         }
         Parity::Containment => {
-            for (key, writer_value) in writer_in_range_kvs {
+            for (key, writer_value) in writer_kvs {
                 assert_eq!(
                     reader_all_kvs.get(key),
                     Some(writer_value),
@@ -579,8 +577,33 @@ fn assert_keyed_parity(
     }
 }
 
-/// Returns the writer's key-values within `[start, end]`, one map per column in `cols`.
-fn in_range_kvs(
+/// Collects the writer's per-(block, shard) column rows for one chunk into `kvs`.
+fn collect_chunk_kvs(
+    writer: &Store,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    block_hash: &CryptoHash,
+    chunk_header: &ShardChunkHeader,
+    height: BlockHeight,
+) {
+    let block_shard_id = get_block_shard_id(block_hash, chunk_header.shard_id());
+    if chunk_header.is_new_chunk(height) {
+        let chunk_hash = chunk_header.chunk_hash().as_ref().to_vec();
+        let value = writer.get(DBCol::Chunks, &chunk_hash).unwrap();
+        kvs.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash, value.to_vec());
+        if let Some(value) = writer.get(DBCol::OutgoingReceipts, &block_shard_id) {
+            kvs.get_mut(&DBCol::OutgoingReceipts)
+                .unwrap()
+                .insert(block_shard_id.clone(), value.to_vec());
+        }
+    }
+    if let Some(value) = writer.get(DBCol::ChunkApplyStats, &block_shard_id) {
+        kvs.get_mut(&DBCol::ChunkApplyStats).unwrap().insert(block_shard_id, value.to_vec());
+    }
+}
+
+/// Returns the writer rows the reader is expected to hold over `[start, end]`,
+/// plus the genesis block, one map per column in `cols`.
+fn writer_kvs(
     writer: &Store,
     cols: &[DBCol],
     start: BlockHeight,
@@ -588,19 +611,21 @@ fn in_range_kvs(
 ) -> HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> {
     let writer_store = writer.chain_store();
     let chain_head = writer_store.head().unwrap().height;
+    let genesis_height = writer_store.get_genesis_height();
 
-    let mut in_range: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
+    let mut in_scope: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
         cols.iter().map(|&c| (c, BTreeMap::new())).collect();
-    let mut out_of_range: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
+    let mut out_of_scope: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
         cols.iter().map(|&c| (c, BTreeMap::new())).collect();
 
-    // Walk the chain, reading each column's row at height `h` into the in-range or
-    // out-of-range map.
+    // Walk the chain, reading each column's row at height `h` into the in-scope
+    // or the out-of-scope map. Genesis is in scope wherever it sits.
     for h in 0..=chain_head {
         let Ok(block_hash) = writer_store.get_block_hash_by_height(h) else {
             continue;
         };
-        let kvs = if (start..=end).contains(&h) { &mut in_range } else { &mut out_of_range };
+        let is_in_scope = (start..=end).contains(&h) || h == genesis_height;
+        let kvs = if is_in_scope { &mut in_scope } else { &mut out_of_scope };
         let height_key = index_to_bytes(h).to_vec();
         if let Some(value) = writer.get(DBCol::BlockHeight, &height_key) {
             kvs.get_mut(&DBCol::BlockHeight).unwrap().insert(height_key, value.to_vec());
@@ -611,6 +636,10 @@ fn in_range_kvs(
                 kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
             }
         }
+        let block = writer_store.get_block(&block_hash).expect("block exists, checked above");
+        for chunk_header in block.chunks().iter_raw() {
+            collect_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
+        }
     }
 
     // TODO(cloud_archival): add a negative test (follow-up PR) that tampers a
@@ -619,14 +648,14 @@ fn in_range_kvs(
     for &col in cols {
         let writer_all: BTreeMap<Vec<u8>, Vec<u8>> =
             writer.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
-        let mut seen = in_range[&col].clone();
-        seen.extend(out_of_range[&col].clone());
+        let mut seen = in_scope[&col].clone();
+        seen.extend(out_of_scope[&col].clone());
         assert_eq!(seen, writer_all, "{col}: walk did not reproduce writer's column");
         assert!(
-            in_range[&col].keys().all(|k| !out_of_range[&col].contains_key(k)),
-            "{col}: key in both in-range and out-of-range",
+            in_scope[&col].keys().all(|k| !out_of_scope[&col].contains_key(k)),
+            "{col}: key in both in-scope and out-of-scope",
         );
     }
 
-    in_range
+    in_scope
 }
