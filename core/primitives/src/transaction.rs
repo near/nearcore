@@ -310,15 +310,6 @@ impl ValidatedTransaction {
         // so the exhaustive `Action` match in
         // `Action::post_quantum_signatures_required` forces every future
         // action variant to make an explicit decision at compile time.
-        //
-        // TODO(post-quantum): this gate alone does not close the "implicit protocol
-        // upgrade" divergence: on a pre-feature protocol an old binary fails
-        // to borsh-decode an ML-DSA-65 tx and rejects the whole chunk, while
-        // a new binary decodes it and rejects only the tx, splitting chunk
-        // endorsements. The same exposure exists today for GasKeys, StrictNonce
-        // and DynamicResharding wire variants; needs a systemic fix (e.g. a
-        // forward-compat envelope around `SignedTransaction`), not a
-        // per-feature mitigation.
         if !ProtocolFeature::PostQuantumSignatures.enabled(protocol_version)
             && signed_tx.post_quantum_signatures_required()
         {
