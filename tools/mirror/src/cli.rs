@@ -1,4 +1,5 @@
 use anyhow::Context;
+use near_async::future_registry::with_stall_diagnostics;
 use near_primitives::types::BlockHeight;
 use near_primitives::views::AccessKeyPermissionView;
 use std::path::PathBuf;
@@ -83,7 +84,9 @@ impl RunCmd {
         // run() aborts spawned tasks, awaits them, and calls actor_system.stop(). By the time we
         // get here the tokio runtime is dropped and all Arc<DB> refs should be gone. Wait for RocksDB
         // background threads to finish flushing.
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
+        with_stall_diagnostics("rocksdb instances to close", || {
+            near_store::db::RocksDB::block_until_all_instances_are_dropped();
+        });
         result
     }
 }
