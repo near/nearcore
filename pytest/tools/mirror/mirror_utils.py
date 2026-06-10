@@ -540,5 +540,8 @@ def allowed_run_time(target_node_dir, start_time, end_source_height):
         block_delay = 10**9 * int(delay['secs']) + int(delay['nanos'])
         block_delay = block_delay / 10**9
 
-    # Give 20 seconds to sync, then 1.5x min_block_production_delay per block
-    return 20 + (end_source_height - genesis_height) * block_delay * 1.5
+    # Give 20 seconds to sync, then 1.5x min_block_production_delay per block.
+    # Floor at 180s: loaded workers finish close to the computed budget, and a
+    # stalled shutdown needs an observation window to distinguish slow from hung.
+    return max(180,
+               20 + (end_source_height - genesis_height) * block_delay * 1.5)
