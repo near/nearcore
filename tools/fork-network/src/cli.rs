@@ -932,11 +932,10 @@ impl ForkNetworkCommand {
                 config.num_chunk_validator_seats = *num_seats;
             }
             if let Some(shard_layout) = shard_layout_override {
-                // fork-network writes a static-layout genesis, so apply the requested shard
-                // layout whether the base (mainnet) config is static or dynamic. The base is
-                // dynamic since resharding stabilized; otherwise make_and_write_genesis fails.
-                config.shard_layout_config =
-                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                if config.static_shard_layout().is_some() {
+                    config.shard_layout_config =
+                        ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                }
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }

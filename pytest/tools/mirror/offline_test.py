@@ -383,9 +383,6 @@ def build_images(config, test_cases):
     logger.info('Phase 2: issuing pre-fork transactions')
     ctx = TestContext(source_node, source_node.signer_key, nonce=2)
 
-    # The source node's RPC can briefly refuse connections right after it first
-    # reports ready, so retry until it is reliably serving before querying it.
-    source_node.wait_for_rpc(timeout=30)
     tip = source_node.get_latest_block()
     ctx.bhash = base58.b58decode(tip.hash.encode('utf8'))
 
@@ -534,7 +531,6 @@ def run_mirror(config, test_cases, target_img, source_img, validator_keys,
     # Start mirror (--no-secret: fork-network uses identity key mapping)
     logger.info('Starting mirror process')
     mirror = mirror_utils.MirrorProcess(near_root, str(source_dir),
-                                        end_source_height,
                                         config.get('binary_name', 'neard'))
     time_limit = mirror_utils.allowed_run_time(target_node_dirs[0],
                                                mirror.start_time,

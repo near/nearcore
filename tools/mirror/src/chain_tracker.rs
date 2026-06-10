@@ -216,12 +216,10 @@ impl TxTracker {
 
     pub(crate) fn finished(&self) -> bool {
         match self.stop_height {
-            // Done once we've popped (sent or dropped) every block up to --stop-height. We
-            // deliberately don't also wait for height_seen to reach the last queued height:
-            // that is only a logging nicety, and after a restart the last blocks' txs were
-            // already applied and observed before the restart, so the forward-resuming indexer
-            // never re-streams them and height_seen could never catch up — which would hang us.
-            Some(stop_height) => self.height_popped >= Some(stop_height),
+            Some(_) => {
+                self.height_popped >= self.stop_height
+                    && self.height_seen >= self.nonempty_height_queued
+            }
             None => false,
         }
     }
@@ -391,7 +389,7 @@ impl TxTracker {
         }
     }
 
-    pub(crate) fn get_tx<'a>(
+    fn get_tx<'a>(
         tx_block_queue: &'a mut VecDeque<MappedBlock>,
         tx_ref: &TxRef,
     ) -> &'a mut TargetChainTx {
@@ -742,65 +740,6 @@ impl TxTracker {
             }
             info.target_nonce.nonce = std::cmp::max(info.target_nonce.nonce, nonce);
         }
-        Ok(())
-    }
-
-    // Keys that still have txs waiting for their target nonce to become known (the access key
-    // isn't on the target chain yet). These are re-queried against the live target.
-    pub(crate) fn keys_awaiting_nonce(&self) -> Vec<NonceLookupKey> {
-        self.nonces
-            .iter()
-            .filter(|(_, info)| {
-                info.target_nonce.nonce.is_none() && !info.txs_awaiting_nonce.is_empty()
-            })
-            .map(|(key, _)| key.clone())
-            .collect()
-    }
-
-    // Query-authoritative nonce resolution: given the nonce just read from the target chain for
-    // `nonce_key`, promote that key's awaiting txs to Ready with sequential nonces. Unlike the
-    // outcome-driven path this depends only on the live target state, so it also recovers txs
-    // whose creating outcome we won't observe again (e.g. after a restart). A `None` nonce means
-    // the access key still isn't on the target chain, so we keep waiting.
-    pub(crate) fn resolve_awaiting_nonce(
-        &mut self,
-        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        db: &DB,
-        nonce_key: &NonceLookupKey,
-        mut nonce: Option<Nonce>,
-    ) -> anyhow::Result<()> {
-        if nonce.is_none() {
-            return Ok(());
-        }
-        let Some(info) = self.nonces.get(nonce_key) else {
-            return Ok(());
-        };
-        let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
-        let mut to_remove = Vec::new();
-        {
-            let mut tx_block_queue = tx_block_queue.lock();
-            for r in &txs_awaiting_nonce {
-                let tx = Self::get_tx(&mut tx_block_queue, r);
-                let TargetChainTx::AwaitingNonce(_) = tx else {
-                    continue;
-                };
-                if let Some(n) = &mut nonce {
-                    *n += 1;
-                }
-                tx.try_set_nonce(nonce);
-                to_remove.push(r.clone());
-                tracing::debug!(target: "mirror", ?nonce_key, tx_ref = %r, "resolved awaiting nonce from target query");
-            }
-        }
-        let info = self.nonces.get_mut(nonce_key).unwrap();
-        for r in &to_remove {
-            info.txs_awaiting_nonce.remove(r);
-        }
-        info.target_nonce.nonce = std::cmp::max(info.target_nonce.nonce, nonce);
-        let mut stored = crate::read_target_nonce(db, nonce_key)?
-            .unwrap_or(LatestTargetNonce { nonce: None, pending_outcomes: HashSet::new() });
-        stored.nonce = std::cmp::max(stored.nonce, nonce);
-        crate::put_target_nonce(db, nonce_key, &stored)?;
         Ok(())
     }
 

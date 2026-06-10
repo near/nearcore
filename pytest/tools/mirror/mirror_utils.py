@@ -140,18 +140,16 @@ class MirrorProcess:
     Automatically restarts once after 30 seconds to test resume capability.
     """
 
-    def __init__(self, near_root, source_home, stop_height, binary_name='neard'):
+    def __init__(self, near_root, source_home, binary_name='neard'):
         self.source_home = source_home
         self.neard = os.path.join(near_root, binary_name)
-        self.stop_height = stop_height
         self.start()
         self.start_time = time.time()
         self.restarted = False
 
     def start(self):
         env = os.environ.copy()
-        env["RUST_BACKTRACE"] = "full"
-        env["RUST_LOG"] = "mio=warn,tokio_util=warn,indexer=info,mirror=debug," + env.get(
+        env["RUST_LOG"] = "mio=warn,tokio_util=warn,indexer=info," + env.get(
             "RUST_LOG", "debug")
         config_path = dot_near() / f'{MIRROR_DIR}/config.json'
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
@@ -172,8 +170,6 @@ class MirrorProcess:
                 '--no-secret',
                 '--config-path',
                 config_path,
-                '--stop-height',
-                str(self.stop_height),
             ]
             self.process = subprocess.Popen(args,
                                             stdin=subprocess.DEVNULL,

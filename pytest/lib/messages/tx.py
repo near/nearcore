@@ -284,8 +284,10 @@ tx_schema = [
     ],
     [
         NonceMode, {
-            'kind': 'enum',
-            'field': 'enum',
+            'kind':
+                'enum',
+            'field':
+                'enum',
             'values': [
                 ['monotonic', NonceModeVariant],
                 ['strict', NonceModeVariant],
