@@ -32,8 +32,26 @@ impl DeferredTx {
         }
     }
 
+    // Rebuilds the deferrable payload of a tx that was already signed and sent, so
+    // it can be requeued with a fresh nonce once we know the sent one can never land.
+    pub(crate) fn from_mapped(tx: &MappedTx, deferred_at: BlockHeight) -> Self {
+        Self {
+            source_signer_id: tx.source_signer_id.clone(),
+            source_receiver_id: tx.source_receiver_id.clone(),
+            provenance: tx.provenance,
+            target_secret_key: tx.target_secret_key.clone(),
+            target_tx: tx.target_tx.transaction.clone(),
+            nonce_updates: tx.nonce_updates.clone(),
+            deferred_at,
+        }
+    }
+
     pub(crate) fn nonce_key(&self) -> NonceLookupKey {
         NonceLookupKey::from_tx(&self.target_tx)
+    }
+
+    pub(crate) fn nonce(&self) -> Nonce {
+        self.target_tx.nonce().nonce()
     }
 
     pub(crate) fn into_ready(self) -> MappedTx {
@@ -45,6 +63,7 @@ impl DeferredTx {
             source_signer_id: self.source_signer_id,
             source_receiver_id: self.source_receiver_id,
             provenance: self.provenance,
+            target_secret_key: self.target_secret_key,
             target_tx,
             nonce_updates: self.nonce_updates,
             sent_successfully: false,
@@ -74,6 +93,17 @@ impl DeferredTxTracker {
         let nonce_key = deferred.nonce_key();
         self.txs.entry(nonce_key.clone()).or_default().push(deferred);
         tracing::debug!(target: "mirror", ?nonce_key, "deferred tx until its access key appears on the target chain");
+    }
+
+    // Requeues a tx whose sent copy can never land (a later nonce was included, or
+    // its block hash reference expired). The next deferred poll re-signs it with a
+    // fresh nonce since its access key already exists on the target chain.
+    pub(crate) fn push_resend(&mut self, mut tx: DeferredTx, target_height: BlockHeight) {
+        tx.deferred_at = target_height;
+        let nonce_key = tx.nonce_key();
+        let lost_nonce = tx.nonce();
+        self.txs.entry(nonce_key.clone()).or_default().push(tx);
+        tracing::warn!(target: "mirror", ?nonce_key, lost_nonce, "requeueing tx lost on the target chain for resend");
     }
 
     pub(crate) fn resolve(
@@ -178,5 +208,34 @@ mod test {
 
         tracker.prune(5 + DEFERRED_TX_TTL + 1);
         assert!(tracker.keys().is_empty());
+    }
+
+    #[test]
+    fn push_resend_reassigns_nonce_and_resigns() {
+        let mut sent = awaiting_nonce("alice.near", 10);
+        *sent.target_tx.nonce_mut() = 10;
+        let lost = DeferredTx::new(sent, 5).into_ready();
+        let lost_hash = lost.target_tx.get_hash();
+        let key = NonceLookupKey::from_tx(&lost.target_tx.transaction);
+
+        let mut tracker = DeferredTxTracker::new();
+        tracker.push_resend(DeferredTx::from_mapped(&lost, 5), 20);
+        assert_eq!(tracker.keys(), vec![key.clone()]);
+
+        // the resend stays alive relative to the requeue height, not the send height
+        tracker.prune(20 + DEFERRED_TX_TTL);
+        assert_eq!(tracker.keys().len(), 1);
+
+        let mut nonce = Some(12);
+        let resolved = tracker.resolve(&key, &mut nonce);
+        assert_eq!(resolved.iter().map(assigned_nonce).collect::<Vec<_>>(), vec![13]);
+        let resent = resolved.into_iter().next().unwrap().into_ready();
+        assert_eq!(resent.target_tx.transaction.nonce().nonce(), 13);
+        assert_ne!(resent.target_tx.get_hash(), lost_hash);
+        assert_eq!(resent.target_tx.transaction.actions(), lost.target_tx.transaction.actions());
+        resent.target_tx.signature.verify(
+            resent.target_tx.get_hash().as_ref(),
+            &resent.target_tx.transaction.public_key(),
+        );
     }
 }

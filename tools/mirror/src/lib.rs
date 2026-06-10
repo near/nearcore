@@ -465,6 +465,7 @@ struct TxMirror<T: ChainAccess> {
     db: Arc<DB>,
     target_genesis_height: BlockHeight,
     target_min_block_production_delay: Duration,
+    target_tx_validity_period: BlockHeight,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     default_extra_key: SecretKey,
     config: MirrorConfig,
@@ -631,6 +632,7 @@ struct MappedTx {
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
     provenance: MappedTxProvenance,
+    target_secret_key: SecretKey,
     target_tx: SignedTransaction,
     nonce_updates: HashSet<NonceLookupKey>,
     sent_successfully: bool,
@@ -647,6 +649,7 @@ impl MappedTx {
             source_signer_id: mapping.source_signer_id,
             source_receiver_id: mapping.source_receiver_id,
             provenance: mapping.provenance,
+            target_secret_key: mapping.target_secret_key,
             target_tx,
             nonce_updates: mapping.nonce_updates,
             sent_successfully: false,
@@ -680,6 +683,7 @@ impl TargetChainTx {
                     source_signer_id: t.source_signer_id.clone(),
                     source_receiver_id: t.source_receiver_id.clone(),
                     provenance: t.provenance,
+                    target_secret_key: t.target_secret_key.clone(),
                     target_tx,
                     nonce_updates: t.nonce_updates.clone(),
                     sent_successfully: false,
@@ -924,6 +928,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .min_block_production_delay
                 .get()
                 .unsigned_abs(),
+            target_tx_validity_period: target_config.genesis.config.transaction_validity_period,
             secret,
             default_extra_key,
             config,
@@ -2286,6 +2291,7 @@ impl<T: ChainAccess> TxMirror<T> {
             self.config.tx_batch_interval,
             next_heights.iter(),
             stop_height,
+            self.target_tx_validity_period,
         )));
         let target_height = Arc::new(RwLock::new(0));
         let target_head = Arc::new(RwLock::new(CryptoHash::default()));

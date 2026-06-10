@@ -19,3 +19,12 @@ pub static TRANSACTIONS_INCLUDED: LazyLock<IntCounter> = LazyLock::new(|| {
     )
     .unwrap()
 });
+
+pub static TRANSACTIONS_REQUEUED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_mirror_transactions_requeued",
+        "Total number of sent transactions that were lost on the target chain and requeued for resend",
+        &["reason"],
+    )
+    .unwrap()
+});

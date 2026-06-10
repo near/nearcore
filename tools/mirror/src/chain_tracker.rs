@@ -37,6 +37,10 @@ struct TxSendInfo {
     target_receiver_id: Option<AccountId>,
     actions: Vec<String>,
     sent_at_target_height: BlockHeight,
+    // everything needed to re-sign and resend this tx with a fresh nonce if the
+    // sent copy turns out to be permanently lost (a later nonce of the same key
+    // was included, or the sent tx's block hash reference expired)
+    resend: DeferredTx,
 }
 
 impl TxSendInfo {
@@ -73,6 +77,7 @@ impl TxSendInfo {
                 .iter()
                 .map(|a| a.as_ref().to_string())
                 .collect::<Vec<_>>(),
+            resend: DeferredTx::from_mapped(tx, target_height),
         }
     }
 }
@@ -154,6 +159,9 @@ pub(crate) struct TxTracker {
     recent_block_timestamps: VecDeque<u64>,
     // last source block we'll be sending transactions for
     stop_height: Option<BlockHeight>,
+    // target chain config value; once a sent tx is this many target blocks old, its
+    // block hash reference makes it permanently un-includable and it's safe to resend
+    tx_validity_period: BlockHeight,
     // transactions that were sent before their access key appeared on the target
     // chain, keyed by the NonceLookupKey they're waiting on. Held in memory only.
     // Resent by try_set_nonces() once the nonce is known, pruned in the steady-state
@@ -170,6 +178,7 @@ impl TxTracker {
         tx_batch_interval: Option<Duration>,
         next_heights: I,
         stop_height: Option<BlockHeight>,
+        tx_validity_period: BlockHeight,
     ) -> Self
     where
         I: IntoIterator<Item = &'a BlockHeight>,
@@ -180,6 +189,7 @@ impl TxTracker {
             next_heights,
             stop_height,
             tx_batch_interval,
+            tx_validity_period,
             sent_txs: HashMap::new(),
             txs_by_signer: HashMap::new(),
             updater_to_keys: HashMap::new(),
@@ -517,7 +527,7 @@ impl TxTracker {
         Ok(())
     }
 
-    fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome) {
+    fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome, target_height: BlockHeight) {
         let nonce_key = NonceLookupKey::from_tx_view(&tx.transaction);
         match self.txs_by_signer.entry(nonce_key.clone()) {
             hash_map::Entry::Occupied(mut e) => {
@@ -541,12 +551,22 @@ impl TxTracker {
                         "skip txs by tx inclusion",
                     );
                     for t in txs.iter() {
-                        if self.sent_txs.remove(&t.hash).is_none() {
-                            tracing::warn!(
-                                target: "mirror",
-                                tx_hash = %t.hash,
-                                "tx with hash that we thought was skipped is not in the set of sent txs",
-                            );
+                        // this tx's nonce is now below one included on chain, so the sent
+                        // copy can never land. requeue it to resend with a fresh nonce.
+                        match self.sent_txs.remove(&t.hash) {
+                            Some(info) => {
+                                crate::metrics::TRANSACTIONS_REQUEUED
+                                    .with_label_values(&["nonce_skipped"])
+                                    .inc();
+                                self.deferred_txs.push_resend(info.resend, target_height);
+                            }
+                            None => {
+                                tracing::warn!(
+                                    target: "mirror",
+                                    tx_hash = %t.hash,
+                                    "tx with hash that we thought was skipped is not in the set of sent txs",
+                                );
+                            }
                         }
                     }
                 }
@@ -802,10 +822,11 @@ impl TxTracker {
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
         tx: IndexerTransactionWithOutcome,
+        target_height: BlockHeight,
     ) -> anyhow::Result<()> {
         if let Some(info) = self.sent_txs.remove(&tx.transaction.hash) {
             crate::metrics::TRANSACTIONS_INCLUDED.inc();
-            self.remove_tx(&tx);
+            self.remove_tx(&tx, target_height);
             if info.source_height > self.height_seen {
                 self.height_seen = info.source_height;
             }
@@ -894,12 +915,13 @@ impl TxTracker {
         self.record_block_timestamp(&msg);
         self.log_target_block(&msg);
 
+        let target_height = msg.block.header.height;
         let mut access_key_updates = Vec::new();
         let mut staked_accounts = HashMap::new();
         for s in msg.shards {
             if let Some(c) = s.chunk {
                 for tx in c.transactions {
-                    self.on_target_block_tx(tx_block_queue, db, tx)?;
+                    self.on_target_block_tx(tx_block_queue, db, tx, target_height)?;
                 }
                 for outcome in s.receipt_execution_outcomes {
                     self.on_target_block_applied_receipt(
@@ -911,7 +933,36 @@ impl TxTracker {
                 }
             }
         }
+        self.requeue_expired_sent_txs(target_height);
         Ok(TargetBlockInfo { staked_accounts, access_key_updates })
+    }
+
+    // Requeues sent txs that were never observed on chain and whose block hash
+    // reference has expired, which guarantees the sent copy can no longer be
+    // included so resending with a fresh nonce cannot double-execute. The tx's
+    // block hash was at or below the height it was sent at, so comparing against
+    // sent_at_target_height is conservative.
+    fn requeue_expired_sent_txs(&mut self, target_height: BlockHeight) {
+        let expired: Vec<CryptoHash> = self
+            .sent_txs
+            .iter()
+            .filter(|(_, info)| {
+                target_height.saturating_sub(info.sent_at_target_height) > self.tx_validity_period
+            })
+            .map(|(hash, _)| *hash)
+            .collect();
+        for hash in expired {
+            let info = self.sent_txs.remove(&hash).unwrap();
+            let nonce_key = info.resend.nonce_key();
+            if let Some(txs) = self.txs_by_signer.get_mut(&nonce_key) {
+                txs.remove(&TxId { hash, nonce: info.resend.nonce() });
+                if txs.is_empty() {
+                    self.txs_by_signer.remove(&nonce_key);
+                }
+            }
+            crate::metrics::TRANSACTIONS_REQUEUED.with_label_values(&["expired"]).inc();
+            self.deferred_txs.push_resend(info.resend, target_height);
+        }
     }
 
     fn on_tx_sent(
