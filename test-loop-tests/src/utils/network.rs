@@ -64,10 +64,18 @@ pub fn chunk_endorsement_dropper(
     validator: AccountId,
 ) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
     Box::new(move |request| {
-        if let NetworkRequests::ChunkEndorsement(_target, endorsement) = &request {
-            if endorsement.validator_account() == &validator {
+        match &request {
+            NetworkRequests::ChunkEndorsement(_target, endorsement)
+                if endorsement.validator_account() == &validator =>
+            {
                 return HandlerResult::Handled(NetworkResponses::NoResponse);
             }
+            NetworkRequests::SpiceChunkEndorsement(_target, endorsement)
+                if endorsement.account_id() == &validator =>
+            {
+                return HandlerResult::Handled(NetworkResponses::NoResponse);
+            }
+            _ => {}
         }
         HandlerResult::Unhandled(request)
     })

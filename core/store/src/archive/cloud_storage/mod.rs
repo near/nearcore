@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::DBCol;
 use crate::archive::cloud_storage::batch::compute_batch_id;
 pub use crate::archive::cloud_storage::batch::{BatchId, BatchRange, compute_next_batch};
@@ -144,8 +143,7 @@ fn block_on_future<F: Future>(fut: F) -> F::Output {
 }
 
 /// Columns the cloud-archive reader reproduces from cloud data.
-#[cfg(test)]
-fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
+pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
     matches!(
         col,
         // From BlockData.

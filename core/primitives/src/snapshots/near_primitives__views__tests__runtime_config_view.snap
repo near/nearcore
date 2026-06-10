@@ -1,7 +1,6 @@
 ---
 source: core/primitives/src/views.rs
 expression: "&view"
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -104,7 +103,7 @@ snapshot_kind: text
       1,
       1
     ],
-    "ml_dsa_65_verification_cost": 0
+    "ml_dsa_65_verification_cost": 100000000000
   },
   "wasm_config": {
     "ext_costs": {
