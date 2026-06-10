@@ -42,6 +42,7 @@ use tokio_util::sync::CancellationToken;
 
 mod chain_tracker;
 pub mod cli;
+mod deferred_tx;
 pub mod genesis;
 pub mod key_mapping;
 mod key_util;
@@ -52,6 +53,7 @@ pub mod secret;
 mod shutdown;
 
 pub use cli::MirrorCommand;
+use deferred_tx::DeferredTx;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
@@ -628,6 +630,9 @@ impl TxAwaitingNonce {
 struct MappedTx {
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
+    // set only for resent deferred txs; regular txs carry their source height in
+    // the TxRef they are sent with
+    source_height: Option<BlockHeight>,
     provenance: MappedTxProvenance,
     target_secret_key: SecretKey,
     target_tx: SignedTransaction,
@@ -645,6 +650,7 @@ impl MappedTx {
         Self {
             source_signer_id: mapping.source_signer_id,
             source_receiver_id: mapping.source_receiver_id,
+            source_height: None,
             provenance: mapping.provenance,
             target_secret_key: mapping.target_secret_key,
             target_tx,
@@ -679,6 +685,7 @@ impl TargetChainTx {
                 *self = Self::Ready(MappedTx {
                     source_signer_id: t.source_signer_id.clone(),
                     source_receiver_id: t.source_receiver_id.clone(),
+                    source_height: None,
                     provenance: t.provenance,
                     target_secret_key: t.target_secret_key.clone(),
                     target_tx,
@@ -1880,11 +1887,42 @@ impl<T: ChainAccess> TxMirror<T> {
             tracker.on_txs_sent(
                 tx_block_queue,
                 &self.db,
-                crate::chain_tracker::SentBatch::ExtraTxs(txs),
+                crate::chain_tracker::SentBatch::UnstakeTxs(txs),
                 target_height,
             )?;
         }
         Ok(())
+    }
+
+    // Query the target chain for all deferred tx keys and resolve any whose
+    // access key has appeared. Returns the resolved txs ready to resend.
+    async fn poll_deferred_txs(
+        tracker: &Mutex<crate::chain_tracker::TxTracker>,
+        view_client: &MultithreadRuntimeHandle<ViewClientActor>,
+    ) -> anyhow::Result<Vec<DeferredTx>> {
+        let deferred_keys = tracker.lock().deferred_txs.keys();
+        if deferred_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut resend = Vec::new();
+        let mut resolved = 0;
+        for nonce_key in &deferred_keys {
+            let mut nonce = crate::fetch_nonce(view_client, nonce_key).await?;
+            if nonce.is_none() {
+                continue;
+            }
+            let txs = tracker.lock().resolve_deferred_txs(nonce_key, &mut nonce);
+            if txs.is_empty() {
+                // raced with try_set_nonces() resolving this key first
+                continue;
+            }
+            tracing::info!(target: "mirror", ?nonce_key, count = txs.len(), "resolved deferred txs");
+            resend.extend(txs);
+            resolved += 1;
+        }
+        let unresolved = deferred_keys.len() - resolved;
+        tracing::info!(target: "mirror", resolved, unresolved, resend_count = resend.len(), "deferred tx poll complete");
+        Ok(resend)
     }
 
     async fn send_txs_loop(
@@ -1967,6 +2005,7 @@ impl<T: ChainAccess> TxMirror<T> {
             MultithreadRuntimeHandle<RpcHandlerActor>,
         )>,
         accounts_to_unstake: mpsc::Sender<HashMap<(AccountId, PublicKey), AccountId>>,
+        deferred_resend: mpsc::Sender<Vec<DeferredTx>>,
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
         actor_system: near_async::ActorSystem,
@@ -2016,11 +2055,28 @@ impl<T: ChainAccess> TxMirror<T> {
             if !target_block_info.staked_accounts.is_empty() {
                 accounts_to_unstake.send(target_block_info.staked_accounts).await?;
             }
+            let mut resend =
+                if msg_height % crate::deferred_tx::DEFERRED_TX_POLL_INTERVAL_BLOCKS == 0 {
+                    Self::poll_deferred_txs(&tracker, &view_client).await?
+                } else {
+                    Vec::new()
+                };
             for access_key_update in target_block_info.access_key_updates {
                 let nonce = crate::fetch_nonce(&view_client, &access_key_update.nonce_key).await?;
                 let mut tracker = tracker.lock();
-                tracker.try_set_nonces(&tx_block_queue, db.as_ref(), access_key_update, nonce)?;
+                resend.extend(tracker.try_set_nonces(
+                    &tx_block_queue,
+                    db.as_ref(),
+                    access_key_update,
+                    nonce,
+                )?);
             }
+            if !resend.is_empty() {
+                deferred_resend.send(resend).await?;
+            }
+            // Prune after this block's access-key updates have been resolved, so a key that
+            // appears in this block resolves its deferred txs before we'd drop them.
+            tracker.lock().deferred_txs.prune(msg_height);
         }
     }
 
@@ -2061,6 +2117,7 @@ impl<T: ChainAccess> TxMirror<T> {
         target_view_client: MultithreadRuntimeHandle<ViewClientActor>,
         mut blocks_sent: mpsc::Receiver<TxBatch>,
         mut accounts_to_unstake: mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
+        mut deferred_resend: mpsc::Receiver<Vec<DeferredTx>>,
         send_delay: Arc<Mutex<Duration>>,
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
@@ -2104,6 +2161,27 @@ impl<T: ChainAccess> TxMirror<T> {
                         &target_head, target_height
                     ).await?;
                 }
+                msg = deferred_resend.recv() => {
+                    // resends carry lower nonces than queued txs of the same key, and
+                    // this arm has to win the race with send_txs_loop's next batch (it
+                    // does in practice: the resend lands here within one 100ms select
+                    // iteration while batches go out every block interval). A resend
+                    // that loses the race is rejected at submission as a stale nonce.
+                    let deferred = msg.unwrap();
+                    let mut txs = deferred
+                        .into_iter()
+                        .map(|tx| TargetChainTx::Ready(tx.into_ready()))
+                        .collect::<Vec<_>>();
+                    Self::send_transactions(&target_client, txs.iter_mut()).await?;
+                    let target_height = *target_height.read();
+                    let mut tracker = tracker.lock();
+                    tracker.on_txs_sent(
+                        &tx_block_queue,
+                        &self.db,
+                        crate::chain_tracker::SentBatch::DeferredResendTxs(txs),
+                        target_height,
+                    )?;
+                }
             };
             // TODO: this locking of the mutex before continuing the loop is kind of unnecessary since we should be able to tell
             // exactly when we've done the thing that makes finished() return true, usually after a call to on_target_block()
@@ -2120,19 +2198,23 @@ impl<T: ChainAccess> TxMirror<T> {
     // Waits until every sent transaction has been observed in a target block, so
     // a restarted mirror's resume point doesn't skip past txs that died in the
     // mempool. The target indexer keeps running and clears sent_txs meanwhile.
+    // Deferred txs whose keys never appeared are dropped, with their count logged.
     async fn drain_sent_txs(
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
     ) -> anyhow::Result<()> {
         tracing::info!(target: "mirror", "stopped sending, waiting for already sent transactions to appear on the target chain");
         let deadline = Instant::now() + DRAIN_TIMEOUT;
         loop {
-            let sent_txs_remaining = tracker.lock().sent_txs_remaining();
+            let (sent_txs_remaining, deferred_txs_dropped) = {
+                let tracker = tracker.lock();
+                (tracker.sent_txs_remaining(), tracker.deferred_txs.len())
+            };
             if sent_txs_remaining == 0 {
-                tracing::info!(target: "mirror", "all sent transactions observed on the target chain, exiting after drain");
+                tracing::info!(target: "mirror", deferred_txs_dropped, "all sent transactions observed on the target chain, exiting after drain");
                 return Ok(());
             }
             if Instant::now() > deadline {
-                tracing::warn!(target: "mirror", sent_txs_remaining, "drain timed out with sent transactions never observed on the target chain");
+                tracing::warn!(target: "mirror", sent_txs_remaining, deferred_txs_dropped, "drain timed out with sent transactions never observed on the target chain");
                 return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2252,6 +2334,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let (target_indexer_done_tx, target_indexer_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
         let (unstake_tx, unstake_rx) = mpsc::channel(10);
+        let (deferred_resend_tx, deferred_resend_rx) = mpsc::channel(10);
 
         let db = self.db.clone();
         let target_height2 = target_height.clone();
@@ -2273,6 +2356,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 db,
                 clients_tx,
                 unstake_tx,
+                deferred_resend_tx,
                 target_height2,
                 target_head2,
                 actor_system2,
@@ -2379,7 +2463,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let result = tokio::select! {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
-                blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
+                blocks_sent_rx, unstake_rx, deferred_resend_rx, send_delay, target_height, target_head,
                 source_hash, stop_height.is_some(), shutdown,
             ) => {
                 res

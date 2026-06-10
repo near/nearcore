@@ -1,3 +1,4 @@
+use crate::deferred_tx::{DeferredTx, DeferredTxTracker};
 use crate::{
     ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
     NonceKind, NonceLookupKey, NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
@@ -36,6 +37,8 @@ struct TxSendInfo {
     target_receiver_id: Option<AccountId>,
     actions: Vec<String>,
     sent_at_target_height: BlockHeight,
+    // payload for re-signing and resending if the sent copy can never land
+    resend: DeferredTx,
 }
 
 impl TxSendInfo {
@@ -72,6 +75,7 @@ impl TxSendInfo {
                 .iter()
                 .map(|a| a.as_ref().to_string())
                 .collect::<Vec<_>>(),
+            resend: DeferredTx::from_mapped(tx, target_height, source_height),
         }
     }
 }
@@ -107,7 +111,8 @@ struct NonceInfo {
 
 pub(crate) enum SentBatch {
     MappedBlock(TxBatch),
-    ExtraTxs(Vec<TargetChainTx>),
+    UnstakeTxs(Vec<TargetChainTx>),
+    DeferredResendTxs(Vec<TargetChainTx>),
 }
 
 // a nonce lookup key along with the id of the tx or receipt that might have updated it
@@ -152,6 +157,10 @@ pub(crate) struct TxTracker {
     recent_block_timestamps: VecDeque<u64>,
     // last source block we'll be sending transactions for
     stop_height: Option<BlockHeight>,
+    // txs withheld because their signing key isn't on the target chain yet, in
+    // memory only. Resolved by try_set_nonces() or the periodic poll, dropped
+    // after DEFERRED_TX_TTL target heights.
+    pub(crate) deferred_txs: DeferredTxTracker,
 }
 
 impl TxTracker {
@@ -182,6 +191,7 @@ impl TxTracker {
             height_popped: None,
             height_seen: None,
             recent_block_timestamps: VecDeque::new(),
+            deferred_txs: DeferredTxTracker::new(),
         }
     }
 
@@ -219,12 +229,12 @@ impl TxTracker {
             Some(_) => {
                 self.height_popped >= self.stop_height
                     && self.height_seen >= self.nonempty_height_queued
+                    && self.deferred_txs.is_empty()
             }
             None => false,
         }
     }
 
-    // Transactions sent to the target chain but not yet seen in a target block.
     pub(crate) fn sent_txs_remaining(&self) -> usize {
         self.sent_txs.len()
     }
@@ -508,7 +518,7 @@ impl TxTracker {
         Ok(())
     }
 
-    fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome) {
+    fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome, target_height: BlockHeight) {
         let nonce_key = NonceLookupKey::from_tx_view(&tx.transaction);
         match self.txs_by_signer.entry(nonce_key.clone()) {
             hash_map::Entry::Occupied(mut e) => {
@@ -532,13 +542,19 @@ impl TxTracker {
                         "skip txs by tx inclusion",
                     );
                     for t in txs.iter() {
-                        if self.sent_txs.remove(&t.hash).is_none() {
+                        // below an included nonce, can never land; requeue for resend
+                        let Some(info) = self.sent_txs.remove(&t.hash) else {
                             tracing::warn!(
                                 target: "mirror",
                                 tx_hash = %t.hash,
                                 "tx with hash that we thought was skipped is not in the set of sent txs",
                             );
-                        }
+                            continue;
+                        };
+                        crate::metrics::TRANSACTIONS_REQUEUED
+                            .with_label_values(&["nonce_skipped"])
+                            .inc();
+                        self.deferred_txs.push_resend(info.resend, target_height);
                     }
                 }
                 *txs = txs_left;
@@ -692,7 +708,7 @@ impl TxTracker {
         db: &DB,
         updated_key: UpdatedKey,
         mut nonce: Option<Nonce>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<DeferredTx>> {
         let mut n = crate::read_target_nonce(db, &updated_key.nonce_key)?.unwrap();
         n.pending_outcomes.remove(&updated_key.id);
         n.nonce = std::cmp::max(n.nonce, nonce);
@@ -701,6 +717,11 @@ impl TxTracker {
 
         let updater = NonceUpdater::ChainObjectId(updated_key.id);
         let nonce_key = updated_key.nonce_key;
+
+        // Resolve deferred txs BEFORE assigning nonces to queued txs. Deferred
+        // txs are sent immediately via the deferred_resend channel, so they
+        // must receive lower nonces than the still-queued txs sent later.
+        let deferred = self.resolve_deferred_txs(&nonce_key, &mut nonce);
 
         if let Some(info) = self.nonces.get_mut(&nonce_key) {
             info.target_nonce.pending_outcomes.remove(&updater);
@@ -745,7 +766,23 @@ impl TxTracker {
             }
             info.target_nonce.nonce = std::cmp::max(info.target_nonce.nonce, nonce);
         }
-        Ok(())
+
+        Ok(deferred)
+    }
+
+    // Once we learn the nonce for `nonce_key`, assign nonces to any txs we deferred
+    // on it and hand them back to be resent. `nonce` is the next-free nonce after
+    // accounting for any in-memory txs awaiting this key; we keep advancing it.
+    pub(crate) fn resolve_deferred_txs(
+        &mut self,
+        nonce_key: &NonceLookupKey,
+        nonce: &mut Option<Nonce>,
+    ) -> Vec<DeferredTx> {
+        let txs = self.deferred_txs.resolve(nonce_key, nonce);
+        if let (Some(info), Some(n)) = (self.nonces.get_mut(nonce_key), *nonce) {
+            info.target_nonce.nonce = std::cmp::max(info.target_nonce.nonce, Some(n));
+        }
+        txs
     }
 
     fn on_outcome_finished(
@@ -767,10 +804,11 @@ impl TxTracker {
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
         tx: IndexerTransactionWithOutcome,
+        target_height: BlockHeight,
     ) -> anyhow::Result<()> {
         if let Some(info) = self.sent_txs.remove(&tx.transaction.hash) {
             crate::metrics::TRANSACTIONS_INCLUDED.inc();
-            self.remove_tx(&tx);
+            self.remove_tx(&tx, target_height);
             if info.source_height > self.height_seen {
                 self.height_seen = info.source_height;
             }
@@ -859,12 +897,13 @@ impl TxTracker {
         self.record_block_timestamp(&msg);
         self.log_target_block(&msg);
 
+        let target_height = msg.block.header.height;
         let mut access_key_updates = Vec::new();
         let mut staked_accounts = HashMap::new();
         for s in msg.shards {
             if let Some(c) = s.chunk {
                 for tx in c.transactions {
-                    self.on_target_block_tx(tx_block_queue, db, tx)?;
+                    self.on_target_block_tx(tx_block_queue, db, tx, target_height)?;
                 }
                 for outcome in s.receipt_execution_outcomes {
                     self.on_target_block_applied_receipt(
@@ -908,7 +947,9 @@ impl TxTracker {
             );
         }
         let nonce_key = NonceLookupKey::from_tx(&tx.target_tx.transaction);
-        let source_height = tx_ref.as_ref().map(|t| t.source_height);
+        // resent deferred txs have no tx_ref but carry their original source height,
+        // which finished() needs to see via height_seen when they land
+        let source_height = tx_ref.as_ref().map(|t| t.source_height).or(tx.source_height);
         // TODO: don't keep adding txs if we're not ever finding them on chain, since we'll OOM eventually
         // if that happens.
         self.sent_txs.insert(hash, TxSendInfo::new(&tx, source_height, target_height, now));
@@ -966,9 +1007,32 @@ impl TxTracker {
                 }
             }
             None => {
-                // if tx_ref is None, it was an extra tx we sent to unstake an unwanted validator,
-                // and there should be no access key updates
-                assert!(tx.nonce_updates.is_empty());
+                // out-of-band txs (unstake reversals, resent deferred txs) have
+                // no prior TxRef updater to replace; just register the new
+                // outcome for any keys this tx updates
+                let new_updater = NonceUpdater::ChainObjectId(hash);
+                for nonce_key in &tx.nonce_updates {
+                    let mut t = crate::read_target_nonce(db, nonce_key)?.unwrap();
+                    t.pending_outcomes.insert(hash);
+                    crate::put_target_nonce(db, nonce_key, &t)?;
+
+                    let Some(info) = self.nonces.get_mut(nonce_key) else {
+                        continue;
+                    };
+                    info.target_nonce.pending_outcomes.insert(new_updater.clone());
+                    let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
+                    if !txs_awaiting_nonce.is_empty() {
+                        let mut tx_block_queue = tx_block_queue.lock();
+                        for r in &txs_awaiting_nonce {
+                            match Self::get_tx(&mut tx_block_queue, r) {
+                                TargetChainTx::AwaitingNonce(t) => {
+                                    t.target_nonce.pending_outcomes.insert(new_updater.clone());
+                                }
+                                TargetChainTx::Ready(_) => unreachable!(),
+                            };
+                        }
+                    }
+                }
             }
         }
 
@@ -977,12 +1041,18 @@ impl TxTracker {
         let mut t = crate::read_target_nonce(db, &nonce_key)?.unwrap();
         t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce().nonce()));
         crate::put_target_nonce(db, &nonce_key, &t)?;
-        let info = self.nonces.get_mut(&nonce_key).unwrap();
-        if info.last_height <= source_height {
-            keys_to_remove.insert(nonce_key);
-        }
         if let Some(tx_ref) = tx_ref {
+            // queued-batch txs must have a nonce entry; only out-of-band txs
+            // (unstake reversals, deferred resends) may lack one
+            let info = self.nonces.get_mut(&nonce_key).unwrap();
+            if info.last_height <= source_height {
+                keys_to_remove.insert(nonce_key);
+            }
             assert!(info.queued_txs.remove(&tx_ref));
+        } else if let Some(info) = self.nonces.get_mut(&nonce_key) {
+            if info.last_height <= source_height {
+                keys_to_remove.insert(nonce_key);
+            }
         }
         Ok(())
     }
@@ -1138,9 +1208,13 @@ impl TxTracker {
                     b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();
                 (txs, format!("source #{}", b.source_height))
             }
-            SentBatch::ExtraTxs(txs) => (
+            SentBatch::UnstakeTxs(txs) => (
                 txs.into_iter().map(|tx| (None, tx)).collect::<Vec<_>>(),
                 String::from("extra unstake transactions"),
+            ),
+            SentBatch::DeferredResendTxs(txs) => (
+                txs.into_iter().map(|tx| (None, tx)).collect::<Vec<_>>(),
+                String::from("deferred resend transactions"),
             ),
         };
         for (tx_ref, tx) in txs_sent {
@@ -1175,6 +1249,11 @@ impl TxTracker {
                         &t.nonce_updates,
                         &mut keys_to_remove,
                     )?;
+                    self.deferred_txs.push(
+                        t,
+                        target_height,
+                        tx_ref.as_ref().map(|r| r.source_height),
+                    );
                 }
             }
         }
