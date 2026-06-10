@@ -10,7 +10,7 @@ use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::AccountRequirement;
 use crate::utils::{average_cost, percentiles};
-use near_crypto::{KeyType, PublicKey};
+use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{DeterministicStateInitAction, GlobalContractIdentifier};
 use near_primitives::deterministic_account_id::{
@@ -929,12 +929,17 @@ impl ActionSize {
         match self {
             // small number that still allows to generate a valid contract
             ActionSize::Min => 120,
-            // max_number_bytes_method_names: 2000
-            // This size exactly touches tx limit with 1 deploy action. If this suddenly
-            // fails with `InvalidTxError(TransactionSizeExceeded`, it could be a
+            // This size exactly touches tx limit with 1 deploy action, where the
+            // limit counts the full wire size including the ed25519 signature
+            // (`SignedTransaction::size_for_limits`). If this suddenly fails
+            // with `InvalidTxError::TransactionSizeExceeded`, it could be a
             // protocol change due to the TX limit computation changing.
             // The test `test_deploy_contract_tx_max_size` checks this.
-            ActionSize::Max => 1_572_864 - 182,
+            ActionSize::Max => {
+                let signature_size = borsh::object_length(&Signature::empty(KeyType::ED25519))
+                    .expect("borsh signature length") as u64;
+                1_572_864 - 182 - signature_size
+            }
         }
     }
 }
@@ -943,6 +948,7 @@ impl ActionSize {
 mod tests {
     use super::{ActionSize, deploy_action};
     use genesis_populate::get_account_id;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_deploy_contract_tx_max_size() {
@@ -961,10 +967,10 @@ mod tests {
         let mut tb = crate::TransactionBuilder::new(test_accounts);
 
         let tx_0 = tb.transaction_from_actions(sender_0, receiver_0, vec![deploy_action.clone()]);
-        assert_eq!(tx_0.get_size(), limit, "TX size changed");
+        assert_eq!(tx_0.size_for_limits(PROTOCOL_VERSION), limit, "TX size changed");
 
         let tx_1 = tb.transaction_from_actions(sender_1, receiver_1, vec![deploy_action]);
-        assert_eq!(tx_1.get_size(), limit, "TX size changed");
+        assert_eq!(tx_1.size_for_limits(PROTOCOL_VERSION), limit, "TX size changed");
     }
 }
 
