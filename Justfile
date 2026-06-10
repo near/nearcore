@@ -196,10 +196,8 @@ check-cspell:
     # For nixpkgs users that's `nodePackages.cspell`
     git ls-files | cspell --no-progress --file-list stdin
 
-# Auto-derives COMPOSE_PROFILES from NUM_VALIDATORS so the running validator
-# set always matches what init.sh generated configs for. Reporters using
-# `docker compose up` directly (without this recipe) must keep
-# COMPOSE_PROFILES in sync with NUM_VALIDATORS manually.
+# Derives COMPOSE_PROFILES from NUM_VALIDATORS; plain `docker compose up`
+# users must sync it manually.
 # Bring up the bug-bounty localnet (4 validators by default; edit tools/bounty-localnet/.env to change).
 bounty-localnet:
     #!/usr/bin/env bash
@@ -212,7 +210,8 @@ bounty-localnet:
     if (( NUM_VALIDATORS > 1 )); then
         export COMPOSE_PROFILES="min${NUM_VALIDATORS}"
     else
-        unset COMPOSE_PROFILES
+        # empty export, not unset: shell env must win over the .env value
+        export COMPOSE_PROFILES=""
     fi
     docker compose up --build
 

@@ -11,8 +11,12 @@ program and disclosure policy.
 ## Prerequisites
 
 - Docker (with the `compose` plugin — `docker compose version` must work).
-- ~10 GB free disk and a few GB of RAM. First build takes ~10–30 min; later
-  starts use the BuildKit cache and finish in seconds.
+- ~10 GB free disk and **16 GiB of memory available to Docker** (Docker
+  Desktop: Settings → Resources → Memory). The release build's final link
+  step peaks around 12 GiB; with less, the compiler gets OOM-killed and the
+  build fails with `rustc` exiting on SIGKILL or "cannot allocate memory".
+  First build takes ~10–30 min; later starts use the BuildKit cache and
+  finish in seconds.
 
 That's it. No Rust toolchain, no `jq`, no Python on your host — every
 dependency lives inside the init image.
@@ -27,6 +31,14 @@ docker compose up --build
 This launches an `init` container (generates configs, exits), then four
 validators (`validator0`..`validator3`). `validator0` exposes RPC on
 `localhost:3030`.
+
+> **Warning:** if you change `NUM_VALIDATORS` in `.env`, you must also set
+> `COMPOSE_PROFILES=min<NUM_VALIDATORS>` (empty for 1) — init fails loudly
+> on a mismatch. Alternatively, from the repo root, `just bounty-localnet`
+> derives the profile automatically.
+
+Compose service names map to on-chain identities one-to-one: service
+`validatorN` runs account `nodeN` with its home dir at `./network/nodeN`.
 
 ## Wait for the network to be ready
 
@@ -99,9 +111,8 @@ report alongside the items in "Submitting your repro" below.
 |---|---|---|
 | `NUM_VALIDATORS` | `4` | 1..8. Update `COMPOSE_PROFILES` to match. |
 | `NUM_SHARDS` | `1` | Number of shards in the layout. |
-| `STAKE_DISTRIBUTION` | `uniform` | `uniform` or `skewed` (validator0 = 7×base). |
 | `CHAIN_ID` | `localnet` | Embedded in genesis. |
-| `COMPOSE_PROFILES` | `min4` | `min<NUM_VALIDATORS>`, blank for N=1. |
+| `COMPOSE_PROFILES` | `min4` | `min<NUM_VALIDATORS>`, blank for N=1. Must match `NUM_VALIDATORS` (init fails loudly otherwise); `just bounty-localnet` derives it. |
 
 After changing any of these, run `./reset.sh` — `init.sh` hashes the values
 and refuses to start a network whose topology no longer matches.
@@ -139,6 +150,10 @@ Open your report on
   surface here.
 - `validator0` is both validator and RPC node. If your attack stops
   `validator0`, RPC goes with it. A dedicated RPC node is a v2 concern.
-- `STAKE_DISTRIBUTION=skewed` is a single fixed preset (one validator
-  at 7× base). Finer-grained control: edit `genesis.json` after init.
+- A validator that is fully offline from t=0 (e.g. a crash-stub override
+  binary) stalls startup for `NUM_VALIDATORS < 5`: each node's startup
+  peer gate waits for `min(N-1, 3)` peers before syncing. Run ≥5
+  validators for that scenario.
+- Custom stake distributions aren't a knob: edit `genesis.json` after
+  init (keep `total_supply` consistent with the sum of account balances).
 - No pre-built Docker images. Reporters pay a one-time build cost.

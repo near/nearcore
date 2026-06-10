@@ -1,15 +1,21 @@
 #!/bin/bash
-# Tear down the bounty-localnet stack and wipe local state. Use this when you
-# change topology in .env (NUM_VALIDATORS, NUM_SHARDS, etc.) so that the next
-# `docker compose up` regenerates configs cleanly.
+# Tear down the stack and wipe generated state. Required after any .env
+# topology change.
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# `down -v` removes named/anonymous volumes, but bind mounts (./network) are
-# untouched — we have to rm them ourselves.
-docker compose down -v --remove-orphans
-rm -rf ./network/
+# A failed `down` (e.g. broken .env) shouldn't abort the wipe — warn only.
+docker compose down -v --remove-orphans \
+    || echo "warning: docker compose down failed; containers may still be running" >&2
+
+# `down -v` doesn't touch bind mounts. On Linux ./network may hold root-owned
+# files; fall back to wiping from inside a container. -mindepth 1 because the
+# bind mountpoint itself can't be removed from inside the mount.
+if [[ -d ./network ]] && ! rm -rf ./network/ 2>/dev/null; then
+    docker run --rm -v "$PWD/network:/n" ubuntu:22.04 find /n -mindepth 1 -delete
+    rmdir ./network
+fi
 
 echo "State cleared. Run 'docker compose up --build' to start fresh."

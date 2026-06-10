@@ -1,33 +1,44 @@
-# Bounty-localnet docker-compose definition.
-#
-# Topology: 1 init service that generates configs (runs once, then exits) +
-# up to 8 validator services. validator0 is always on; validator1..validator7
-# are gated by `min2`..`min8` profiles so the running set always matches
-# NUM_VALIDATORS (.env). When you change NUM_VALIDATORS, also update
-# COMPOSE_PROFILES to `min<NUM_VALIDATORS>` (or use the top-level Justfile
-# recipe `bounty-localnet`, which handles this for you).
+# Bounty-localnet: 1 one-shot init service (generates configs) + up to 8
+# validators. validator0 always on; validator1..7 gated by min2..min8
+# profiles. COMPOSE_PROFILES must be min<NUM_VALIDATORS> (the `just
+# bounty-localnet` recipe derives it).
 
+# Both images come from the same multi-target Dockerfile so neard compiles
+# once. Do NOT add `target:` here — fork-build overrides inherit every key
+# of this block, and a stale target would break them; the runtime stage is
+# last in the Dockerfile, so no target = runtime image.
 x-validator-build: &validator-build
   context: ../..
-  dockerfile: Dockerfile
+  dockerfile: tools/bounty-localnet/Dockerfile.init
   args:
     make_target: neard-release
 
-# All validator services share a single image. Both `docker compose build`
-# and `docker buildx bake` produce one tagged image, so adding more
-# validators doesn't multiply the build time, memory pressure, or layer
-# storage. Pinning explicit tags also keeps compose's expected names in
-# sync with whatever the build tool produces (bake's defaults differ from
-# compose's project-prefixed defaults).
+# All validators share one explicitly tagged image: one build regardless of
+# N, and compose/bake agree on the name (their default tags differ).
+#
+# Entrypoint guard catches NUM_VALIDATORS/COMPOSE_PROFILES desync (validator
+# started with an empty bind mount). Trailing "bash" sets $0 so "$@"
+# forwards `command:` args to run.sh.
 x-validator-defaults: &validator-defaults
   image: bounty-localnet-neard:local
   build: *validator-build
+  entrypoint:
+    - /bin/bash
+    - -c
+    - |
+      if [ ! -f /srv/near/config.json ]; then
+          echo "ERROR: /srv/near/config.json missing — this validator has no generated config." >&2
+          echo "       Likely NUM_VALIDATORS and COMPOSE_PROFILES are out of sync in .env" >&2
+          echo "       (COMPOSE_PROFILES must be min<NUM_VALIDATORS>; empty for NUM_VALIDATORS=1)." >&2
+          echo "       Fix .env and ./reset.sh, or use 'just bounty-localnet' which derives it." >&2
+          exit 1
+      fi
+      exec /usr/local/bin/run.sh "$$@"
+    - bash
   depends_on:
     init:
       condition: service_completed_successfully
   restart: unless-stopped
-  environment:
-    BOOT_NODES: ""
 
 services:
   init:
@@ -35,6 +46,7 @@ services:
     build:
       context: ../..
       dockerfile: tools/bounty-localnet/Dockerfile.init
+      target: init
       args:
         make_target: neard-release
     entrypoint: ["/bin/bash", "/bounty-localnet/init.sh"]
@@ -45,8 +57,8 @@ services:
     environment:
       NUM_VALIDATORS: ${NUM_VALIDATORS}
       NUM_SHARDS: ${NUM_SHARDS}
-      STAKE_DISTRIBUTION: ${STAKE_DISTRIBUTION}
       CHAIN_ID: ${CHAIN_ID}
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
 
   validator0:
     <<: *validator-defaults

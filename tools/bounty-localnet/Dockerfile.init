@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile-upstream:experimental
 #
-# Init image for the bounty-localnet tool. Builds `neard` from source (mirrors
-# the top-level Dockerfile's build stage) and ships it on top of an Ubuntu
-# image with `jq` and `python3` available — these are needed by `init.sh` to
-# patch genesis and config without dragging extra dependencies into the
-# production runtime image.
+# Builds neard once, produces both bounty-localnet images:
+#   - `init`: neard + jq + python3 for the one-shot init service
+#   - `neard`: validator runtime, mirrors the top-level Dockerfile
+# `neard` must stay LAST: builds without `target:` (validators, fork
+# overrides) get the last stage by default.
 
 FROM ubuntu:22.04 AS build
 
@@ -38,16 +38,31 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     make CARGO_TARGET_DIR=/tmp/target "${make_target:?make_target not set}" && \
     cp /tmp/target/release/neard /near/neard
 
-FROM ubuntu:22.04
+# Init image: init.sh tooling on top of the runtime deps.
+FROM ubuntu:22.04 AS init
 
 RUN apt-get update -qq && apt-get install -y \
     jq \
     python3 \
+    libssl-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# In the build stage, /near is the working tree; the `neard/` crate
-# directory shadows the cp'd binary so `cp /tmp/target/release/neard
-# /near/neard` lands the binary at /near/neard/neard, not /near/neard.
-# Reach in for the file directly.
+# /near/neard/neard, not /near/neard: the `neard/` crate dir shadows the
+# cp'd binary in the build stage's working tree.
 COPY --from=build /near/neard/neard /usr/local/bin/neard
+
+# Validator runtime. Keep in sync with the top-level Dockerfile's runtime
+# stage. Must remain LAST (see header).
+FROM ubuntu:22.04 AS neard
+
+EXPOSE 3030 24567
+
+RUN apt-get update -qq && apt-get install -y \
+    libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/run_docker.sh /usr/local/bin/run.sh
+COPY --from=build /near/neard/neard /usr/local/bin/
+
+CMD ["/usr/local/bin/run.sh"]
