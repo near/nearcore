@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import platform
+import shutil
 import signal
 import socket
 import subprocess
@@ -191,6 +192,11 @@ def upload(status):
 def main():
     print(f'EVIDENCE-RUN-ID: {run_id}')
     print(f'EVIDENCE: uploading to bucket {BUCKET}, label={sys.argv[1:]}')
+    # Probe for stack-dumping tools so we know whether a future version of
+    # this harness could capture thread backtraces of a hung test.
+    print(f'EVIDENCE: gdb={shutil.which("gdb")} '
+          f'eu-stack={shutil.which("eu-stack")} '
+          f'py-spy={shutil.which("py-spy")}')
     start = time.time()
     status, exit_code = 'BROKEN', None
     upload_location = None
