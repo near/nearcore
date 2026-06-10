@@ -164,12 +164,7 @@ class ContractTest(MirrorTestCase):
                                          self.sub_key.key.account_id,
                                          self.sub_key.key.pk, ctx.next_nonce(),
                                          ctx.bhash)
-        # Only contract_extra_key drives traffic. contract_key and sub_key are
-        # added by contract execution (FunctionCall args are opaque to the
-        # mirror), so the mirror signs with the mapped key which doesn't match
-        # the unmapped key the contract added. Their traffic can never be
-        # replayed and only inflates the source tx count.
-        return [self.contract_extra_key]
+        return [self.contract_key, self.contract_extra_key, self.sub_key]
 
     def check(self, node):
         # contract_key added by contract execution (unmapped)
@@ -208,7 +203,6 @@ class CreateSubaccountTest(MirrorTestCase):
         self.subaccount_key = None
         self._contract_deployed = False
         self._staked = False
-        self._blocks_since_inited = 0
 
     def post_fork(self, ctx):
         k = mirror_utils.create_subaccount(ctx.node,
@@ -222,12 +216,6 @@ class CreateSubaccountTest(MirrorTestCase):
 
     def on_post_fork_block(self, ctx):
         if not self.subaccount_key.inited():
-            return
-        # Wait for the mirror to observe the subaccount's key on the target
-        # before sending txs it must replay with that key: the mirror drops
-        # (not defers) txs whose target nonce is unknown at send time.
-        self._blocks_since_inited += 1
-        if self._blocks_since_inited <= 10:
             return
         if not self._contract_deployed:
             self.subaccount_key.nonce += 1
