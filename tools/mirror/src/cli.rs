@@ -1,3 +1,4 @@
+use crate::shutdown::SignalHandler;
 use anyhow::Context;
 use near_async::future_registry::with_stall_diagnostics;
 use near_primitives::types::BlockHeight;
@@ -72,6 +73,7 @@ impl RunCmd {
             None
         };
 
+        let signal_handler = SignalHandler::install();
         let result = run_async(crate::run(
             self.source_home,
             self.target_home,
@@ -80,15 +82,13 @@ impl RunCmd {
             self.stop_height,
             self.online_source,
             self.config_path,
+            signal_handler.shutdown_token(),
         ));
+        signal_handler.mark_run_finished();
         // run() aborts spawned tasks, awaits them, and calls actor_system.stop(). By the time we
         // get here the tokio runtime is dropped and all Arc<DB> refs should be gone. Wait for RocksDB
-        // background threads to finish flushing.
-        //
-        // run()'s signal handlers died with its runtime, so a signal arriving
-        // during the wait below would be swallowed and the process could only
-        // be killed by SIGKILL.
-        let _signal_runtime = spawn_exit_on_signal_runtime();
+        // background threads to finish flushing; signal_handler keeps the process
+        // killable if this ever hangs.
         with_stall_diagnostics("rocksdb instances to close", || {
             near_store::db::RocksDB::block_until_all_instances_are_dropped();
         });
@@ -267,29 +267,6 @@ impl ShowKeysCmd {
         }
         Ok(())
     }
-}
-
-fn spawn_exit_on_signal_runtime() -> tokio::runtime::Runtime {
-    let runtime =
-        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
-    runtime.spawn(async {
-        #[cfg(unix)]
-        {
-            use tokio::signal::unix::{SignalKind, signal};
-            let (Ok(mut sigterm), Ok(mut sigint)) =
-                (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
-            else {
-                return;
-            };
-            tokio::select! {
-                _ = sigterm.recv() => {}
-                _ = sigint.recv() => {}
-            }
-            tracing::warn!(target: "mirror", "got termination signal during shutdown, exiting immediately");
-            std::process::exit(1);
-        }
-    });
-    runtime
 }
 
 fn run_async<F: std::future::Future + 'static>(f: F) -> F::Output {

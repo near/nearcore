@@ -51,6 +51,7 @@ mod metrics;
 mod offline;
 mod online;
 pub mod secret;
+mod shutdown;
 
 pub use cli::MirrorCommand;
 use deferred_tx::DeferredTx;
@@ -2248,6 +2249,7 @@ impl<T: ChainAccess> TxMirror<T> {
         stop_height: Option<BlockHeight>,
         target_home: PathBuf,
         actor_system: near_async::ActorSystem,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
@@ -2400,9 +2402,6 @@ impl<T: ChainAccess> TxMirror<T> {
         )
         .await?;
 
-        let shutdown = CancellationToken::new();
-        spawn_signal_drain_task(shutdown.clone());
-
         let send_delay = Arc::new(Mutex::new(send_delay));
         let send_delay2 = send_delay.clone();
         let (blocks_sent_tx, blocks_sent_rx) = mpsc::channel(10);
@@ -2455,36 +2454,6 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 }
 
-// On the first SIGTERM/SIGINT, cancels `shutdown` so the loops stop sending and
-// exit once everything already sent has been observed on the target chain. A
-// second signal exits immediately.
-fn spawn_signal_drain_task(shutdown: CancellationToken) {
-    #[cfg(unix)]
-    tokio::spawn(async move {
-        use tokio::signal::unix::{SignalKind, signal};
-        let (Ok(mut sigterm), Ok(mut sigint)) =
-            (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
-        else {
-            tracing::warn!(target: "mirror", "could not install signal handlers, will exit without draining sent transactions");
-            return;
-        };
-        tokio::select! {
-            _ = sigterm.recv() => {}
-            _ = sigint.recv() => {}
-        }
-        tracing::info!(target: "mirror", "got termination signal, draining sent transactions before exiting");
-        shutdown.cancel();
-        tokio::select! {
-            _ = sigterm.recv() => {}
-            _ = sigint.recv() => {}
-        }
-        tracing::warn!(target: "mirror", "got second termination signal, exiting immediately");
-        std::process::exit(1);
-    });
-    #[cfg(not(unix))]
-    let _ = shutdown;
-}
-
 async fn run<P: AsRef<Path>>(
     source_home: P,
     target_home: P,
@@ -2493,6 +2462,7 @@ async fn run<P: AsRef<Path>>(
     stop_height: Option<BlockHeight>,
     online_source: bool,
     config_path: Option<P>,
+    shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
     let config: MirrorConfig = match config_path {
         Some(p) => {
@@ -2516,7 +2486,7 @@ async fn run<P: AsRef<Path>>(
             secret,
             config,
         )?
-        .run(Some(stop_height), target_home.as_ref().to_path_buf(), actor_system)
+        .run(Some(stop_height), target_home.as_ref().to_path_buf(), actor_system, shutdown)
         .await
     } else {
         TxMirror::new(
@@ -2526,7 +2496,7 @@ async fn run<P: AsRef<Path>>(
             secret,
             config,
         )?
-        .run(stop_height, target_home.as_ref().to_path_buf(), actor_system)
+        .run(stop_height, target_home.as_ref().to_path_buf(), actor_system, shutdown)
         .await
     }
 }
