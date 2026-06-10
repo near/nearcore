@@ -86,6 +86,26 @@ def tee(stream, output_file):
         sys.stdout.buffer.flush()
 
 
+def kill_stale_neard():
+    """Kills neard processes left over from a previous test on this worker.
+
+    The test framework starts nodes with start_new_session=True
+    (pytest/lib/cluster.py), so they survive the killpg below when an earlier
+    run is timed out; the orphans keep the test's network ports bound and
+    every later run on the worker fails with AddrInUse (0-peer mirror,
+    "mirror process timed out").
+    """
+    result = subprocess.run(['pgrep', '-x', 'neard'],
+                            capture_output=True,
+                            text=True)
+    pids = result.stdout.split()
+    if not pids:
+        return
+    print(f'EVIDENCE: killing stale neard processes: {pids}')
+    subprocess.run(['pkill', '-9', '-x', 'neard'])
+    time.sleep(1)
+
+
 def run_test():
     """Returns (status, exit_code)."""
     with open(output_path, 'wb') as output_file:
@@ -116,6 +136,9 @@ def run_test():
             except ProcessLookupError:
                 pass
             process.wait()
+            # Nodes live in their own sessions, so the killpg above missed
+            # them. Leave the worker clean for the next test.
+            kill_stale_neard()
         reader.join(timeout=30)
     return status, exit_code
 
@@ -197,6 +220,7 @@ def main():
     print(f'EVIDENCE: gdb={shutil.which("gdb")} '
           f'eu-stack={shutil.which("eu-stack")} '
           f'py-spy={shutil.which("py-spy")}')
+    kill_stale_neard()
     start = time.time()
     status, exit_code = 'BROKEN', None
     upload_location = None
