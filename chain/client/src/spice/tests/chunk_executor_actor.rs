@@ -357,7 +357,13 @@ fn block_executed(actor: &TestActor, block: &Block) -> bool {
         if !actor.actor.shard_tracker.cares_about_shard(block.hash(), shard_uid.shard_id()) {
             continue;
         }
-        if !actor.actor.chunk_extra_exists(block.header().hash(), &shard_uid).unwrap() {
+        if actor
+            .actor
+            .chain_store
+            .chunk_store()
+            .get_chunk_extra(block.header().hash(), &shard_uid)
+            .is_err()
+        {
             return false;
         }
     }
@@ -415,7 +421,9 @@ fn find_chunk_execution_result(
 ) -> ChunkExecutionResult {
     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
     for actor in actors {
-        if let Some(chunk_extra) = actor.actor.get_chunk_extra(block_hash, &shard_uid).unwrap() {
+        if let Ok(chunk_extra) =
+            actor.actor.chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid)
+        {
             let outgoing_receipts =
                 actor.actor.chain_store.get_outgoing_receipts(block_hash, shard_id).unwrap();
             let (outgoing_receipts_root, _receipt_proofs) =
@@ -580,6 +588,11 @@ fn test_execution_result_endorsement_trigger_next_blocks_execution() {
         assert!(block_executed(&actor, &blocks[0]));
     }
 
+    // Announce the descendants: each parks because blocks[0]'s execution result
+    // is not yet available. (The real client sends a ProcessedBlock per block.)
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
+
     simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
     record_endorsements(&mut actors, &blocks[0]);
 
@@ -604,6 +617,11 @@ fn test_new_receipts_trigger_next_blocks_execution() {
         actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
         assert!(block_executed(&actor, &blocks[0]));
     }
+
+    // Announce the descendants: each parks until blocks[0]'s receipts arrive.
+    // (The real client sends a ProcessedBlock per block.)
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
 
     record_endorsements(&mut actors, &blocks[0]);
 
@@ -911,7 +929,12 @@ fn test_tracking_several_shards() {
         let shard_layout = actors[0].actor.epoch_manager.get_shard_layout(epoch_id).unwrap();
         for shard_uid in shard_layout.shard_uids() {
             assert!(
-                actors[0].actor.chunk_extra_exists(block.header().hash(), &shard_uid).unwrap(),
+                actors[0]
+                    .actor
+                    .chain_store
+                    .chunk_store()
+                    .get_chunk_extra(block.header().hash(), &shard_uid)
+                    .is_ok(),
                 "no execution results for block #{} shard_uid={shard_uid:?} block_hash {}",
                 i + 1,
                 block.hash(),
@@ -964,7 +987,11 @@ fn test_executing_chain_of_ready_blocks() {
     for block in &blocks {
         assert!(!block_executed(&actors[1], block));
     }
-    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    // Every input is on disk, so announcing the blocks (one ProcessedBlock each,
+    // as the client does) executes the whole chain.
+    for block in &blocks {
+        actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
     for block in &blocks {
         assert!(block_executed(&actors[1], block));
     }

@@ -17,10 +17,8 @@ use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::ChunkValidationActor;
+use near_client::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
-use near_client::spice::chunk_executor_actor::{
-    ExecutorIncomingUnverifiedReceipts, TryApplyChunksOutcome,
-};
 use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
@@ -876,10 +874,7 @@ impl TestEnv {
             return;
         }
 
-        assert_matches::assert_matches!(
-            self.spice_chunk_executors[id].handle_processed_block(ProcessedBlock { block_hash }),
-            TryApplyChunksOutcome::Scheduled
-        );
+        self.spice_chunk_executors[id].handle_processed_block(ProcessedBlock { block_hash });
         // This allows us in tests to pretend that all nodes get all endorsements as soon as they
         // are available (as long as least one chunk producer for shard is validator). Even though
         // in a real system endorsements to some nodes may arrive only with later blocks.

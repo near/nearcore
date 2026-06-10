@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-assert_matches.workspace = true
 base64.workspace = true
 bytesize.workspace = true
 borsh.workspace = true
@@ -66,6 +65,7 @@ testlib.workspace = true
 
 [dev-dependencies]
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
+assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
 ethabi.workspace = true
