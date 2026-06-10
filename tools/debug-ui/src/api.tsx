@@ -193,7 +193,7 @@ export interface EpochInfoView {
     block_producers: ValidatorInfo[];
     chunk_producers: string[];
     chunk_validators: string[];
-    validator_info: EpochValidatorInfo;
+    validator_info: EpochValidatorInfo | null;
     protocol_version: number;
     shards_size_and_parts: [number, number, boolean][];
 }
