@@ -408,6 +408,15 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
+    /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
+    /// per-action `Vec<AccountContract>`: one entry per action in the
+    /// receipt, set to the contract that was executed for `FunctionCall`
+    /// actions and to `AccountContract::None` for everything else (matching
+    /// the receipt's action order). This is relevant when the receiver
+    /// account and the contract source diverge — e.g. global contracts.
+    /// Wire format changes (new borsh discriminant), so the cutover must be
+    /// coordinated across the network.
+    ExecutionMetadataV4,
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
@@ -534,7 +543,8 @@ impl ProtocolFeature {
             | ProtocolFeature::PostQuantumSignatures
             | ProtocolFeature::UniqueChunkTransactions
             | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
-            | ProtocolFeature::YieldWithId => 85,
+            | ProtocolFeature::YieldWithId
+            | ProtocolFeature::ExecutionMetadataV4 => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
