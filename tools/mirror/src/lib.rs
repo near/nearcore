@@ -2163,10 +2163,9 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    // Waits until every transaction we sent has been observed in a target block,
-    // so a restarted mirror's resume point doesn't skip past transactions that
-    // died in the mempool. The target indexer task keeps running and clears
-    // sent_txs as the txs appear.
+    // Waits until every sent transaction has been observed in a target block, so
+    // a restarted mirror's resume point doesn't skip past txs that died in the
+    // mempool. The target indexer keeps running and clears sent_txs meanwhile.
     async fn drain_sent_txs(
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
     ) -> anyhow::Result<()> {

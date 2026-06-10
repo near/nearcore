@@ -37,9 +37,7 @@ struct TxSendInfo {
     target_receiver_id: Option<AccountId>,
     actions: Vec<String>,
     sent_at_target_height: BlockHeight,
-    // everything needed to re-sign and resend this tx with a fresh nonce if the
-    // sent copy turns out to be permanently lost (a later nonce of the same key
-    // was included, or the sent tx's block hash reference expired)
+    // payload for re-signing and resending if the sent copy can never land
     resend: DeferredTx,
 }
 
@@ -159,13 +157,12 @@ pub(crate) struct TxTracker {
     recent_block_timestamps: VecDeque<u64>,
     // last source block we'll be sending transactions for
     stop_height: Option<BlockHeight>,
-    // target chain config value; once a sent tx is this many target blocks old, its
-    // block hash reference makes it permanently un-includable and it's safe to resend
+    // target chain config value; a sent tx older than this many target blocks can
+    // never be included anymore, making it safe to resend
     tx_validity_period: BlockHeight,
-    // transactions that were sent before their access key appeared on the target
-    // chain, keyed by the NonceLookupKey they're waiting on. Held in memory only.
-    // Resent by try_set_nonces() once the nonce is known, pruned in the steady-state
-    // index loop after DEFERRED_TX_TTL target heights.
+    // txs withheld because their signing key isn't on the target chain yet, in
+    // memory only. Resolved by try_set_nonces() or the periodic poll, dropped
+    // after DEFERRED_TX_TTL target heights.
     pub(crate) deferred_txs: DeferredTxTracker,
 }
 
@@ -243,7 +240,6 @@ impl TxTracker {
         }
     }
 
-    // Transactions sent to the target chain but not yet seen in a target block.
     pub(crate) fn sent_txs_remaining(&self) -> usize {
         self.sent_txs.len()
     }
@@ -551,8 +547,7 @@ impl TxTracker {
                         "skip txs by tx inclusion",
                     );
                     for t in txs.iter() {
-                        // this tx's nonce is now below one included on chain, so the sent
-                        // copy can never land. requeue it to resend with a fresh nonce.
+                        // below an included nonce, can never land; requeue for resend
                         match self.sent_txs.remove(&t.hash) {
                             Some(info) => {
                                 crate::metrics::TRANSACTIONS_REQUEUED
@@ -786,11 +781,6 @@ impl TxTracker {
     // Once we learn the nonce for `nonce_key`, assign nonces to any txs we deferred
     // on it and hand them back to be resent. `nonce` is the next-free nonce after
     // accounting for any in-memory txs awaiting this key; we keep advancing it.
-    //
-    // DB updates (clearing the DeferredTxs column and advancing the stored nonce)
-    // are deferred until on_txs_sent() confirms the txs were actually sent. This
-    // prevents losing deferred txs if the process is killed between resolving and
-    // sending (e.g., during the 30-second restart).
     pub(crate) fn resolve_deferred_txs(
         &mut self,
         nonce_key: &NonceLookupKey,
@@ -937,16 +927,14 @@ impl TxTracker {
         Ok(TargetBlockInfo { staked_accounts, access_key_updates })
     }
 
-    // Requeues sent txs that were never observed on chain and whose block hash
-    // reference has expired, which guarantees the sent copy can no longer be
-    // included so resending with a fresh nonce cannot double-execute. The tx's
-    // block hash was at or below the height it was sent at, so comparing against
-    // sent_at_target_height is conservative.
+    // An expired block hash reference guarantees the sent copy can no longer be
+    // included, so resending with a fresh nonce cannot double-execute.
     fn requeue_expired_sent_txs(&mut self, target_height: BlockHeight) {
         let expired: Vec<CryptoHash> = self
             .sent_txs
             .iter()
             .filter(|(_, info)| {
+                // sent_at_target_height is an upper bound on the reference height
                 target_height.saturating_sub(info.sent_at_target_height) > self.tx_validity_period
             })
             .map(|(hash, _)| *hash)
@@ -1052,11 +1040,9 @@ impl TxTracker {
                 }
             }
             None => {
-                // tx_ref is None for txs we send out of band: unstake reversals (which have no
-                // access key updates) and resent deferred txs (which may add keys). Unlike the
-                // Some(_) case there's no prior TxRef updater to replace, so we just register the
-                // new outcome for any keys this tx updates. Unstake txs have empty nonce_updates,
-                // so this is a no-op for them.
+                // out-of-band txs (unstake reversals, resent deferred txs) have
+                // no prior TxRef updater to replace; just register the new
+                // outcome for any keys this tx updates
                 let new_updater = NonceUpdater::ChainObjectId(hash);
                 for nonce_key in &tx.nonce_updates {
                     let mut t = crate::read_target_nonce(db, nonce_key)?.unwrap();

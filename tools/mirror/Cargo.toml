@@ -83,4 +83,4 @@ protocol_feature_spice = [
 tempfile.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["near-network"]
+ignored = ["near-async", "near-network"]

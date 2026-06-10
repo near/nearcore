@@ -85,10 +85,9 @@ impl RunCmd {
         // get here the tokio runtime is dropped and all Arc<DB> refs should be gone. Wait for RocksDB
         // background threads to finish flushing.
         //
-        // The signal handlers installed by run() died with its runtime: a signal
-        // delivered now would be swallowed, making the process unkillable except by
-        // SIGKILL if the wait below ever hangs. Keep a small runtime alive for the
-        // duration of the wait whose only job is to exit on SIGTERM/SIGINT.
+        // run()'s signal handlers died with its runtime, so a signal arriving
+        // during the wait below would be swallowed and the process could only
+        // be killed by SIGKILL.
         let _signal_runtime = spawn_exit_on_signal_runtime();
         with_stall_diagnostics("rocksdb instances to close", || {
             near_store::db::RocksDB::block_until_all_instances_are_dropped();
