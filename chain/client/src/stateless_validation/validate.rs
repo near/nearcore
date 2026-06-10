@@ -9,7 +9,7 @@ use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
-    MAX_COMPRESSED_STATE_WITNESS_SIZE, PartialEncodedStateWitness,
+    MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -62,7 +62,7 @@ macro_rules! require_relevant {
 /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
 pub fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
-    partial_witness: &PartialEncodedStateWitness,
+    partial_witness: &VersionedPartialEncodedStateWitness,
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
@@ -77,6 +77,21 @@ pub fn validate_partial_encoded_state_witness(
         tag_witness_distribution = true,
     )
     .entered();
+
+    let encoded_length = partial_witness.encoded_length();
+    if encoded_length > MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize {
+        return Err(Error::InvalidPartialChunkStateWitness(format!(
+            "encoded_length {encoded_length} exceeds witness size cap {}",
+            MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64()
+        )));
+    }
+
+    if let VersionedPartialEncodedStateWitness::V2(_) = partial_witness {
+        return Err(Error::InvalidPartialChunkStateWitness(
+            "V2 validation not implemented".to_string(),
+        ));
+    }
+
     let num_parts =
         epoch_manager.get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?.len();
     if partial_witness.part_ord() >= num_parts {

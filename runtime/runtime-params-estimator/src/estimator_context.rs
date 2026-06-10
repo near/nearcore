@@ -8,7 +8,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -28,8 +28,8 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, get_signer_and_access_key,
-    set_tx_state_changes, verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    get_signer_and_access_key, set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, VecDeque};
 use std::iter;
@@ -58,8 +58,8 @@ pub(crate) struct CachedCosts {
     pub(crate) ed25519_verify_base: Option<GasCost>,
     pub(crate) p256_verify_base: Option<GasCost>,
     pub(crate) function_call_base: Option<GasCost>,
-    #[cfg(feature = "nightly")]
     pub(crate) yield_create_base: Option<GasCost>,
+    pub(crate) yield_create_with_id_base: Option<GasCost>,
     pub(crate) action_deterministic_state_init_base_per_entry_per_byte:
         Option<(GasCost, GasCost, GasCost)>,
 }
@@ -121,9 +121,15 @@ impl<'c> EstimatorContext<'c> {
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
-        let cache =
-            FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>, "contract.cache")
-                .expect("create contract cache");
+        // No eviction: estimator measurements must not be perturbed by the
+        // on-disk cache dropping artifacts mid-run.
+        let cache = FilesystemContractRuntimeCache::new(
+            workdir.path(),
+            None::<&str>,
+            "contract.cache",
+            FilesystemContractRuntimeCache::MAX_DISK_CACHE_BYTES,
+        )
+        .expect("create contract cache");
 
         Testbed {
             config: self.config,
@@ -157,6 +163,7 @@ impl<'c> EstimatorContext<'c> {
             max_number_logs: u64::MAX,
 
             max_actions_per_receipt: u64::MAX,
+            max_deploy_actions_per_receipt: u64::MAX,
             max_promises_per_function_call_action: u64::MAX,
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,
@@ -188,6 +195,7 @@ impl<'c> EstimatorContext<'c> {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
+            next_wasm_config: None,
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -258,6 +266,39 @@ pub(crate) struct Testbed<'c> {
     transaction_builder: TransactionBuilder,
 }
 
+/// Expected block latency (extra blocks needed to drain all receipts) for the
+/// blocks passed to [`Testbed::measure_blocks`].
+pub(crate) enum BlockLatency {
+    /// Every block drains in the same number of extra blocks.
+    Uniform(usize),
+    /// Setup and measured blocks alternate, as produced by `fn_cost_with_setup`:
+    /// even-indexed blocks run the setup, odd-indexed blocks the measurement.
+    SetupAndMeasured { setup: usize, measured: usize },
+}
+
+impl BlockLatency {
+    fn expected_at(&self, block_index: usize) -> usize {
+        match self {
+            BlockLatency::Uniform(latency) => *latency,
+            BlockLatency::SetupAndMeasured { setup, measured } => {
+                if block_index.is_multiple_of(2) {
+                    *setup
+                } else {
+                    *measured
+                }
+            }
+        }
+    }
+
+    /// Latency of the measured blocks, used to size the per-measurement overhead.
+    pub(crate) fn measured(&self) -> usize {
+        match self {
+            BlockLatency::Uniform(latency) => *latency,
+            BlockLatency::SetupAndMeasured { measured, .. } => *measured,
+        }
+    }
+}
+
 impl Testbed<'_> {
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
@@ -274,13 +315,13 @@ impl Testbed<'_> {
     pub(crate) fn measure_blocks(
         &mut self,
         blocks: Vec<Vec<SignedTransaction>>,
-        block_latency: usize,
+        block_latency: BlockLatency,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
         let allow_failures = false;
 
         let mut res = Vec::with_capacity(blocks.len());
 
-        for block in blocks {
+        for (block_index, block) in blocks.into_iter().enumerate() {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
             let extra_blocks;
             let gas_cost = {
@@ -290,9 +331,10 @@ impl Testbed<'_> {
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
+            let expected_latency = block_latency.expected_at(block_index);
             assert_eq!(
-                block_latency, extra_blocks,
-                "block latency {block_latency} does not match expected {extra_blocks}"
+                expected_latency, extra_blocks,
+                "block {block_index}: expected block latency {expected_latency} but drained in {extra_blocks}"
             );
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
@@ -473,6 +515,7 @@ impl Testbed<'_> {
             &cost,
             block_height,
             PROTOCOL_VERSION,
+            &PendingConstraints::default(),
         ) else {
             panic!("tx verification should not fail in estimator");
         };
@@ -490,7 +533,7 @@ impl Testbed<'_> {
         let mut instant_receipts = VecDeque::new();
         let mut validator_proposals = vec![];
         let mut stats =
-            ChunkApplyStatsV0::new(self.apply_state.block_height, self.apply_state.shard_id);
+            ChunkApplyStatsV1::new(self.apply_state.block_height, self.apply_state.shard_id);
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);

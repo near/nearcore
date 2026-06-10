@@ -123,6 +123,15 @@ pub struct LimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_params_per_contract: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_params_per_function: Option<u64>,
+    /// If present, stores the max operand stack size (in bytes) at any point
+    /// during the execution of a single function. Per-function: not summed
+    /// across recursion. Computed by `finite_wasm::max_stack`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_operand_stack_bytes_per_function: Option<u64>,
     /// If present, stores max number of tables declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tables_per_contract: Option<u32>,
@@ -145,6 +154,10 @@ pub struct LimitConfig {
     /// This caps total compilation time for a contract.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_blocks_per_contract: Option<u64>,
+    /// If present, stores max number of entries in the wasm type section that
+    /// a contract may declare.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_types_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
@@ -206,9 +219,6 @@ pub struct Config {
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
 
-    /// Whether to host functions introduced with deterministic account ids.
-    pub deterministic_account_ids: bool,
-
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
 
@@ -219,6 +229,20 @@ pub struct Config {
     /// Whether to enable the P-256 ECDSA signature verification host function.
     /// NEP-635: <https://github.com/near/NEPs/pull/635>
     pub p256_verify_host_fn: bool,
+
+    /// Whether to enable the promise_yield_create_with_id and
+    /// promise_yield_resume_with_yield_id host functions.
+    pub yield_with_id_host_fns: bool,
+
+    /// Whether to enable the chain_id host function (NEP-638).
+    pub chain_id_host_fn: bool,
+
+    /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
+    /// functions. These points lie on the curve but outside the G1/G2
+    /// subgroup; previously the host function returned an error for them,
+    /// now they are handled correctly as required by NEP-488. All other
+    /// inputs were already handled correctly.
+    pub bls12381_not_in_group_fix: bool,
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
@@ -253,6 +277,9 @@ impl Config {
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
+        self.yield_with_id_host_fns = true;
+        self.chain_id_host_fn = true;
+        self.bls12381_not_in_group_fix = true;
     }
 }
 

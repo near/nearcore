@@ -13,6 +13,7 @@ use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
+use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
@@ -177,6 +178,7 @@ fn setup_runtime_for_shard(
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
+        next_wasm_config: None,
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
         save_receipt_to_tx: false,
@@ -353,7 +355,8 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
         .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     apply_state.gas_limit = Some(receipt_gas_cost.checked_mul(3).unwrap());
 
     let n = 40;
@@ -408,7 +411,8 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
         .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
 
     let n = 120;
     let receipts = generate_receipts(small_transfer, n);
@@ -573,7 +577,8 @@ fn test_apply_delayed_receipts_local_tx() {
     let receipt_exec_gas_fee = Gas::from_gas(1000);
     let mut free_config = RuntimeConfig::free();
     let fees = Arc::make_mut(&mut free_config.fees);
-    fees.action_fees[ActionCosts::new_action_receipt].execution = receipt_exec_gas_fee;
+    fees.action_fees[ActionCosts::new_action_receipt].execution =
+        FeeComponent::Gas(receipt_exec_gas_fee);
     apply_state.config = Arc::new(free_config);
     // This allows us to execute 3 receipts per apply.
     apply_state.gas_limit = Some(receipt_exec_gas_fee.checked_mul(3).unwrap());
@@ -846,7 +851,8 @@ fn test_apply_surplus_gas_for_transfer() {
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
         .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
 
     let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
     let expected_receipts = 0;
@@ -885,7 +891,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -979,7 +986,8 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1053,7 +1061,8 @@ fn test_apply_surplus_gas_for_function_call() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .gas;
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -2396,7 +2405,7 @@ fn test_contract_accesses_when_validating_chunk() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
-            &[call_receipt.clone()],
+            std::slice::from_ref(&call_receipt),
             SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
@@ -3386,6 +3395,7 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             random_seed: Default::default(),
             current_protocol_version: protocol_version,
             config: config.clone(),
+            next_wasm_config: None,
             cache: Some(Box::new(contract_cache)),
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -3534,6 +3544,105 @@ fn test_expired_transaction() {
             "should have not produced any outcomes for the expired tx"
         );
     }
+}
+
+#[test]
+fn test_duplicate_transaction_in_chunk_skipped() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let send_money = |nonce| {
+        SignedTransaction::send_money(
+            nonce,
+            alice_account(),
+            bob_account(),
+            &alice_signer,
+            Balance::from_near(1),
+            CryptoHash::default(),
+        )
+    };
+    let tx = send_money(1);
+    // A distinct transaction (different nonce, different hash) that must not be skipped.
+    let other = send_money(2);
+    let (tx_hash, other_hash) = (tx.get_hash(), other.get_hash());
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    assert!(ProtocolFeature::UniqueChunkTransactions.enabled(PROTOCOL_VERSION));
+
+    // [T, U, T]: the repeat of T is non-adjacent to the original.
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), other, tx], vec![true; 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // The repeat of T is skipped, leaving a single success outcome under its
+    // hash rather than a success and a conflicting InvalidNonce failure, while
+    // the distinct transaction U is processed normally.
+    let tx_outcomes = |id| apply_result.outcomes.iter().filter(|o| o.id == id).collect::<Vec<_>>();
+    let (tx_outcomes, other_outcomes) = (tx_outcomes(tx_hash), tx_outcomes(other_hash));
+    assert_eq!(tx_outcomes.len(), 1, "duplicate transaction must be skipped");
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_eq!(other_outcomes.len(), 1, "distinct transaction must not be skipped");
+    assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_duplicate_transaction_in_chunk_prior_behavior() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let tx = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &alice_signer,
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let tx_hash = tx.get_hash();
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::UniqueChunkTransactions.protocol_version() - 1;
+
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), tx], vec![true, true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // Without the feature both copies are processed: the second records a
+    // conflicting InvalidNonce failure under the same id as the success.
+    let tx_outcomes: Vec<_> = apply_result.outcomes.iter().filter(|o| o.id == tx_hash).collect();
+    assert_eq!(tx_outcomes.len(), 2);
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(
+        tx_outcomes[1].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidNonce { .. }
+        ))
+    );
 }
 
 #[test]
@@ -3969,9 +4078,8 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         }
         other => panic!("expected NotEnoughBalanceForDeposit, got {:?}", other),
     }
-    let total_gas = transaction_cost.gas_burnt.checked_add(transaction_cost.gas_remaining).unwrap();
-    assert_eq!(outcome.outcome.gas_burnt, total_gas);
-    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.gas_cost);
+    assert_eq!(outcome.outcome.gas_burnt, transaction_cost.gas_burnt);
+    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.burnt_amount);
 
     // Commit and verify state
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
@@ -3982,7 +4090,7 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
     assert_eq!(
         access_key.gas_key_info().unwrap().balance,
-        gas_key_balance.checked_sub(transaction_cost.gas_cost).unwrap()
+        gas_key_balance.checked_sub(transaction_cost.burnt_amount).unwrap()
     );
 
     // Account balance was NOT deducted

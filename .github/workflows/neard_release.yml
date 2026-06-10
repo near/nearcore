@@ -10,12 +10,6 @@ on:
     branches: [master]
 
   workflow_dispatch:
-    inputs:
-      branch:
-        default: 'master'
-        description: "Nearcore branch to build and publish"
-        type: string
-        required: true
 
 jobs:
   binary-release:
@@ -35,25 +29,17 @@ jobs:
       id-token: write # required to use OIDC authentication
 
     steps:
-      - name: Checkout ${{ github.event.inputs.branch }} branch
-        if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch }}
-          persist-credentials: false
-
       - name: Checkout nearcore release
         # for release events we need to checkout all branches to be able to determine
         # later branch name
-        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
+        if: ${{ github.event_name == 'release' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout repository for master branch
-        # In case of master branch we want to checkout with depth 1
-        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+      - name: Checkout repository
+        if: ${{ github.event_name != 'release' }}
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -110,25 +96,17 @@ jobs:
     runs-on: warp-ubuntu-2404-x64-2x
     environment: deploy
     steps:
-      - name: Checkout ${{ github.event.inputs.branch }} branch
-        if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch }}
-          persist-credentials: false
-
       - name: Checkout nearcore release
         # for release events we need to checkout all branches to be able to determine
         # later branch name
-        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
+        if: ${{ github.event_name == 'release' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout  repository for master branch
-        # In case of master branch we want to checkout with depth 1
-        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+      - name: Checkout repository
+        if: ${{ github.event_name != 'release' }}
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -189,22 +167,15 @@ jobs:
     runs-on: ubuntu-latest
     environment: deploy
     steps:
-      - name: Checkout ${{ github.event.inputs.branch }} branch
-        if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch }}
-          persist-credentials: false
-
       - name: Checkout nearcore release
-        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
+        if: ${{ github.event_name == 'release' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout repository for master branch
-        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+      - name: Checkout repository
+        if: ${{ github.event_name != 'release' }}
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -272,4 +243,24 @@ jobs:
           tags: ${{ env.DOCKER_TAGS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  track-unmerged-commits:
+    name: "Track unmerged release commits"
+    # Only run on real GitHub release events; skip push and workflow_dispatch.
+    if: ${{ github.event_name == 'release' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout nearcore release
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Update tracker issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/track_release_commits.py
 

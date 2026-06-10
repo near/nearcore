@@ -8,7 +8,7 @@ use near_chain::chain::{
 };
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
-use near_chain::types::StorageDataSource;
+use near_chain::types::{MaybePinnedMemtrieRoot, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::validate::{validate_chunk_proofs, validate_chunk_with_chunk_extra};
 use near_chain::{
@@ -336,8 +336,15 @@ impl ReplayController {
             })
         };
 
-        let shard_update_result =
-            process_shard_update(&span, self.runtime.as_ref(), update_reason, shard_context, None)?;
+        let shard_update_result = process_shard_update(
+            &span,
+            self.runtime.as_ref(),
+            update_reason,
+            shard_context,
+            // Replay uses `DbTrieOnly` storage; no memtrie path.
+            MaybePinnedMemtrieRoot::no_memtries(),
+            None,
+        )?;
 
         let output = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult {
@@ -350,8 +357,7 @@ impl ReplayController {
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {
-                let mut chunk_extra = ChunkExtra::clone(&prev_chunk_extra.as_ref());
-                *chunk_extra.state_root_mut() = apply_result.new_root;
+                let chunk_extra = prev_chunk_extra.next_for_old_chunk(apply_result.new_root);
                 let outgoing_receipts = apply_result.outgoing_receipts;
                 ReplayChunkOutput { chunk_extra: chunk_extra.into(), outgoing_receipts }
             }

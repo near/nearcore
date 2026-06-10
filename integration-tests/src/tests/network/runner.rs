@@ -88,7 +88,6 @@ fn setup_network_node_with_tcp(
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
         archive: config.archive,
-        state_sync_enabled: true,
         transaction_pool_size_limit: None,
     });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
@@ -110,7 +109,13 @@ fn setup_network_node_with_tcp(
     let (block_notification_watch_sender, _block_notification_watch_receiver) =
         tokio::sync::watch::channel(None);
     let adv = near_client::adversarial::Controls::default();
-    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
+    let StartClientResult {
+        client_actor,
+        tx_pool,
+        pending_transaction_queue,
+        chunk_endorsement_tracker,
+        ..
+    } = start_client(
         Clock::real(),
         actor_system.clone(),
         client_config.clone(),
@@ -166,11 +171,14 @@ fn setup_network_node_with_tcp(
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: client_config
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),

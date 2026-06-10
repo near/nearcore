@@ -10,12 +10,32 @@ pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
     core::arch::wasm32::unreachable()
 }
 
+mod sys {
+    #[allow(unused)]
+    extern "C" {
+        pub fn read_register(register_id: u64, ptr: u64);
+        pub fn account_balance(balance_ptr: u64);
+        pub fn attached_deposit(balance_ptr: u64);
+    }
+}
+
+unsafe fn read_register(register_id: u64, ptr: *mut u8) {
+    sys::read_register(register_id, ptr as usize as u64)
+}
+#[allow(unused)]
+unsafe fn account_balance(balance_ptr: *mut u8) {
+    sys::account_balance(balance_ptr as usize as u64)
+}
+#[allow(unused)]
+unsafe fn attached_deposit(balance_ptr: *mut u8) {
+    sys::attached_deposit(balance_ptr as usize as u64)
+}
+
 #[allow(unused)]
 extern "C" {
     // #############
     // # Registers #
     // #############
-    fn read_register(register_id: u64, ptr: u64);
     fn register_len(register_id: u64) -> u64;
     fn write_register(register_id: u64, data_len: u64, data_ptr: u64);
     // ###############
@@ -32,8 +52,6 @@ extern "C" {
     // #################
     // # Economics API #
     // #################
-    fn account_balance(balance_ptr: u64);
-    fn attached_deposit(balance_ptr: u64);
     fn prepaid_gas() -> u64;
     fn used_gas() -> u64;
     // ############
@@ -131,6 +149,17 @@ extern "C" {
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
+    fn promise_yield_create_with_id(
+        method_len: u64,
+        method_ptr: u64,
+        arg_len: u64,
+        arg_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+    ) -> u64;
     // #######################
     // # Promise API actions #
     // #######################
@@ -250,10 +279,10 @@ pub unsafe fn read_memory_1Mib_10k() {
 // Writes 10b 10k times into memory. Includes `read_register` costs.
 #[unsafe(no_mangle)]
 pub unsafe fn write_memory_10b_10k() {
-    let buffer = [0u8; 10];
+    let mut buffer = [0u8; 10];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     for _ in 0..10_000 {
-        read_register(0, buffer.as_ptr() as *const u64 as u64);
+        read_register(0, buffer.as_mut_ptr());
     }
 }
 
@@ -261,10 +290,10 @@ pub unsafe fn write_memory_10b_10k() {
 // Writes 1Mib 10k times into memory. Includes `read_register` costs.
 #[unsafe(no_mangle)]
 pub unsafe fn write_memory_1Mib_10k() {
-    let buffer = [0u8; 1024 * 1024];
+    let mut buffer = [0u8; 1024 * 1024];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     for _ in 0..10_000 {
-        read_register(0, buffer.as_ptr() as *const u64 as u64);
+        read_register(0, buffer.as_mut_ptr());
     }
 }
 
@@ -1251,10 +1280,10 @@ pub unsafe fn data_receipt_10b_40() {
 
 // Produces `n` data receipts with 10b of data each.
 unsafe fn data_receipt_10b_n<const NUM_RECEIPTS: usize>() {
-    let buf = [0u8; 1000];
+    let mut buf = [0u8; 1000];
     current_account_id(0);
     let buf_len = register_len(0);
-    read_register(0, buf.as_ptr() as _);
+    read_register(0, buf.as_mut_ptr());
 
     let method_name = b"data_producer_10b";
     let args = b"";
@@ -1292,10 +1321,10 @@ unsafe fn data_receipt_10b_n<const NUM_RECEIPTS: usize>() {
 // have a callback on created promises so there is no data dependency.
 #[unsafe(no_mangle)]
 pub unsafe fn data_receipt_base_10b_1000() {
-    let buf = [0u8; 1000];
+    let mut buf = [0u8; 1000];
     current_account_id(0);
     let buf_len = register_len(0);
-    read_register(0, buf.as_ptr() as _);
+    read_register(0, buf.as_mut_ptr());
 
     let method_name = b"data_producer_10b";
     let args = b"";
@@ -1322,10 +1351,10 @@ pub unsafe fn data_receipt_base_10b_1000() {
 #[unsafe(no_mangle)]
 pub unsafe fn data_receipt_100kib_40() {
     const NUM_RECEIPTS: usize = 40;
-    let buf = [0u8; 1000];
+    let mut buf = [0u8; 1000];
     current_account_id(0);
     let buf_len = register_len(0);
-    read_register(0, buf.as_ptr() as _);
+    read_register(0, buf.as_mut_ptr());
 
     let method_name = b"data_producer_100kib";
     let args = b"";
@@ -1366,6 +1395,31 @@ pub unsafe fn yield_create_base() {
     const METHOD_NAME: &str = "n";
     for _ in 0..1000 {
         promise_yield_create(METHOD_NAME.len() as u64, METHOD_NAME.as_ptr() as u64, 0, 0, 0, 1, 0);
+    }
+}
+
+/// Function to measure `yield_create_with_id_base` fee.
+/// Creates 1000 waiting receipts/yield promises via `promise_yield_create_with_id`.
+/// Each call uses a distinct user-provided yield_id (the loop counter) to avoid
+/// duplicate-detection bailouts.
+#[unsafe(no_mangle)]
+pub unsafe fn yield_create_with_id_base() {
+    const METHOD_NAME: &str = "n";
+    let amount: u128 = 0;
+    for i in 0..1000u64 {
+        let mut yield_id = [0u8; 32];
+        yield_id[..8].copy_from_slice(&i.to_le_bytes());
+        promise_yield_create_with_id(
+            METHOD_NAME.len() as u64,
+            METHOD_NAME.as_ptr() as u64,
+            0,
+            0,
+            &amount as *const u128 as u64,
+            0,
+            1,
+            yield_id.len() as u64,
+            yield_id.as_ptr() as u64,
+        );
     }
 }
 
@@ -1455,8 +1509,8 @@ const MAX_ARG_LEN: u64 = 1024 * 1024 - 4096;
 /// Insert or overwrite a value to given key
 pub unsafe fn account_storage_insert_key() {
     input(0);
-    let input_data = [0u8; MAX_ARG_LEN as usize];
-    read_register(0, input_data.as_ptr() as _);
+    let mut input_data = [0u8; MAX_ARG_LEN as usize];
+    read_register(0, input_data.as_mut_ptr());
 
     let key_len = u64::from_le_bytes(input_data[..8].try_into().unwrap());
     assert!(key_len < MAX_ARG_LEN - 16);
@@ -1475,8 +1529,8 @@ pub unsafe fn account_storage_insert_key() {
 /// Check if key exists for account
 pub unsafe fn account_storage_has_key() {
     input(0);
-    let input_data = [0u8; MAX_ARG_LEN as usize];
-    read_register(0, input_data.as_ptr() as _);
+    let mut input_data = [0u8; MAX_ARG_LEN as usize];
+    read_register(0, input_data.as_mut_ptr());
 
     let key_len = u64::from_le_bytes(input_data[..8].try_into().unwrap());
     assert!(key_len < MAX_ARG_LEN - 16);

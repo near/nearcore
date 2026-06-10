@@ -16,7 +16,9 @@ use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 #[cfg(feature = "clock")]
 use crate::types::AccountId;
-use crate::types::{Balance, BlockExecutionResults, BlockHeight, EpochId, Gas};
+use crate::types::{
+    Balance, BlockExecutionResults, BlockHeight, EpochId, Gas, SpiceChunkEndorsementStats,
+};
 #[cfg(feature = "clock")]
 use crate::{
     stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
@@ -143,12 +145,12 @@ impl Block {
         let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
-                gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
                 if spice_info.is_none() {
+                    gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
                     prev_validator_proposals.extend(chunk.prev_validator_proposals());
                     gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                    balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 }
-                balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -162,27 +164,30 @@ impl Block {
                     },
                 ),
             );
+            balance_burnt = Self::compute_balance_burnt_from_certified_results_checked(
+                &spice_info.newly_certified_block_execution_results,
+            )
+            .unwrap();
         }
 
-        // TODO(spice): Use gas_used and other relevant fields from spice_info last
-        // certified block execution results.
-        if let Some(ref spice_info) = spice_info {
-            for (_shard_id, execution_result) in
-                &spice_info.last_certified_block_execution_results.0
-            {
-                gas_limit =
-                    gas_limit.checked_add(execution_result.chunk_extra.gas_limit()).unwrap();
-            }
+        let next_gas_price = if let Some(ref spice_info) = spice_info {
+            Self::compute_gas_price_from_certified_results_checked(
+                &spice_info.newly_certified_block_execution_results,
+                prev.next_gas_price(),
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )
+        } else {
+            Self::compute_next_gas_price_checked(
+                prev.next_gas_price(),
+                gas_used,
+                gas_limit,
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )
         }
-
-        let next_gas_price = Self::compute_next_gas_price_checked(
-            prev.next_gas_price(),
-            gas_used,
-            gas_limit,
-            gas_price_adjustment_rate,
-            min_gas_price,
-            max_gas_price,
-        )
         .unwrap();
 
         let new_total_supply = prev
@@ -221,7 +226,8 @@ impl Block {
             BlockHeader::BlockHeaderV3(_)
             | BlockHeader::BlockHeaderV4(_)
             | BlockHeader::BlockHeaderV5(_)
-            | BlockHeader::BlockHeaderV6(_) => {
+            | BlockHeader::BlockHeaderV6(_)
+            | BlockHeader::BlockHeaderV7(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
         };
@@ -255,6 +261,10 @@ impl Block {
         let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
         let outcome_root = chunks_wrapper.compute_outcome_root();
 
+        let prev_last_certified_block_epoch_id =
+            spice_info.as_ref().map(|info| info.prev_last_certified_block_epoch_id);
+        let spice_chunk_endorsement_stats =
+            spice_info.as_ref().map(|info| info.spice_chunk_endorsement_stats.clone());
         let body = if let Some(spice_info) = spice_info {
             BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, spice_info.core_statements)
         } else {
@@ -291,6 +301,8 @@ impl Block {
             prev.height(),
             chunk_endorsements_bitmap,
             shard_split,
+            prev_last_certified_block_epoch_id,
+            spice_chunk_endorsement_stats,
         );
 
         Self::new_block(header, body)
@@ -327,6 +339,29 @@ impl Block {
         Some(self.header().total_supply() == new_total_supply)
     }
 
+    // TODO(spice): once spice v1 is released, deprecate `verify_total_supply_checked` in favor
+    // of this method (or fold this back in by making `newly_certified` mandatory).
+    pub fn verify_total_supply_checked_spice(
+        &self,
+        prev_total_supply: Balance,
+        minted_amount: Option<Balance>,
+        newly_certified_block_execution_results: &[BlockExecutionResults],
+    ) -> Option<bool> {
+        let balance_burnt = Self::compute_balance_burnt_from_certified_results_checked(
+            newly_certified_block_execution_results,
+        )?;
+
+        let Some(new_total_supply) = prev_total_supply
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))?
+            .checked_sub(balance_burnt)
+        else {
+            // This corresponds to balance_burnt > prev_total_supply + minted_amount
+            // which indicates invalid balance burnt, not arithmetic overflow
+            return Some(false);
+        };
+        Some(self.header().total_supply() == new_total_supply)
+    }
+
     #[deprecated(note = "use `verify_gas_price_checked` to avoid overflow panic")]
     pub fn verify_gas_price(
         &self,
@@ -335,14 +370,14 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
         // TODO(spice): Once spice v1 is released remove Option.
-        last_certified_block_execution_results: Option<&BlockExecutionResults>,
+        newly_certified_block_execution_results: Option<&[BlockExecutionResults]>,
     ) -> bool {
         self.verify_gas_price_checked(
             gas_price,
             min_gas_price,
             max_gas_price,
             gas_price_adjustment_rate,
-            last_certified_block_execution_results,
+            newly_certified_block_execution_results,
         )
         .unwrap()
     }
@@ -354,24 +389,28 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
         // TODO(spice): Once spice v1 is released remove Option.
-        last_certified_block_execution_results: Option<&BlockExecutionResults>,
+        newly_certified_block_execution_results: Option<&[BlockExecutionResults]>,
     ) -> Option<bool> {
-        let gas_used = self.chunks().compute_gas_used_checked()?;
-        let gas_limit = if let Some(last_certified_block_execution_results) =
-            last_certified_block_execution_results
-        {
-            last_certified_block_execution_results.compute_gas_limit_checked()?
+        let expected_price = if let Some(results) = newly_certified_block_execution_results {
+            Self::compute_gas_price_from_certified_results_checked(
+                results,
+                gas_price,
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )?
         } else {
-            self.chunks().compute_gas_limit_checked()?
+            let gas_used = self.chunks().compute_gas_used_checked()?;
+            let gas_limit = self.chunks().compute_gas_limit_checked()?;
+            Self::compute_next_gas_price_checked(
+                gas_price,
+                gas_used,
+                gas_limit,
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )?
         };
-        let expected_price = Self::compute_next_gas_price_checked(
-            gas_price,
-            gas_used,
-            gas_limit,
-            gas_price_adjustment_rate,
-            min_gas_price,
-            max_gas_price,
-        )?;
         Some(self.header().next_gas_price() == expected_price)
     }
 
@@ -435,6 +474,35 @@ impl Block {
                 )
                 .as_u128(),
         ))
+    }
+
+    fn compute_gas_price_from_certified_results_checked(
+        results: &[BlockExecutionResults],
+        initial_gas_price: Balance,
+        gas_price_adjustment_rate: Rational32,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+    ) -> Option<Balance> {
+        let mut gas_price = initial_gas_price;
+        for block_results in results {
+            gas_price = Self::compute_next_gas_price_checked(
+                gas_price,
+                block_results.compute_gas_used_checked()?,
+                block_results.compute_gas_limit_checked()?,
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )?;
+        }
+        Some(gas_price)
+    }
+
+    fn compute_balance_burnt_from_certified_results_checked(
+        results: &[BlockExecutionResults],
+    ) -> Option<Balance> {
+        results.iter().try_fold(Balance::ZERO, |acc, block_results| {
+            acc.checked_add(block_results.compute_balance_burnt_checked()?)
+        })
     }
 
     pub fn validate_chunk_header_proof(
@@ -579,7 +647,11 @@ impl Block {
 
 pub struct SpiceNewBlockProductionInfo {
     pub core_statements: SpiceCoreStatements,
-    pub last_certified_block_execution_results: BlockExecutionResults,
+    pub newly_certified_block_execution_results: Vec<BlockExecutionResults>,
+    pub prev_last_certified_block_epoch_id: EpochId,
+    /// Accumulated per-validator endorsement stats for the epoch; non-empty
+    /// only on the last block of an epoch.
+    pub spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
 
 /// Distinguishes between new and old chunks.

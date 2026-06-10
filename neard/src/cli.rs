@@ -23,6 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
+use near_replay_tool::ReplayCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
@@ -165,6 +166,9 @@ impl NeardCmd {
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            NeardSubCommand::Replay(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
+            }
             #[cfg(feature = "dump-test-contract")]
             NeardSubCommand::DumpTestContracts(cmd) => {
                 cmd.run()?;
@@ -280,6 +284,9 @@ pub(super) enum NeardSubCommand {
 
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
+
+    /// Replay chunks from a database snapshot and verify results.
+    Replay(ReplayCommand),
 
     #[cfg(feature = "dump-test-contract")]
     /// Placeholder for test contracts subcommand
@@ -519,11 +526,11 @@ impl RunCmd {
             near_config.rpc_config = None;
         } else {
             if let Some(rpc_addr) = self.rpc_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).addr =
                     tcp::ListenerAddr::new(rpc_addr.parse().unwrap());
             }
             if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).prometheus_addr =
                     Some(rpc_prometheus_addr);
             }
         }
@@ -639,7 +646,7 @@ impl RunCmd {
 /// Archival nodes skip deletion to prevent accidental data loss.
 fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
     let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    if !near_client::sync::SYNC_V2_ENABLED || !marker_path.exists() {
+    if !marker_path.exists() {
         return;
     }
     if is_archival {

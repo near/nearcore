@@ -17,5 +17,6 @@ mod storage_read_write;
 mod storage_usage;
 mod view_method;
 mod vm_logic_builder;
+mod yield_resume;
 
 use vm_logic_builder::TestVMLogic;

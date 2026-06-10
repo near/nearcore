@@ -462,6 +462,11 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
             let (public_key_kind, public_key) = match add_key.public_key {
                 PublicKey::ED25519(key) => (0, key.as_ref().to_vec()),
                 PublicKey::SECP256K1(key) => (1, key.as_ref().to_vec()),
+                // ETH-style wallet contracts cover ed25519/secp256k1 only;
+                // ML-DSA-65 access keys do not flow through this path.
+                PublicKey::MLDSA65(_) => {
+                    panic!("test fed an ML-DSA-65 pubkey into the ETH wallet contract ABI path")
+                }
             };
             let nonce = add_key.access_key.nonce;
             let (is_full_access, is_limited_allowance, allowance, receiver_id, method_names) =

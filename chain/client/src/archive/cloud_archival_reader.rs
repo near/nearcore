@@ -1,11 +1,18 @@
-use anyhow::Context;
-use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
-use near_store::archive::cloud_storage::{BlockData, CloudStorage, EpochData};
+use near_store::archive::cloud_storage::{BlockData, CloudRetrievalError, CloudStorage, EpochData};
 use near_store::{DBCol, Store};
 use std::collections::HashSet;
+
+/// Errors from reader-side custom logic on top of cloud retrieval.
+#[derive(thiserror::Error, Debug)]
+pub enum CloudArchivalReaderError {
+    #[error(transparent)]
+    Retrieval(#[from] CloudRetrievalError),
+    #[error("walked back to genesis without finding a state snapshot")]
+    NoSnapshotFound,
+}
 
 /// Writes block-level data from cloud storage into the local store.
 ///
@@ -44,16 +51,10 @@ pub fn save_block_data(store: &Store, block_data: &BlockData) {
     update.commit();
 }
 
-/// Writes epoch-level data from cloud storage into the local store.
-///
-/// `epoch_start_prev_hash` is the prev_hash of the epoch start block, used
-/// as the key for the epoch's initial BlockMerkleTree.
-pub fn save_epoch_data(
-    store: &Store,
-    epoch_id: &EpochId,
-    epoch_data: &EpochData,
-    epoch_start_prev_hash: &CryptoHash,
-) {
+/// Writes epoch-level data from cloud storage into the local store. Uses the
+/// prev_hash of the epoch start block (carried inside `epoch_data`) as the key
+/// for the epoch's initial BlockMerkleTree.
+pub fn save_epoch_data(store: &Store, epoch_id: &EpochId, epoch_data: &EpochData) {
     let mut update = store.store_update();
 
     update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_data.epoch_info());
@@ -61,7 +62,7 @@ pub fn save_epoch_data(
 
     update.set_ser(
         DBCol::BlockMerkleTree,
-        epoch_start_prev_hash.as_ref(),
+        epoch_data.epoch_start_prev_hash().as_ref(),
         epoch_data.epoch_start_prev_block_merkle_tree(),
     );
 
@@ -84,8 +85,11 @@ pub fn bootstrap_range(
     let mut saved_epochs = HashSet::<EpochId>::new();
 
     // Backfill blocks from the first epoch's start to start_height so the
-    // merkle tree chain is complete when starting mid-epoch.
-    let first_epoch_data = backfill_epoch_start(store, cloud_storage, start_height)?;
+    // merkle tree chain is complete when starting mid-epoch. Clip
+    // `start_height` to the nearest present block at-or-below it so the main
+    // loop starts at a real block.
+    let (start_height, first_epoch_data) =
+        backfill_epoch_start(store, cloud_storage, start_height)?;
     saved_epochs.insert(*first_epoch_data.epoch_id());
 
     let range_length = end_height - start_height + 1;
@@ -96,18 +100,18 @@ pub fn bootstrap_range(
     // batch blob is downloaded and decompressed once rather than per height.
     let mut height = start_height;
     while height <= end_height {
-        let batch = cloud_storage
-            .get_block_batch_for_height(height)
-            .with_context(|| format!("failed to download block batch at height {height}"))?;
+        let batch = cloud_storage.get_block_batch_for_height(height)?;
         let last_in_batch = std::cmp::min(batch.end_height(), end_height);
         for h in height..=last_in_batch {
-            let block_data = batch.get_block_at_height(h);
+            let Some(block_data) = batch.get_block_at_height(h) else {
+                continue;
+            };
             let epoch_id = *block_data.block().header().epoch_id();
             if saved_epochs.insert(epoch_id) {
                 save_new_epoch(store, cloud_storage, &epoch_id)?;
             }
             save_block_data(store, block_data);
-            if (h - start_height) % log_interval == 0 || h == end_height {
+            if (h - start_height).is_multiple_of(log_interval) || h == end_height {
                 tracing::info!(height = h, end_height, "bootstrap progress");
             }
         }
@@ -117,107 +121,108 @@ pub fn bootstrap_range(
     Ok(())
 }
 
+/// First present block at or below `height`. Errors if no such block exists
+/// in cloud (e.g. `height` is below the first archived block).
+pub fn find_present_block_at_or_below(
+    cloud_storage: &CloudStorage,
+    height: BlockHeight,
+) -> Result<(BlockHeight, BlockData), CloudRetrievalError> {
+    let mut h = height;
+    let mut batch = cloud_storage.get_block_batch_for_height(h)?;
+    loop {
+        if h < batch.start_height() {
+            batch = cloud_storage.get_block_batch_for_height(h)?;
+        }
+        if let Some(block) = batch.get_block_at_height(h) {
+            return Ok((h, block.clone()));
+        }
+        assert!(h > 0, "walked past height 0 without finding the genesis block");
+        h -= 1;
+    }
+}
+
 /// Downloads and saves epoch data, then backfills all blocks from epoch start
-/// to `start_height` so the merkle tree chain is complete for mid-epoch starts.
+/// up to (but excluding) the nearest present block at-or-below `start_height`,
+/// so the merkle tree chain is complete for mid-epoch starts. Returns that
+/// present-block height so the caller can begin its main loop on a real block.
 fn backfill_epoch_start(
     store: &Store,
     cloud_storage: &CloudStorage,
     start_height: BlockHeight,
-) -> anyhow::Result<EpochData> {
-    let first_batch = cloud_storage
-        .get_block_batch_for_height(start_height)
-        .with_context(|| format!("failed to download block batch at height {start_height}"))?;
-    let first_block = first_batch.get_block_at_height(start_height);
-    let epoch_id = *first_block.block().header().epoch_id();
+) -> anyhow::Result<(BlockHeight, EpochData)> {
+    let (start_height, start_block) = find_present_block_at_or_below(cloud_storage, start_height)?;
+    let epoch_id = *start_block.block().header().epoch_id();
     let epoch_data = save_new_epoch(store, cloud_storage, &epoch_id)?;
 
     let epoch_start = epoch_data.epoch_start_height();
-    if epoch_start + 1 < start_height {
+    if epoch_start < start_height {
         tracing::info!(epoch_start, start_height, "backfilling blocks from epoch start");
     }
     // Fetch one batch per iteration; one batch spans up to `batch_size` heights.
-    let mut height = epoch_start + 1;
+    let mut height = epoch_start;
     while height < start_height {
-        let batch = cloud_storage
-            .get_block_batch_for_height(height)
-            .with_context(|| format!("failed to download block batch at height {height}"))?;
+        let batch = cloud_storage.get_block_batch_for_height(height)?;
         let last_in_batch = std::cmp::min(batch.end_height(), start_height - 1);
         for h in height..=last_in_batch {
-            save_block_data(store, batch.get_block_at_height(h));
+            if let Some(block_data) = batch.get_block_at_height(h) {
+                save_block_data(store, block_data);
+            }
         }
         height = last_in_batch + 1;
     }
 
-    Ok(epoch_data)
+    Ok((start_height, epoch_data))
 }
 
 /// Walks epochs backward from `height` and returns the first `(epoch_height, epoch_id)`
-/// whose state-header is present in cloud for `shard_id`, or `None` after the genesis
-/// epoch.
+/// whose state-header is present in cloud for `shard_id`. Errors when the walk-back
+/// reaches below the earliest archived data without finding a snapshot.
 pub fn find_snapshot_at_or_before(
     cloud_storage: &CloudStorage,
     height: BlockHeight,
     shard_id: ShardId,
-) -> anyhow::Result<Option<(EpochHeight, EpochId)>> {
-    let initial_batch = cloud_storage
-        .get_block_batch_for_height(height)
-        .with_context(|| format!("failed to download block batch at height {height}"))?;
-    let mut epoch_id = *initial_batch.get_block_at_height(height).block().header().epoch_id();
+) -> Result<(EpochHeight, EpochId), CloudArchivalReaderError> {
+    let (_, initial_block) = find_present_block_at_or_below(cloud_storage, height)?;
+    let mut epoch_id = *initial_block.block().header().epoch_id();
 
     loop {
-        let epoch_data = cloud_storage
-            .get_epoch_data(epoch_id)
-            .with_context(|| format!("failed to download epoch data for {epoch_id:?}"))?;
+        let epoch_data = cloud_storage.get_epoch_data(epoch_id)?;
         let epoch_height = epoch_data.epoch_info().epoch_height();
         let epoch_start_height = epoch_data.epoch_start_height();
 
         tracing::info!(epoch_height, ?epoch_id, "probing for state snapshot");
 
         if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id)? {
-            return Ok(Some((epoch_height, epoch_id)));
+            return Ok((epoch_height, epoch_id));
         }
 
-        // Miss: step to the previous epoch. Fetch the epoch-start block so we
-        // can detect the genesis epoch (its prev_hash is the default hash) and
-        // then read the block immediately before it to get the previous epoch_id.
-        let epoch_start_batch =
-            cloud_storage.get_block_batch_for_height(epoch_start_height).with_context(|| {
-                format!("failed to download batch at epoch-start height {epoch_start_height}")
-            })?;
-        let epoch_start_block = epoch_start_batch.get_block_at_height(epoch_start_height);
-        if epoch_start_block.block().header().is_genesis() {
-            return Ok(None);
+        let batch = cloud_storage.get_block_batch_for_height(epoch_start_height)?;
+        // Epoch start is by chain definition always produced; if it's None in cloud
+        // we don't have earlier chain data, so the walk-back can't continue.
+        let Some(epoch_start_block) = batch.get_block_at_height(epoch_start_height) else {
+            return Err(CloudArchivalReaderError::NoSnapshotFound);
+        };
+        if epoch_start_block.block_info().is_genesis() {
+            return Err(CloudArchivalReaderError::NoSnapshotFound);
         }
-        let prev_height = epoch_start_height - 1;
-        let prev_batch = cloud_storage
-            .get_block_batch_for_height(prev_height)
-            .with_context(|| format!("failed to download block batch at height {prev_height}"))?;
-        epoch_id = *prev_batch.get_block_at_height(prev_height).block().header().epoch_id();
+        let (_, prev_block) =
+            find_present_block_at_or_below(cloud_storage, epoch_start_height - 1)?;
+        epoch_id = *prev_block.block().header().epoch_id();
     }
 }
 
-/// Downloads and saves epoch-level data for a new epoch. Also saves the epoch
-/// start block.
+/// Downloads and saves epoch-level data for a new epoch.
 fn save_new_epoch(
     store: &Store,
     cloud_storage: &CloudStorage,
     epoch_id: &EpochId,
-) -> anyhow::Result<EpochData> {
-    let epoch_data = cloud_storage
-        .get_epoch_data(*epoch_id)
-        .with_context(|| format!("failed to download epoch data for {epoch_id:?}"))?;
-
-    let epoch_start_height = epoch_data.epoch_start_height();
-    let epoch_start_batch =
-        cloud_storage.get_block_batch_for_height(epoch_start_height).with_context(|| {
-            format!("failed to download batch for epoch start at height {epoch_start_height}")
-        })?;
-    let epoch_start_block = epoch_start_batch.get_block_at_height(epoch_start_height);
-    let epoch_start_prev_hash = *epoch_start_block.block().header().prev_hash();
-
-    save_epoch_data(store, epoch_id, &epoch_data, &epoch_start_prev_hash);
-    save_block_data(store, epoch_start_block);
-
-    tracing::info!(?epoch_id, epoch_start_height, "saved epoch data");
+) -> Result<EpochData, CloudRetrievalError> {
+    let epoch_data = cloud_storage.get_epoch_data(*epoch_id)?;
+    save_epoch_data(store, epoch_id, &epoch_data);
+    tracing::info!(
+        ?epoch_id,
+        epoch_start_height = epoch_data.epoch_start_height(),
+        "saved epoch data"
+    );
     Ok(epoch_data)
 }

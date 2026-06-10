@@ -165,7 +165,6 @@ impl StateSync {
                 let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
                     clock: clock.clone(),
                     store: store.clone(),
-                    epoch_manager: epoch_manager.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
@@ -504,7 +503,7 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         sync_hash: CryptoHash,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<ShardStateSyncResponseHeader, near_chain::Error>>;
+    ) -> BoxFuture<'_, Result<ShardStateSyncResponseHeader, near_chain::Error>>;
 
     fn download_shard_part(
         &self,
@@ -513,7 +512,7 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<StatePart, near_chain::Error>>;
+    ) -> BoxFuture<'_, Result<StatePart, near_chain::Error>>;
 }
 
 /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.

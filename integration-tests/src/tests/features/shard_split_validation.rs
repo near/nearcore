@@ -86,6 +86,7 @@ fn chunk_header_proposed_split_validation() {
         chain_store,
         genesis_block,
         epoch_manager,
+        client.chain.runtime_adapter.as_ref(),
     )
     .expect("Pre-validation of the original witness should succeed");
 
@@ -217,6 +218,8 @@ fn block_header_shard_split_validation() {
         header.prev_height().unwrap_or(0),
         header.chunk_endorsements().cloned(),
         forged_shard_split.clone(), // FORGED shard_split
+        header.prev_last_certified_block_epoch_id().cloned(),
+        header.spice_chunk_endorsement_stats().map(<[_]>::to_vec),
     );
 
     // Sanity: the forged header is V6 and carries the forged shard_split.

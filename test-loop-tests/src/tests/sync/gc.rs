@@ -28,7 +28,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_chain_configs::TrackedShardsConfig;
-use near_client::sync::SYNC_V2_ENABLED;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::Balance;
 
@@ -91,9 +90,6 @@ fn assert_gc_boundaries(env: &TestLoopEnv, node_idx: usize) {
 /// Adds a fresh node that syncs via far-horizon, then runs enough additional epochs
 /// for GC to clean up sync-era data. The fresh node uses tight gc (`GC_EPOCHS=3`).
 fn run_gc_after_far_horizon_sync(gc_blocks_limit: Option<u64>) {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let accounts = make_accounts(100);
@@ -196,9 +192,6 @@ fn test_gc_incremental() {
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_boundary_after_near_horizon_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let mut env =

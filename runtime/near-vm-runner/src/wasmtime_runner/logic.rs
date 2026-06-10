@@ -18,6 +18,7 @@ use crate::logic::{HostError, VMLogicError};
 use ExtCosts::*;
 use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
+use near_parameters::ParameterCost;
 use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, gas_key_add_key_exec_fee, gas_key_add_key_send_fee,
@@ -25,7 +26,7 @@ use near_parameters::{
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
-use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
 use std::rc::Rc;
 
@@ -58,7 +59,12 @@ macro_rules! bls12381_impl {
                 value_ptr,
                 value_len,
             )?;
-            let res_option = bls12381::$impl_fn_name(&data)?;
+            let version = if ctx.config.bls12381_not_in_group_fix {
+                crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
+            } else {
+                0
+            };
+            let res_option = bls12381::$impl_fn_name(&data, version)?;
 
             if let Some(res) = res_option {
                 ctx.registers.set(
@@ -554,6 +560,26 @@ pub fn current_account_id(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64) -
     )
 }
 
+/// Saves the chain ID of the current chain into the register.
+///
+/// # Errors
+///
+/// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+///
+/// # Cost
+///
+/// `base + write_register_base + write_register_byte * num_bytes`
+pub fn chain_id(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64) -> Result<()> {
+    ctx.result_state.gas_counter.pay_base(base)?;
+    let chain_id = ctx.ext.chain_id();
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.config.limit_config,
+        register_id,
+        chain_id.as_bytes(),
+    )
+}
+
 /// All contract calls are a result of some transaction that was signed by some account using
 /// some access key and submitted into a memory pool (either through the wallet using RPC or by
 /// a node itself). This function returns the id of that account. Saves the bytes of the signer
@@ -680,13 +706,11 @@ pub fn refund_to_account_id(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64)
 pub fn input(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64) -> Result<()> {
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    let charge_bytes_gas = !ctx.config.deterministic_account_ids;
     ctx.registers.set_rc_data(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
         Rc::clone(&ctx.context.input),
-        charge_bytes_gas,
     )
 }
 
@@ -1986,20 +2010,20 @@ fn pay_gas_for_new_receipt(
     sir: bool,
     data_dependencies: &[bool],
 ) -> Result<()> {
-    let mut burn_gas = fees_config.fee(ActionCosts::new_action_receipt).send_fee(sir);
-    let mut use_gas = fees_config.fee(ActionCosts::new_action_receipt).exec_fee();
+    let mut burn_cost = fees_config.fee(ActionCosts::new_action_receipt).send_fee(sir);
+    let mut use_gas = fees_config.fee(ActionCosts::new_action_receipt).exec_fee().gas;
     for dep in data_dependencies {
         // Both creation and execution for data receipts are considered burnt gas.
-        burn_gas = burn_gas
+        burn_cost = burn_cost
             .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).send_fee(*dep))
             .ok_or(HostError::IntegerOverflow)?
             .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).exec_fee())
             .ok_or(HostError::IntegerOverflow)?;
     }
-    use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+    use_gas = use_gas.checked_add(burn_cost.gas).ok_or(HostError::IntegerOverflow)?;
     // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
-    // But we have to keep charing these two together unless we make a protocol change.
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_action_receipt)
+    // But we have to keep charging these two together unless we make a protocol change.
+    gas_counter.pay_action_accumulated(burn_cost, use_gas, ActionCosts::new_action_receipt)
 }
 
 /// Creates a promise that will execute a method on account with given arguments and attaches
@@ -3105,10 +3129,10 @@ pub fn promise_batch_action_transfer(
         ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
-    let burn_gas = send_fee;
-    let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
+    let burn_cost = send_fee;
+    let use_gas = burn_cost.gas.checked_add(exec_fee.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
-        burn_gas,
+        burn_cost,
         use_gas,
         ActionCosts::transfer,
     )?;
@@ -3164,14 +3188,15 @@ pub fn promise_batch_action_transfer_to_gas_key(
     let exec =
         gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), public_key_len as usize);
     let burn_base = send.base;
-    let use_base = burn_base.checked_add(exec.base).ok_or(HostError::IntegerOverflow)?;
+    let use_base = burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
         burn_base,
         use_base,
         ActionCosts::gas_key_transfer_base,
     )?;
     let burn_byte = send.per_byte;
-    let use_byte = burn_byte.checked_add(exec.per_byte).ok_or(HostError::IntegerOverflow)?;
+    let use_byte =
+        burn_byte.gas.checked_add(exec.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
         burn_byte,
         use_byte,
@@ -3772,6 +3797,124 @@ pub fn promise_yield_create(
     Ok(new_promise_idx)
 }
 
+/// Like [`promise_yield_create`], but allows the caller to specify a custom yield ID.
+pub fn promise_yield_create_with_id(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    method_name_len: u64,
+    method_name_ptr: u64,
+    arguments_len: u64,
+    arguments_ptr: u64,
+    amount_ptr: u64,
+    gas: u64,
+    gas_weight: u64,
+    yield_id_len: u64,
+    yield_id_ptr: u64,
+) -> Result<u64> {
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_yield_create_with_id".to_string(),
+        }
+        .into());
+    }
+    ctx.result_state.gas_counter.pay_base(yield_create_with_id_base)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
+
+    let method_name = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        method_name_ptr,
+        method_name_len,
+    )?;
+    if method_name.is_empty() {
+        return Err(HostError::EmptyMethodName.into());
+    }
+    let arguments = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        arguments_ptr,
+        arguments_len,
+    )?;
+
+    // Read and validate the yield ID (must be exactly 32 bytes)
+    let yield_id_bytes = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        yield_id_ptr,
+        yield_id_len,
+    )?;
+    let yield_id: [u8; YieldId::LENGTH] =
+        yield_id_bytes.as_ref().try_into().map_err(|_| HostError::YieldIdMalformed)?;
+    let user_yield_id = YieldId::from_bytes(yield_id);
+
+    let method_name = method_name.to_owned();
+    let arguments = arguments.to_owned();
+
+    // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
+    let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+    ctx.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
+
+    // Attempt to create the yield receipt. Returns None when a yield with the same
+    // user_yield_id is already pending; in that case we return a sentinel without
+    // charging for receipt creation.
+    let Some((new_receipt_idx, _data_id)) = ctx.ext.create_promise_yield_receipt_with_id(
+        ctx.context.current_account_id.clone(),
+        user_yield_id,
+    )?
+    else {
+        return Ok(u64::MAX);
+    };
+
+    // Prepay gas for the callback so that it cannot be used for this execution any longer.
+    ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
+    // Charge gas for the new receipt with a single data dependency.
+    pay_gas_for_new_receipt(&mut ctx.result_state.gas_counter, &ctx.fees_config, true, &[true])?;
+
+    let new_promise_idx = checked_push_promise(ctx, Promise::Receipt(new_receipt_idx))?;
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::function_call_base,
+        true,
+    )?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::function_call_byte,
+        num_bytes,
+        true,
+    )?;
+    // Allow attaching exactly 1 yoctoNEAR with the `one_yocto_on_promise`
+    // exemption (mirrors `promise_batch_action_function_call_weight`).
+    let skip_deduct = amount == Balance::from_yoctonear(1)
+        && ctx.config.one_yocto_on_promise
+        && ctx.result_state.current_account_balance.is_zero();
+    if skip_deduct {
+        ctx.result_state.subsidized_amount = ctx
+            .result_state
+            .subsidized_amount
+            .checked_add(amount)
+            .expect("subsidized_amount overflow");
+    } else {
+        ctx.result_state.deduct_balance(amount)?;
+    }
+    ctx.ext.append_action_function_call_weight(
+        new_receipt_idx,
+        method_name,
+        arguments,
+        amount,
+        Gas::from_gas(gas),
+        GasWeight(gas_weight),
+    )?;
+
+    Ok(new_promise_idx)
+}
+
 /// Submits the data for a yield promise which is awaiting its value.
 ///
 /// The `data_id` pair of parameters must refer to a resumption token generated by a call to
@@ -3845,6 +3988,55 @@ pub fn promise_yield_resume(
     ctx.ext.submit_promise_resume_data(data_id, payload).map(u32::from)
 }
 
+/// Like [`promise_yield_resume`], but accepts the user-provided `yield_id` (from
+/// [`promise_yield_create_with_id`]) instead of the runtime-generated `data_id`.
+pub fn promise_yield_resume_with_yield_id(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    yield_id_len: u64,
+    yield_id_ptr: u64,
+    payload_len: u64,
+    payload_ptr: u64,
+) -> Result<u32, VMLogicError> {
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_yield_resume_with_yield_id".to_string(),
+        }
+        .into());
+    }
+    ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
+    ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    let yield_id = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        yield_id_ptr,
+        yield_id_len,
+    )?;
+    let payload = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        payload_ptr,
+        payload_len,
+    )?;
+    let payload_len = payload.len() as u64;
+    if payload_len > ctx.config.limit_config.max_yield_payload_size {
+        return Err(HostError::YieldPayloadLength {
+            length: payload_len,
+            limit: ctx.config.limit_config.max_yield_payload_size,
+        }
+        .into());
+    }
+
+    let yield_id: [_; YieldId::LENGTH] =
+        yield_id.as_ref().try_into().map_err(|_| HostError::YieldIdMalformed)?;
+    let yield_id = YieldId::from_bytes(yield_id);
+    let payload = payload.into();
+    ctx.ext.submit_promise_resume_data_with_yield_id(yield_id, payload).map(u32::from)
+}
+
 /// If the current function is invoked by a callback we can access the execution results of the
 /// promises that caused the callback. This function returns the number of complete and
 /// incomplete callbacks.
@@ -3912,13 +4104,11 @@ pub fn promise_result(
     {
         PromiseResult::NotReady => Ok(0),
         PromiseResult::Successful(data) => {
-            let charge_bytes_gas = !ctx.config.deterministic_account_ids;
             ctx.registers.set_rc_data(
                 &mut ctx.result_state.gas_counter,
                 &ctx.config.limit_config,
                 register_id,
                 Rc::clone(data),
-                charge_bytes_gas,
             )?;
             Ok(1)
         }
@@ -3987,7 +4177,7 @@ pub fn value_return(
         value_ptr,
         value_len,
     )?;
-    let mut burn_gas: Gas = Gas::ZERO;
+    let mut burn_cost = ParameterCost::ZERO;
     let num_bytes = return_val.len() as u64;
     if num_bytes > ctx.config.limit_config.max_length_returned_data {
         return Err(HostError::ReturnedValueLengthExceeded {
@@ -4005,7 +4195,7 @@ pub fn value_return(
         // refund in this situation. Which we avoid by just paying for execution of
         // data receipt that might not be performed.
         // The gas here is considered burnt, cause we'll prepay for it upfront.
-        burn_gas = burn_gas
+        burn_cost = burn_cost
             .checked_add(
                 ctx.fees_config
                     .fee(ActionCosts::new_data_receipt_byte)
@@ -4018,8 +4208,8 @@ pub fn value_return(
             .ok_or(HostError::IntegerOverflow)?;
     }
     ctx.result_state.gas_counter.pay_action_accumulated(
-        burn_gas,
-        burn_gas,
+        burn_cost,
+        burn_cost.gas,
         ActionCosts::new_data_receipt_byte,
     )?;
     ctx.result_state.return_data = ReturnData::Value(return_val.into());
@@ -4660,9 +4850,10 @@ pub fn pay_action_base(
     sir: bool,
 ) -> Result<()> {
     let base_fee = fees_config.fee(action);
-    let burn_gas = base_fee.send_fee(sir);
-    let use_gas = burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+    let burn_cost = base_fee.send_fee(sir);
+    let use_gas =
+        burn_cost.gas.checked_add(base_fee.exec_fee().gas).ok_or(HostError::IntegerOverflow)?;
+    gas_counter.pay_action_accumulated(burn_cost, use_gas, action)
 }
 
 /// A helper function to pay per byte gas fee for batching an action.
@@ -4674,12 +4865,13 @@ pub fn pay_action_per_byte(
     sir: bool,
 ) -> Result<()> {
     let per_byte_fee = fees_config.fee(action);
-    let burn_gas =
+    let burn_cost =
         per_byte_fee.send_fee(sir).checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
-    let use_gas = burn_gas
+    let use_gas = burn_cost
+        .gas
         .checked_add(
-            per_byte_fee.exec_fee().checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
+            per_byte_fee.exec_fee().gas.checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
         )
         .ok_or(HostError::IntegerOverflow)?;
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+    gas_counter.pay_action_accumulated(burn_cost, use_gas, action)
 }

@@ -1,4 +1,4 @@
-name: Neard custom binary release
+name: Build and publish custom neard binary
 
 on:
   workflow_dispatch:
@@ -18,12 +18,16 @@ on:
           - assertions-release
           - test-features-release
         required: true
+      with-debug-info:
+        default: false
+        description: "Build and upload split DWARF debug symbols (.debug sibling file)"
+        type: boolean
+        required: false
 
 jobs:
   binary-release:
     name: "Build and publish neard binary"
     runs-on: warp-ubuntu-2404-x64-16x
-    environment: deploy
     permissions:
       contents: read
       id-token: write # required to use OIDC authentication
@@ -43,4 +47,6 @@ jobs:
           persist-credentials: false
 
       - name: Neard binary build and upload to S3
+        env:
+          WITH_DEBUG_INFO: ${{ inputs.with-debug-info && '1' || '' }}
         run: ./scripts/binary_release.sh ${{ github.event.inputs.release-type }}

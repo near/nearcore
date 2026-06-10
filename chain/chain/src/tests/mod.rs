@@ -2,9 +2,8 @@ mod chunk_producers;
 mod doomslug;
 mod garbage_collection;
 mod simple_chain;
-mod spice_core;
-mod spice_core_writer_actor;
 mod sync_chain;
+mod validate_header_recompute;
 
 use crate::block_processing_utils::BlockProcessingArtifact;
 use crate::test_utils::process_block_sync;

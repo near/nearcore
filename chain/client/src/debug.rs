@@ -55,6 +55,16 @@ const DEBUG_MAX_BLOCKS_TO_FETCH: u64 = 1000;
 // Number of epochs to fetch when displaying epoch info.
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 
+/// Controls how much detail `get_recent_epoch_info` / `get_epoch_info_view` include.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EpochInfoMode {
+    /// Include the per-validator `validator_info`. This is expensive: computing it
+    /// can traverse the whole epoch via the epoch info aggregator.
+    Full,
+    /// Omit `validator_info`; only epoch metadata and producer/validator counts.
+    Lite,
+}
+
 // How many old blocks (before HEAD) should be shown in debug page.
 const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 50;
 
@@ -178,9 +188,12 @@ impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientAc
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
             }
-            DebugStatus::EpochInfo(epoch_id) => {
-                Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info(epoch_id)?))
-            }
+            DebugStatus::EpochInfo(epoch_id) => Ok(DebugStatusResponse::EpochInfo(
+                self.get_recent_epoch_info(epoch_id, EpochInfoMode::Full)?,
+            )),
+            DebugStatus::EpochInfoLight(epoch_id) => Ok(DebugStatusResponse::EpochInfo(
+                self.get_recent_epoch_info(epoch_id, EpochInfoMode::Lite)?,
+            )),
             DebugStatus::BlockStatus(query) => {
                 Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info(query)?))
             }
@@ -330,6 +343,7 @@ impl ClientActor {
     fn get_epoch_info_view(
         &self,
         epoch_identifier: &ValidatorInfoIdentifier,
+        mode: EpochInfoMode,
     ) -> Result<EpochInfoView, Error> {
         let epoch_start_height =
             get_epoch_start_height(self.client.epoch_manager.as_ref(), epoch_identifier)?;
@@ -406,8 +420,14 @@ impl ClientActor {
             .map(|((a, b), c)| (*a, *b, *c))
             .collect();
 
-        let validator_info =
-            self.client.epoch_manager.get_validator_info(epoch_identifier.clone())?;
+        // `get_validator_info` is expensive (it can traverse the whole epoch via the
+        // epoch info aggregator), so only compute it in `Full` mode.
+        let validator_info = match mode {
+            EpochInfoMode::Lite => None,
+            EpochInfoMode::Full => {
+                Some(self.client.epoch_manager.get_validator_info(epoch_identifier.clone())?)
+            }
+        };
         let epoch_height =
             self.client.epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height())?;
         Ok(EpochInfoView {
@@ -421,7 +441,7 @@ impl ClientActor {
             block_producers,
             chunk_producers,
             chunk_validators,
-            validator_info: Some(validator_info),
+            validator_info,
             protocol_version: self
                 .client
                 .epoch_manager
@@ -485,6 +505,7 @@ impl ClientActor {
     fn get_recent_epoch_info(
         &self,
         epoch_id: Option<EpochId>,
+        mode: EpochInfoMode,
     ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
         let mut epochs_info: Vec<EpochInfoView> = Vec::new();
 
@@ -505,7 +526,7 @@ impl ClientActor {
 
         let mut current_epoch_identifier = epoch_identifier;
         for _ in 0..DEBUG_EPOCHS_TO_FETCH {
-            let Ok(epoch_view) = self.get_epoch_info_view(&current_epoch_identifier) else {
+            let Ok(epoch_view) = self.get_epoch_info_view(&current_epoch_identifier, mode) else {
                 break;
             };
             let first_block = epoch_view.first_block.map(|(hash, _)| hash);

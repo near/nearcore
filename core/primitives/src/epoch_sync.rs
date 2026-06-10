@@ -1,5 +1,6 @@
 use crate::epoch_block_info::BlockInfo;
 use crate::epoch_info::EpochInfo;
+use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
@@ -161,6 +162,22 @@ pub struct EpochSyncProofLastEpochData {
     pub first_block_in_epoch: BlockInfo,
     pub last_block_in_epoch: BlockInfo,
     pub second_last_block_in_epoch: BlockInfo,
+}
+
+impl EpochSyncProofLastEpochData {
+    /// Canonical computation of the `epoch_sync_data_hash` carried by the first
+    /// block of the next epoch. Shared by the block producer, header validation,
+    /// and epoch sync proof verification.
+    pub fn compute_epoch_sync_data_hash(&self) -> CryptoHash {
+        CryptoHash::hash_borsh(&(
+            &self.first_block_in_epoch,
+            &self.second_last_block_in_epoch,
+            &self.last_block_in_epoch,
+            &self.epoch_info,
+            &self.next_epoch_info,
+            &self.next_next_epoch_info,
+        ))
+    }
 }
 
 /// Data needed to initialize the current epoch we're syncing to.

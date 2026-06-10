@@ -16,7 +16,7 @@ use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
 use near_client::Query;
 use near_client::client_actor::ClientActor;
-use near_crypto::Signer;
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::client::ProcessTxRequest;
 use near_primitives::action::{Action, FunctionCallAction};
@@ -640,6 +640,181 @@ pub(crate) fn call_promise_yield(
                         );
                     }
                     promise_txs_sent.set(true);
+                }
+            }
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
+}
+
+/// Like [`call_promise_yield`] but exercises the YieldWithId host functions:
+/// `promise_yield_create_with_id` before resharding, and
+/// `promise_yield_resume_with_yield_id` two blocks after resharding.
+///
+/// This indirectly verifies that the `YieldIdToDataId` / `DataIdToYieldId`
+/// trie rows survive a shard split — without that, the post-resharding resume
+/// would either fail to look up the data_id (returning 0) or the runtime would
+/// panic in `shard_split_handle_key_value` on the new columns.
+///
+/// Each signer is paired with a deterministic 32-byte yield_id so both the
+/// pre- and post-resharding transactions agree without inter-tx storage.
+pub(crate) fn call_promise_yield_with_id(
+    signer_ids: Vec<AccountId>,
+    receiver_ids: Vec<AccountId>,
+) -> LoopAction {
+    use base64::Engine;
+    let resharding_height: Cell<Option<u64>> = Cell::new(None);
+    let txs = Cell::new(vec![]);
+    let latest_height = Cell::new(0);
+    let create_txs_sent = Cell::new(false);
+    let nonce = Cell::new(102);
+    let yield_payload: Vec<u8> = vec![6, 6, 6];
+    let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
+
+    // Deterministic yield_id per signer position so create and resume agree.
+    let yield_ids: Vec<[u8; 32]> =
+        (0..signer_ids.len()).map(|i| [(i as u8).wrapping_add(1); 32]).collect();
+
+    let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+    let make_create_args = {
+        let yield_payload = yield_payload.clone();
+        move |yield_id: &[u8; 32]| -> Vec<u8> {
+            let args = serde_json::json!([{
+                "yield_create_with_id": {
+                    "method_name": "check_promise_result_return_value",
+                    "arguments": b64(&yield_payload),
+                    "gas": 0,
+                    "gas_weight": 1,
+                    "yield_id": b64(yield_id),
+                },
+                "id": 0,
+            }]);
+            serde_json::to_vec(&args).unwrap()
+        }
+    };
+    let make_resume_args = {
+        move |yield_id: &[u8; 32]| -> Vec<u8> {
+            // `promise_yield_resume_with_yield_id` returns 1 on success and the
+            // test contract's `call_promise` dispatcher asserts it matches `"id"`.
+            let args = serde_json::json!([{
+                "yield_resume_with_yield_id": {
+                    "yield_id": b64(yield_id),
+                    "payload": b64(&yield_payload),
+                },
+                "id": 1,
+            }]);
+            serde_json::to_vec(&args).unwrap()
+        }
+    };
+
+    let action_fn = Box::new(
+        move |node_datas: &[NodeExecutionData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            match (resharding_height.get(), latest_height.get()) {
+                // Two blocks after resharding: send resume_with_yield_id. We skip
+                // resharding+1 (first block of new epoch) to avoid Expired tx
+                // rejections seen by `call_promise_yield`.
+                (Some(resharding), latest) if latest == resharding + 2 => {
+                    for ((signer_id, receiver_id), yield_id) in signer_ids
+                        .clone()
+                        .into_iter()
+                        .zip(receiver_ids.clone().into_iter())
+                        .zip(yield_ids.iter())
+                    {
+                        let signer: Signer = create_user_test_signer(&signer_id).into();
+                        nonce.set(nonce.get() + 1);
+                        let tx = SignedTransaction::call(
+                            nonce.get(),
+                            signer_id.clone(),
+                            receiver_id.clone(),
+                            &signer,
+                            Balance::from_yoctonear(1),
+                            "call_promise".to_string(),
+                            make_resume_args(yield_id),
+                            Gas::from_teragas(300),
+                            tip.last_block_hash,
+                        );
+                        store_and_submit_tx(
+                            &node_datas,
+                            &client_account_id,
+                            &txs,
+                            &signer_id,
+                            &receiver_id,
+                            tip.height,
+                            tx,
+                        );
+                    }
+                }
+                (Some(resharding), latest) if latest >= resharding + 4 => {
+                    check_txs_with_retry(&client_actor.client, &txs, &checked_transactions);
+                }
+                (Some(_), _) => {}
+                (None, _) => {
+                    let epoch_manager = client_actor.client.epoch_manager.as_ref();
+                    if next_block_has_new_shard_layout(epoch_manager, &tip) {
+                        tracing::debug!(
+                            target: "test",
+                            height = tip.height,
+                            "resharding height set",
+                        );
+                        resharding_height.set(Some(tip.height));
+                        return;
+                    }
+                    if create_txs_sent.get() {
+                        return;
+                    }
+                    let will_reshard =
+                        epoch_manager.will_shard_layout_change(&tip.prev_block_hash).unwrap();
+                    if !will_reshard {
+                        return;
+                    }
+                    let epoch_length = client_actor.client.config.epoch_length;
+                    let epoch_start =
+                        epoch_manager.get_epoch_start_height(&tip.last_block_hash).unwrap();
+                    if tip.height + 5 < epoch_start + epoch_length {
+                        return;
+                    }
+
+                    for ((signer_id, receiver_id), yield_id) in signer_ids
+                        .clone()
+                        .into_iter()
+                        .zip(receiver_ids.clone().into_iter())
+                        .zip(yield_ids.iter())
+                    {
+                        let signer: Signer = create_user_test_signer(&signer_id).into();
+                        nonce.set(nonce.get() + 1);
+                        let tx = SignedTransaction::call(
+                            nonce.get(),
+                            signer_id.clone(),
+                            receiver_id.clone(),
+                            &signer,
+                            Balance::ZERO,
+                            "call_promise".to_string(),
+                            make_create_args(yield_id),
+                            Gas::from_teragas(300),
+                            tip.last_block_hash,
+                        );
+                        store_and_submit_tx(
+                            &node_datas,
+                            &client_account_id,
+                            &txs,
+                            &signer_id,
+                            &receiver_id,
+                            tip.height,
+                            tx,
+                        );
+                    }
+                    create_txs_sent.set(true);
                 }
             }
         },
@@ -1362,6 +1537,62 @@ fn store_and_submit_tx(
     txs_vec.push((tx.get_hash(), height));
     txs.set(txs_vec);
     submit_tx(node_datas, rpc_id, tx);
+}
+
+/// Deterministic test gas-key signer for an account. Setup and verification
+/// share this helper so both sides agree on the public key.
+pub(crate) fn gas_key_signer_for_account(account_id: &AccountId) -> Signer {
+    const GAS_KEY_SIGNER_SEED: &str = "gas_key_resharding";
+    InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, GAS_KEY_SIGNER_SEED).into()
+}
+
+/// Loop action that fires its `assertion` once, `num_blocks_after_new_layout`
+/// blocks after the first block of the new shard layout (the block right after
+/// the resharding block). Pass `0` to run on the first block of the new layout.
+pub(crate) fn assert_after_resharding<F>(
+    num_blocks_after_new_layout: u64,
+    assertion: F,
+) -> LoopAction
+where
+    F: Fn(&TestLoopNode<'_>) + 'static,
+{
+    let new_layout_height: Cell<Option<u64>> = Cell::new(None);
+    let (done, succeeded) = LoopAction::shared_success_flag();
+    let action_fn = Box::new(
+        move |node_datas: &[NodeExecutionData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            if done.get() {
+                return;
+            }
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+            let new_layout = match new_layout_height.get() {
+                Some(h) => h,
+                None => {
+                    if !this_block_has_new_shard_layout(
+                        client_actor.client.epoch_manager.as_ref(),
+                        &tip,
+                    ) {
+                        return;
+                    }
+                    new_layout_height.set(Some(tip.height));
+                    tip.height
+                }
+            };
+            if tip.height < new_layout + num_blocks_after_new_layout {
+                return;
+            }
+            let node = TestLoopNode {
+                data: test_loop_data,
+                node_data: get_node_data(node_datas, &client_account_id),
+            };
+            assertion(&node);
+            done.set(true);
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
 }
 
 /// Checks status of the provided transactions. Panics if transaction result is an error.

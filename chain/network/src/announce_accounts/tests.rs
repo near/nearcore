@@ -72,7 +72,7 @@ fn dont_load_on_build() {
     announcements_cache.add_accounts(vec![announce0.clone()]);
     announcements_cache.add_accounts(vec![announce1.clone()]);
     let accounts: Vec<AnnounceAccount> = announcements_cache.get_announcements();
-    assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
+    assert!([announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
     assert_eq!(accounts.len(), 2);
 
     let announcements_cache1 = AnnounceAccountCache::new(store);

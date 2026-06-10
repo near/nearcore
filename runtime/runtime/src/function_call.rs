@@ -10,13 +10,11 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0,
-    VersionedActionReceipt,
+    ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
-use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
     KeyLookupMode, StorageError, TrieUpdate, enqueue_promise_yield_timeout,
@@ -108,7 +106,12 @@ pub(crate) fn action_function_call(
                     .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
-            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::LinkError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LINK_ERRORS.inc();
+            }
+            FunctionCallError::LoadingError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LOADING_ERRORS.inc();
+            }
             FunctionCallError::MethodResolveError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
                     .with_label_values::<&str>(&[err.into()])
@@ -123,6 +126,9 @@ pub(crate) fn action_function_call(
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
                     .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
+            }
+            FunctionCallError::WasmUnknownError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_WASM_UNKNOWN_ERRORS.inc();
             }
         }
         // Update action result with the abort error converted to the
@@ -163,37 +169,19 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_receipt = if ProtocolFeature::DeterministicAccountIds
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    let new_action_receipt = ActionReceiptV2 {
-                        signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.signer_public_key().clone(),
-                        refund_to: receipt.refund_to,
-                        gas_price: action_receipt.gas_price(),
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                    } else {
-                        ReceiptEnum::ActionV2(new_action_receipt)
-                    }
+                let new_action_receipt = ActionReceiptV2 {
+                    signer_id: action_receipt.signer_id().clone(),
+                    signer_public_key: action_receipt.signer_public_key().clone(),
+                    refund_to: receipt.refund_to,
+                    gas_price: action_receipt.gas_price(),
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                };
+                let new_receipt = if receipt.is_promise_yield {
+                    ReceiptEnum::PromiseYieldV2(new_action_receipt)
                 } else {
-                    let new_action_receipt = ActionReceipt {
-                        signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.signer_public_key().clone(),
-                        gas_price: action_receipt.gas_price(),
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYield(new_action_receipt)
-                    } else {
-                        ReceiptEnum::Action(new_action_receipt)
-                    }
+                    ReceiptEnum::ActionV2(new_action_receipt)
                 };
 
                 Receipt::V0(ReceiptV0 {
@@ -292,12 +280,11 @@ pub(crate) fn execute_function_call(
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
-    // There are many specific errors that the runtime can encounter.
-    // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
-    // Note that this does not include errors caused by user code / input, those are
-    // stored in outcome.aborted.
+    // Most VM runner errors translate to a `RuntimeError` and are propagated
+    // up. `WasmUnknownError` is soft-failed into the function-call outcome
+    // instead of panicking: a consensus failure on one chunk is preferable to
+    // crashing all nodes if a VM bug surfaces post-deploy. User-code errors
+    // are reported via `outcome.aborted` and never reach these arms.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -323,13 +310,14 @@ pub(crate) fn execute_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
-            panic!("Contract runtime failed to load a contract: {msg}")
-        }
-        Err(VMRunnerError::Nondeterministic(msg)) => {
-            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
         Err(VMRunnerError::WasmUnknownError { debug_message }) => {
-            panic!("Wasmer returned unknown message: {}", debug_message)
+            tracing::error!(target: "runtime", "wasm unknown error: {}", debug_message);
+            debug_assert!(false, "wasm unknown error: {}", debug_message);
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::WasmUnknownError {
+                msg: debug_message,
+            }));
         }
         Ok(r) => r,
     };

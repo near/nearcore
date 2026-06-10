@@ -14,6 +14,7 @@ struct PrepareContext<'a> {
     function_body_size_limit: u64,
     table_limit: u32,
     table_element_limit: u64,
+    type_limit: u64,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -42,6 +43,7 @@ impl<'a> PrepareContext<'a> {
             function_body_size_limit: limits.max_function_body_size.unwrap_or(u64::MAX),
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
+            type_limit: limits.max_types_per_contract.unwrap_or(u64::MAX),
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -77,6 +79,10 @@ impl<'a> PrepareContext<'a> {
                 }
 
                 wp::Payload::TypeSection(reader) => {
+                    self.type_limit = self
+                        .type_limit
+                        .checked_sub(u64::from(reader.count()))
+                        .ok_or(PrepareError::TooManyTypes)?;
                     self.validator
                         .type_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
@@ -430,6 +436,9 @@ pub(crate) fn prepare_contract(
         config.limit_config.max_stack_height,
         config.limit_config.max_blocks_per_function.unwrap_or(u64::MAX),
         config.limit_config.max_blocks_per_contract.unwrap_or(u64::MAX),
+        config.limit_config.max_params_per_function.unwrap_or(u64::MAX),
+        config.limit_config.max_params_per_contract.unwrap_or(u64::MAX),
+        config.limit_config.max_operand_stack_bytes_per_function.unwrap_or(u64::MAX),
     )
     .run()
     .map_err(|err| {
@@ -437,6 +446,9 @@ pub(crate) fn prepare_contract(
         match err {
             Error::TooManyBlocksPerFunction => PrepareError::TooManyBlocksPerFunction,
             Error::TooManyBlocksPerContract => PrepareError::TooManyBlocksPerContract,
+            Error::TooManyParamsPerFunction => PrepareError::TooManyParamsPerFunction,
+            Error::TooManyParamsPerContract => PrepareError::TooManyParamsPerContract,
+            Error::OperandStackTooLarge => PrepareError::OperandStackTooLarge,
             err => {
                 tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
                 PrepareError::Serialization

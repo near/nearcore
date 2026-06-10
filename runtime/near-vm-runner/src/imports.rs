@@ -118,6 +118,7 @@ imports! {
     // # Context API #
     // ###############
     current_account_id<[register_id: u64] -> []>,
+    #[chain_id_host_fn] chain_id<[register_id: u64] -> []>,
     signer_account_id<[register_id: u64] -> []>,
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
@@ -193,12 +194,12 @@ imports! {
     promise_and<[promise_idx_ptr: u64, promise_idx_count: u64] -> [u64]>,
     promise_batch_create<[account_id_len: u64, account_id_ptr: u64] -> [u64]>,
     promise_batch_then<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> [u64]>,
-    #[deterministic_account_ids] promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
-    #[deterministic_account_ids] promise_batch_action_state_init<[promise_idx: u64, code_len: u64, code_ptr: u64, amount_ptr: u64] -> [u64]>,
-    #[deterministic_account_ids] promise_batch_action_state_init_by_account_id<[promise_idx: u64, account_id_len: u64, code_hash_ptr: u64, amount_ptr: u64] -> [u64]>,
-    #[deterministic_account_ids] set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
-    #[deterministic_account_ids] current_contract_code<[register_id: u64] -> [u64]>,
-    #[deterministic_account_ids] refund_to_account_id<[register_id: u64] -> []>,
+    promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
+    promise_batch_action_state_init<[promise_idx: u64, code_len: u64, code_ptr: u64, amount_ptr: u64] -> [u64]>,
+    promise_batch_action_state_init_by_account_id<[promise_idx: u64, account_id_len: u64, code_hash_ptr: u64, amount_ptr: u64] -> [u64]>,
+    set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
+    current_contract_code<[register_id: u64] -> [u64]>,
+    refund_to_account_id<[register_id: u64] -> []>,
     // #######################
     // # Promise API actions #
     // #######################
@@ -301,9 +302,26 @@ imports! {
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
+    #[yield_with_id_host_fns] promise_yield_create_with_id<[
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64
+    ] -> [u64]>,
     promise_yield_resume<[
         data_id_len: u64,
         data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64
+    ] -> [u32]>,
+    #[yield_with_id_host_fns] promise_yield_resume_with_yield_id<[
+        yield_id_len: u64,
+        yield_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,

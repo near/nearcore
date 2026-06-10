@@ -24,9 +24,6 @@ pub enum VMRunnerError {
     /// Type erased error from `External` trait implementation.
     #[error("external error")]
     ExternalError(AnyError),
-    /// Non-deterministic error.
-    #[error("non-deterministic error during contract execution: {0}")]
-    Nondeterministic(String),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
     #[error("account has no associated contract code")]
@@ -54,6 +51,17 @@ pub enum FunctionCallError {
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
     HostError(HostError),
+    /// The compiled module was rejected by the VM host when instantiating it.
+    /// This covers host-side resource limits.
+    LoadingError {
+        msg: String,
+    },
+    /// The VM runner reported an unrecoverable internal failure (e.g. an
+    /// unhandled wasmtime trap). Surfaced instead of panicking so a single bad
+    /// node does not crash the network; the message is for diagnostics only.
+    WasmUnknownError {
+        msg: String,
+    },
 }
 
 impl FunctionCallError {
@@ -61,7 +69,9 @@ impl FunctionCallError {
         const BASE_SIZE: usize = 4; // to roughly accommodate for static parts of the enum
         match self {
             FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
-            FunctionCallError::LinkError { msg } => BASE_SIZE + msg.len(),
+            FunctionCallError::LinkError { msg }
+            | FunctionCallError::LoadingError { msg }
+            | FunctionCallError::WasmUnknownError { msg } => BASE_SIZE + msg.len(),
             FunctionCallError::MethodResolveError(_)
             | FunctionCallError::WasmTrap(_)
             | FunctionCallError::HostError(_) => BASE_SIZE,
@@ -191,6 +201,15 @@ pub enum PrepareError {
     TooManyBlocksPerFunction = 13,
     /// A contract contains too many basic blocks.
     TooManyBlocksPerContract = 14,
+    /// Contract declares too many entries in the wasm type section.
+    TooManyTypes = 15,
+    /// All contract functions combined have more than `max_params_per_contract` parameters.
+    TooManyParamsPerContract = 16,
+    /// A function has more than `max_params_per_function` parameters.
+    TooManyParamsPerFunction = 17,
+    /// A function's max operand-stack size (in bytes) exceeds
+    /// `max_operand_stack_bytes_per_function`.
+    OperandStackTooLarge = 18,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -331,6 +350,9 @@ pub enum HostError {
     },
     /// Yield resumption data id is malformed.
     DataIdMalformed,
+    /// User-provided yield id (for `promise_yield_create_with_id` /
+    /// `promise_yield_resume_with_yield_id`) is malformed.
+    YieldIdMalformed,
     /// Size of the recorded trie storage proof has exceeded the allowed limit.
     RecordedStorageExceeded {
         limit: ByteSize,
@@ -425,6 +447,10 @@ impl fmt::Display for PrepareError {
             InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
             TooManyBlocksPerFunction => "Too many basic blocks in a function.",
             TooManyBlocksPerContract => "Too many basic blocks in a contract.",
+            TooManyTypes => "Too many type-section entries declared in the contract.",
+            TooManyParamsPerContract => "Too many function parameters in the contract",
+            TooManyParamsPerFunction => "Too many parameters in a single function",
+            OperandStackTooLarge => "A function uses too much operand stack.",
         })
     }
 }
@@ -436,6 +462,10 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::MethodResolveError(e) => e.fmt(f),
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
+            FunctionCallError::LoadingError { msg } => write!(f, "Loading error: {}", msg),
+            FunctionCallError::WasmUnknownError { msg } => {
+                write!(f, "Unknown error during contract execution: {}", msg)
+            }
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
         }
     }
@@ -595,6 +625,7 @@ impl std::fmt::Display for HostError {
                 "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"
             ),
             DataIdMalformed => write!(f, "yield resumption token is malformed"),
+            YieldIdMalformed => write!(f, "yield id is malformed"),
             RecordedStorageExceeded { limit } => write!(
                 f,
                 "Size of the recorded trie storage proof has exceeded the allowed limit ({})",

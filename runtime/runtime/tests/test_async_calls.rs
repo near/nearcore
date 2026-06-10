@@ -1,6 +1,5 @@
 use crate::runtime_group_tools::RuntimeGroup;
 use near_crypto::InMemorySigner;
-#[cfg(feature = "nightly")]
 use near_primitives::account::GasKeyInfo;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
@@ -8,7 +7,6 @@ use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 pub mod runtime_group_tools;
 
@@ -1288,17 +1286,12 @@ fn test_refund_to() {
     let [deposit_refund] = &receipts else { panic!("Incorrect number of produced receipts") };
 
     // This is the redirected refund
-    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        assert_refund!(group, deposit_refund @ "near_3");
-    } else {
-        assert_refund!(group, deposit_refund @ "near_1");
-    }
+    assert_refund!(group, deposit_refund @ "near_3");
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn test_create_account_add_gas_key_full_access() {
-    let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
+    let group = RuntimeGroup::new(3, 2, near_test_contracts::rs_contract());
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
     let signer_new_account = group.signers[2].clone();
@@ -1377,10 +1370,9 @@ fn test_create_account_add_gas_key_full_access() {
     );
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn test_create_account_add_gas_key_function_call() {
-    let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
+    let group = RuntimeGroup::new(3, 2, near_test_contracts::rs_contract());
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
     let signer_new_account = group.signers[2].clone();

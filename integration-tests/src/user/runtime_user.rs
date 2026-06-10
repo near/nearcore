@@ -37,6 +37,7 @@ pub struct MockClient {
     pub state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
     pub runtime_config: RuntimeConfig,
+    pub cumulative_subsidized: Balance,
 }
 
 impl MockClient {
@@ -132,6 +133,10 @@ impl RuntimeUser {
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
                 })?;
+            client.cumulative_subsidized = client
+                .cumulative_subsidized
+                .checked_add(apply_result.stats.balance.subsidized_amount)
+                .expect("cumulative_subsidized overflow");
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
                     .borrow_mut()
@@ -201,6 +206,7 @@ impl RuntimeUser {
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -305,7 +311,7 @@ impl User for RuntimeUser {
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_state(&state_update, account_id, prefix, false)
+            .view_state(&state_update, account_id, prefix, None, None, false)
             .map_err(|err| err.to_string())
     }
 

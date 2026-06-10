@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{Chain, MemtrieLoadingSpawner, collect_receipts};
 pub use chain_update::ChainUpdate;
@@ -41,14 +39,12 @@ pub mod orphan;
 pub mod pending;
 mod pending_shard_jobs;
 pub mod rayon_spawner;
+pub mod receipt_to_tx;
 pub mod resharding;
 pub mod runtime;
 pub mod sharding;
 pub mod signature_verification;
-pub mod spice_chain;
-pub mod spice_chunk_application;
-pub mod spice_core;
-pub mod spice_core_writer_actor;
+pub mod spice;
 pub mod state_snapshot_actor;
 pub mod state_sync;
 pub mod stateless_validation;

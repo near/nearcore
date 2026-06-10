@@ -400,10 +400,7 @@ mod tests {
         // Define the "target_key". Reading the target_key will generate a lot of storage proof.
         let target_account: AccountId = "a".repeat(64).parse().unwrap();
         let target_public_key = PublicKey::ED25519(ED25519PublicKey([0; 32]));
-        let target_key = TrieKey::AccessKey {
-            account_id: target_account.clone(),
-            public_key: target_public_key.clone(),
-        };
+        let target_key = TrieKey::access_key(target_account.clone(), &target_public_key);
 
         // Generate other keys which are similar to the target_key, but differ in one nibble.
         // This will generate a lot of branch nodes with many children on the path to target_key.
@@ -413,7 +410,7 @@ mod tests {
             assert!(value < 16);
             assert!(nibble_index < 2 * bytes.len());
 
-            if nibble_index % 2 == 0 {
+            if nibble_index.is_multiple_of(2) {
                 bytes[nibble_index / 2] = (bytes[nibble_index / 2] & 0xF0) | value;
             } else {
                 bytes[nibble_index / 2] = (bytes[nibble_index / 2] & 0x0F) | (value >> 4);
@@ -432,10 +429,7 @@ mod tests {
                 else {
                     continue;
                 };
-                all_keys.push(TrieKey::AccessKey {
-                    account_id: new_account_id,
-                    public_key: target_public_key.clone(),
-                });
+                all_keys.push(TrieKey::access_key(new_account_id, &target_public_key));
             }
         }
 
@@ -447,10 +441,7 @@ mod tests {
                 let new_key = PublicKey::ED25519(ED25519PublicKey(
                     new_public_key_bytes.clone().try_into().unwrap(),
                 ));
-                all_keys.push(TrieKey::AccessKey {
-                    account_id: target_account.clone(),
-                    public_key: new_key,
-                });
+                all_keys.push(TrieKey::access_key(target_account.clone(), &new_key));
             }
         }
 

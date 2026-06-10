@@ -6,13 +6,14 @@ use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
     check_receipts_presence_at_resharding_block,
 };
+use crate::utils::resharding::call_promise_yield_with_id;
 #[cfg(feature = "test_features")]
 use crate::utils::resharding::fork_before_resharding_block;
 use crate::utils::resharding::{
-    TrackedShardSchedule, call_burn_gas_contract, call_promise_yield, check_state_cleanup,
-    delayed_receipts_repro_missing_trie_value, execute_money_transfers, execute_storage_operations,
-    promise_yield_repro_missing_trie_value, send_large_cross_shard_receipts,
-    temporary_account_during_resharding,
+    TrackedShardSchedule, assert_after_resharding, call_burn_gas_contract, call_promise_yield,
+    check_state_cleanup, delayed_receipts_repro_missing_trie_value, execute_money_transfers,
+    execute_storage_operations, gas_key_signer_for_account, promise_yield_repro_missing_trie_value,
+    send_large_cross_shard_receipts, temporary_account_during_resharding,
 };
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
 use crate::utils::sharding::{
@@ -26,10 +27,11 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_crypto::Signer;
+use near_crypto::{PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
     DynamicReshardingConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
 };
@@ -37,11 +39,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeightDelta, Gas, Nonce, ShardId, ShardIndex,
+};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 /// Default and minimal epoch length used in resharding tests.
@@ -142,11 +146,20 @@ struct TestReshardingParameters {
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     #[builder(setter(custom))]
     deploy_test_contract: Vec<AccountId>,
+    /// When true, `deploy_test_contract` deploys the latest-protocol build of the test contract
+    /// (`near_test_contracts::rs_contract()`) instead of the backwards-compatible
+    /// build. Required when the test invokes host functions that are only available
+    /// in the latest stable protocol version.
+    deploy_latest_protocol_test_contract: bool,
     /// Optionally deploy and use test global contracts
     #[builder(setter(custom))]
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
     #[builder(setter(custom))]
     use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
+    /// Gas keys to plant directly in genesis. Each tuple is
+    /// `(account, gas-key public key, initial nonce per slot)`.
+    #[builder(setter(custom))]
+    gas_key_accounts: Vec<(AccountId, PublicKey, Vec<Nonce>)>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
     limit_outgoing_gas: bool,
     /// If non zero, split parent shard for flat state resharding will be delayed by an additional
@@ -291,8 +304,12 @@ impl TestReshardingParametersBuilder {
             loop_actions,
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
+            deploy_latest_protocol_test_contract: self
+                .deploy_latest_protocol_test_contract
+                .unwrap_or(false),
             deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
             use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
+            gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
@@ -333,6 +350,16 @@ impl TestReshardingParametersBuilder {
         self
     }
 
+    fn gas_key_account(mut self, account_id: &AccountId, target_nonces: &[Nonce]) -> Self {
+        let public_key = gas_key_signer_for_account(account_id).public_key();
+        self.gas_key_accounts.get_or_insert_default().push((
+            account_id.clone(),
+            public_key,
+            target_nonces.to_vec(),
+        ));
+        self
+    }
+
     fn compute_initial_accounts(num_accounts: u64) -> Vec<AccountId> {
         (0..num_accounts)
             .map(|i| format!("account{}", i).parse().unwrap())
@@ -346,6 +373,99 @@ fn get_base_shard_layout() -> ShardLayout {
     let shards_split_map = [(ShardId::new(0), shard_ids.clone())].into_iter().collect();
     let shards_split_map = Some(shards_split_map);
     ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
+}
+
+/// Asserts the stickiness invariants of `ProtocolFeature::StickyReshardingValidatorAssignment`:
+/// every shard in `new_layout` that already existed in `prev_layout` keeps at least
+/// one of its previous chunk producers, and every shard in `new_layout` that is a
+/// child of a split parent inherits at least one of the parent's previous chunk
+/// producers.
+///
+/// The check is skipped when the post-resharding assignment is in the
+/// `assign_to_satisfy_shards` path (taken when
+/// `num_chunk_producers < min_validators_per_shard * num_shards`) — that path
+/// is unrelated to stickiness, it just round-robins producers across shards.
+/// Caller must guarantee that `shuffle_shard_assignment_for_chunk_producers`
+/// is disabled.
+fn assert_validator_stickiness_after_resharding(
+    prev_info: &EpochInfo,
+    prev_layout: &ShardLayout,
+    new_info: &EpochInfo,
+    new_layout: &ShardLayout,
+    min_validators_per_shard: u64,
+) {
+    let validators_for_shard = |info: &EpochInfo, idx: usize| -> HashSet<AccountId> {
+        info.chunk_producers_settlement()[idx]
+            .iter()
+            .map(|&id| info.get_validator(id).account_id().clone())
+            .collect()
+    };
+
+    // Skip when the post-resharding assignment must use `assign_to_satisfy_shards`
+    // because there aren't enough chunk producers to fill every shard at least
+    // `min_validators_per_shard` times. In that regime sticky-by-id doesn't apply.
+    // Count *unique* producers — `chunk_producers_settlement` may repeat ids
+    // across shards once satisfy-shards is hit, which would inflate a flat count.
+    let num_chunk_producers = new_info
+        .chunk_producers_settlement()
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<HashSet<_>>()
+        .len();
+    let num_new_shards = new_layout.num_shards();
+    if (num_chunk_producers as u64) < min_validators_per_shard * num_new_shards {
+        println!(
+            "sticky-resharding check skipped: too few producers ({num_chunk_producers}) \
+             for {num_new_shards} shards at {min_validators_per_shard}/shard"
+        );
+        return;
+    }
+
+    let prev_id_set: HashSet<ShardId> = prev_layout.shard_ids().collect();
+    for new_shard_id in new_layout.shard_ids() {
+        let new_idx = new_layout.get_shard_index(new_shard_id).unwrap();
+        let new_validators = validators_for_shard(new_info, new_idx);
+        if prev_id_set.contains(&new_shard_id) {
+            let prev_idx = prev_layout.get_shard_index(new_shard_id).unwrap();
+            let prev_validators = validators_for_shard(prev_info, prev_idx);
+            // Only meaningful if the unchanged shard had any validators before.
+            if prev_validators.is_empty() {
+                continue;
+            }
+            let kept = prev_validators.intersection(&new_validators).count();
+            assert!(
+                kept > 0,
+                "sticky-resharding violation: unchanged shard {} kept zero validators \
+                 across resharding (prev={:?}, post={:?})",
+                new_shard_id,
+                prev_validators,
+                new_validators,
+            );
+        } else {
+            let parent = new_layout.get_parent_shard_id(new_shard_id).unwrap();
+            let parent_idx = prev_layout.get_shard_index(parent).unwrap();
+            let parent_validators = validators_for_shard(prev_info, parent_idx);
+            // We can only guarantee that *every* child inherits when the parent
+            // had at least as many validators as it has children. Otherwise some
+            // children unavoidably come up empty from the bin-pack and rely on
+            // rebalancing.
+            let children = new_layout.get_children_shards_ids(parent).unwrap_or_default();
+            if parent_validators.len() < children.len() {
+                continue;
+            }
+            let inherited = parent_validators.intersection(&new_validators).count();
+            assert!(
+                inherited > 0,
+                "sticky-resharding violation: split child {} (parent {}) inherited zero \
+                 validators from parent (parent_prev={:?}, child_post={:?})",
+                new_shard_id,
+                parent,
+                parent_validators,
+                new_validators,
+            );
+        }
+    }
 }
 
 /// Returns the two child shard IDs that result from splitting a shard.
@@ -407,7 +527,7 @@ fn build_epoch_config_store(
             memory_usage_threshold: u64::MAX,
             min_child_memory_usage: u64::MAX,
             max_number_of_shards: 100,
-            min_epochs_between_resharding: 0,
+            min_epochs_between_resharding: 1.try_into().unwrap(),
             force_split_shards,
             block_split_shards: vec![],
         };
@@ -544,6 +664,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &params.validators.iter().map(|account_id| account_id.as_str()).collect_vec(),
         ))
         .add_user_accounts_simple(&params.accounts, params.initial_balance)
+        .add_gas_keys(&params.gas_key_accounts)
         .build();
 
     let (epoch_config_store, expected_num_shards, voting_schedule) = build_epoch_config_store(
@@ -610,7 +731,11 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
     for contract_id in &params.deploy_test_contract {
         let node = env.node_for_account(&client_account_id);
-        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let code = if params.deploy_latest_protocol_test_contract {
+            near_test_contracts::rs_contract().into()
+        } else {
+            near_test_contracts::backwards_compatible_rs_contract().into()
+        };
         let tx = node.tx_deploy_contract(contract_id, code);
         test_setup_transactions.push(node.submit_tx(tx));
     }
@@ -758,6 +883,34 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < num_epochs_to_wait);
             println!("State after resharding:");
             print_and_assert_shard_accounts(&clients, &tip);
+
+            // Verify chunk-producer stickiness across resharding: unchanged shards
+            // keep at least one of their previous validators by ShardId, and split
+            // children inherit at least one of the parent's validators. The shuffle
+            // flag intentionally overrides stickiness, so this only fires when
+            // shuffling is off (which is the default for these tests).
+            if !params.shuffle_shard_assignment_for_chunk_producers
+                && ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION)
+            {
+                let post_epoch_id =
+                    client.epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();
+                let prev_epoch_id = client
+                    .epoch_manager
+                    .get_prev_epoch_id_from_prev_block(&tip.prev_block_hash)
+                    .unwrap();
+                let post_info = client.epoch_manager.get_epoch_info(&post_epoch_id).unwrap();
+                let prev_info = client.epoch_manager.get_epoch_info(&prev_epoch_id).unwrap();
+                let post_layout = client.epoch_manager.get_shard_layout(&post_epoch_id).unwrap();
+                let prev_layout = client.epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
+                let post_config = client.epoch_manager.get_epoch_config(&post_epoch_id).unwrap();
+                assert_validator_stickiness_after_resharding(
+                    &prev_info,
+                    &prev_layout,
+                    &post_info,
+                    &post_layout,
+                    post_config.minimum_validators_per_shard,
+                );
+            }
             if params.second_resharding_boundary_account.is_some() {
                 // With static resharding, the two splits are triggered by consecutive protocol
                 // upgrades, so the second activates 1 epoch after the first. With dynamic
@@ -1342,6 +1495,56 @@ fn slow_test_resharding_v3_storage_operations() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_resharding_v3_gas_key() {
+    let left_account: AccountId = "account4".parse().unwrap();
+    let right_account: AccountId = "account7".parse().unwrap();
+    let left_nonces: Vec<Nonce> = vec![1, 2];
+    let right_nonces: Vec<Nonce> = vec![3, 4];
+    let num_blocks_after_resharding_to_check = 3;
+
+    let params = TestReshardingParametersBuilder::default()
+        .gas_key_account(&left_account, &left_nonces)
+        .gas_key_account(&right_account, &right_nonces)
+        .add_loop_action(assert_after_resharding(
+            num_blocks_after_resharding_to_check,
+            move |node| {
+                let base_layout = get_base_shard_layout();
+                let new_layout =
+                    node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
+                assert_eq!(
+                    base_layout.account_id_to_shard_id(&left_account),
+                    base_layout.account_id_to_shard_id(&right_account),
+                    "left/right accounts must share the pre-split parent shard",
+                );
+                assert_ne!(
+                    new_layout.account_id_to_shard_id(&left_account),
+                    new_layout.account_id_to_shard_id(&right_account),
+                    "left/right accounts must land on different child shards after the split",
+                );
+
+                for (account, expected) in
+                    [(&left_account, &left_nonces), (&right_account, &right_nonces)]
+                {
+                    let gas_key = gas_key_signer_for_account(account);
+                    let nonces = node
+                        .view_gas_key_nonces_query(account, &gas_key.public_key())
+                        .unwrap_or_else(|err| {
+                            panic!("gas-key row missing after resharding for {account}: {err:?}")
+                        });
+                    assert_eq!(
+                        &nonces, expected,
+                        "gas-key nonces for {account} changed across resharding",
+                    );
+                }
+            },
+        ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -1640,6 +1843,36 @@ fn slow_test_resharding_v3_yield_resume() {
         .deploy_test_contract(account_in_right_child.clone())
         .add_loop_action(call_promise_yield(
             true,
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            ReceiptKind::PromiseYield,
+        ))
+        .add_loop_action(check_receipts_presence_after_resharding_block(
+            vec![account_in_left_child, account_in_right_child],
+            ReceiptKind::PromiseYield,
+        ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+// See `slow_test_resharding_v3_yield_resume` for the non-x86_64 caveat.
+#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+fn slow_test_resharding_v3_yield_resume_with_id() {
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_contract(account_in_left_child.clone())
+        .deploy_test_contract(account_in_right_child.clone())
+        // yield_create_with_id / yield_resume_with_yield_id are only available in
+        // the latest stable protocol, so we need the latest-protocol contract build.
+        .deploy_latest_protocol_test_contract(true)
+        .add_loop_action(call_promise_yield_with_id(
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
             vec![account_in_left_child.clone(), account_in_right_child.clone()],
         ))

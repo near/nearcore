@@ -1,10 +1,10 @@
+use crate::logic::External;
 use crate::logic::tests::helpers::assert_costs;
 use crate::map;
 use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
 use near_parameters::ExtCosts;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::Balance;
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -122,6 +122,20 @@ fn test_attached_deposit_view() {
 }
 
 #[test]
+fn test_chain_id() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let want = logic_builder.ext.chain_id();
+    let mut logic = logic_builder.build();
+    logic.chain_id(0).expect("read chain_id into register from external should be ok");
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: want.len() as u64,
+    });
+    logic.assert_read_register(want.as_bytes(), 0);
+}
+
+#[test]
 fn test_input_per_byte_gas_fee() {
     const INPUT_SIZE: usize = 100;
     let mut logic_builder = VMLogicBuilder::default();
@@ -130,16 +144,8 @@ fn test_input_per_byte_gas_fee() {
 
     logic.input(0).expect("input() should succeed");
 
-    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-        });
-    } else {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-          ExtCosts::write_register_byte: INPUT_SIZE as u64,
-        });
-    }
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::write_register_base: 1,
+    });
 }

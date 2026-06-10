@@ -291,6 +291,9 @@ const PRIORITY_APPLY_CHUNKS: u8 = 50;
 const PRIORITY_PARTIAL_WITNESS_VALIDATION: u8 = 70;
 /// Witness creation
 const PRIORITY_WITNESS_CREATION: u8 = 70;
+/// Background compiled-contract-runtime maintenance: cache warming for
+/// upcoming protocol upgrades, on-disk cache atime refresh, etc.
+const PRIORITY_BACKGROUND_RUNTIME_TASKS: u8 = 10;
 
 /// Shared thread pool for contract compilation and pipelining.
 pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
@@ -299,9 +302,23 @@ pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
         let thread_limit = std::thread::available_parallelism().map_or(4, |n| n.get());
         Arc::new(ThreadPool::new(
             "contract_compilation",
-            Duration::from_secs(3600),
+            Duration::from_hours(1),
             thread_limit,
             PRIORITY_CONTRACT_COMPILATION,
+        ))
+    })
+}
+
+/// Shared pool for low-priority, fire-and-forget contract-runtime maintenance.
+/// Runs at the low (realtime) priority.
+pub fn background_runtime_tasks() -> &'static Arc<ThreadPool> {
+    static POOL: std::sync::OnceLock<Arc<ThreadPool>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        Arc::new(ThreadPool::new(
+            "background_runtime_tasks",
+            Duration::from_secs(60),
+            1,
+            PRIORITY_BACKGROUND_RUNTIME_TASKS,
         ))
     })
 }

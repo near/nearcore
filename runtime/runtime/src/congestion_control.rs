@@ -7,7 +7,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
 };
-use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats, ReceiptsStats};
+use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
@@ -205,7 +205,7 @@ impl ReceiptSink {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         match self {
             ReceiptSink::V2(sink_with_info) => sink_with_info.sink.generate_bandwidth_requests(
@@ -497,7 +497,7 @@ impl ReceiptSinkV2 {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         let params = &self.bandwidth_scheduler_output.params;
 
@@ -712,11 +712,12 @@ fn action_receipt_congestion_gas(
 ) -> Result<Gas, IntegerOverflowError> {
     let prepaid_exec_gas =
         total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
-            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+            .gas
+            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee().gas)
             .ok_or(IntegerOverflowError)?;
     // account for gas guaranteed to be used for creating new receipts
-    let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions())?;
-    let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_gas)?;
+    let prepaid_send_cost = total_prepaid_send_fees(config, &action_receipt.actions())?;
+    let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_cost.gas)?;
 
     // account for gas potentially used for dynamic execution
     let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions())?;
@@ -872,7 +873,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         &mut self,
         trie_update: &mut TrieUpdate,
         config: &RuntimeConfig,
-    ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
+    ) -> Result<Option<ReceiptOrStateStoredReceipt<'_>>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
         loop {

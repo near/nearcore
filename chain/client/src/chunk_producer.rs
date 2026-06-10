@@ -1,14 +1,16 @@
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
+use crate::pending_transaction_queue::{PendingTxSession, ShardedPendingTransactionQueue};
 use crate::prepare_transactions::{
     PrepareTransactionsJobInputs, PrepareTransactionsJobKey, PrepareTransactionsManager,
 };
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig,
+    PendingConstraints, PendingTxCheckResult, PrepareTransactionsBlockContext,
+    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -97,6 +99,8 @@ pub struct ChunkProducer {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     // TODO: put mutex on individual shards instead of the complete pool
     pub sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pub pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+    spice_pending_transaction_queue_enabled: bool,
     /// A ReedSolomon instance to encode shard chunks.
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
@@ -116,6 +120,7 @@ impl ChunkProducer {
         rng_seed: RngSeed,
         transaction_pool_size_limit: Option<u64>,
         prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
+        spice_pending_transaction_queue_enabled: bool,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
@@ -136,6 +141,8 @@ impl ChunkProducer {
                 rng_seed,
                 transaction_pool_size_limit,
             ))),
+            pending_transaction_queue: Arc::new(Mutex::new(ShardedPendingTransactionQueue::new())),
+            spice_pending_transaction_queue_enabled,
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
@@ -463,7 +470,9 @@ impl ChunkProducer {
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock();
-        let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
+        // (prepared_transactions, skipped_transactions_to_reintroduce)
+        let (prepared_transactions, skipped_transactions) = if let Some(mut iter) =
+            pool_guard.get_pool_iterator(shard_uid)
         {
             #[cfg(feature = "test_features")]
             let skip_verification = matches!(
@@ -473,16 +482,61 @@ impl ChunkProducer {
             #[cfg(not(feature = "test_features"))]
             let skip_verification = false;
 
-            if skip_verification || ProtocolFeature::Spice.enabled(protocol_version) {
-                // TODO(spice): properly implement transaction preparation to respect limits
+            if skip_verification {
                 let mut res = vec![];
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                PreparedTransactions {
-                    transactions: res,
-                    limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
-                }
+                (
+                    PreparedTransactions {
+                        transactions: res,
+                        limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+                    },
+                    Vec::new(),
+                )
+            } else if ProtocolFeature::Spice.enabled(protocol_version) {
+                // SPICE path: use prepare_transactions_extra with pending transaction queue
+                // constraints. Use the last certified block's ChunkExtra for
+                // state validation (the certified block is guaranteed to have
+                // been executed, so its state root is available).
+                let certified_header =
+                    get_last_certified_block_header(&self.chain, &prev_block.hash())?;
+                let certified_chunk_extra = self
+                    .chain
+                    .chunk_store()
+                    .get_chunk_extra(certified_header.hash(), &shard_uid)?;
+                let trie = self.runtime_adapter.get_trie_for_shard(
+                    shard_id,
+                    certified_header.hash(),
+                    *certified_chunk_extra.state_root(),
+                    true,
+                )?;
+                let trie = trie.recording_reads_new_recorder();
+                let state_update = TrieUpdate::new(trie);
+                let prev_block_context =
+                    PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+                let mut session =
+                    PendingTxSession::new(Arc::clone(&self.pending_transaction_queue), shard_uid);
+                let ptq_enabled = self.spice_pending_transaction_queue_enabled;
+                let (prepared, skipped) = self.runtime_adapter.prepare_transactions_extra(
+                    state_update,
+                    shard_id,
+                    prev_block_context,
+                    &mut iter,
+                    chain_validate,
+                    validate_tx_ttl,
+                    std::collections::HashSet::new(),
+                    &mut |tx, has_contract| {
+                        if ptq_enabled {
+                            session.check_pending(tx, has_contract)
+                        } else {
+                            PendingTxCheckResult::Admit(PendingConstraints::default())
+                        }
+                    },
+                    self.chunk_transactions_time_limit.get(),
+                    None,
+                )?;
+                (prepared, skipped.0)
             } else {
                 let storage_config = RuntimeStorageConfig {
                     state_root: *chunk_extra.state_root(),
@@ -492,23 +546,30 @@ impl ChunkProducer {
                 };
                 let prev_block_context =
                     PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
-                self.runtime_adapter.prepare_transactions(
-                    storage_config,
-                    shard_id,
-                    prev_block_context,
-                    &mut iter,
-                    chain_validate,
-                    validate_tx_ttl,
-                    self.chunk_transactions_time_limit.get(),
-                )?
+                (
+                    self.runtime_adapter.prepare_transactions(
+                        storage_config,
+                        shard_id,
+                        prev_block_context,
+                        &mut iter,
+                        chain_validate,
+                        validate_tx_ttl,
+                        self.chunk_transactions_time_limit.get(),
+                    )?,
+                    Vec::new(),
+                )
             }
         } else {
-            PreparedTransactions::new()
+            (PreparedTransactions::new(), Vec::new())
         };
-        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
-        // included into the block.
+        // Reintroduce valid transactions back to the pool. They will be removed
+        // when the chunk is included into the block.
         let reintroduced_count = pool_guard
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
+        // Reintroduce skipped transactions (from pending transaction queue constraints) back to pool.
+        if !skipped_transactions.is_empty() {
+            pool_guard.reintroduce_transactions(shard_uid, skipped_transactions);
+        }
 
         if reintroduced_count < prepared_transactions.transactions.len() {
             tracing::debug!(

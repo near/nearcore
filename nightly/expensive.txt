@@ -30,9 +30,9 @@ expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::u
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks --features nightly,protocol_feature_spice
 
 # consensus tests
-expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
-expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
-expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly,protocol_feature_spice
+expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
+expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
+expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly,protocol_feature_spice
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly,protocol_feature_spice

@@ -2,8 +2,9 @@ use crate::download_file::{FileDownloadError, run_download_file};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{Context, anyhow, bail};
 use bytesize::ByteSize;
+use near_async::thread_pool::background_runtime_tasks;
 use near_async::time::{Clock, Duration};
-use near_chain::runtime::NightshadeRuntime;
+use near_chain::runtime::{NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::test_utils::{
     TESTING_INIT_BALANCE, TESTING_INIT_STAKE, add_account_with_key, add_protocol_account,
     random_chain_id,
@@ -26,12 +27,12 @@ use near_chain_configs::{
     default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
     default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
     default_state_request_throttle_period, default_state_requests_per_throttle_period,
-    default_state_sync_enabled, default_state_sync_external_backoff,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
+    default_state_sync_external_backoff, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_transaction_pool_strict_nonce_ttl_blocks,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -86,9 +87,6 @@ pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 1_800;
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
-/// Horizon at which instead of fetching block, fetch full state.
-const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
-
 /// Behind this horizon header fetch kicks in.
 const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -136,8 +134,6 @@ pub struct Consensus {
     pub chunk_wait_mult: Rational32,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
-    /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeightDelta,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
@@ -205,7 +201,6 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
             chunk_wait_mult: default_chunk_wait_mult(),
             produce_empty_blocks: true,
-            block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::milliseconds(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::milliseconds(CHUNK_REQUEST_RETRY_PERIOD),
@@ -300,6 +295,26 @@ pub struct Config {
     /// If set to `None`, defaults to the same value as `save_tx_outcomes`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_receipt_to_tx: Option<bool>,
+    /// Max `±window` accepted on `EXPERIMENTAL_receipt_to_tx` requests.
+    /// Caps caller's `window`. Applies to pre-first-scan `CenterOut`
+    /// against caller's literal hint; ancestor scans use
+    /// `receipt_to_tx_max_hop_distance` instead. Requests over this
+    /// rejected with `WindowTooLarge`. `None` → 20.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_to_tx_max_hint_window: Option<BlockHeightDelta>,
+    /// Max block-distance the ancestor scan walks per hop once any scan in
+    /// an `EXPERIMENTAL_receipt_to_tx` walk refreshed `current_height`.
+    /// Subsequent column-miss scans visit `h, h-1, ..., h-max_hop_distance`
+    /// from most-recent scan-refreshed anchor, regardless of column hits
+    /// between. `None` → 20.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_to_tx_max_hop_distance: Option<BlockHeightDelta>,
+    /// Per-request ceiling on outcome rows the `EXPERIMENTAL_receipt_to_tx`
+    /// hint-fallback scanner reads across hops + shards. Caps cold-RocksDB
+    /// worst case on unauthenticated public endpoint. `None` → 20_000.
+    /// Mid-scan exhaustion fails with `BudgetExceeded`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_to_tx_max_outcomes_per_request: Option<u64>,
     /// Whether to persist state changes on disk or not.
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -345,8 +360,6 @@ pub struct Config {
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
-    /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    pub state_sync_enabled: bool,
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
@@ -399,6 +412,8 @@ pub struct Config {
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
+    /// Maximum allowed total size of the on-disk compiled-contract cache entries.
+    pub contract_cache_max_size: ByteSize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
     /// This option can cause extra load on the database and is not recommended for production use.
@@ -436,6 +451,12 @@ pub struct Config {
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
     /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
+    /// If true, SPICE nodes track uncertified transactions in a pending
+    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
+    /// constraints during chunk production and RPC validation. Disabled by
+    /// default; only meaningful when SPICE is active.
+    #[cfg(feature = "protocol_feature_spice")]
+    pub spice_pending_transaction_queue_enabled: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -472,6 +493,9 @@ impl Default for Config {
             save_state_changes: None,
             save_tx_outcomes: None,
             save_receipt_to_tx: None,
+            receipt_to_tx_max_hint_window: None,
+            receipt_to_tx_max_hop_distance: None,
+            receipt_to_tx_max_outcomes_per_request: None,
             save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
@@ -489,7 +513,6 @@ impl Default for Config {
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
-            state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             transaction_pool_strict_nonce_ttl_blocks: None,
             enable_multiline_logging: default_enable_multiline_logging(),
@@ -502,6 +525,7 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
+            contract_cache_max_size: ByteSize::gb(128),
             contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
@@ -509,6 +533,8 @@ impl Default for Config {
             protocol_version_check_config_override: None,
             enable_early_prepare_transactions: None,
             chunks_cache_height_horizon: None,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transaction_queue_enabled: false,
         }
     }
 }
@@ -626,7 +652,7 @@ impl Config {
     pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
-            self.rpc.get_or_insert(Default::default()).addr = addr;
+            self.rpc.get_or_insert_with(Default::default).addr = addr;
         }
     }
 
@@ -706,11 +732,26 @@ impl NearConfig {
                     config.expected_shutdown,
                     "expected_shutdown",
                 ),
-                block_production_tracking_delay: config.consensus.block_production_tracking_delay,
-                min_block_production_delay: config.consensus.min_block_production_delay,
-                max_block_production_delay: config.consensus.max_block_production_delay,
-                max_block_wait_delay: config.consensus.max_block_wait_delay,
-                chunk_wait_mult: config.consensus.chunk_wait_mult,
+                block_production_tracking_delay: MutableConfigValue::new(
+                    config.consensus.block_production_tracking_delay,
+                    "block_production_tracking_delay",
+                ),
+                min_block_production_delay: MutableConfigValue::new(
+                    config.consensus.min_block_production_delay,
+                    "min_block_production_delay",
+                ),
+                max_block_production_delay: MutableConfigValue::new(
+                    config.consensus.max_block_production_delay,
+                    "max_block_production_delay",
+                ),
+                max_block_wait_delay: MutableConfigValue::new(
+                    config.consensus.max_block_wait_delay,
+                    "max_block_wait_delay",
+                ),
+                chunk_wait_mult: MutableConfigValue::new(
+                    config.consensus.chunk_wait_mult,
+                    "chunk_wait_mult",
+                ),
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
@@ -732,12 +773,13 @@ impl NearConfig {
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
                 ttl_account_id_router: config.network.ttl_account_id_router,
-                // TODO(1047): this should be adjusted depending on the speed of sync of state.
-                block_fetch_horizon: config.consensus.block_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
-                doomslug_step_period: config.consensus.doomslug_step_period,
+                doomslug_step_period: MutableConfigValue::new(
+                    config.consensus.doomslug_step_period,
+                    "doomslug_step_period",
+                ),
                 tracked_shards_config: config.tracked_shards_config(),
                 state_sync: config.state_sync_config(),
                 archive: config.archive,
@@ -747,6 +789,11 @@ impl NearConfig {
                 save_receipt_to_tx: config
                     .save_receipt_to_tx
                     .unwrap_or_else(|| config.save_tx_outcomes.unwrap_or(is_archive_or_rpc)),
+                receipt_to_tx_max_hint_window: config.receipt_to_tx_max_hint_window.unwrap_or(20),
+                receipt_to_tx_max_hop_distance: config.receipt_to_tx_max_hop_distance.unwrap_or(20),
+                receipt_to_tx_max_outcomes_per_request: config
+                    .receipt_to_tx_max_outcomes_per_request
+                    .unwrap_or(20_000),
                 save_state_changes: config.save_state_changes.unwrap_or(true),
                 save_untracked_partial_chunks_parts: config
                     .save_untracked_partial_chunks_parts
@@ -764,7 +811,6 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
-                state_sync_enabled: config.state_sync_enabled,
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 transaction_pool_strict_nonce_ttl_blocks: config
@@ -796,6 +842,9 @@ impl NearConfig {
                 chunks_cache_height_horizon: config
                     .chunks_cache_height_horizon
                     .unwrap_or_else(default_chunks_cache_height_horizon),
+                #[cfg(feature = "protocol_feature_spice")]
+                spice_pending_transaction_queue_enabled: config
+                    .spice_pending_transaction_queue_enabled,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -897,6 +946,8 @@ impl NightshadeRuntime {
             &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
             Some("filesystem".to_string()),
+            config.config.contract_cache_max_size.as_u64(),
+            Arc::new(|task| background_runtime_tasks().spawn_boxed(task)),
         )?;
         Ok(NightshadeRuntime::new(
             store,
@@ -910,8 +961,10 @@ impl NightshadeRuntime {
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
             config.client_config.state_sync.parts_compression_lvl,
-            config.client_config.cloud_archival_writer.is_some(),
-            config.client_config.save_receipt_to_tx,
+            RuntimeOptions {
+                is_cloud_archival_writer: config.client_config.cloud_archival_writer.is_some(),
+                save_receipt_to_tx: config.client_config.save_receipt_to_tx,
+            },
         ))
     }
 }
@@ -1388,7 +1441,7 @@ fn create_localnet_config(
         std::cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
 
     // Configure networking and RPC endpoint. Enable debug-RPC by default for all nodes.
-    config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
+    config.rpc.get_or_insert_with(Default::default).enable_debug_rpc = true;
     config.network.addr = network_config.0.to_string();
     config.network.public_addrs = vec![PeerAddr {
         addr: network_config.0,
@@ -1407,10 +1460,12 @@ fn create_localnet_config(
     // Configure archival node with split storage (hot + cold DB).
     if params.is_archival {
         config.archive = true;
-        config.cold_store.get_or_insert(config.store.clone()).path =
+        config.cold_store.get_or_insert_with(|| config.store.clone()).path =
             Some(PathBuf::from("cold-data"));
-        config.split_storage.get_or_insert(Default::default()).enable_split_storage_view_client =
-            true;
+        config
+            .split_storage
+            .get_or_insert_with(Default::default)
+            .enable_split_storage_view_client = true;
         config.save_trie_changes = Some(true);
     }
 
@@ -1746,6 +1801,19 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use tempfile::tempdir;
+
+    #[test]
+    fn config_deserialization_with_missing_receipt_to_tx_fields() {
+        // Locks serde-default migration contract: old config.json without
+        // receipt_to_tx hint knobs must deserialize → `None`, so
+        // `ClientConfig` mapper falls back to defaults. Failure here means
+        // operator upgrade rejects old config at load time.
+        let json_data = json!({});
+        let config: Config = serde_json::from_value(json_data).unwrap();
+        assert_eq!(config.receipt_to_tx_max_hint_window, None);
+        assert_eq!(config.receipt_to_tx_max_hop_distance, None);
+        assert_eq!(config.receipt_to_tx_max_outcomes_per_request, None);
+    }
 
     #[test]
     fn test_old_tracked_config_fields_are_parsed() {

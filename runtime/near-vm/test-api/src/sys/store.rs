@@ -88,9 +88,6 @@ impl Default for Store {
                     near_vm_engine::universal::Universal::new(config)
                         .code_memory_pool(pool)
                         .engine()
-                } else if #[cfg(feature = "default-dylib")] {
-                    near_vm_engine_dylib::Dylib::new(config)
-                        .engine()
                 } else {
                     compile_error!("No default engine chosen")
                 }

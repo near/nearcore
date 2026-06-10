@@ -1,6 +1,4 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
-pub use crate::columns::DBCol;
+pub use crate::columns::{DBCol, GcPolicy};
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,

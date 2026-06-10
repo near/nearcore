@@ -128,17 +128,17 @@ impl schemars::JsonSchema for NonDelegateAction {
         let mut action_schema = Action::json_schema(generator);
 
         // Find and filter the oneOf array directly on the Schema object
-        if let Some(one_of) = action_schema.get_mut("oneOf") {
-            if let Some(arr) = one_of.as_array_mut() {
-                // Remove the Delegate variant
-                arr.retain(|variant| {
-                    !variant
-                        .get("properties")
-                        .and_then(|p| p.as_object())
-                        .map(|p| p.contains_key("Delegate"))
-                        .unwrap_or(false)
-                });
-            }
+        if let Some(one_of) = action_schema.get_mut("oneOf")
+            && let Some(arr) = one_of.as_array_mut()
+        {
+            // Remove the Delegate variant
+            arr.retain(|variant| {
+                !variant
+                    .get("properties")
+                    .and_then(|p| p.as_object())
+                    .map(|p| p.contains_key("Delegate"))
+                    .unwrap_or(false)
+            });
         }
 
         // Update description to be more client-friendly

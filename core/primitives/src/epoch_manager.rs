@@ -2,7 +2,7 @@ use crate::num_rational::Rational32;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeightDelta, EpochHeight, NumSeats,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeightDelta, NonZeroEpochHeight, NumSeats,
     NumShards, ProtocolVersion, ShardId, ValidatorKickoutReason,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -31,8 +31,11 @@ pub struct DynamicReshardingConfig {
     /// resharding will be scheduled.
     pub max_number_of_shards: NumShards,
     /// Minimum number of epochs until next resharding can be scheduled.
-    /// The value of `0` means that resharding can happen every epoch.
-    pub min_epochs_between_resharding: EpochHeight,
+    /// Must be greater than `0`: allowing back-to-back reshardings is unsafe because
+    /// a child shard would inherit `proposed_split` from its parent's final chunk
+    /// while the child's first chunk freshly computes `proposed_split = None`,
+    /// producing an `InvalidChunkHeaderShardSplit` mismatch.
+    pub min_epochs_between_resharding: NonZeroEpochHeight,
     /// Shards that should be split even when they don't meet the regular split criteria
     /// (i.e. `memory_usage_threshold` and `min_child_memory_usage`).
     /// Keep in mind that `max_number_of_shards` still applies here.
@@ -49,7 +52,7 @@ impl Default for DynamicReshardingConfig {
             memory_usage_threshold: 999_999_999_999_999,
             min_child_memory_usage: 999_999_999_999_999,
             max_number_of_shards: 999_999_999_999_999,
-            min_epochs_between_resharding: 999_999_999_999_999,
+            min_epochs_between_resharding: NonZeroEpochHeight::new(999_999_999_999_999).unwrap(),
             force_split_shards: vec![],
             block_split_shards: vec![],
         }
@@ -407,6 +410,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 78, "78.json"),
     include_config!("mainnet", 80, "80.json"),
     include_config!("mainnet", 81, "81.json"),
+    include_config!("mainnet", 85, "85.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -423,6 +427,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 78, "78.json"),
     include_config!("testnet", 80, "80.json"),
     include_config!("testnet", 81, "81.json"),
+    include_config!("testnet", 85, "85.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 

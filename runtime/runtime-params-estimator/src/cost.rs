@@ -706,6 +706,23 @@ pub enum Cost {
     /// produces the steepest line.
     ContractCompileBaseV2,
     ContractCompileBytesV2,
+    /// Compile a contract at the maximum block limit (10 functions with 4999 blocks).
+    AdversarialCompileMaxBlocks,
+    /// Invocation cost with 100k zero-initialized globals.
+    /// Exposes unbounded per-call Wasmtime global re-initialization not covered by gas.
+    AdversarialLoadManyGlobals,
+    /// Invocation cost with 50k active data segments.
+    /// Exposes unbounded per-call data-segment initialization not covered by gas.
+    AdversarialLoadManyDataSegments,
+    /// Invocation cost with 10k active element segments.
+    /// Exposes unbounded per-call table-initialization work not covered by gas.
+    AdversarialLoadManyElementSegments,
+    /// Wasm instruction cost for float ops, including NaN Canonicalization cost.
+    OpFloat,
+    /// Wasm instruction cost for integer ops.
+    OpInt,
+    /// Wasm instruction cost for wide division cost.
+    OpWideArithmetic,
     /// The cost of contract deployment per byte, without the compilation cost.
     ///
     /// Estimation: Measure the deployment costs of two data-only contracts,
@@ -782,6 +799,15 @@ pub enum Cost {
     /// with additional method bytes, and another time with some significant number of bytes in
     /// arguments.
     YieldCreateByte,
+
+    /// Estimates `yield_create_with_id_base`, the base cost of the host function
+    /// `promise_yield_create_with_id`. Compared to `promise_yield_create`, this variant performs
+    /// two extra trie writes (the bidirectional yield_id <-> data_id mapping) per call.
+    ///
+    /// Estimation: We run a tight loop of 1000 calls with a distinct user-provided yield_id each
+    /// iteration (to avoid duplicate-detection short-circuiting). Other known costs are
+    /// subtracted from the measurement.
+    YieldCreateWithIdBase,
 
     /// Estimates `yield_resume_base`, which covers the base cost of the host function
     /// `promise_yield_resume`.

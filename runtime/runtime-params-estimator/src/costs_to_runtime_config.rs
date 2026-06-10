@@ -1,6 +1,7 @@
 use crate::cost::Cost;
 use crate::cost_table::CostTable;
 use anyhow::Context;
+use near_parameters::parameter_table::FeeComponent;
 use near_parameters::vm::Config as VMConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
@@ -52,9 +53,9 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?;
         // Split the total cost evenly between send and execution fee.
         Ok(Fee {
-            send_sir: total_gas.checked_div(2).unwrap(),
-            send_not_sir: total_gas.checked_div(2).unwrap(),
-            execution: total_gas.checked_div(2).unwrap(),
+            send_sir: FeeComponent::Gas(total_gas.checked_div(2).unwrap()),
+            send_not_sir: FeeComponent::Gas(total_gas.checked_div(2).unwrap()),
+            execution: FeeComponent::Gas(total_gas.checked_div(2).unwrap()),
         })
     };
 
@@ -174,6 +175,7 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::alt_bn128_pairing_check_element => Cost::AltBn128PairingCheckElement,
         ExtCosts::yield_create_base => Cost::YieldCreateBase,
         ExtCosts::yield_create_byte => Cost::YieldCreateByte,
+        ExtCosts::yield_create_with_id_base => Cost::YieldCreateWithIdBase,
         ExtCosts::bls12381_p1_sum_base => Cost::Bls12381P1SumBase,
         ExtCosts::bls12381_p1_sum_element => Cost::Bls12381P1SumElement,
         ExtCosts::bls12381_p2_sum_base => Cost::Bls12381P2SumBase,

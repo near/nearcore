@@ -297,11 +297,11 @@ mod test {
         config.total_supply = Balance::from_yoctonear(110);
         let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
-            StateRecord::AccessKey {
-                account_id: "test1".parse().unwrap(),
-                public_key: PublicKey::empty(KeyType::ED25519),
-                access_key: AccessKey::full_access(),
-            },
+            StateRecord::access_key(
+                "test1".parse().unwrap(),
+                &PublicKey::empty(KeyType::ED25519),
+                AccessKey::full_access(),
+            ),
         ]);
         let genesis = &Genesis::new(config, records).unwrap();
         validate_genesis(genesis).unwrap();

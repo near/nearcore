@@ -1,15 +1,13 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
-use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
+use crate::{BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::{
-    hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance, version::PROTOCOL_VERSION,
-};
-use num_rational::Ratio;
+use near_primitives::types::EpochId;
+use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance};
 use std::sync::Arc;
 
 #[test]
@@ -38,10 +36,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"DEVCwaxuk5f1y4nfrSHgf5SXfSAGDLYbr8G2H3WW7PP6");
+        insta::assert_snapshot!(hash, @"3yHW7CNSBEnCA4WZtsTqLw1qoMsBSt1S5yyyW91dYp2m");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"2UeMneANV8e8bbm7ePkuhPwrSmtz3ea6bHfqqQbk7FRd");
+        insta::assert_snapshot!(hash, @"AbVLVqR2U1UA8cXU94p4XZ4LpnbZFRVqKiKB2ykoXQu4");
     }
 
     for i in 1..5 {
@@ -58,10 +56,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"7KT4dcQrDk4ozcXBssauuQz2rW8EqL4zQNdy8PeTTWZc");
+        insta::assert_snapshot!(hash, @"3DLBidGchB9hJw6esVHL56UpBEDbUH8AjNyXz5LjEbma");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"4VYLJr9oRybZsF4tXPj92ACfVzi6WcpKAenK7RFfFGc6");
+        insta::assert_snapshot!(hash, @"ECiXkcbtKnpweHE3ssbFoqZ84zZnHohHjgKA5cxMWQpa");
     }
 }
 
@@ -78,31 +76,11 @@ fn build_chain_with_orphans() {
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
-    let block = Arc::new(Block::produce(
-        PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
-        last_block.header(),
-        10,
-        last_block.header().block_ordinal() + 1,
-        last_block.chunks().iter_raw().cloned().collect(),
-        vec![vec![]; last_block.chunks().len()],
-        *last_block.header().epoch_id(),
-        *last_block.header().next_epoch_id(),
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        Some(Balance::ZERO),
-        &*signer,
-        *last_block.header().next_bp_hash(),
-        CryptoHash::default(),
-        clock,
-        None,
-        None,
-        None,
-        None,
-    ));
+    let block = TestBlockBuilder::from_prev_block(clock, last_block, signer)
+        .height(10)
+        .max_gas_price(Balance::from_yoctonear(100))
+        .block_merkle_root(CryptoHash::default())
+        .build();
     assert_matches!(chain.process_block_test(block).unwrap_err(), Error::Orphan);
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
@@ -440,4 +418,20 @@ fn test_pending_block_same_height() {
     let result_b = chain.process_block_test(block2b);
     assert_matches!(result_b, Ok(_));
     assert_eq!(chain.head().unwrap().height, 2);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn process_block_fails_with_invalid_prev_last_certified_block_epoch_id() {
+    init_test_logger();
+    let (mut chain, _, _, signer) = setup(Clock::real());
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+    let bogus = EpochId(CryptoHash::hash_bytes(b"bogus"));
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer)
+        .prev_last_certified_block_epoch_id(bogus)
+        .build();
+    assert_matches!(
+        chain.process_block_test(block),
+        Err(Error::InvalidPrevLastCertifiedBlockEpochId(_))
+    );
 }

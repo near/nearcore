@@ -3,7 +3,9 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::{Balance, ProtocolVersion};
+#[cfg(feature = "calimero_zero_storage")]
+use near_primitives_core::types::Balance;
+use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -22,7 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (42, include_config!("42.yaml")),
     (46, include_config!("46.yaml")),
     (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
@@ -61,7 +62,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
-    (149, include_config!("149.yaml")),
+    (155, include_config!("155.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -77,10 +78,9 @@ pub struct RuntimeConfigStore {
 impl RuntimeConfigStore {
     /// Constructs a new store.
     ///
-    /// If genesis_runtime_config is Some, configs for protocol versions 0 and 42 are overridden by
-    /// this config and config with lowered storage cost, respectively.
-    /// This is done to preserve compatibility with previous implementation, where we updated
-    /// runtime config by sequential modifications to the genesis runtime config.
+    /// If genesis_runtime_config is Some, the config for protocol version 0 is overridden by
+    /// this config. This is done to preserve compatibility with previous implementation, where
+    /// we updated runtime config by sequential modifications to the genesis runtime config.
     /// calimero_zero_storage flag sets all storages fees to zero by setting
     /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
     /// protocol upgrades this is done for all protocol versions
@@ -151,21 +151,6 @@ impl RuntimeConfigStore {
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
-            let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte =
-                Balance::from_yoctonear(10u128.pow(19));
-            store.insert(
-                42,
-                Arc::new(RuntimeConfig {
-                    fees: Arc::new(fees),
-                    wasm_config: Arc::clone(&runtime_config.wasm_config),
-                    account_creation_config: runtime_config.account_creation_config.clone(),
-                    congestion_control_config: runtime_config.congestion_control_config,
-                    witness_config: runtime_config.witness_config,
-                    bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-                    use_state_stored_receipt: runtime_config.use_state_stored_receipt,
-                }),
-            );
             store.insert(0, Arc::new(runtime_config.clone()));
         }
 
@@ -275,7 +260,7 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::ActionCosts;
+    use crate::{cost::ActionCosts, parameter_table::FeeComponent};
     use near_primitives_core::types::Gas;
     use std::collections::HashSet;
 
@@ -354,12 +339,34 @@ mod tests {
         assert_eq!(modified_config.wasm_config.limit_config.max_length_storage_key, 42);
         assert_eq!(
             modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir,
-            Gas::from_gas(100000000)
+            FeeComponent::Gas(Gas::from_gas(100000000)),
         );
 
         assert_eq!(
             base_config.storage_amount_per_byte(),
             modified_config.storage_amount_per_byte()
+        );
+    }
+
+    /// The signature-verification cost accepts the `{gas, compute}` form, so
+    /// its compute cost can be set independently of the gas cost.
+    #[test]
+    fn test_signature_verification_compute_cost_override() {
+        use crate::cost::{ParameterCost, SignatureKind};
+
+        let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
+        let mock_diff_str = r#"
+        ml_dsa_65_verification_cost: {
+          old: 0,
+          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+        }
+        "#;
+        base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
+        let modified_config = RuntimeConfig::new(&base_params).unwrap();
+
+        assert_eq!(
+            modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
+            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
         );
     }
 
@@ -417,7 +424,8 @@ mod tests {
 
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
-            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            let config_view =
+                RuntimeConfigView::from(testnet_store.get_config(*version).as_ref().clone());
             any_failure |= std::panic::catch_unwind(|| {
                 insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
             })

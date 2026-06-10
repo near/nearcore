@@ -1,3 +1,4 @@
+use crate::cache_warming::{cache_keys_differ, spawn_lazy_cache_warming};
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::RuntimeContractExt;
 use crate::metrics::{
@@ -8,6 +9,7 @@ use crate::metrics::{
 };
 use near_async::thread_pool::contract_compilation_pool;
 use near_parameters::RuntimeConfig;
+use near_parameters::vm::Config as VmConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{Action, GlobalContractIdentifier};
 use near_primitives::config::ViewConfig;
@@ -62,6 +64,12 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// The Runtime config for these pipelining  requests.
     config: Arc<RuntimeConfig>,
 
+    /// If `Some`, the next epoch's `wasm_config` differs from `config.wasm_config`
+    /// in ways that would invalidate the compiled-contract cache. For each function call
+    /// receipt processed by this pipeline we additionally spawn a background compile
+    /// under this config to pre-warm the on-disk cache.
+    next_wasm_config: Option<Arc<VmConfig>>,
+
     /// The contract cache.
     contract_cache: Option<Box<dyn ContractRuntimeCache>>,
 
@@ -99,18 +107,30 @@ enum PrepareTaskStatus {
 }
 
 impl ReceiptPreparationPipeline {
+    /// `next_wasm_config` is expected to be `Some` only when its cache-key
+    /// signature already differs from `config.wasm_config`
     pub(crate) fn new(
         config: Arc<RuntimeConfig>,
+        next_wasm_config: Option<Arc<VmConfig>>,
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
         storage: ContractStorage,
         chain_id: String,
         shard_id: ShardId,
     ) -> Self {
+        debug_assert!(
+            next_wasm_config.as_ref().is_none_or(|next| cache_keys_differ(
+                Arc::clone(&config.wasm_config),
+                Arc::clone(next)
+            )),
+            "next_wasm_config must differ from config.wasm_config; \
+             caller should pass None when signatures match"
+        );
         Self {
             map: Default::default(),
             block_accounts: Default::default(),
             block_global_contracts: Default::default(),
             config,
+            next_wasm_config,
             contract_cache,
             storage,
             chain_id,
@@ -230,6 +250,17 @@ impl ReceiptPreparationPipeline {
                     let status = Mutex::new(PrepareTaskStatus::Pending);
                     let created = Instant::now();
                     let expected_hash = identifier.hash();
+                    // Pre-warm the next epoch's compiled-contract cache if an upgrade approaches.
+                    if let (Some(next_config), Some(cache_for_warming)) =
+                        (self.next_wasm_config.as_ref(), self.contract_cache.as_ref())
+                    {
+                        spawn_lazy_cache_warming(
+                            storage.clone(),
+                            identifier.clone(),
+                            Arc::clone(next_config),
+                            cache_for_warming.handle(),
+                        );
+                    }
                     let task = Arc::new(PrepareTask {
                         status,
                         condvar: Condvar::new(),

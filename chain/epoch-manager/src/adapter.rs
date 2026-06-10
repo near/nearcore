@@ -5,6 +5,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_sync::EpochSyncProofLastEpochData;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardInfo, ShardLayout};
@@ -13,8 +14,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
-    ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
+    ShardIndex, ValidatorInfoIdentifier,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
@@ -100,6 +101,34 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
     fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
 
+    /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.
+    /// It is `Some` only for the first block of an epoch. Used by the block producer,
+    /// header validation, and tests.
+    fn compute_epoch_sync_data_hash(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, EpochError> {
+        if !self.is_next_block_epoch_start(prev_hash)? {
+            return Ok(None);
+        }
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_hash)?;
+        let last_block_info = self.get_block_info(prev_hash)?;
+        let prev_epoch_id = *last_block_info.epoch_id();
+        let prev_epoch_first_block_info =
+            self.get_block_info(last_block_info.epoch_first_block())?;
+        let prev_epoch_prev_last_block_info = self.get_block_info(last_block_info.prev_hash())?;
+        let last_epoch = EpochSyncProofLastEpochData {
+            epoch_info: self.get_epoch_info(&prev_epoch_id)?.as_ref().clone(),
+            next_epoch_info: self.get_epoch_info(&epoch_id)?.as_ref().clone(),
+            next_next_epoch_info: self.get_epoch_info(&next_epoch_id)?.as_ref().clone(),
+            first_block_in_epoch: prev_epoch_first_block_info.as_ref().clone(),
+            last_block_in_epoch: last_block_info.as_ref().clone(),
+            second_last_block_in_epoch: prev_epoch_prev_last_block_info.as_ref().clone(),
+        };
+        Ok(Some(last_epoch.compute_epoch_sync_data_hash()))
+    }
+
     /// Returns true if the block after the one being produced will belong to a new epoch.
     ///
     /// Parameters:
@@ -128,11 +157,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
     /// to the current epoch), based on `min_epochs_between_resharding`.
     ///
-    /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
+    /// Returns `true` if no resharding occurred in the last `min_epochs_between_resharding`
+    /// epochs (including the next one). The cooldown is non-zero by type: allowing
+    /// back-to-back reshardings is unsafe (see `DynamicReshardingConfig`).
     fn can_reshard(
         &self,
         block_hash: &CryptoHash,
-        min_epochs_between_resharding: u64,
+        min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError>;
 
     /// Get epoch id given hash of previous block.
@@ -179,6 +210,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get the list of shard ids
     fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
         Ok(self.get_shard_layout(epoch_id)?.shard_ids().collect())
+    }
+
+    /// Get the list of `ShardUId`s for the epoch. Prefer this over `shard_ids`
+    /// when the caller needs the layout-version-qualified identifier (`ShardId`
+    /// is reserved for protocol/RPC serialization and validator-assignment
+    /// queries).
+    fn shard_uids(&self, epoch_id: &EpochId) -> Result<Vec<ShardUId>, EpochError> {
+        Ok(self.get_shard_layout(epoch_id)?.shard_uids().collect())
     }
 
     /// For each `ShardId` in the current block, returns its parent `ShardInfo`
@@ -881,7 +920,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn can_reshard(
         &self,
         block_hash: &CryptoHash,
-        min_epochs_between_resharding: u64,
+        min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.can_reshard(block_hash, min_epochs_between_resharding)

@@ -1,7 +1,7 @@
 use crate::block_header::BlockHeader;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use crate::types::{AccountId, EpochId, ShardId, ValidatorStakeV1};
+use crate::types::{AccountId, EpochId, ShardId, SpiceChunkEndorsementStats, ValidatorStakeV1};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, BlockHeight, ProtocolVersion};
@@ -18,6 +18,7 @@ pub enum BlockInfo {
     V2(BlockInfoV2),
     V3(BlockInfoV3),
     V4(BlockInfoV4),
+    V5(BlockInfoV5),
 }
 
 impl Default for BlockInfo {
@@ -85,6 +86,32 @@ impl BlockInfo {
         last_finalized_height: BlockHeight,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
+        if ProtocolFeature::Spice.enabled(current_protocol_version) {
+            let last_certified_block_epoch = *header
+                .prev_last_certified_block_epoch_id()
+                .expect("spice block header must carry prev_last_certified_block_epoch_id");
+            return Self::V5(BlockInfoV5 {
+                hash: *header.hash(),
+                height: header.height(),
+                last_finalized_height,
+                last_final_block_hash: *header.last_final_block(),
+                prev_hash: *header.prev_hash(),
+                proposals: header.prev_validator_proposals().collect(),
+                chunk_mask: header.chunk_mask().to_vec(),
+                latest_protocol_version: header.latest_protocol_version(),
+                total_supply: header.total_supply(),
+                epoch_first_block: Default::default(),
+                epoch_id: Default::default(),
+                timestamp_nanosec: header.raw_timestamp(),
+                chunk_endorsements: chunk_endorsements_from_header(header),
+                shard_split: header.shard_split().cloned(),
+                last_certified_block_epoch,
+                spice_chunk_endorsement_stats: header
+                    .spice_chunk_endorsement_stats()
+                    .expect("spice block header must carry spice_chunk_endorsement_stats")
+                    .to_vec(),
+            });
+        }
         BlockInfo::new(
             *header.hash(),
             header.height(),
@@ -97,13 +124,7 @@ impl BlockInfo {
             current_protocol_version,
             header.latest_protocol_version(),
             header.raw_timestamp(),
-            header.chunk_endorsements().cloned().unwrap_or_else(|| {
-                if header.is_genesis() {
-                    Default::default()
-                } else {
-                    panic!("non-genesis header should include chunk endorsements")
-                }
-            }),
+            chunk_endorsements_from_header(header),
             header.shard_split().cloned(),
         )
     }
@@ -115,6 +136,7 @@ impl BlockInfo {
             Self::V2(info) => ValidatorStakeIter::new(&info.proposals),
             Self::V3(info) => ValidatorStakeIter::new(&info.proposals),
             Self::V4(info) => ValidatorStakeIter::new(&info.proposals),
+            Self::V5(info) => ValidatorStakeIter::new(&info.proposals),
         }
     }
 
@@ -125,6 +147,7 @@ impl BlockInfo {
             Self::V2(info) => &info.hash,
             Self::V3(info) => &info.hash,
             Self::V4(info) => &info.hash,
+            Self::V5(info) => &info.hash,
         }
     }
 
@@ -135,6 +158,7 @@ impl BlockInfo {
             Self::V2(info) => info.height,
             Self::V3(info) => info.height,
             Self::V4(info) => info.height,
+            Self::V5(info) => info.height,
         }
     }
 
@@ -145,6 +169,7 @@ impl BlockInfo {
             Self::V2(info) => info.last_finalized_height,
             Self::V3(info) => info.last_finalized_height,
             Self::V4(info) => info.last_finalized_height,
+            Self::V5(info) => info.last_finalized_height,
         }
     }
 
@@ -155,6 +180,7 @@ impl BlockInfo {
             Self::V2(info) => &info.last_final_block_hash,
             Self::V3(info) => &info.last_final_block_hash,
             Self::V4(info) => &info.last_final_block_hash,
+            Self::V5(info) => &info.last_final_block_hash,
         }
     }
 
@@ -165,6 +191,7 @@ impl BlockInfo {
             Self::V2(info) => &info.prev_hash,
             Self::V3(info) => &info.prev_hash,
             Self::V4(info) => &info.prev_hash,
+            Self::V5(info) => &info.prev_hash,
         }
     }
 
@@ -180,6 +207,7 @@ impl BlockInfo {
             Self::V2(info) => &info.epoch_first_block,
             Self::V3(info) => &info.epoch_first_block,
             Self::V4(info) => &info.epoch_first_block,
+            Self::V5(info) => &info.epoch_first_block,
         }
     }
 
@@ -190,6 +218,7 @@ impl BlockInfo {
             Self::V2(info) => &mut info.epoch_first_block,
             Self::V3(info) => &mut info.epoch_first_block,
             Self::V4(info) => &mut info.epoch_first_block,
+            Self::V5(info) => &mut info.epoch_first_block,
         }
     }
 
@@ -200,6 +229,7 @@ impl BlockInfo {
             Self::V2(info) => &info.epoch_id,
             Self::V3(info) => &info.epoch_id,
             Self::V4(info) => &info.epoch_id,
+            Self::V5(info) => &info.epoch_id,
         }
     }
 
@@ -210,6 +240,7 @@ impl BlockInfo {
             Self::V2(info) => &mut info.epoch_id,
             Self::V3(info) => &mut info.epoch_id,
             Self::V4(info) => &mut info.epoch_id,
+            Self::V5(info) => &mut info.epoch_id,
         }
     }
 
@@ -220,6 +251,7 @@ impl BlockInfo {
             Self::V2(info) => &info.chunk_mask,
             Self::V3(info) => &info.chunk_mask,
             Self::V4(info) => &info.chunk_mask,
+            Self::V5(info) => &info.chunk_mask,
         }
     }
 
@@ -230,6 +262,7 @@ impl BlockInfo {
             Self::V2(info) => &info.latest_protocol_version,
             Self::V3(info) => &info.latest_protocol_version,
             Self::V4(info) => &info.latest_protocol_version,
+            Self::V5(info) => &info.latest_protocol_version,
         }
     }
 
@@ -240,6 +273,7 @@ impl BlockInfo {
             Self::V2(info) => &info.total_supply,
             Self::V3(info) => &info.total_supply,
             Self::V4(info) => &info.total_supply,
+            Self::V5(info) => &info.total_supply,
         }
     }
 
@@ -250,6 +284,7 @@ impl BlockInfo {
             Self::V2(info) => &info.timestamp_nanosec,
             Self::V3(info) => &info.timestamp_nanosec,
             Self::V4(info) => &info.timestamp_nanosec,
+            Self::V5(info) => &info.timestamp_nanosec,
         }
     }
 
@@ -260,6 +295,7 @@ impl BlockInfo {
             Self::V2(_) => None,
             Self::V3(info) => Some(&info.chunk_endorsements),
             Self::V4(info) => Some(&info.chunk_endorsements),
+            Self::V5(info) => Some(&info.chunk_endorsements),
         }
     }
 
@@ -270,8 +306,80 @@ impl BlockInfo {
             Self::V2(_) => None,
             Self::V3(_) => None,
             Self::V4(info) => info.shard_split.as_ref(),
+            Self::V5(info) => info.shard_split.as_ref(),
         }
     }
+
+    /// Epoch id of the last certified block reachable from this block.
+    /// Populated only on spice chains. EpochManager uses it to hold the epoch
+    /// transition until certification catches up.
+    #[inline]
+    pub fn last_certified_block_epoch(&self) -> Option<&EpochId> {
+        match self {
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
+            Self::V5(info) => Some(&info.last_certified_block_epoch),
+        }
+    }
+
+    /// Accumulated per-validator endorsement stats, populated only on spice
+    /// chains and non-empty only on the epoch's last block.
+    /// See `SpiceChunkEndorsementStats`.
+    #[inline]
+    pub fn spice_chunk_endorsement_stats(&self) -> Option<&[SpiceChunkEndorsementStats]> {
+        match self {
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
+            Self::V5(info) => Some(&info.spice_chunk_endorsement_stats),
+        }
+    }
+}
+
+fn chunk_endorsements_from_header(header: &BlockHeader) -> ChunkEndorsementsBitmap {
+    header.chunk_endorsements().cloned().unwrap_or_else(|| {
+        if header.is_genesis() {
+            Default::default()
+        } else {
+            panic!("non-genesis header should include chunk endorsements")
+        }
+    })
+}
+
+/// BlockInfo used on spice chains. Carries `last_certified_block_epoch` so
+/// EpochManager can hold the epoch transition until execution certification
+/// has caught up.
+#[derive(
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Eq,
+    PartialEq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+pub struct BlockInfoV5 {
+    pub hash: CryptoHash,
+    pub height: BlockHeight,
+    pub last_finalized_height: BlockHeight,
+    pub last_final_block_hash: CryptoHash,
+    pub prev_hash: CryptoHash,
+    pub epoch_first_block: CryptoHash,
+    pub epoch_id: EpochId,
+    pub proposals: Vec<ValidatorStake>,
+    pub chunk_mask: Vec<bool>,
+    /// Latest protocol version this validator observes.
+    pub latest_protocol_version: ProtocolVersion,
+    /// Total supply at this block.
+    pub total_supply: Balance,
+    pub timestamp_nanosec: u64,
+    pub chunk_endorsements: ChunkEndorsementsBitmap,
+    /// Shard split information from the block header, used for dynamic resharding.
+    pub shard_split: Option<(ShardId, AccountId)>,
+    /// Epoch id of the last block whose chunk execution results are certified.
+    pub last_certified_block_epoch: EpochId,
+    /// Mirrors the header field; the epoch info aggregator reads it from the
+    /// epoch's last block to drive spice reward and kickout.
+    pub spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
 
 // V3 -> V4: Add shard_split for dynamic resharding, remove slashed

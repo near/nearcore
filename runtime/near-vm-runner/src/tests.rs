@@ -1,4 +1,5 @@
 mod cache;
+mod chain_id_integration;
 mod compile_errors;
 #[cfg(feature = "prepare")]
 mod fuzzers;

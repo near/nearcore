@@ -159,8 +159,11 @@ impl Chain {
         store_update.save_head(&block_head)?;
         store_update.save_final_head(&header_head)?;
         if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
-            store_update.save_spice_execution_head(block_head.clone())?;
-            store_update.save_spice_final_execution_head(&block_head)?;
+            let mut spice_update = store_update.store().store_update();
+            let mut adapter = spice_update.chain_store_update();
+            adapter.set_spice_execution_head(&block_head)?;
+            adapter.set_spice_final_execution_head(&block_head);
+            store_update.merge(spice_update);
         }
 
         // Set the root block of flat state to be the genesis block. Later, when we
@@ -424,6 +427,6 @@ mod test {
 
         // In case this test fails, please make sure the changes do not change the structure of the genesis block.
         let hash = genesis_block.hash().to_string();
-        assert_eq!(hash, "93CRibQrTXr4eGB1zBCdVqrCNS3jFwwmx8oQ6wFxsx5j");
+        assert_eq!(hash, "3j2i6euhGGm8UG7avGhDnxiDftD2HW42kyTa14jbuKtQ");
     }
 }
