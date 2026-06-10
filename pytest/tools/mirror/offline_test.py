@@ -369,6 +369,12 @@ def build_images(config, test_cases):
             0: {
                 "tracked_shards_config": "AllShards",
                 "archive": True,
+                # A pending state snapshot locks flat head updates; on a slow
+                # machine it can outlive this short chain, leaving the flat
+                # head at genesis, and fork-network forks at the flat head.
+                # Nothing here needs snapshots (no state sync), so disable.
+                # This config propagates to the forked target nodes too.
+                "store.state_snapshot_config.state_snapshot_type": "Disabled",
             }
         },
     )
