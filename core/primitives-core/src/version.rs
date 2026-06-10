@@ -357,6 +357,12 @@ pub enum ProtocolFeature {
     /// subtracted, overstating storage usage for accounts with global
     /// contracts and making them marginally harder to delete.
     FixDeleteAccountGlobalContractStorageUsage,
+    /// Skip transactions whose hash already appeared earlier in the same chunk.
+    /// A transaction hash is also its outcome id, and outcomes are committed
+    /// (via the chunk outcome root) keyed by that id. Including a transaction
+    /// twice would otherwise commit two conflicting outcomes (a success and an
+    /// InvalidNonce failure) under one id.
+    UniqueChunkTransactions,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
@@ -405,6 +411,9 @@ pub enum ProtocolFeature {
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
+    /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
+    /// state when validating received block headers.
+    ValidateBlockOrdinalAndEpochSyncDataHash,
     /// Authenticate `ContractCodeResponse` messages with a chunk-producer
     /// signature, matching the signed-message pattern already used by
     /// `ChunkContractAccesses` and `ContractCodeRequest`. Senders emit
@@ -528,6 +537,9 @@ impl ProtocolFeature {
             | ProtocolFeature::DynamicResharding
             | ProtocolFeature::StickyReshardingValidatorAssignment
             | ProtocolFeature::StrictNonce
+            | ProtocolFeature::PostQuantumSignatures
+            | ProtocolFeature::UniqueChunkTransactions
+            | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
             | ProtocolFeature::YieldWithId
             | ProtocolFeature::SignedContractCodeResponse => 85,
 
@@ -537,7 +549,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::PostQuantumSignatures => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

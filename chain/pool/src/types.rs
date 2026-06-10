@@ -33,7 +33,7 @@ impl TransactionGroup {
     pub fn next(&mut self) -> Option<ValidatedTransaction> {
         if let Some(validated_tx) = self.transactions.pop() {
             self.removed_transaction_hashes.push(validated_tx.get_hash());
-            self.removed_transaction_size += validated_tx.get_size();
+            self.removed_transaction_size += validated_tx.wire_size();
             self.removed_any_since_yield = true;
             Some(validated_tx)
         } else {

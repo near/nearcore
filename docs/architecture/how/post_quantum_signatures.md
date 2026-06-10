@@ -11,8 +11,8 @@ below.
 NEAR supports a third transaction-signature scheme - FIPS 204 **ML-DSA-65** -
 alongside the existing `ed25519` and `secp256k1` schemes. Existing schemes are
 NOT deprecated. ML-DSA-65 is accepted in transactions and as access keys after
-the `PostQuantumSignatures` protocol feature activates (nightly version 154 at
-time of writing).
+the `PostQuantumSignatures` protocol feature activates (stabilized at protocol
+version 85).
 
 Scope of the integration: transaction signing and access keys only. Validator
 keys, block/chunk signatures, host-function verification primitives, and
@@ -155,8 +155,12 @@ integration:
   `ml_dsa_65_verification_cost` runtime parameter (100 Ggas - the extra
   verification cost of ML-DSA-65 over the classical schemes: ~2x the measured
   ~50 µs mean difference at the 1 Tgas/s calibration target, leaving tail
-  headroom). See the economic-impact item below for the mechanism and
-  rationale.
+  headroom). The charge is added to the transaction's *burnt* gas (per
+  signature, including each `Delegate` action's inner signer), so it raises
+  what the signer pays to buy the transaction but never the gas available to
+  the resulting receipts; in-contract cross-contract calls are unaffected. See
+  the verification-pricing note under "Resolved during integration" for the
+  full mechanism.
 
 ### 7. Out-of-scope (and why)
 
@@ -168,16 +172,6 @@ integration:
 - **Host functions / on-chain verification primitives**: no `ml_dsa_verify`
   host function added. Contracts wanting to verify PQ signatures will
   continue using ed25519 host fn until a separate proposal lands.
-- **Rosetta / Mesh RPC** (`chain/rosetta-rpc/src/models.rs`): integration
-  deferred until upstream Mesh spec is extended. The upstream
-  [Mesh spec](https://github.com/coinbase/mesh-specifications/blob/master/models/CurveType.yaml)
-  currently defines a closed set of six classical curves (`secp256k1`,
-  `secp256k1_bip340`, `secp256r1`, `edwards25519`, `tweedle`, `pallas`) and
-  has no post-quantum variant. The team has agreed to open a PR against the
-  Mesh specification to add a post-quantum entry; the NEAR-side
-  implementation will follow once that change is merged upstream. Until
-  then, the `From<KeyType> for CurveType` arm for `MLDSA65` is a temporary
-  `unreachable!()` - see the unresolved-issues section below.
 - **Cross-network mirror** (`tools/mirror/src/key_mapping.rs`) panics on
   ML-DSA-65 pubkey mapping; deterministic-derivation scheme for PQ keys is a
   follow-up.
@@ -220,108 +214,64 @@ integration:
    the wire (the transaction or action carries it).
 
 8. **Schema hash cascade.** Adding the new variants to `PublicKey` and
-   `Signature` changes their `ProtocolSchema` hashes, which cascades to
-   every containing type (`Transaction`, `Action`, `Receipt`, etc.). Schema
-   check must be updated at stabilization time.
+   `Signature` changed their `ProtocolSchema` hashes, which cascaded to
+   every containing type (`Transaction`, `Action`, `Receipt`, etc.).
+   `res/protocol_schema.toml` was regenerated when the variants were
+   introduced; stabilization changes only protocol-version numbers, not
+   type structure, so it needed no further schema update (the schema check
+   reports no changes).
 
-## Unresolved issues
+## Resolved during integration
 
-The items below split into two groups: **must-resolve before
-`PostQuantumSignatures` activates on any network**, and the remaining
-items the team should resolve before stabilizing in 2.13.
+These were tracked as open during development and are now done; recorded here
+so the history is legible:
 
-### Must-resolve before activation
+- **Rosetta-RPC ML-DSA-65 representation.** `chain/rosetta-rpc/src/models.rs`
+  now carries `CurveType::MlDsa65` and `SignatureType::MlDsa65`, with the
+  `From<KeyType> for CurveType`, `TryFrom<&PublicKey>`, and `SignatureType`
+  conversions all implemented (no `unreachable!()` / panic) and unit-tested.
+  The upstream Mesh `CurveType` addition landed as
+  [mesh-specifications#129](https://github.com/coinbase/mesh-specifications/pull/129);
+  Mesh clients that haven't picked it up yet may reject the new value, which
+  is accepted.
+- **Verification pricing.** Signature verification is charged as gas at
+  transaction conversion via `signature_verification_costs:
+  EnumMap<SignatureKind, ParameterCost>` on `RuntimeFeesConfig`, fed by the
+  `ml_dsa_65_verification_cost` parameter (§6). ed25519/secp256k1 stay 0 for
+  backwards compatibility; only ML-DSA-65 carries the extra 100 Ggas charge.
+  See "size axis" below for the matching accounting fix.
+- **Domain-tag export.** The hash domain tag is public as
+  `near_crypto::hash_domain::HashDomainTag::MlDsa65PubkeyV1` (with a public
+  `as_bytes()`); `MlDsa65PublicKey::to_public_key_handle()` is the public hash
+  helper. Wallets can recompute the on-trie identifier from their own pubkey.
+- **Test-loop integration tests.** `test-loop-tests/src/tests/ml_dsa_access_key.rs`
+  (full-access and function-call key end-to-end) and
+  `ml_dsa_verification_cost.rs` (outer-tx and inner-delegate gas charge) cover
+  the protocol-boundary behaviour.
 
-1. **Rosetta-RPC ML-DSA-65 representation - depends on upstream Mesh
-   spec.** The current `From<KeyType> for CurveType` arm for `MLDSA65` in
-   `chain/rosetta-rpc/src/models.rs` is `unreachable!()` and *will* panic
-   the server. It is reachable from three production endpoints:
+### Size axis (accounting done, pricing deferred)
 
-   - `POST /block` - panics on any block containing an ML-DSA-65
-     `AddKey`, `DeleteKey`, `Stake`, `TransferToGasKey`,
-     `WithdrawFromGasKey`, or `Delegate` action. This is the high-volume
-     endpoint exchanges and indexers poll on every new block; one PQ-signed
-     tx ⇒ every Rosetta consumer crashes on that block.
-   - `POST /block/transaction` - same code path (the implementation fetches
-     the whole block, then filters). Even fetching an unrelated ed25519 tx
-     from the same block triggers the panic.
-   - `POST /construction/parse` - panics if a client posts a tx blob with
-     an ML-DSA-65 action. Reachable as a deliberate DoS vector for anyone
-     with construction access.
+`SignedTransaction::get_size()` counts only the inner `Transaction` body, so it
+under-counted every ML-DSA-65 tx by its ~3.3 KiB signature - including inside
+`combined_transactions_size_limit`, the bound on transaction bytes carried by
+the `ChunkStateWitness`. `SignedTransaction::wire_size()` now returns the full
+borsh length (signature included), and `size_for_limits(protocol_version)`
+selects it for the `max_transaction_size` and `combined_transactions_size_limit`
+gates from `PostQuantumSignatures` onward (version-gated to keep chunk
+production deterministic across the boundary). The mempool counts `wire_size()`
+unconditionally, since it physically buffers the signature. *Pricing* the extra
+size - e.g. a per-wire-byte gas surcharge at conversion time, mirroring the
+verify cost - is deferred: the accounting fix closes the witness-honesty gap on
+its own, independent of any later pricing decision. A per-byte component on
+`AddKey`/`DeleteKey` for the ~1952-byte pubkey they carry on the wire is in the
+same deferred bucket.
 
-   **Resolution path.** The team has agreed to open a PR against the
-   upstream Mesh specification (Coinbase mesh-specifications repo) to add a
-   post-quantum entry to the `CurveType` enum. The NEAR-side implementation
-   in `chain/rosetta-rpc/` will be done once the upstream change is
-   accepted and tagged. **The `PostQuantumSignatures` protocol feature
-   must not activate on any network before that work has landed.**
+## Remaining follow-ups (post-stabilization)
 
-### Before stabilization in 2.13
+These do not block stabilization and are tracked as follow-up work:
 
-2. **Economic-impact audit & pricing.** Storage and verification are now
-   priced: per-key storage stake scales correctly via `trie_id_len()`, and
-   signature verification is charged as **gas at transaction conversion**,
-   keyed by signature scheme. `RuntimeFeesConfig` holds a
-   `signature_verification_costs: EnumMap<SignatureKind, ParameterCost>` (the
-   `SignatureKind` enum mirrors `near_crypto::KeyType`; it lives in
-   `near-parameters` so that crate need not depend on `near-crypto`, with the
-   `KeyType -> SignatureKind` match done at the runtime call site). The map
-   holds the *extra* verification cost of a scheme relative to the classical
-   schemes (whose verification is part of `action_receipt_creation`):
-   ed25519/secp256k1 stay 0 for backwards compatibility, only ML-DSA-65
-   carries a charge, fed by the `ml_dsa_65_verification_cost` parameter (gated
-   on `PostQuantumSignatures` in the v154 config diff; base 0, inert
-   pre-feature). This is also the common pricing path for future schemes
-   (more ML-DSA bits, hash-based schemes, ...): add the `KeyType`, a
-   `SignatureKind` variant and a `<scheme>_verification_cost` parameter; the
-   compiler forces wiring the map entry in `parameter_table.rs` and the
-   charging logic picks it up unchanged.
-   - Mechanism: `tx_cost` (`runtime/runtime/src/config.rs`, which takes the
-     whole `&Transaction`) adds, per signature the tx triggers verification of
-     - its own signature plus each `Delegate` action's inner signer -
-     `signature_verification_costs[kind]` to the transaction's *burnt* gas. It
-     is added to `burnt` (not `gas_remaining`), so it raises what the signer
-     pays to buy the transaction but **never** the gas attached to / available
-     for the resulting receipts. Receipts created from within a contract are
-     unaffected (no signing happens there), so existing contracts and their
-     gas estimates do not change; only the off-chain tx-construction side of
-     dapps must buy slightly more gas for ML-DSA-signed transactions.
-     `EXPERIMENTAL_protocol_config` exposes the ML-DSA-65 value
-     (`RuntimeFeesConfigView.ml_dsa_65_verification_cost`) for tooling.
-   - Why gas, not only a NEP-455 compute cost: the team chose to price the
-     work the signer imposes directly, since (a) it cannot break contracts
-     (only the gas bought at tx creation rises, not in-contract
-     cross-contract-call budgets), and (b) ML-DSA-65 is a brand-new gated key
-     type, so no existing tooling has gas expectations around it. The
-     parameter is a `ParameterCost`, so its compute cost (which debits the
-     chunk's wall-clock budget) defaults to the gas value but can be set
-     independently via the `{gas: ..., compute: ...}` config form if
-     calibration shows verification is undercharged.
-   - Value: 100 Ggas (~100 µs at the 1 Tgas/s calibration target) - about 2x
-     the measured ~50 µs mean extra verify time of ML-DSA-65 over ed25519
-     (§6), leaving tail headroom. May be revisited before stabilization.
-   - Still open: a per-byte component on `AddKey`/`DeleteKey` for the
-     ~1952-byte pubkey they carry on the wire, and the separate
-     bandwidth/witness gas-vs-bytes gap (large ML-DSA txs vs the per-chunk
-     size limit) - both out of scope for the verification charge.
-
-3. **Wallet/SDK story for the view-RPC change.** Add the
-   `near-api-js`/`near-cli-rs` side of the change, document the hash format,
-   and decide whether to expose a separate `view_access_key_hash` endpoint
-   or keep everything inside `public_key` field with the new prefix.
-
-4. **Domain-tag export.** `ML_DSA_65_HASH_DOMAIN_TAG` is currently private
-   inside `core/crypto/src/signature.rs`. Wallets that want to compute the
-   on-chain hash of their own pubkey need this - either publish the constant
-   or provide a small public helper (`MlDsa65PublicKey::hash()` is already
-   public but the underlying domain tag is not).
-
-5. **Test-loop integration tests.** Phase 3.5 of the original implementation
-    plan called for full upgrade-and-use tests; deferred. Recommended before
-    stabilization to catch protocol-boundary regressions.
-
-6. **Mirror / fork-network cross-network support for PQ keys.** Behavior is
-    currently inconsistent across entry points and must be unified before any
+1. **Mirror / fork-network cross-network support for PQ keys.** Behavior is
+    currently inconsistent across entry points and should be unified before any
     serious mirroring of a PQ-bearing chain:
     - `tools/mirror/src/genesis.rs` panics loudly when it encounters an
       ML-DSA-65 access-key or gas-key-nonce record.
@@ -329,13 +279,19 @@ items the team should resolve before stabilizing in 2.13.
       and `tools/fork-network/src/cli.rs` silently `filter_map` / `continue`
       past hash-form entries with no log or warning, so a real ML-DSA-bearing
       chain would be silently mirrored with access keys missing.
-    Proper support is deferred to a follow-up - it likely needs a
-    deterministic seed-derived mapping (analogous to ed25519/secp256k1
-    mapping in `key_mapping.rs`). For now the design accepts that PQ keys
-    cannot be mirrored, and the inconsistency above should at minimum be
-    unified to "log + skip" so failures are visible.
+    Proper support likely needs a deterministic seed-derived mapping
+    (analogous to ed25519/secp256k1 mapping in `key_mapping.rs`). For now the
+    design accepts that PQ keys cannot be mirrored; at minimum the
+    inconsistency above should be unified to "log + skip" so failures are
+    visible. The `TODO(post-quantum)` markers at these call sites track this.
 
-7. **Implicit-account derivation for PQ keys.** Briefing's open question
-    (1). Not part of this feature, but the access-key hashing here has set
-    the precedent (SHA3-256, domain-separated) that implicit-account
-    derivation should probably follow.
+2. **Wallet/SDK story for the view-RPC change.** Add the
+   `near-api-js`/`near-cli-rs` side of the change (external repos), document
+   the hash format, and decide whether to expose a separate
+   `view_access_key_hash` endpoint or keep everything inside the `public_key`
+   field with the new prefix.
+
+3. **Implicit-account derivation for PQ keys.** Briefing's open question (1).
+    Not part of this feature, but the access-key hashing here has set the
+    precedent (SHA3-256, domain-separated) that implicit-account derivation
+    should probably follow.

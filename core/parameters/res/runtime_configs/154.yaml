@@ -1,5 +1,0 @@
-# PostQuantumSignatures: The newly introduced ML-DSA-65 signature scheme is more
-# expensive to verify than the existing schemes. The verification cost is added
-# to the transaction conversion cost to cover the difference.
-# 100 Ggas
-ml_dsa_65_verification_cost: { old: 0, new: 100_000_000_000 }

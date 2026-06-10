@@ -16,7 +16,9 @@ use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 #[cfg(feature = "clock")]
 use crate::types::AccountId;
-use crate::types::{Balance, BlockExecutionResults, BlockHeight, EpochId, Gas};
+use crate::types::{
+    Balance, BlockExecutionResults, BlockHeight, EpochId, Gas, SpiceChunkEndorsementStats,
+};
 #[cfg(feature = "clock")]
 use crate::{
     stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
@@ -261,6 +263,8 @@ impl Block {
 
         let prev_last_certified_block_epoch_id =
             spice_info.as_ref().map(|info| info.prev_last_certified_block_epoch_id);
+        let spice_chunk_endorsement_stats =
+            spice_info.as_ref().map(|info| info.spice_chunk_endorsement_stats.clone());
         let body = if let Some(spice_info) = spice_info {
             BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, spice_info.core_statements)
         } else {
@@ -298,6 +302,7 @@ impl Block {
             chunk_endorsements_bitmap,
             shard_split,
             prev_last_certified_block_epoch_id,
+            spice_chunk_endorsement_stats,
         );
 
         Self::new_block(header, body)
@@ -644,6 +649,9 @@ pub struct SpiceNewBlockProductionInfo {
     pub core_statements: SpiceCoreStatements,
     pub newly_certified_block_execution_results: Vec<BlockExecutionResults>,
     pub prev_last_certified_block_epoch_id: EpochId,
+    /// Accumulated per-validator endorsement stats for the epoch; non-empty
+    /// only on the last block of an epoch.
+    pub spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
 
 /// Distinguishes between new and old chunks.

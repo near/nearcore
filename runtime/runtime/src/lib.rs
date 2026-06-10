@@ -1809,7 +1809,18 @@ impl Runtime {
 
         let (maybe_expired_txs, _) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+        let skip_duplicate_txs = ProtocolFeature::UniqueChunkTransactions.enabled(protocol_version);
+        let mut seen_tx_hashes = HashSet::with_capacity(num_transactions);
+        let mut num_skipped_duplicate_txs = 0;
         for (tx, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
+            // A transaction hash is its outcome id, and outcomes are committed
+            // keyed by that id. Processing the same hash twice would commit two
+            // conflicting outcomes under one id, so skip any repeat occurrence.
+            if skip_duplicate_txs && !seen_tx_hashes.insert(*tx.hash()) {
+                tracing::debug!(tx_hash = ?tx.hash(), "skipping duplicate transaction in chunk");
+                num_skipped_duplicate_txs += 1;
+                continue;
+            }
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
             if let Some(err) = maybe_validation_error {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
@@ -2086,7 +2097,9 @@ impl Runtime {
         }
 
         if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
-            debug_assert!(processing_state.outcomes.len() == num_transactions);
+            debug_assert!(
+                processing_state.outcomes.len() == num_transactions - num_skipped_duplicate_txs
+            );
         }
 
         processing_state

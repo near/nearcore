@@ -965,7 +965,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
-                if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
+                if total_size.saturating_add(tx_peek.size_for_limits(protocol_version))
+                    > size_limit as u64
+                {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
@@ -1113,7 +1115,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
-                        total_size += validated_tx.get_size();
+                        total_size += validated_tx.size_for_limits(protocol_version);
                         prepared_transactions.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;

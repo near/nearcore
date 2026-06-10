@@ -5,6 +5,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_sync::EpochSyncProofLastEpochData;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardInfo, ShardLayout};
@@ -99,6 +100,34 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
     fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
+
+    /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.
+    /// It is `Some` only for the first block of an epoch. Used by the block producer,
+    /// header validation, and tests.
+    fn compute_epoch_sync_data_hash(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, EpochError> {
+        if !self.is_next_block_epoch_start(prev_hash)? {
+            return Ok(None);
+        }
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_hash)?;
+        let last_block_info = self.get_block_info(prev_hash)?;
+        let prev_epoch_id = *last_block_info.epoch_id();
+        let prev_epoch_first_block_info =
+            self.get_block_info(last_block_info.epoch_first_block())?;
+        let prev_epoch_prev_last_block_info = self.get_block_info(last_block_info.prev_hash())?;
+        let last_epoch = EpochSyncProofLastEpochData {
+            epoch_info: self.get_epoch_info(&prev_epoch_id)?.as_ref().clone(),
+            next_epoch_info: self.get_epoch_info(&epoch_id)?.as_ref().clone(),
+            next_next_epoch_info: self.get_epoch_info(&next_epoch_id)?.as_ref().clone(),
+            first_block_in_epoch: prev_epoch_first_block_info.as_ref().clone(),
+            last_block_in_epoch: last_block_info.as_ref().clone(),
+            second_last_block_in_epoch: prev_epoch_prev_last_block_info.as_ref().clone(),
+        };
+        Ok(Some(last_epoch.compute_epoch_sync_data_hash()))
+    }
 
     /// Returns true if the block after the one being produced will belong to a new epoch.
     ///

@@ -1116,27 +1116,7 @@ impl Client {
             None
         };
 
-        let epoch_sync_data_hash = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            let last_block_info = self.epoch_manager.get_block_info(prev_block.hash())?;
-            let prev_epoch_id = *last_block_info.epoch_id();
-            let prev_epoch_first_block_info =
-                self.epoch_manager.get_block_info(last_block_info.epoch_first_block())?;
-            let prev_epoch_prev_last_block_info =
-                self.epoch_manager.get_block_info(last_block_info.prev_hash())?;
-            let prev_epoch_info = self.epoch_manager.get_epoch_info(&prev_epoch_id)?;
-            let cur_epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
-            let next_epoch_info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
-            Some(CryptoHash::hash_borsh(&(
-                prev_epoch_first_block_info,
-                prev_epoch_prev_last_block_info,
-                last_block_info,
-                prev_epoch_info,
-                cur_epoch_info,
-                next_epoch_info,
-            )))
-        } else {
-            None
-        };
+        let epoch_sync_data_hash = self.epoch_manager.compute_epoch_sync_data_hash(&prev_hash)?;
 
         // Last final block **after this block is produced**
         let last_final_block = prev.last_final_block_for_height(height);
@@ -1175,10 +1155,15 @@ impl Client {
                 .chain
                 .spice_core_reader
                 .prev_last_certified_block_epoch_id(prev_header.hash())?;
+            let spice_chunk_endorsement_stats = self
+                .chain
+                .spice_core_reader
+                .spice_chunk_endorsement_stats_for_next_block(prev_header, height)?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,
                 prev_last_certified_block_epoch_id,
+                spice_chunk_endorsement_stats,
             })
         } else {
             None
