@@ -263,7 +263,6 @@ impl From<&connection::Connection> for PeerDisconnectInfo {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
-        future_spawner: &dyn FutureSpawner,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
@@ -277,8 +276,17 @@ impl NetworkState {
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
+        // The demux loop must run on a runtime that outlives every caller of
+        // add_edges(): a call into a demux whose loop task died with its runtime
+        // pends forever on the response, and a caller like on_peer_disconnected
+        // then pins NetworkState (and the store) past shutdown. ops_spawner has
+        // exactly the right lifetime: it is stopped when NetworkState drops.
+        let ops_spawner = new_owned_future_spawner("NetworkState ops");
+        let add_edges_demux =
+            demux::Demux::new(config.routing_table_update_rate_limit, &*ops_spawner);
         Self {
-            ops_spawner: new_owned_future_spawner("NetworkState ops"),
+            ops_spawner,
+            add_edges_demux,
             graph: crate::routing::Graph::new(
                 clock.clone(),
                 crate::routing::GraphConfig {
@@ -315,10 +323,6 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             pending_tier3_requests: DashMap::new(),
             whitelist_nodes,
-            add_edges_demux: demux::Demux::new(
-                config.routing_table_update_rate_limit,
-                future_spawner,
-            ),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
