@@ -32,12 +32,14 @@ use nearcore::NearNode;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::DB;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::pending;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 mod chain_tracker;
 pub mod cli;
@@ -447,6 +449,11 @@ struct MirrorConfig {
 }
 
 const CREATE_ACCOUNT_DELTA: usize = 5;
+
+// On SIGTERM/SIGINT we stop sending and wait for already sent transactions to
+// appear on the target chain before exiting, so that a restarted mirror's
+// resume point doesn't skip past transactions that died in the mempool.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
 // TODO: separate out the code that uses the target chain clients, and
 // make it an option to send the transactions to some RPC node.
@@ -1911,11 +1918,18 @@ impl<T: ChainAccess> TxMirror<T> {
         mut send_time: Pin<Box<tokio::time::Sleep>>,
         send_delay: Arc<Mutex<Duration>>,
         target_client: MultithreadRuntimeHandle<RpcHandlerActor>,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let mut sent_source_height = None;
 
         loop {
             (&mut send_time).await;
+
+            if shutdown.is_cancelled() {
+                // just stop sending; queue_txs_loop drains what was already sent and
+                // exits, after which this task is aborted
+                pending::<()>().await;
+            }
 
             let tx_batch = {
                 let tx_block_queue = tx_block_queue.lock();
@@ -2065,11 +2079,15 @@ impl<T: ChainAccess> TxMirror<T> {
         target_head: Arc<RwLock<CryptoHash>>,
         mut source_hash: CryptoHash,
         have_stop_height: bool,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let mut queue_txs_time = tokio::time::interval(Duration::from_millis(100));
 
         loop {
             tokio::select! {
+                _ = shutdown.cancelled() => {
+                    return Self::drain_sent_txs(&tracker).await;
+                }
                 // time to send a batch of transactions
                 _ = queue_txs_time.tick() => {
                     let target_head = *target_head.read();
@@ -2133,6 +2151,29 @@ impl<T: ChainAccess> TxMirror<T> {
                     return Ok(());
                 }
             }
+        }
+    }
+
+    // Waits until every transaction we sent has been observed in a target block,
+    // so a restarted mirror's resume point doesn't skip past transactions that
+    // died in the mempool. The target indexer task keeps running and clears
+    // sent_txs as the txs appear.
+    async fn drain_sent_txs(
+        tracker: &Mutex<crate::chain_tracker::TxTracker>,
+    ) -> anyhow::Result<()> {
+        tracing::info!(target: "mirror", "stopped sending, waiting for already sent transactions to appear on the target chain");
+        let deadline = Instant::now() + DRAIN_TIMEOUT;
+        loop {
+            let sent_txs_remaining = tracker.lock().sent_txs_remaining();
+            if sent_txs_remaining == 0 {
+                tracing::info!(target: "mirror", "all sent transactions observed on the target chain, exiting after drain");
+                return Ok(());
+            }
+            if Instant::now() > deadline {
+                tracing::warn!(target: "mirror", sent_txs_remaining, "drain timed out with sent transactions never observed on the target chain");
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 
@@ -2350,12 +2391,16 @@ impl<T: ChainAccess> TxMirror<T> {
         )
         .await?;
 
+        let shutdown = CancellationToken::new();
+        spawn_signal_drain_task(shutdown.clone());
+
         let send_delay = Arc::new(Mutex::new(send_delay));
         let send_delay2 = send_delay.clone();
         let (blocks_sent_tx, blocks_sent_rx) = mpsc::channel(10);
         let tx_block_queue2 = tx_block_queue.clone();
         let rpc_handler2 = rpc_handler.clone();
         let db = self.db.clone();
+        let shutdown2 = shutdown.clone();
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
         let send_txs_task = tokio::task::spawn(async move {
@@ -2366,6 +2411,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 send_time,
                 send_delay2,
                 rpc_handler2,
+                shutdown2,
             )
             .await;
             if let Err(err) = send_txs_done_tx.send(res) {
@@ -2376,7 +2422,7 @@ impl<T: ChainAccess> TxMirror<T> {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
                 blocks_sent_rx, unstake_rx, deferred_resend_rx, send_delay, target_height, target_head,
-                source_hash, stop_height.is_some(),
+                source_hash, stop_height.is_some(), shutdown,
             ) => {
                 res
             }
@@ -2398,6 +2444,36 @@ impl<T: ChainAccess> TxMirror<T> {
         actor_system.stop();
         result
     }
+}
+
+// On the first SIGTERM/SIGINT, cancels `shutdown` so the loops stop sending and
+// exit once everything already sent has been observed on the target chain. A
+// second signal exits immediately.
+fn spawn_signal_drain_task(shutdown: CancellationToken) {
+    #[cfg(unix)]
+    tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (Ok(mut sigterm), Ok(mut sigint)) =
+            (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
+        else {
+            tracing::warn!(target: "mirror", "could not install signal handlers, will exit without draining sent transactions");
+            return;
+        };
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = sigint.recv() => {}
+        }
+        tracing::info!(target: "mirror", "got termination signal, draining sent transactions before exiting");
+        shutdown.cancel();
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = sigint.recv() => {}
+        }
+        tracing::warn!(target: "mirror", "got second termination signal, exiting immediately");
+        std::process::exit(1);
+    });
+    #[cfg(not(unix))]
+    let _ = shutdown;
 }
 
 async fn run<P: AsRef<Path>>(
