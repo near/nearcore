@@ -35,9 +35,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 mod chain_tracker;
 pub mod cli;
@@ -48,6 +49,7 @@ mod metrics;
 mod offline;
 mod online;
 pub mod secret;
+mod shutdown;
 
 pub use cli::MirrorCommand;
 use near_async::messaging::CanSendAsync;
@@ -446,6 +448,11 @@ struct MirrorConfig {
 
 const CREATE_ACCOUNT_DELTA: usize = 5;
 
+// On SIGTERM/SIGINT we stop sending and wait for already sent transactions to
+// appear on the target chain before exiting, so that a restarted mirror's
+// resume point doesn't skip past transactions that died in the mempool.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
 // TODO: separate out the code that uses the target chain clients, and
 // make it an option to send the transactions to some RPC node.
 // that way it would be possible to run this code and send transactions with an
@@ -622,6 +629,7 @@ struct MappedTx {
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
     provenance: MappedTxProvenance,
+    target_secret_key: SecretKey,
     target_tx: SignedTransaction,
     nonce_updates: HashSet<NonceLookupKey>,
     sent_successfully: bool,
@@ -638,6 +646,7 @@ impl MappedTx {
             source_signer_id: mapping.source_signer_id,
             source_receiver_id: mapping.source_receiver_id,
             provenance: mapping.provenance,
+            target_secret_key: mapping.target_secret_key,
             target_tx,
             nonce_updates: mapping.nonce_updates,
             sent_successfully: false,
@@ -671,6 +680,7 @@ impl TargetChainTx {
                     source_signer_id: t.source_signer_id.clone(),
                     source_receiver_id: t.source_receiver_id.clone(),
                     provenance: t.provenance,
+                    target_secret_key: t.target_secret_key.clone(),
                     target_tx,
                     nonce_updates: t.nonce_updates.clone(),
                     sent_successfully: false,
@@ -1884,11 +1894,18 @@ impl<T: ChainAccess> TxMirror<T> {
         mut send_time: Pin<Box<tokio::time::Sleep>>,
         send_delay: Arc<Mutex<Duration>>,
         target_client: MultithreadRuntimeHandle<RpcHandlerActor>,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let mut sent_source_height = None;
 
         loop {
             (&mut send_time).await;
+
+            if shutdown.is_cancelled() {
+                // stop sending and drop our end of blocks_sent, which tells
+                // queue_txs_loop that every batch we sent is now in the channel
+                return Ok(());
+            }
 
             let tx_batch = {
                 let tx_block_queue = tx_block_queue.lock();
@@ -1989,8 +2006,9 @@ impl<T: ChainAccess> TxMirror<T> {
 
         loop {
             let msg = target_stream.recv().await.unwrap();
+            let msg_height = msg.block.header.height;
             *target_head.write() = msg.block.header.hash;
-            *target_height.write() = msg.block.header.height;
+            *target_height.write() = msg_height;
             let target_block_info = {
                 let mut tracker = tracker.lock();
                 tracker.on_target_block(&tx_block_queue, db.as_ref(), msg)?
@@ -2006,6 +2024,35 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
+    fn record_sent_batch(
+        &self,
+        tx_batch: TxBatch,
+        tracker: &Mutex<crate::chain_tracker::TxTracker>,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
+        target_height: &RwLock<BlockHeight>,
+        send_delay: &Mutex<Duration>,
+    ) -> anyhow::Result<()> {
+        // lock the tracker before removing the block from the queue so that
+        // we don't call on_target_block() in the other thread between removing the block
+        // and calling on_txs_sent(), because that could lead to a bug looking up transactions
+        // in TxTracker::get_tx()
+        let mut tracker = tracker.lock();
+        {
+            let mut tx_block_queue = tx_block_queue.lock();
+            let b = tx_block_queue.pop_front().unwrap();
+            assert!(b.source_height == tx_batch.source_height);
+        };
+        let target_height = *target_height.read();
+        let new_delay = tracker.on_txs_sent(
+            tx_block_queue,
+            &self.db,
+            crate::chain_tracker::SentBatch::MappedBlock(tx_batch),
+            target_height,
+        )?;
+        *send_delay.lock() = new_delay;
+        Ok(())
+    }
+
     async fn queue_txs_loop(
         &self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
@@ -2019,37 +2066,33 @@ impl<T: ChainAccess> TxMirror<T> {
         target_head: Arc<RwLock<CryptoHash>>,
         mut source_hash: CryptoHash,
         have_stop_height: bool,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let mut queue_txs_time = tokio::time::interval(Duration::from_millis(100));
 
         loop {
             tokio::select! {
+                _ = shutdown.cancelled() => {
+                    // the send loop exits on cancellation and drops its end of the
+                    // channel. record every batch it managed to send before waiting
+                    // on them, since the watermark already advanced past them.
+                    while let Some(tx_batch) = blocks_sent.recv().await {
+                        self.record_sent_batch(tx_batch, &tracker, &tx_block_queue, &target_height, &send_delay)?;
+                    }
+                    return Self::drain_sent_txs(&tracker).await;
+                }
                 // time to send a batch of transactions
                 _ = queue_txs_time.tick() => {
                     let target_head = *target_head.read();
                     self.queue_txs(&tracker, &tx_block_queue, &target_view_client, target_head, have_stop_height).await?;
                 }
                 tx_batch = blocks_sent.recv() => {
-                    let tx_batch = tx_batch.unwrap();
-                    source_hash = tx_batch.source_hash;
-                    // lock the tracker before removing the block from the queue so that
-                    // we don't call on_target_block() in the other thread between removing the block
-                    // and calling on_txs_sent(), because that could lead to a bug looking up transactions
-                    // in TxTracker::get_tx()
-                    let mut tracker = tracker.lock();
-                    {
-                        let mut tx_block_queue = tx_block_queue.lock();
-                        let b = tx_block_queue.pop_front().unwrap();
-                        assert!(b.source_height == tx_batch.source_height);
+                    let Some(tx_batch) = tx_batch else {
+                        // the send loop exited on cancellation
+                        return Self::drain_sent_txs(&tracker).await;
                     };
-                    let target_height = *target_height.read();
-                    let new_delay = tracker.on_txs_sent(
-                        &tx_block_queue,
-                        &self.db,
-                        crate::chain_tracker::SentBatch::MappedBlock(tx_batch),
-                        target_height,
-                    )?;
-                    *send_delay.lock() = new_delay;
+                    source_hash = tx_batch.source_hash;
+                    self.record_sent_batch(tx_batch, &tracker, &tx_block_queue, &target_height, &send_delay)?;
                 }
                 msg = accounts_to_unstake.recv() => {
                     let staked_accounts = msg.unwrap();
@@ -2071,6 +2114,28 @@ impl<T: ChainAccess> TxMirror<T> {
                     return Ok(());
                 }
             }
+        }
+    }
+
+    // Waits until every sent transaction has been observed in a target block, so
+    // a restarted mirror's resume point doesn't skip past txs that died in the
+    // mempool. The target indexer keeps running and clears sent_txs meanwhile.
+    async fn drain_sent_txs(
+        tracker: &Mutex<crate::chain_tracker::TxTracker>,
+    ) -> anyhow::Result<()> {
+        tracing::info!(target: "mirror", "stopped sending, waiting for already sent transactions to appear on the target chain");
+        let deadline = Instant::now() + DRAIN_TIMEOUT;
+        loop {
+            let sent_txs_remaining = tracker.lock().sent_txs_remaining();
+            if sent_txs_remaining == 0 {
+                tracing::info!(target: "mirror", "all sent transactions observed on the target chain, exiting after drain");
+                return Ok(());
+            }
+            if Instant::now() > deadline {
+                tracing::warn!(target: "mirror", sent_txs_remaining, "drain timed out with sent transactions never observed on the target chain");
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 
@@ -2137,9 +2202,20 @@ impl<T: ChainAccess> TxMirror<T> {
         stop_height: Option<BlockHeight>,
         target_home: PathBuf,
         actor_system: near_async::ActorSystem,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
+
+        // When resuming after having already sent everything up to --stop-height (e.g. a
+        // restart of a finished mirror over a finite source), there are no more blocks to
+        // send and we're done. Without this we'd bail below as if the source were broken.
+        if let Some(stop_height) = stop_height {
+            if last_height >= stop_height {
+                tracing::info!(target: "mirror", stop_height, last_height, "already sent all transactions up to --stop-height");
+                return Ok(());
+            }
+        }
 
         let next_heights =
             self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA + 1).await?;
@@ -2282,6 +2358,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue2 = tx_block_queue.clone();
         let rpc_handler2 = rpc_handler.clone();
         let db = self.db.clone();
+        let shutdown2 = shutdown.clone();
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
         let send_txs_task = tokio::task::spawn(async move {
@@ -2292,6 +2369,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 send_time,
                 send_delay2,
                 rpc_handler2,
+                shutdown2,
             )
             .await;
             if let Err(err) = send_txs_done_tx.send(res) {
@@ -2302,7 +2380,7 @@ impl<T: ChainAccess> TxMirror<T> {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
-                source_hash, stop_height.is_some(),
+                source_hash, stop_height.is_some(), shutdown,
             ) => {
                 res
             }
@@ -2334,6 +2412,7 @@ async fn run<P: AsRef<Path>>(
     stop_height: Option<BlockHeight>,
     online_source: bool,
     config_path: Option<P>,
+    shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
     let config: MirrorConfig = match config_path {
         Some(p) => {
@@ -2357,7 +2436,7 @@ async fn run<P: AsRef<Path>>(
             secret,
             config,
         )?
-        .run(Some(stop_height), target_home.as_ref().to_path_buf(), actor_system)
+        .run(Some(stop_height), target_home.as_ref().to_path_buf(), actor_system, shutdown)
         .await
     } else {
         TxMirror::new(
@@ -2367,7 +2446,7 @@ async fn run<P: AsRef<Path>>(
             secret,
             config,
         )?
-        .run(stop_height, target_home.as_ref().to_path_buf(), actor_system)
+        .run(stop_height, target_home.as_ref().to_path_buf(), actor_system, shutdown)
         .await
     }
 }

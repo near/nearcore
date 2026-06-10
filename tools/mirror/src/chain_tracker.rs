@@ -224,6 +224,11 @@ impl TxTracker {
         }
     }
 
+    // Transactions sent to the target chain but not yet seen in a target block.
+    pub(crate) fn sent_txs_remaining(&self) -> usize {
+        self.sent_txs.len()
+    }
+
     // Makes sure that there's something written in the DB for this access key.
     // This function is called before calling initialize_target_nonce(), which sets
     // in-memory data associated with this nonce. It would make sense to do this part at the same time,
