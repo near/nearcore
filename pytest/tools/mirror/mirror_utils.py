@@ -140,16 +140,22 @@ class MirrorProcess:
     Automatically restarts once after 30 seconds to test resume capability.
     """
 
-    def __init__(self, near_root, source_home, binary_name='neard'):
+    def __init__(self,
+                 near_root,
+                 source_home,
+                 stop_height,
+                 binary_name='neard'):
         self.source_home = source_home
         self.neard = os.path.join(near_root, binary_name)
+        self.stop_height = stop_height
         self.start()
         self.start_time = time.time()
         self.restarted = False
 
     def start(self):
         env = os.environ.copy()
-        env["RUST_LOG"] = "mio=warn,tokio_util=warn,indexer=info," + env.get(
+        env["RUST_BACKTRACE"] = "full"
+        env["RUST_LOG"] = "mio=warn,tokio_util=warn,indexer=info,mirror=debug," + env.get(
             "RUST_LOG", "debug")
         config_path = dot_near() / f'{MIRROR_DIR}/config.json'
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
@@ -170,6 +176,8 @@ class MirrorProcess:
                 '--no-secret',
                 '--config-path',
                 config_path,
+                '--stop-height',
+                str(self.stop_height),
             ]
             self.process = subprocess.Popen(args,
                                             stdin=subprocess.DEVNULL,
@@ -532,5 +540,8 @@ def allowed_run_time(target_node_dir, start_time, end_source_height):
         block_delay = 10**9 * int(delay['secs']) + int(delay['nanos'])
         block_delay = block_delay / 10**9
 
-    # Give 20 seconds to sync, then 1.5x min_block_production_delay per block
-    return 20 + (end_source_height - genesis_height) * block_delay * 1.5
+    # Give 20 seconds to sync, then 1.5x min_block_production_delay per block.
+    # Floor at 180s: loaded workers finish close to the computed budget, and a
+    # stalled shutdown needs an observation window to distinguish slow from hung.
+    return max(180,
+               20 + (end_source_height - genesis_height) * block_delay * 1.5)
