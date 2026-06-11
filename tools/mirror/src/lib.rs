@@ -181,7 +181,7 @@ struct TargetNonce {
 // ignored, and it's set to block_height*1000000, so to generate
 // transactions with valid nonces, we need to map valid source chain
 // nonces to valid target chain nonces.
-#[derive(BorshDeserialize, BorshSerialize, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Default)]
 struct LatestTargetNonce {
     nonce: Option<Nonce>,
     pending_outcomes: HashSet<CryptoHash>,
@@ -927,6 +927,32 @@ impl<T: ChainAccess> TxMirror<T> {
             default_extra_key,
             config,
         })
+    }
+
+    // Re-submits already-sent txs byte-identical. The tx hash is unchanged, so
+    // this cannot double-execute: if the first copy is still in a pool or already
+    // executed this is a no-op, and if it died in a node's mempool this revives it.
+    async fn reforward_transactions(
+        target_client: &MultithreadRuntimeHandle<RpcHandlerActor>,
+        txs: Vec<SignedTransaction>,
+    ) -> anyhow::Result<()> {
+        for tx in txs {
+            tracing::debug!(
+                target: "mirror",
+                tx_hash = %tx.get_hash(),
+                signer_id = %tx.transaction.signer_id(),
+                "re-forwarding tx not yet observed on the target chain",
+            );
+            crate::metrics::TRANSACTIONS_REFORWARDED.inc();
+            let _response: ProcessTxResponse = target_client
+                .send_async(ProcessTxRequest {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only: false,
+                })
+                .await?;
+        }
+        Ok(())
     }
 
     async fn send_transactions<'a, I: Iterator<Item = &'a mut TargetChainTx>>(
@@ -2081,6 +2107,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 _ = queue_txs_time.tick() => {
                     let target_head = *target_head.read();
                     self.queue_txs(&tracker, &tx_block_queue, &target_view_client, target_head, have_stop_height).await?;
+                    let unobserved = tracker.lock().reforward_candidates(*target_height.read());
+                    Self::reforward_transactions(&target_client, unobserved).await?;
                 }
                 tx_batch = blocks_sent.recv() => {
                     let Some(tx_batch) = tx_batch else {
