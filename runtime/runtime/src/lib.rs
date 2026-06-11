@@ -921,7 +921,7 @@ impl Runtime {
             if ProtocolFeature::AccountCostIncrease.enabled(apply_state.current_protocol_version) {
                 safe_gas_to_balance(gas_burn_price, receiver_gas_reward)?
             } else {
-                // Post NEP-536: We are not refunding gas price differences, we just use the receipt
+                // Post NEP-536/pre AccountCostIncrease: We are not refunding gas price differences, we just use the receipt
                 // gas price and call it the correct price.
                 // No deficits to try and recover. Use receipt gas price for reward calculation
                 safe_gas_to_balance(gas_purchase_price, receiver_gas_reward)?
