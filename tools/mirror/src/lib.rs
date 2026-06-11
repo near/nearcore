@@ -188,9 +188,8 @@ struct LatestTargetNonce {
 }
 
 impl LatestTargetNonce {
-    // merges a nonce queried from the chain into what a previous run stored,
-    // keeping any pending outcomes for the resumed indexer to resolve
-    fn merged(stored: Option<Self>, nonce: Option<Nonce>) -> Self {
+    // keeps any stored pending outcomes for the resumed indexer to resolve
+    fn from_stored_and_queried(stored: Option<Self>, nonce: Option<Nonce>) -> Self {
         match stored {
             Some(t) => {
                 Self { nonce: std::cmp::max(t.nonce, nonce), pending_outcomes: t.pending_outcomes }
