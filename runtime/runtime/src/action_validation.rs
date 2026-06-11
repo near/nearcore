@@ -2,7 +2,7 @@ use crate::config::total_prepaid_gas;
 use crate::verifier::ValidateReceiptMode;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::delegate::VersionedDelegateAction;
+use near_primitives::action::delegate::DelegateActionRef;
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
     GlobalContractIdentifier, UseGlobalContractAction,
@@ -181,7 +181,7 @@ fn validate_action_with_mode(
 
 fn validate_delegate_action(
     limit_config: &LimitConfig,
-    delegate_action: VersionedDelegateAction<'_>,
+    delegate_action: DelegateActionRef<'_>,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
@@ -998,7 +998,7 @@ mod tests {
             public_key: PublicKey::empty(KeyType::ED25519),
         };
         let action = Action::DelegateV2(Box::new(SignedDelegateActionV2 {
-            delegate_action,
+            delegate_action: delegate_action.into(),
             signature: Signature::empty(KeyType::ED25519),
         }));
         let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;

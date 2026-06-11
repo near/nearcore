@@ -136,6 +136,42 @@ impl DelegateActionV2 {
     pub fn get_actions(&self) -> Vec<Action> {
         self.actions.iter().map(|a| a.clone().into()).collect()
     }
+}
+
+/// Versions of the delegate action carried by `Action::DelegateV2`. New
+/// versions add a variant here rather than a new `Action` variant. The variant
+/// is part of the signed payload, so a signature can't be ambiguous across
+/// versions.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum VersionedDelegateAction {
+    V2(DelegateActionV2) = 0,
+}
+
+impl VersionedDelegateAction {
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.public_key,
+        }
+    }
+
+    pub fn get_actions(&self) -> Vec<Action> {
+        match self {
+            VersionedDelegateAction::V2(delegate_action) => delegate_action.get_actions(),
+        }
+    }
 
     /// Delegate action hash used for NEP-461 signature scheme which tags
     /// different messages before hashing
@@ -145,6 +181,12 @@ impl DelegateActionV2 {
         let signable = SignableMessage::new(&self, SignableMessageType::DelegateActionV2);
         let bytes = borsh::to_vec(&signable).expect("failed to serialize");
         hash(&bytes)
+    }
+}
+
+impl From<DelegateActionV2> for VersionedDelegateAction {
+    fn from(delegate_action: DelegateActionV2) -> Self {
+        VersionedDelegateAction::V2(delegate_action)
     }
 }
 
@@ -161,17 +203,17 @@ impl DelegateActionV2 {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SignedDelegateActionV2 {
-    pub delegate_action: DelegateActionV2,
+    pub delegate_action: VersionedDelegateAction,
     pub signature: Signature,
 }
 
 impl SignedDelegateActionV2 {
     pub fn verify(&self) -> bool {
         let hash = self.delegate_action.get_nep461_hash();
-        self.signature.verify(hash.as_ref(), &self.delegate_action.public_key)
+        self.signature.verify(hash.as_ref(), self.delegate_action.public_key())
     }
 
-    pub fn sign(signer: &Signer, delegate_action: DelegateActionV2) -> Self {
+    pub fn sign(signer: &Signer, delegate_action: VersionedDelegateAction) -> Self {
         let signature = signer.sign(delegate_action.get_nep461_hash().as_bytes());
         Self { delegate_action, signature }
     }
@@ -186,30 +228,30 @@ impl From<SignedDelegateActionV2> for Action {
 /// Convenience wrapper for common logic accessing fields on delegate actions
 /// of different versions.
 #[derive(Clone, Copy, Debug)]
-pub enum VersionedDelegateAction<'a> {
+pub enum DelegateActionRef<'a> {
     V1(&'a DelegateAction),
     V2(&'a DelegateActionV2),
 }
 
-impl VersionedDelegateAction<'_> {
+impl DelegateActionRef<'_> {
     pub fn sender_id(&self) -> &AccountId {
         match self {
-            VersionedDelegateAction::V1(delegate_action) => &delegate_action.sender_id,
-            VersionedDelegateAction::V2(delegate_action) => &delegate_action.sender_id,
+            DelegateActionRef::V1(delegate_action) => &delegate_action.sender_id,
+            DelegateActionRef::V2(delegate_action) => &delegate_action.sender_id,
         }
     }
 
     pub fn receiver_id(&self) -> &AccountId {
         match self {
-            VersionedDelegateAction::V1(delegate_action) => &delegate_action.receiver_id,
-            VersionedDelegateAction::V2(delegate_action) => &delegate_action.receiver_id,
+            DelegateActionRef::V1(delegate_action) => &delegate_action.receiver_id,
+            DelegateActionRef::V2(delegate_action) => &delegate_action.receiver_id,
         }
     }
 
     pub fn actions(&self) -> &[NonDelegateAction] {
         match self {
-            VersionedDelegateAction::V1(delegate_action) => &delegate_action.actions,
-            VersionedDelegateAction::V2(delegate_action) => &delegate_action.actions,
+            DelegateActionRef::V1(delegate_action) => &delegate_action.actions,
+            DelegateActionRef::V2(delegate_action) => &delegate_action.actions,
         }
     }
 
@@ -219,73 +261,81 @@ impl VersionedDelegateAction<'_> {
 
     pub fn nonce(&self) -> TransactionNonce {
         match self {
-            VersionedDelegateAction::V1(delegate_action) => {
+            DelegateActionRef::V1(delegate_action) => {
                 TransactionNonce::from_nonce(delegate_action.nonce)
             }
-            VersionedDelegateAction::V2(delegate_action) => delegate_action.nonce,
+            DelegateActionRef::V2(delegate_action) => delegate_action.nonce,
         }
     }
 
     pub fn max_block_height(&self) -> BlockHeight {
         match self {
-            VersionedDelegateAction::V1(delegate_action) => delegate_action.max_block_height,
-            VersionedDelegateAction::V2(delegate_action) => delegate_action.max_block_height,
+            DelegateActionRef::V1(delegate_action) => delegate_action.max_block_height,
+            DelegateActionRef::V2(delegate_action) => delegate_action.max_block_height,
         }
     }
 
     pub fn public_key(&self) -> &PublicKey {
         match self {
-            VersionedDelegateAction::V1(delegate_action) => &delegate_action.public_key,
-            VersionedDelegateAction::V2(delegate_action) => &delegate_action.public_key,
+            DelegateActionRef::V1(delegate_action) => &delegate_action.public_key,
+            DelegateActionRef::V2(delegate_action) => &delegate_action.public_key,
         }
     }
 }
 
-impl<'a> From<&'a DelegateAction> for VersionedDelegateAction<'a> {
+impl<'a> From<&'a DelegateAction> for DelegateActionRef<'a> {
     fn from(delegate_action: &'a DelegateAction) -> Self {
-        VersionedDelegateAction::V1(delegate_action)
+        DelegateActionRef::V1(delegate_action)
     }
 }
 
-impl<'a> From<&'a DelegateActionV2> for VersionedDelegateAction<'a> {
+impl<'a> From<&'a DelegateActionV2> for DelegateActionRef<'a> {
     fn from(delegate_action: &'a DelegateActionV2) -> Self {
-        VersionedDelegateAction::V2(delegate_action)
+        DelegateActionRef::V2(delegate_action)
+    }
+}
+
+impl<'a> From<&'a VersionedDelegateAction> for DelegateActionRef<'a> {
+    fn from(delegate_action: &'a VersionedDelegateAction) -> Self {
+        match delegate_action {
+            VersionedDelegateAction::V2(delegate_action) => DelegateActionRef::V2(delegate_action),
+        }
     }
 }
 
 /// Convenience wrapper for common logic accessing signed delegate actions of
 /// different versions.
 #[derive(Clone, Copy, Debug)]
-pub enum VersionedSignedDelegateAction<'a> {
+pub enum SignedDelegateActionRef<'a> {
     V1(&'a SignedDelegateAction),
     V2(&'a SignedDelegateActionV2),
 }
 
-impl VersionedSignedDelegateAction<'_> {
-    pub fn delegate_action(&self) -> VersionedDelegateAction<'_> {
+impl SignedDelegateActionRef<'_> {
+    pub fn delegate_action(&self) -> DelegateActionRef<'_> {
         match self {
-            VersionedSignedDelegateAction::V1(signed) => (&signed.delegate_action).into(),
-            VersionedSignedDelegateAction::V2(signed) => (&signed.delegate_action).into(),
+            SignedDelegateActionRef::V1(signed) => (&signed.delegate_action).into(),
+            SignedDelegateActionRef::V2(signed) => (&signed.delegate_action).into(),
         }
     }
 
     pub fn verify(&self) -> bool {
         match self {
-            VersionedSignedDelegateAction::V1(signed) => signed.verify(),
-            VersionedSignedDelegateAction::V2(signed) => signed.verify(),
+            SignedDelegateActionRef::V1(signed) => signed.verify(),
+            SignedDelegateActionRef::V2(signed) => signed.verify(),
         }
     }
 }
 
-impl<'a> From<&'a SignedDelegateAction> for VersionedSignedDelegateAction<'a> {
+impl<'a> From<&'a SignedDelegateAction> for SignedDelegateActionRef<'a> {
     fn from(signed: &'a SignedDelegateAction) -> Self {
-        VersionedSignedDelegateAction::V1(signed)
+        SignedDelegateActionRef::V1(signed)
     }
 }
 
-impl<'a> From<&'a SignedDelegateActionV2> for VersionedSignedDelegateAction<'a> {
+impl<'a> From<&'a SignedDelegateActionV2> for SignedDelegateActionRef<'a> {
     fn from(signed: &'a SignedDelegateActionV2) -> Self {
-        VersionedSignedDelegateAction::V2(signed)
+        SignedDelegateActionRef::V2(signed)
     }
 }
 
@@ -408,7 +458,7 @@ mod tests {
             max_block_height: 1000,
             public_key: signer.public_key(),
         };
-        let signed = SignedDelegateActionV2::sign(&signer, delegate_action.clone());
+        let signed = SignedDelegateActionV2::sign(&signer, delegate_action.clone().into());
         assert!(signed.verify());
 
         // A signature bound to nonce index 3 must not verify for another index.
@@ -416,17 +466,19 @@ mod tests {
             delegate_action: DelegateActionV2 {
                 nonce: TransactionNonce::from_nonce_and_index(1, 4),
                 ..delegate_action.clone()
-            },
+            }
+            .into(),
             signature: signed.signature,
         };
         assert!(!forged.verify());
 
         // A signature under the V1 message discriminant must not verify for a
         // V2 action; V1 and V2 signing domains are disjoint.
+        let versioned = VersionedDelegateAction::from(delegate_action);
         let v1_tagged_signature =
-            SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction)
-                .sign(&signer);
-        let forged = SignedDelegateActionV2 { delegate_action, signature: v1_tagged_signature };
+            SignableMessage::new(&versioned, SignableMessageType::DelegateAction).sign(&signer);
+        let forged =
+            SignedDelegateActionV2 { delegate_action: versioned, signature: v1_tagged_signature };
         assert!(!forged.verify());
     }
 
@@ -440,7 +492,8 @@ mod tests {
                 nonce: TransactionNonce::from_nonce_and_index(1, 7),
                 max_block_height: 1000,
                 public_key: PublicKey::empty(KeyType::ED25519),
-            },
+            }
+            .into(),
             signature: Signature::empty(KeyType::ED25519),
         }
         .into();
@@ -459,7 +512,8 @@ mod tests {
                 nonce: TransactionNonce::from_nonce_and_index(1, 0),
                 max_block_height: 1000,
                 public_key: PublicKey::empty(KeyType::ED25519),
-            },
+            }
+            .into(),
             signature: Signature::empty(KeyType::ED25519),
         }
         .into();

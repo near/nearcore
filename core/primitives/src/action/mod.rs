@@ -455,7 +455,7 @@ impl Action {
                         .any(Action::post_quantum_signatures_required)
             }
             Action::DelegateV2(sda) => {
-                sda.delegate_action.public_key.key_type().is_post_quantum()
+                sda.delegate_action.public_key().key_type().is_post_quantum()
                     || sda.signature.key_type().is_post_quantum()
                     || sda
                         .delegate_action

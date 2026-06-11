@@ -14,7 +14,7 @@ use near_parameters::{
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
 };
-use near_primitives::action::delegate::{VersionedDelegateAction, VersionedSignedDelegateAction};
+use near_primitives::action::delegate::{DelegateActionRef, SignedDelegateActionRef};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -487,7 +487,7 @@ pub(crate) fn apply_delegate_action(
     apply_state: &ApplyState,
     action_receipt: &VersionedActionReceipt,
     sender_id: &AccountId,
-    signed_delegate_action: VersionedSignedDelegateAction<'_>,
+    signed_delegate_action: SignedDelegateActionRef<'_>,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     if !signed_delegate_action.verify() {
@@ -598,7 +598,7 @@ fn action_receipt_required_cost(
 fn validate_delegate_action_key(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    delegate_action: VersionedDelegateAction<'_>,
+    delegate_action: DelegateActionRef<'_>,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let sender_id = delegate_action.sender_id();

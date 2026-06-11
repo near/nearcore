@@ -5,7 +5,7 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{
-    DelegateAction, DelegateActionV2, SignedDelegateAction, SignedDelegateActionV2,
+    DelegateAction, SignedDelegateAction, SignedDelegateActionV2, VersionedDelegateAction,
 };
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
@@ -1486,7 +1486,7 @@ pub enum ActionView {
         signature: Signature,
     } = 8,
     DelegateV2 {
-        delegate_action: DelegateActionV2,
+        delegate_action: VersionedDelegateAction,
         signature: Signature,
     } = 16,
     DeployGlobalContract {

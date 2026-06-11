@@ -234,7 +234,7 @@ fn test_gas_key_delegate_v2_meta_transaction() {
         max_block_height: 1_000_000,
         public_key: gas_key_signer.public_key(),
     };
-    let signed_delegate = SignedDelegateActionV2::sign(&gas_key_signer, delegate_action);
+    let signed_delegate = SignedDelegateActionV2::sign(&gas_key_signer, delegate_action.into());
 
     // The relayer submits it: the outer transaction's receiver is the delegate
     // sender, who forwards the inner actions.

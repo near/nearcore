@@ -3,7 +3,7 @@
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::DeployGlobalContractAction;
-use near_primitives::action::delegate::VersionedDelegateAction;
+use near_primitives::action::delegate::DelegateActionRef;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
@@ -138,14 +138,15 @@ pub fn total_send_fees(
             }
             DelegateV2(signed_delegate_action) => {
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
-                let delegate_action = &signed_delegate_action.delegate_action;
+                let delegate_action =
+                    DelegateActionRef::from(&signed_delegate_action.delegate_action);
 
                 delegate_cost
                     .checked_add(total_send_fees(
                         config,
                         sender_is_receiver,
                         &delegate_action.get_actions(),
-                        &delegate_action.receiver_id,
+                        delegate_action.receiver_id(),
                     )?)
                     .unwrap()
             }
@@ -256,14 +257,16 @@ pub fn total_prepaid_send_fees(
                 )?
             }
             DelegateV2(signed_delegate_action) => {
-                let delegate_action = &signed_delegate_action.delegate_action;
-                let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
+                let delegate_action =
+                    DelegateActionRef::from(&signed_delegate_action.delegate_action);
+                let sender_is_receiver =
+                    delegate_action.sender_id() == delegate_action.receiver_id();
 
                 total_send_fees(
                     config,
                     sender_is_receiver,
                     &delegate_action.get_actions(),
-                    &delegate_action.receiver_id,
+                    delegate_action.receiver_id(),
                 )?
             }
             _ => ParameterCost::ZERO,
@@ -484,7 +487,7 @@ fn signature_kind(key_type: KeyType) -> SignatureKind {
 /// Inner delegate action of a delegate-style action (`Delegate` or
 /// `DelegateV2`), used by the recursive cost/fee functions so both variants are
 /// handled identically.
-fn delegate_inner_action(action: &Action) -> Option<VersionedDelegateAction<'_>> {
+fn delegate_inner_action(action: &Action) -> Option<DelegateActionRef<'_>> {
     match action {
         Action::Delegate(a) => Some((&a.delegate_action).into()),
         Action::DelegateV2(a) => Some((&a.delegate_action).into()),
@@ -717,7 +720,8 @@ mod tests {
                 nonce: TransactionNonce::from_nonce_and_index(1, 0),
                 max_block_height: 100,
                 public_key,
-            },
+            }
+            .into(),
             signature,
         }))
     }
