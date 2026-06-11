@@ -357,10 +357,10 @@ pub enum InvalidAccessKeyError {
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall = 5,
     /// Gas keys track nonces per index in dedicated storage, which a plain
-    /// `Delegate` action does not support, so a gas key must sign a `DelegateV2`
-    /// with a `GasKey` extension instead.
+    /// access key nonce does not select, so a gas key must sign a `DelegateV2`
+    /// with a gas key nonce instead.
     DelegateActionRequiresNonGasKey = 6,
-    /// A `DelegateV2` with a `GasKey` extension must be signed by a gas key.
+    /// A delegate action with a gas key nonce must be signed by a gas key.
     DelegateActionRequiresGasKey = 7,
 }
 
@@ -1005,7 +1005,7 @@ impl Display for InvalidAccessKeyError {
             InvalidAccessKeyError::DelegateActionRequiresNonGasKey => {
                 write!(
                     f,
-                    "Gas keys can't sign a plain Delegate action; use a DelegateV2 with a GasKey extension"
+                    "Gas keys can't sign a delegate action with a plain nonce; use a DelegateV2 with a gas key nonce"
                 )
             }
         }

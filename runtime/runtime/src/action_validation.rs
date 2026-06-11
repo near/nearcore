@@ -2,7 +2,7 @@ use crate::config::total_prepaid_gas;
 use crate::verifier::ValidateReceiptMode;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::delegate::{DelegateAction, DelegateActionExtension};
+use near_primitives::action::delegate::VersionedDelegateAction;
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
     GlobalContractIdentifier, UseGlobalContractAction,
@@ -146,24 +146,22 @@ fn validate_action_with_mode(
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => validate_delegate_action(
             limit_config,
-            &a.delegate_action,
+            (&a.delegate_action).into(),
             receiver,
             current_protocol_version,
             mode,
         ),
         Action::DelegateV2(a) => {
-            match &a.extension {
-                // A gas key delegate action selects a gas key nonce by index,
-                // which only exists once gas keys are enabled.
-                DelegateActionExtension::GasKey { .. } => require_protocol_feature(
-                    ProtocolFeature::GasKeys,
-                    "GasKeys",
-                    current_protocol_version,
-                )?,
-            }
+            // A V2 delegate action can select a gas key nonce by index, which
+            // only exists once gas keys are enabled.
+            require_protocol_feature(
+                ProtocolFeature::GasKeys,
+                "GasKeys",
+                current_protocol_version,
+            )?;
             validate_delegate_action(
                 limit_config,
-                &a.delegate_action,
+                (&a.delegate_action).into(),
                 receiver,
                 current_protocol_version,
                 mode,
@@ -183,7 +181,7 @@ fn validate_action_with_mode(
 
 fn validate_delegate_action(
     limit_config: &LimitConfig,
-    delegate_action: &DelegateAction,
+    delegate_action: VersionedDelegateAction<'_>,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
@@ -192,7 +190,7 @@ fn validate_delegate_action(
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
             // This is the correct receiver id to use for the check.
-            &delegate_action.receiver_id
+            delegate_action.receiver_id()
         } else {
             // This is a bug fixed with `FixDelegatedDeterministicStateInit` that
             // validated against the wrong id. This makes it impossible to
@@ -486,14 +484,14 @@ mod tests {
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::GlobalContractDeployMode;
     use near_primitives::action::delegate::{
-        DelegateAction, DelegateActionExtension, NonDelegateAction, SignedDelegateAction,
+        DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         SignedDelegateActionV2,
     };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
     use near_primitives::transaction::{
-        AddKeyAction, CreateAccountAction, DeleteKeyAction, TransferAction,
+        AddKeyAction, CreateAccountAction, DeleteKeyAction, TransactionNonce, TransferAction,
     };
     use near_primitives::version::PROTOCOL_VERSION;
     use std::collections::BTreeMap;
@@ -991,17 +989,16 @@ mod tests {
 
     #[test]
     fn test_validate_action_invalid_delegate_v2_before_protocol_feature() {
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateActionV2 {
             sender_id: alice_account(),
             receiver_id: "bob.near".parse().unwrap(),
             actions: vec![],
-            nonce: 1,
+            nonce: TransactionNonce::from_nonce_and_index(1, 0),
             max_block_height: 1000,
             public_key: PublicKey::empty(KeyType::ED25519),
         };
         let action = Action::DelegateV2(Box::new(SignedDelegateActionV2 {
             delegate_action,
-            extension: DelegateActionExtension::GasKey { nonce_index: 0 },
             signature: Signature::empty(KeyType::ED25519),
         }));
         let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;

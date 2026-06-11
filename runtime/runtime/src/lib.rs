@@ -730,18 +730,18 @@ impl Runtime {
                     apply_state,
                     action_receipt,
                     account_id,
-                    signed_delegate_action,
+                    signed_delegate_action.as_ref().into(),
                     &mut result,
                 )?;
             }
             Action::DelegateV2(signed_delegate_action) => {
                 metrics::ACTION_CALLED_COUNT.delegate.inc();
-                apply_delegate_action_v2(
+                apply_delegate_action(
                     state_update,
                     apply_state,
                     action_receipt,
                     account_id,
-                    signed_delegate_action,
+                    signed_delegate_action.as_ref().into(),
                     &mut result,
                 )?;
             }

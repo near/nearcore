@@ -365,7 +365,7 @@ pub enum Action {
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
     TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
     WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
-    /// Meta transaction carrying a `DelegateAction` plus extensible extra info.
+    /// Meta transaction carrying a `DelegateActionV2`, which supports gas keys.
     DelegateV2(Box<delegate::SignedDelegateActionV2>) = 14,
 }
 

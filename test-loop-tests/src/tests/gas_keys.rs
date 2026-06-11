@@ -7,9 +7,7 @@ use near_async::time::Duration;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, FunctionCallPermission};
-use near_primitives::action::delegate::{
-    DelegateAction, DelegateActionExtension, SignedDelegateActionV2,
-};
+use near_primitives::action::delegate::{DelegateActionV2, SignedDelegateActionV2};
 use near_primitives::action::{AddKeyAction, DeleteKeyAction, TransferToGasKeyAction};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, ReceiptValidationError, TxExecutionError,
@@ -226,21 +224,17 @@ fn test_gas_key_delegate_v2_meta_transaction() {
     let untouched_nonce_before =
         get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), untouched_nonce_index);
     let transfer_amount = Balance::from_near(10);
-    let delegate_action = DelegateAction {
+    let delegate_action = DelegateActionV2 {
         sender_id: sender.clone(),
         receiver_id: receiver.clone(),
         actions: vec![
             Action::Transfer(TransferAction { deposit: transfer_amount }).try_into().unwrap(),
         ],
-        nonce: gas_key_nonce + 1,
+        nonce: TransactionNonce::from_nonce_and_index(gas_key_nonce + 1, nonce_index),
         max_block_height: 1_000_000,
         public_key: gas_key_signer.public_key(),
     };
-    let signed_delegate = SignedDelegateActionV2::sign(
-        &gas_key_signer,
-        delegate_action,
-        DelegateActionExtension::GasKey { nonce_index },
-    );
+    let signed_delegate = SignedDelegateActionV2::sign(&gas_key_signer, delegate_action);
 
     // The relayer submits it: the outer transaction's receiver is the delegate
     // sender, who forwards the inner actions.

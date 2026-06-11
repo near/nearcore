@@ -5,11 +5,12 @@
 
 use super::Action;
 use crate::signable_message::{SignableMessage, SignableMessageType};
+use crate::transaction::TransactionNonce;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature, Signer};
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::types::{AccountId, Nonce, NonceIndex};
+use near_primitives_core::types::{AccountId, Nonce};
 use near_schema_checker_lib::ProtocolSchema;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind, Read};
@@ -100,9 +101,9 @@ impl From<SignedDelegateAction> for Action {
     }
 }
 
-/// Extra information carried by a `SignedDelegateActionV2` alongside the inner
-/// `DelegateAction`. New delegate-action capabilities add a variant here rather
-/// than a whole new signed action type.
+/// Delegate action with gas key support: `nonce` selects either the access
+/// key's nonce or one of a gas key's parallel nonces by index, mirroring
+/// `TransactionV1`.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -115,16 +116,38 @@ impl From<SignedDelegateAction> for Action {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[borsh(use_discriminant = true)]
-#[repr(u8)]
-pub enum DelegateActionExtension {
-    /// Signed by a gas key. `nonce_index` selects one of the gas key's parallel
-    /// nonces, which the `DelegateAction.nonce` advances.
-    GasKey { nonce_index: NonceIndex } = 0,
+pub struct DelegateActionV2 {
+    /// Signer of the delegated actions
+    pub sender_id: AccountId,
+    /// Receiver of the delegated actions.
+    pub receiver_id: AccountId,
+    /// List of actions to be executed.
+    pub actions: Vec<NonDelegateAction>,
+    /// Nonce of the signing key, advanced when this action is processed. For
+    /// a gas key it also selects which of the parallel nonces to advance.
+    pub nonce: TransactionNonce,
+    /// The maximal height of the block in the blockchain below which the given DelegateActionV2 is valid.
+    pub max_block_height: BlockHeight,
+    /// Public key used to sign this delegated action.
+    pub public_key: PublicKey,
 }
 
-/// Meta transaction carrying a `DelegateAction` plus extensible extra info in
-/// `extension`. The signature binds the inner action and the extension together.
+impl DelegateActionV2 {
+    pub fn get_actions(&self) -> Vec<Action> {
+        self.actions.iter().map(|a| a.clone().into()).collect()
+    }
+
+    /// Delegate action hash used for NEP-461 signature scheme which tags
+    /// different messages before hashing
+    ///
+    /// For more details, see: [NEP-461](https://github.com/near/NEPs/pull/461)
+    pub fn get_nep461_hash(&self) -> CryptoHash {
+        let signable = SignableMessage::new(&self, SignableMessageType::DelegateAction);
+        let bytes = borsh::to_vec(&signable).expect("failed to serialize");
+        hash(&bytes)
+    }
+}
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -138,47 +161,131 @@ pub enum DelegateActionExtension {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SignedDelegateActionV2 {
-    pub delegate_action: DelegateAction,
-    pub extension: DelegateActionExtension,
+    pub delegate_action: DelegateActionV2,
     pub signature: Signature,
 }
 
-/// Borsh payload signed for a V2 delegate action: the inner action plus the
-/// extension, so a signature can't be replayed across extensions.
-#[derive(BorshSerialize)]
-struct DelegateActionV2Signable<'a> {
-    delegate_action: &'a DelegateAction,
-    extension: &'a DelegateActionExtension,
-}
-
 impl SignedDelegateActionV2 {
-    fn nep461_hash(
-        delegate_action: &DelegateAction,
-        extension: &DelegateActionExtension,
-    ) -> CryptoHash {
-        let payload = DelegateActionV2Signable { delegate_action, extension };
-        let signable = SignableMessage::new(&payload, SignableMessageType::DelegateAction);
-        hash(&borsh::to_vec(&signable).expect("failed to serialize"))
-    }
-
     pub fn verify(&self) -> bool {
-        let hash = Self::nep461_hash(&self.delegate_action, &self.extension);
+        let hash = self.delegate_action.get_nep461_hash();
         self.signature.verify(hash.as_ref(), &self.delegate_action.public_key)
     }
 
-    pub fn sign(
-        signer: &Signer,
-        delegate_action: DelegateAction,
-        extension: DelegateActionExtension,
-    ) -> Self {
-        let signature = signer.sign(Self::nep461_hash(&delegate_action, &extension).as_bytes());
-        Self { delegate_action, extension, signature }
+    pub fn sign(signer: &Signer, delegate_action: DelegateActionV2) -> Self {
+        let signature = signer.sign(delegate_action.get_nep461_hash().as_bytes());
+        Self { delegate_action, signature }
     }
 }
 
 impl From<SignedDelegateActionV2> for Action {
     fn from(action: SignedDelegateActionV2) -> Self {
         Self::DelegateV2(Box::new(action))
+    }
+}
+
+/// Convenience wrapper for common logic accessing fields on delegate actions
+/// of different versions.
+#[derive(Clone, Copy, Debug)]
+pub enum VersionedDelegateAction<'a> {
+    V1(&'a DelegateAction),
+    V2(&'a DelegateActionV2),
+}
+
+impl VersionedDelegateAction<'_> {
+    pub fn sender_id(&self) -> &AccountId {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.sender_id,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.sender_id,
+        }
+    }
+
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.receiver_id,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.receiver_id,
+        }
+    }
+
+    pub fn actions(&self) -> &[NonDelegateAction] {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.actions,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.actions,
+        }
+    }
+
+    pub fn get_actions(&self) -> Vec<Action> {
+        self.actions().iter().map(|a| a.clone().into()).collect()
+    }
+
+    pub fn nonce(&self) -> TransactionNonce {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => {
+                TransactionNonce::from_nonce(delegate_action.nonce)
+            }
+            VersionedDelegateAction::V2(delegate_action) => delegate_action.nonce,
+        }
+    }
+
+    pub fn max_block_height(&self) -> BlockHeight {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => delegate_action.max_block_height,
+            VersionedDelegateAction::V2(delegate_action) => delegate_action.max_block_height,
+        }
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.public_key,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.public_key,
+        }
+    }
+}
+
+impl<'a> From<&'a DelegateAction> for VersionedDelegateAction<'a> {
+    fn from(delegate_action: &'a DelegateAction) -> Self {
+        VersionedDelegateAction::V1(delegate_action)
+    }
+}
+
+impl<'a> From<&'a DelegateActionV2> for VersionedDelegateAction<'a> {
+    fn from(delegate_action: &'a DelegateActionV2) -> Self {
+        VersionedDelegateAction::V2(delegate_action)
+    }
+}
+
+/// Convenience wrapper for common logic accessing signed delegate actions of
+/// different versions.
+#[derive(Clone, Copy, Debug)]
+pub enum VersionedSignedDelegateAction<'a> {
+    V1(&'a SignedDelegateAction),
+    V2(&'a SignedDelegateActionV2),
+}
+
+impl VersionedSignedDelegateAction<'_> {
+    pub fn delegate_action(&self) -> VersionedDelegateAction<'_> {
+        match self {
+            VersionedSignedDelegateAction::V1(signed) => (&signed.delegate_action).into(),
+            VersionedSignedDelegateAction::V2(signed) => (&signed.delegate_action).into(),
+        }
+    }
+
+    pub fn verify(&self) -> bool {
+        match self {
+            VersionedSignedDelegateAction::V1(signed) => signed.verify(),
+            VersionedSignedDelegateAction::V2(signed) => signed.verify(),
+        }
+    }
+}
+
+impl<'a> From<&'a SignedDelegateAction> for VersionedSignedDelegateAction<'a> {
+    fn from(signed: &'a SignedDelegateAction) -> Self {
+        VersionedSignedDelegateAction::V1(signed)
+    }
+}
+
+impl<'a> From<&'a SignedDelegateActionV2> for VersionedSignedDelegateAction<'a> {
+    fn from(signed: &'a SignedDelegateActionV2) -> Self {
+        VersionedSignedDelegateAction::V2(signed)
     }
 }
 
@@ -293,22 +400,23 @@ mod tests {
     #[test]
     fn test_signed_delegate_action_v2_verify() {
         let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
-        let delegate_action = DelegateAction {
+        let delegate_action = DelegateActionV2 {
             sender_id: "alice.near".parse().unwrap(),
             receiver_id: "bob.near".parse().unwrap(),
             actions: vec![],
-            nonce: 1,
+            nonce: TransactionNonce::from_nonce_and_index(1, 3),
             max_block_height: 1000,
             public_key: signer.public_key(),
         };
-        let extension = DelegateActionExtension::GasKey { nonce_index: 3 };
-        let signed = SignedDelegateActionV2::sign(&signer, delegate_action.clone(), extension);
+        let signed = SignedDelegateActionV2::sign(&signer, delegate_action.clone());
         assert!(signed.verify());
 
         // A signature bound to nonce index 3 must not verify for another index.
         let forged = SignedDelegateActionV2 {
-            extension: DelegateActionExtension::GasKey { nonce_index: 4 },
-            delegate_action,
+            delegate_action: DelegateActionV2 {
+                nonce: TransactionNonce::from_nonce_and_index(1, 4),
+                ..delegate_action
+            },
             signature: signed.signature,
         };
         assert!(!forged.verify());
@@ -317,15 +425,14 @@ mod tests {
     #[test]
     fn test_delegate_action_v2_borsh_roundtrip() {
         let action: Action = SignedDelegateActionV2 {
-            delegate_action: DelegateAction {
+            delegate_action: DelegateActionV2 {
                 sender_id: "alice.near".parse().unwrap(),
                 receiver_id: "bob.near".parse().unwrap(),
                 actions: vec![],
-                nonce: 1,
+                nonce: TransactionNonce::from_nonce_and_index(1, 7),
                 max_block_height: 1000,
                 public_key: PublicKey::empty(KeyType::ED25519),
             },
-            extension: DelegateActionExtension::GasKey { nonce_index: 7 },
             signature: Signature::empty(KeyType::ED25519),
         }
         .into();
@@ -337,15 +444,14 @@ mod tests {
     #[test]
     fn test_delegate_variant_encodings_match() {
         let delegate_v2: Action = SignedDelegateActionV2 {
-            delegate_action: DelegateAction {
+            delegate_action: DelegateActionV2 {
                 sender_id: "alice.near".parse().unwrap(),
                 receiver_id: "bob.near".parse().unwrap(),
                 actions: vec![],
-                nonce: 1,
+                nonce: TransactionNonce::from_nonce_and_index(1, 0),
                 max_block_height: 1000,
                 public_key: PublicKey::empty(KeyType::ED25519),
             },
-            extension: DelegateActionExtension::GasKey { nonce_index: 0 },
             signature: Signature::empty(KeyType::ED25519),
         }
         .into();

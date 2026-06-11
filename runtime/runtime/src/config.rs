@@ -3,7 +3,7 @@
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::DeployGlobalContractAction;
-use near_primitives::action::delegate::DelegateAction;
+use near_primitives::action::delegate::VersionedDelegateAction;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
@@ -484,10 +484,10 @@ fn signature_kind(key_type: KeyType) -> SignatureKind {
 /// Inner delegate action of a delegate-style action (`Delegate` or
 /// `DelegateV2`), used by the recursive cost/fee functions so both variants are
 /// handled identically.
-fn delegate_inner_action(action: &Action) -> Option<&DelegateAction> {
+fn delegate_inner_action(action: &Action) -> Option<VersionedDelegateAction<'_>> {
     match action {
-        Action::Delegate(a) => Some(&a.delegate_action),
-        Action::DelegateV2(a) => Some(&a.delegate_action),
+        Action::Delegate(a) => Some((&a.delegate_action).into()),
+        Action::DelegateV2(a) => Some((&a.delegate_action).into()),
         _ => None,
     }
 }
@@ -509,7 +509,7 @@ fn signature_verification_cost(
     let mut total = costs[signature_kind(signer_public_key.key_type())];
     for action in actions {
         if let Some(delegate_action) = delegate_inner_action(action) {
-            let kind = signature_kind(delegate_action.public_key.key_type());
+            let kind = signature_kind(delegate_action.public_key().key_type());
             total = total.checked_add_result(costs[kind])?;
         }
     }
@@ -529,9 +529,12 @@ pub fn total_prepaid_exec_fees(
         // For a delegate action it's needed to add gas required for the inner actions.
         if let Some(delegate_action) = delegate_inner_action(action) {
             let actions = delegate_action.get_actions();
-            delta = total_prepaid_exec_fees(config, &actions, &delegate_action.receiver_id)?;
-            delta =
-                delta.checked_add_result(exec_fee(config, action, &delegate_action.receiver_id))?;
+            delta = total_prepaid_exec_fees(config, &actions, delegate_action.receiver_id())?;
+            delta = delta.checked_add_result(exec_fee(
+                config,
+                action,
+                delegate_action.receiver_id(),
+            ))?;
             delta =
                 delta.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
         } else {
@@ -595,9 +598,9 @@ mod tests {
     use near_crypto::SecretKey;
     use near_primitives::action::TransferAction;
     use near_primitives::action::delegate::{
-        DelegateAction, DelegateActionExtension, SignedDelegateAction, SignedDelegateActionV2,
+        DelegateAction, DelegateActionV2, SignedDelegateAction, SignedDelegateActionV2,
     };
-    use near_primitives::transaction::TransactionV0;
+    use near_primitives::transaction::{TransactionNonce, TransactionV0};
     use std::sync::Arc;
 
     const VERIFY_GAS: u64 = 80_000_000_000;
@@ -707,15 +710,14 @@ mod tests {
         let public_key = SecretKey::from_seed(inner_key_type, "inner").public_key();
         let signature = SecretKey::from_seed(KeyType::ED25519, "dummy").sign(b"x");
         Action::DelegateV2(Box::new(SignedDelegateActionV2 {
-            delegate_action: DelegateAction {
+            delegate_action: DelegateActionV2 {
                 sender_id: "alice.near".parse().unwrap(),
                 receiver_id: "bob.near".parse().unwrap(),
                 actions: vec![transfer().try_into().unwrap()],
-                nonce: 1,
+                nonce: TransactionNonce::from_nonce_and_index(1, 0),
                 max_block_height: 100,
                 public_key,
             },
-            extension: DelegateActionExtension::GasKey { nonce_index: 0 },
             signature,
         }))
     }
