@@ -32,7 +32,6 @@ use nearcore::NearNode;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::DB;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::future::pending;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -2364,36 +2363,21 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue2 = tx_block_queue.clone();
         let rpc_handler2 = rpc_handler.clone();
         let db = self.db.clone();
-        let (send_txs_done_tx, send_txs_done_rx) =
-            tokio::sync::oneshot::channel::<anyhow::Result<()>>();
         let send_txs_task = tokio::task::spawn({
             let shutdown = shutdown.clone();
             async move {
-                let res = Self::send_txs_loop(
+                Self::send_txs_loop(
                     db,
                     blocks_sent_tx,
                     tx_block_queue2,
                     send_time,
                     send_delay2,
                     rpc_handler2,
-                    shutdown.clone(),
+                    shutdown,
                 )
-                .await;
-                // on graceful shutdown, exit without reporting a result so that the
-                // select below keeps waiting for the queue loop to drain sent txs
-                if res.is_err() || !shutdown.is_cancelled() {
-                    if let Err(err) = send_txs_done_tx.send(res) {
-                        tracing::error!(target: "mirror", ?err, "failed send txs loop res");
-                    }
-                }
+                .await
             }
         });
-        let send_txs_failed = async move {
-            match send_txs_done_rx.await {
-                Ok(res) => res,
-                Err(_) => pending().await,
-            }
-        };
         let result = tokio::select! {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
@@ -2407,16 +2391,18 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracing::error!(target: "mirror", ?res, "target indexer thread exited");
                 res.context("target indexer thread failure")
             }
-            res = send_txs_failed => {
-                tracing::error!(target: "mirror", ?res, "transaction sending thread exited");
-                res.context("transaction sending thread failure")
-            }
         };
         index_target_task.abort();
         send_txs_task.abort();
         let _ = index_target_task.await;
-        let _ = send_txs_task.await;
+        let send_txs_result = send_txs_task.await;
         actor_system.stop();
+        // queue_txs_loop only sees the send loop exit as a closed channel; the
+        // underlying error is in the join result
+        if let Ok(Err(err)) = send_txs_result {
+            tracing::error!(target: "mirror", ?err, "transaction sending thread exited");
+            return Err(err.context("transaction sending thread failure"));
+        }
         result
     }
 }
