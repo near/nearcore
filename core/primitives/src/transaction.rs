@@ -11,6 +11,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
 use near_primitives_core::version::ProtocolFeature;
@@ -657,6 +658,26 @@ pub enum ExecutionMetadata {
     V2(crate::profile_data_v2::ProfileDataV2) = 1,
     /// V3: With ProfileData by gas parameters
     V3(Box<ProfileDataV3>) = 2,
+    /// V4: With ProfileData by gas parameters and the contract attached to
+    /// the receiver account at the time each action ran. Lets consumers
+    /// distinguish receiver from contract source (e.g. global contracts) and
+    /// see what code an account had even on receipts that did not invoke a
+    /// `FunctionCall`.
+    V4(Box<ExecutionMetadataV4>) = 3,
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default, ProtocolSchema,
+)]
+pub struct ExecutionMetadataV4 {
+    pub profile: ProfileDataV3,
+    /// One entry per action in the receipt: the contract attached to the
+    /// receiver account immediately before that action ran. Captured for
+    /// every action kind, including ones that don't execute a contract;
+    /// `AccountContract::None` when the account did not yet exist (e.g. the
+    /// `CreateAccount` action that materialized it). Order matches the
+    /// receipt's `actions` vector.
+    pub contracts: Vec<AccountContract>,
 }
 
 impl fmt::Debug for ExecutionOutcome {

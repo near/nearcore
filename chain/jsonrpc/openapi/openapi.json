@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.9"
+    "version": "1.2.10"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1368,6 +1368,47 @@
           "permission"
         ],
         "type": "object"
+      },
+      "AccountContractView": {
+        "description": "RPC view of a non-empty [`AccountContract`]. The `AccountContract::None`\nvariant is represented externally as a JSON `null` via `Option`, so this\nenum only carries the three \"contract is present\" cases. Serializes as\nan externally-tagged object:\n\n- `Local(hash)` → `{\"local\": \"<CryptoHash>\"}`\n- `GlobalHash(hash)` → `{\"global_hash\": \"<CryptoHash>\"}`\n- `GlobalAccountId(id)` → `{\"global_account_id\": \"<AccountId>\"}`\n\nMirrors [`AccountContract`] 1:1 (minus `None`) so consumers can preserve\nthe distinction between a global-by-hash and global-by-account contract\nwithout descending into a nested identifier.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "local": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "local"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "global_hash"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            },
+            "required": [
+              "global_account_id"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "AccountCreationConfigView": {
         "description": "The structure describes configuration for creation of new accounts.",
@@ -5912,6 +5953,24 @@
       },
       "ExecutionMetadataView": {
         "properties": {
+          "contracts": {
+            "description": "One entry per action in the receipt (V4+ only): the contract attached\nto the receiver account immediately before that action ran. The inner\n`Option` is `Some` (a tagged contract object) when the account had a\ncontract and `None` (rendered as JSON `null`) when it did not (e.g. an\naccount with no code, or one that did not yet exist). The outer\n`Option` is `None` for older metadata versions.",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AccountContractView"
+                },
+                {
+                  "enum": [
+                    null
+                  ],
+                  "nullable": true
+                }
+              ]
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "gas_profile": {
             "items": {
               "$ref": "#/components/schemas/CostGasUsed"
