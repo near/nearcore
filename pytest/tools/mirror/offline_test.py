@@ -174,6 +174,16 @@ class ContractTest(MirrorTestCase):
         assert nonce is not None, \
             f'contract key {self.contract_key.key.pk} not found on target'
 
+        # the mirror must also synthesize the mapped version of contract_key
+        # from the promise-created AddKey receipt; both coexist on test0
+        mapped_contract_pk = mirror_utils.map_key_no_secret(
+            self.contract_key.key.pk)
+        nonce = node.get_nonce_for_pk('test0',
+                                      mapped_contract_pk,
+                                      finality='final')
+        assert nonce is not None, \
+            f'mapped contract key {mapped_contract_pk} not found on target'
+
         # contract_extra_key is a direct AddKey action (mapped)
         mapped_pk = mirror_utils.map_key_no_secret(
             self.contract_extra_key.key.pk)
@@ -181,14 +191,18 @@ class ContractTest(MirrorTestCase):
         assert nonce is not None, \
             f'contract extra key {mapped_pk} not found on target'
 
-        # Sub-account created via contract
+        # Sub-account created via contract. The mirror pre-creates it with the
+        # mapped key via an extra CreateAccount tx, and the contract call's own
+        # CreateAccount receipt then fails on target, so the unmapped key the
+        # contract passed never lands there.
         res = node.get_account('test0.test0', do_assert=False)
         assert 'error' not in res, 'account test0.test0 not found on target'
+        mapped_sub_pk = mirror_utils.map_key_no_secret(self.sub_key.key.pk)
         nonce = node.get_nonce_for_pk('test0.test0',
-                                      self.sub_key.key.pk,
+                                      mapped_sub_pk,
                                       finality='final')
         assert nonce is not None, \
-            f'sub key {self.sub_key.key.pk} not found on test0.test0'
+            f'mapped sub key {mapped_sub_pk} not found on test0.test0'
 
         assert mirror_utils.contract_deployed(node, 'test0'), \
             'contract not deployed on target test0'

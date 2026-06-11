@@ -13,7 +13,7 @@ use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
 use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, VersionedReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction, NonceMode,
     SignedTransaction, StakeAction, Transaction, TransactionNonce, TransactionV1,
@@ -1355,7 +1355,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 Err(ChainError::Other(e)) => return Err(e),
             };
 
-            if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
+            if let VersionedReceiptEnum::Action(r) | VersionedReceiptEnum::PromiseYield(r) =
+                receipt.versioned_receipt()
+            {
                 if (provenance.is_create_account()
                     && receipt.predecessor_id() == receipt.receiver_id())
                     || (!provenance.is_create_account()
@@ -1367,7 +1369,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 // implicit accounts, etc...
                 let mut key_added = false;
                 let mut account_created = false;
-                for a in &r.actions {
+                for a in r.actions() {
                     match a {
                         Action::AddKey(_) => key_added = true,
                         Action::CreateAccount(_) => account_created = true,
@@ -1386,7 +1388,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         tracing::warn!(
                             target: "mirror",
                             receipt_id = %receipt.receipt_id(),
-                            actions = ?r.actions,
+                            actions = ?r.actions(),
                             "predecessor and receiver are the same but there's a create account in the actions",
                         );
                     }
@@ -1417,7 +1419,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     txs,
                     receipt.predecessor_id().clone(),
                     receipt.receiver_id().clone(),
-                    &r.actions,
+                    r.actions(),
                     ref_hash,
                     provenance,
                     Some(source_height),
@@ -1484,8 +1486,10 @@ impl<T: ChainAccess> TxMirror<T> {
         target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
-        if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
-            if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
+        if let VersionedReceiptEnum::Action(r) | VersionedReceiptEnum::PromiseYield(r) =
+            receipt.versioned_receipt()
+        {
+            if r.actions().iter().any(|a| matches!(a, Action::FunctionCall(_))) {
                 self.add_function_call_keys(
                     tracker,
                     tx_block_queue,
