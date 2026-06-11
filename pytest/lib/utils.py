@@ -379,16 +379,19 @@ def wait_for_final_block(node: cluster.BaseNode, timeout: float = 60) -> None:
     than raising, so check the response body.
     """
     deadline = time.monotonic() + timeout
+    last_error = None
     while time.monotonic() < deadline:
         try:
             res = node.get_final_block()
-        except Exception:
-            pass
+        except Exception as e:
+            last_error = e
         else:
             if 'error' not in res:
                 return
+            last_error = res['error']
         time.sleep(2)
-    raise AssertionError(f'node did not serve a final block within {timeout}s')
+    raise AssertionError(f'node did not serve a final block within {timeout}s; '
+                         f'last error: {last_error}')
 
 
 def wait_for_blocks(node: cluster.LocalNode,
