@@ -654,11 +654,13 @@ impl MappedTx {
         }
     }
 
-    fn inc_nonce(&mut self, target_secret_key: &SecretKey) {
+    fn inc_nonce(&mut self) {
         let mut tx = self.target_tx.transaction.clone();
         *tx.nonce_mut() += 1;
-        self.target_tx =
-            SignedTransaction::new(target_secret_key.sign(&tx.get_hash_and_size().0.as_ref()), tx);
+        self.target_tx = SignedTransaction::new(
+            self.target_secret_key.sign(&tx.get_hash_and_size().0.as_ref()),
+            tx,
+        );
     }
 }
 
@@ -722,9 +724,9 @@ impl TargetChainTx {
         }
     }
 
-    fn inc_target_nonce(&mut self, target_secret_key: &SecretKey) {
+    fn inc_target_nonce(&mut self) {
         match self {
-            Self::Ready(t) => t.inc_nonce(target_secret_key),
+            Self::Ready(t) => t.inc_nonce(),
             Self::AwaitingNonce(t) => {
                 if let Some(n) = &mut t.target_nonce.nonce {
                     *n += 1;
@@ -1146,7 +1148,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 target_view_client,
                 &self.db,
                 &nonce_key,
-                &mapping.target_secret_key,
             )
             .await?
         };

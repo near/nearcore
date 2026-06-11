@@ -5,7 +5,7 @@ use crate::{
 use anyhow::Context;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActor;
-use near_crypto::{PublicKey, SecretKey};
+use near_crypto::PublicKey;
 use near_indexer::StreamerMessage;
 use near_indexer_primitives::{IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome};
 use near_primitives::hash::CryptoHash;
@@ -356,7 +356,6 @@ impl TxTracker {
         target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         db: &DB,
         nonce_key: &NonceLookupKey,
-        secret_key: &SecretKey,
     ) -> anyhow::Result<TargetNonce> {
         Self::store_target_nonce(target_view_client, db, nonce_key).await?;
         let mut me = lock.lock();
@@ -377,7 +376,7 @@ impl TxTracker {
                 if first_nonce.is_none() {
                     first_nonce = Some(tx.target_nonce());
                 }
-                tx.inc_target_nonce(secret_key)
+                tx.inc_target_nonce()
             }
         }
         match first_nonce {
