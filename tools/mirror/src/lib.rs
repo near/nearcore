@@ -954,14 +954,35 @@ impl<T: ChainAccess> TxMirror<T> {
                 signer_id = %tx.transaction.signer_id(),
                 "re-forwarding tx not yet observed on the target chain",
             );
-            crate::metrics::TRANSACTIONS_REFORWARDED.inc();
-            let _response: ProcessTxResponse = target_client
+            let tx_hash = tx.get_hash();
+            let response = target_client
                 .send_async(ProcessTxRequest {
                     transaction: tx,
                     is_forwarded: false,
                     check_only: false,
                 })
                 .await?;
+            match response {
+                ProcessTxResponse::RequestRouted => {
+                    crate::metrics::TRANSACTIONS_REFORWARDED.inc();
+                }
+                ProcessTxResponse::InvalidTx(err) => {
+                    tracing::warn!(
+                        target: "mirror",
+                        %tx_hash,
+                        ?err,
+                        "re-forwarded tx is no longer valid",
+                    );
+                }
+                response => {
+                    tracing::error!(
+                        target: "mirror",
+                        %tx_hash,
+                        ?response,
+                        "unexpected process tx response on re-forward",
+                    );
+                }
+            }
         }
         Ok(())
     }
