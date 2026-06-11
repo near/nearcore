@@ -187,6 +187,18 @@ struct LatestTargetNonce {
     pending_outcomes: HashSet<CryptoHash>,
 }
 
+impl LatestTargetNonce {
+    // keeps any stored pending outcomes for the resumed indexer to resolve
+    fn from_stored_and_queried(stored: Option<Self>, nonce: Option<Nonce>) -> Self {
+        match stored {
+            Some(t) => {
+                Self { nonce: std::cmp::max(t.nonce, nonce), pending_outcomes: t.pending_outcomes }
+            }
+            None => Self { nonce, pending_outcomes: HashSet::new() },
+        }
+    }
+}
+
 // TODO: move DB related stuff to its own file and add a way to
 // keep track of updates in memory and write them all in one transaction
 fn read_target_nonce(db: &DB, key: &NonceLookupKey) -> anyhow::Result<Option<LatestTargetNonce>> {
@@ -927,6 +939,52 @@ impl<T: ChainAccess> TxMirror<T> {
             default_extra_key,
             config,
         })
+    }
+
+    // Re-submitting byte-identical cannot double-execute: the hash is unchanged,
+    // so this is a no-op unless the first copy was dropped.
+    async fn reforward_transactions(
+        target_client: &MultithreadRuntimeHandle<RpcHandlerActor>,
+        txs: Vec<SignedTransaction>,
+    ) -> anyhow::Result<()> {
+        for tx in txs {
+            tracing::debug!(
+                target: "mirror",
+                tx_hash = %tx.get_hash(),
+                signer_id = %tx.transaction.signer_id(),
+                "re-forwarding tx not yet observed on the target chain",
+            );
+            let tx_hash = tx.get_hash();
+            let response = target_client
+                .send_async(ProcessTxRequest {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only: false,
+                })
+                .await?;
+            match response {
+                ProcessTxResponse::RequestRouted => {
+                    crate::metrics::TRANSACTIONS_REFORWARDED.inc();
+                }
+                ProcessTxResponse::InvalidTx(err) => {
+                    tracing::warn!(
+                        target: "mirror",
+                        %tx_hash,
+                        ?err,
+                        "re-forwarded tx is no longer valid",
+                    );
+                }
+                response => {
+                    tracing::error!(
+                        target: "mirror",
+                        %tx_hash,
+                        ?response,
+                        "unexpected process tx response on re-forward",
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn send_transactions<'a, I: Iterator<Item = &'a mut TargetChainTx>>(
@@ -2081,6 +2139,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 _ = queue_txs_time.tick() => {
                     let target_head = *target_head.read();
                     self.queue_txs(&tracker, &tx_block_queue, &target_view_client, target_head, have_stop_height).await?;
+                    let unobserved = tracker.lock().reforward_candidates(*target_height.read());
+                    Self::reforward_transactions(&target_client, unobserved).await?;
                 }
                 tx_batch = blocks_sent.recv() => {
                     let Some(tx_batch) = tx_batch else {
