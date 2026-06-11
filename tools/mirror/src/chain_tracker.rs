@@ -5,7 +5,7 @@ use crate::{
 use anyhow::Context;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActor;
-use near_crypto::{PublicKey, SecretKey};
+use near_crypto::PublicKey;
 use near_indexer::StreamerMessage;
 use near_indexer_primitives::{IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome};
 use near_primitives::hash::CryptoHash;
@@ -224,6 +224,11 @@ impl TxTracker {
         }
     }
 
+    // Transactions sent to the target chain but not yet seen in a target block.
+    pub(crate) fn sent_txs_remaining(&self) -> usize {
+        self.sent_txs.len()
+    }
+
     // Makes sure that there's something written in the DB for this access key.
     // This function is called before calling initialize_target_nonce(), which sets
     // in-memory data associated with this nonce. It would make sense to do this part at the same time,
@@ -351,7 +356,6 @@ impl TxTracker {
         target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         db: &DB,
         nonce_key: &NonceLookupKey,
-        secret_key: &SecretKey,
     ) -> anyhow::Result<TargetNonce> {
         Self::store_target_nonce(target_view_client, db, nonce_key).await?;
         let mut me = lock.lock();
@@ -372,7 +376,7 @@ impl TxTracker {
                 if first_nonce.is_none() {
                     first_nonce = Some(tx.target_nonce());
                 }
-                tx.inc_target_nonce(secret_key)
+                tx.inc_target_nonce()
             }
         }
         match first_nonce {
