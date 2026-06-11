@@ -219,6 +219,3 @@ pytest sanity/kickout_offline_validators.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/kickout_offline_validators.py --features nightly,protocol_feature_spice
 
-
-# Offline mirror test: forks a chain and replays the recorded traffic onto it
-pytest --timeout=25m tools/mirror_offline.py

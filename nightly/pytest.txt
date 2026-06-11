@@ -1,3 +1,4 @@
 ./pytest-adversarial.txt
 ./pytest-contracts.txt
 ./pytest-sanity.txt
+./pytest-tools.txt
