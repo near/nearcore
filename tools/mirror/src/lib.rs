@@ -449,9 +449,6 @@ struct MirrorConfig {
 
 const CREATE_ACCOUNT_DELTA: usize = 5;
 
-// On SIGTERM/SIGINT we stop sending and wait for already sent transactions to
-// appear on the target chain before exiting, so that a restarted mirror's
-// resume point doesn't skip past transactions that died in the mempool.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
 // TODO: separate out the code that uses the target chain clients, and
@@ -2075,9 +2072,9 @@ impl<T: ChainAccess> TxMirror<T> {
         loop {
             tokio::select! {
                 _ = shutdown.cancelled() => {
-                    // the send loop exits on cancellation and drops its end of the
-                    // channel. record every batch it managed to send before waiting
-                    // on them, since the watermark already advanced past them.
+                    // record every batch the cancelled send loop already handed to the
+                    // network: last_source_height has advanced past them, so a restart
+                    // won't resend them and they must be drained here instead.
                     while let Some(tx_batch) = blocks_sent.recv().await {
                         self.record_sent_batch(tx_batch, &tracker, &tx_block_queue, &target_height, &send_delay)?;
                     }
@@ -2119,9 +2116,8 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    // Waits until every sent transaction has been observed in a target block, so
-    // a restarted mirror's resume point doesn't skip past txs that died in the
-    // mempool. The target indexer keeps running and clears sent_txs meanwhile.
+    // waits until the still-running target indexer observes every sent tx in a
+    // target block, so txs that died in the mempool aren't lost across a restart
     async fn drain_sent_txs(
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
     ) -> anyhow::Result<()> {
@@ -2360,26 +2356,27 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue2 = tx_block_queue.clone();
         let rpc_handler2 = rpc_handler.clone();
         let db = self.db.clone();
-        let shutdown2 = shutdown.clone();
-        let shutdown3 = shutdown.clone();
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
-        let send_txs_task = tokio::task::spawn(async move {
-            let res = Self::send_txs_loop(
-                db,
-                blocks_sent_tx,
-                tx_block_queue2,
-                send_time,
-                send_delay2,
-                rpc_handler2,
-                shutdown2,
-            )
-            .await;
-            // on graceful shutdown, exit without reporting a result so that the
-            // select below keeps waiting for the queue loop to drain sent txs
-            if res.is_err() || !shutdown3.is_cancelled() {
-                if let Err(err) = send_txs_done_tx.send(res) {
-                    tracing::error!(target: "mirror", ?err, "failed send txs loop res");
+        let send_txs_task = tokio::task::spawn({
+            let shutdown = shutdown.clone();
+            async move {
+                let res = Self::send_txs_loop(
+                    db,
+                    blocks_sent_tx,
+                    tx_block_queue2,
+                    send_time,
+                    send_delay2,
+                    rpc_handler2,
+                    shutdown.clone(),
+                )
+                .await;
+                // on graceful shutdown, exit without reporting a result so that the
+                // select below keeps waiting for the queue loop to drain sent txs
+                if res.is_err() || !shutdown.is_cancelled() {
+                    if let Err(err) = send_txs_done_tx.send(res) {
+                        tracing::error!(target: "mirror", ?err, "failed send txs loop res");
+                    }
                 }
             }
         });
