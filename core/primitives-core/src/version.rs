@@ -297,7 +297,8 @@ pub enum ProtocolFeature {
     _DeprecatedRemoveCheckBalance,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
-    ExcludeExistingCodeFromWitnessForCodeLen,
+    #[deprecated]
+    _DeprecatedExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
     #[deprecated]
     _DeprecatedBlockHeightForReceiptId,
@@ -338,14 +339,16 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     #[deprecated]
     _DeprecatedDeterministicAccountIds,
-    InvalidTxGenerateOutcomes,
+    #[deprecated]
+    _DeprecatedInvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
     /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
     /// Previously, the allowance was decremented in-place before later checks
     /// (storage stake, function call permission) that could return an error,
     /// violating the documented contract of no mutation on error.
-    FixAccessKeyAllowanceCharging,
+    #[deprecated]
+    _DeprecatedFixAccessKeyAllowanceCharging,
     /// Fix missing early return on DepositWithFunctionCall error path in
     /// validate_delegate_action_key. Previously the error could be
     /// overwritten by a subsequent receiver_id or method_name check.
@@ -365,26 +368,32 @@ pub enum ProtocolFeature {
     UniqueChunkTransactions,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
-    InstantPromiseYield,
+    #[deprecated]
+    _DeprecatedInstantPromiseYield,
     /// Improve functionality of Yield/Resume. Keep the current status of yielded receipt in the
     /// trie state. Allows to call yield and resume in two actions within the same transaction.
     /// Keeping the status in the state could allow to query it from contracts.
-    YieldResumeImprovements,
+    #[deprecated]
+    _DeprecatedYieldResumeImprovements,
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
-    IncludeDeployGlobalContractOutcomeBurntStorage,
+    #[deprecated]
+    _DeprecatedIncludeDeployGlobalContractOutcomeBurntStorage,
     /// Nonce-based idempotency for global contract distribution receipts. Each
     /// distribution carries an auto-incremented nonce. Any distribution receipt
     /// with a nonce less than the one already stored will be dropped. This
     /// prevents race conditions in the case of multiple distribution attempts
     /// for the same contract.
-    GlobalContractDistributionNonce,
+    #[deprecated]
+    _DeprecatedGlobalContractDistributionNonce,
     /// Use global contract for ETH implicit accounts instead of embedded WASM.
-    EthImplicitGlobalContract,
+    #[deprecated]
+    _DeprecatedEthImplicitGlobalContract,
     /// Process action receipts containing a single DeleteAccount action as
     /// instant receipts, executing them immediately after the receipt that
     /// produced them rather than sending them as outgoing receipts.
-    InstantDeleteAccount,
+    #[deprecated]
+    _DeprecatedInstantDeleteAccount,
     /// Opt-in strict nonce mode for transactions. When enabled, TransactionV1
     /// can carry `NonceMode::Strict` which requires `tx_nonce == ak_nonce + 1`
     /// (sequential ordering). Transactions with a nonce gap are held in the
@@ -522,15 +531,15 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedIncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::_DeprecatedStatePartsCompression
             | ProtocolFeature::_DeprecatedDeterministicAccountIds => 82,
-            ProtocolFeature::InvalidTxGenerateOutcomes
-            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
-            | ProtocolFeature::FixAccessKeyAllowanceCharging
-            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-            | ProtocolFeature::GlobalContractDistributionNonce
-            | ProtocolFeature::InstantPromiseYield
-            | ProtocolFeature::YieldResumeImprovements
-            | ProtocolFeature::EthImplicitGlobalContract
-            | ProtocolFeature::InstantDeleteAccount => 83,
+            ProtocolFeature::_DeprecatedInvalidTxGenerateOutcomes
+            | ProtocolFeature::_DeprecatedExcludeExistingCodeFromWitnessForCodeLen
+            | ProtocolFeature::_DeprecatedFixAccessKeyAllowanceCharging
+            | ProtocolFeature::_DeprecatedIncludeDeployGlobalContractOutcomeBurntStorage
+            | ProtocolFeature::_DeprecatedGlobalContractDistributionNonce
+            | ProtocolFeature::_DeprecatedInstantPromiseYield
+            | ProtocolFeature::_DeprecatedYieldResumeImprovements
+            | ProtocolFeature::_DeprecatedEthImplicitGlobalContract
+            | ProtocolFeature::_DeprecatedInstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
@@ -568,7 +577,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 83;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 /// Returns the effective protocol version to use for processing a request.
 ///

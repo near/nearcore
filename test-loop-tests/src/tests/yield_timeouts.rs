@@ -13,7 +13,6 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::{TrieKey, col, trie_key_parsers};
 use near_primitives::types::{AccountId, Balance, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
@@ -248,13 +247,8 @@ fn prepare_env_with_yield(
         FinalExecutionStatus::Started,
     ));
 
-    let yield_data_ids = if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
-        // After InstantPromiseYield, the PromiseYield receipt is immediately processed and saved in the state.
-        get_yield_data_ids_in_latest_state(&env)
-    } else {
-        // Before InstantPromiseYield, the PromiseYield receipt was sent as an outgoing receipt.
-        find_yield_data_ids_from_latest_block(&env)
-    };
+    // The PromiseYield receipt is immediately processed and saved in the state.
+    let yield_data_ids = get_yield_data_ids_in_latest_state(&env);
     assert_eq!(yield_data_ids.len(), 1);
 
     let last_block_height = env.validator().last_executed().height;

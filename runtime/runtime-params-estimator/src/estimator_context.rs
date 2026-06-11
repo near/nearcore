@@ -510,11 +510,10 @@ impl Testbed<'_> {
         let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
             &signer,
-            &mut access_key,
+            &access_key,
             validated_tx.to_tx(),
             &cost,
             block_height,
-            PROTOCOL_VERSION,
             &PendingConstraints::default(),
         ) else {
             panic!("tx verification should not fail in estimator");

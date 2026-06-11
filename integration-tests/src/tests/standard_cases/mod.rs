@@ -25,7 +25,6 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Gas};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
@@ -301,15 +300,11 @@ pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
         bob_account(),
         TESTING_INIT_BALANCE.checked_add(Balance::from_yoctonear(1)).unwrap(),
     );
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result,
-            Err(CommitError::Server(ServerError::TxExecutionError(_)))
-                | Ok(FinalExecutionOutcomeView { status: FinalExecutionStatus::Failure(_), .. })
-        );
-    } else {
-        result.unwrap_err();
-    }
+    assert_matches!(
+        result,
+        Err(CommitError::Server(ServerError::TxExecutionError(_)))
+            | Ok(FinalExecutionOutcomeView { status: FinalExecutionStatus::Failure(_), .. })
+    );
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
 }
 
@@ -670,26 +665,17 @@ pub fn test_transaction_invalid_signature(node: impl Node) {
     tx.signature = Signature::from_parts(KeyType::ED25519, &[0u8; 64]).unwrap();
     let result = node_user.commit_transaction(tx);
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::InvalidSignature)
-            ))) | Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidSignature
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_matches!(
-            result,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::InvalidSignature)
-            ))) | Err(CommitError::OutcomeNotFound)
-        );
-    }
+    assert_matches!(
+        result,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidSignature
+        )))) | Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidSignature
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_send_money_over_balance(node: impl Node) {
@@ -697,21 +683,17 @@ pub fn test_send_money_over_balance(node: impl Node) {
     let node_user = node.user();
     let money_used = TESTING_INIT_BALANCE.checked_add(Balance::from_yoctonear(1)).unwrap();
     let result0 = node_user.send_money(account_id.clone(), bob_account(), money_used);
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result0,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::NotEnoughBalance { .. })
-            ))) | Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::NotEnoughBalance { .. }
-                )),
-                ..
-            })
-        );
-    } else {
-        result0.unwrap_err();
-    }
+    assert_matches!(
+        result0,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::NotEnoughBalance { .. }
+        )))) | Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::NotEnoughBalance { .. }
+            )),
+            ..
+        })
+    );
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
@@ -1366,21 +1348,17 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         Balance::ZERO,
     );
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            transaction_result,
-            Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::MethodNameMismatch { .. }
-                    )
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(transaction_result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        transaction_result,
+        Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch { .. }
+                )
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
@@ -1407,21 +1385,17 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         Balance::ZERO,
     );
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            transaction_result,
-            Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::ReceiverMismatch { .. }
-                    )
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(transaction_result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        transaction_result,
+        Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::ReceiverMismatch { .. }
+                )
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_access_key_reject_non_function_call(node: impl Node) {
@@ -1441,25 +1415,17 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
 
     let transaction_result = node_user.delete_key(account_id.clone(), node.signer().public_key());
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            transaction_result,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::MethodNameMismatch { .. }
-                ))
-            ))) | Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::RequiresFullAccess
-                    )
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(transaction_result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        transaction_result,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch { .. })
+        )))) | Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_increase_stake(node: impl Node) {
@@ -1555,19 +1521,15 @@ pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     node_user.set_signer(signer);
     let result = node_user.send_money(account_id, alice_account(), Balance::from_yoctonear(10));
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result,
-            Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::LackBalanceForState { .. }
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        result,
+        Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::LackBalanceForState { .. }
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_delete_account_ok(node: impl Node) {

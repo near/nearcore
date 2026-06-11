@@ -14,11 +14,9 @@ use near_primitives::receipt::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Compute, EpochInfoProvider, ShardId, StateChangeCause};
-use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::ContractCode;
-use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -46,12 +44,8 @@ pub(crate) fn action_deploy_global_contract(
         .into());
         return Ok(());
     };
-    if ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-        .enabled(apply_state.current_protocol_version)
-    {
-        result.tokens_burnt =
-            result.tokens_burnt.checked_add(storage_cost).ok_or(IntegerOverflowError)?;
-    }
+    result.tokens_burnt =
+        result.tokens_burnt.checked_add(storage_cost).ok_or(IntegerOverflowError)?;
     account.set_amount(updated_balance);
 
     initiate_distribution(
@@ -60,7 +54,6 @@ pub(crate) fn action_deploy_global_contract(
         deploy_contract.code.clone(),
         &deploy_contract.deploy_mode,
         apply_state.shard_id,
-        apply_state.current_protocol_version,
         result,
     )?;
 
@@ -72,18 +65,10 @@ pub(crate) fn action_use_global_contract(
     account_id: &AccountId,
     account: &mut Account,
     action: &UseGlobalContractAction,
-    current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    use_global_contract(
-        state_update,
-        account_id,
-        account,
-        &action.contract_identifier,
-        current_protocol_version,
-        result,
-    )
+    use_global_contract(state_update, account_id, account, &action.contract_identifier, result)
 }
 
 pub(crate) fn use_global_contract(
@@ -91,7 +76,6 @@ pub(crate) fn use_global_contract(
     account_id: &AccountId,
     account: &mut Account,
     contract_identifier: &GlobalContractIdentifier,
-    current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let key = TrieKey::GlobalContractCode { identifier: contract_identifier.clone().into() };
@@ -102,12 +86,7 @@ pub(crate) fn use_global_contract(
         .into());
         return Ok(());
     }
-    clear_account_contract_storage_usage(
-        state_update,
-        account_id,
-        account,
-        current_protocol_version,
-    )?;
+    clear_account_contract_storage_usage(state_update, account_id, account)?;
     if account.contract().is_local() {
         state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
     }
@@ -165,7 +144,6 @@ fn initiate_distribution(
     contract_code: Arc<[u8]>,
     deploy_mode: &GlobalContractDeployMode,
     current_shard_id: ShardId,
-    protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let id = match deploy_mode {
@@ -180,15 +158,9 @@ fn initiate_distribution(
     // distributions with the same nonce from being initiated. This requires
     // allowing the same nonce in the freshness check when applying the
     // distribution receipt.
-    let nonce = increment_nonce(protocol_version, state_update, &id)?;
-    let distribution_receipt = GlobalContractDistributionReceipt::new(
-        id,
-        current_shard_id,
-        vec![],
-        contract_code,
-        nonce,
-        protocol_version,
-    );
+    let nonce = increment_nonce(state_update, &id)?;
+    let distribution_receipt =
+        GlobalContractDistributionReceipt::new(id, current_shard_id, vec![], contract_code, nonce);
     let distribution_receipts =
         Receipt::new_global_contract_distribution(account_id, distribution_receipt);
     // No need to set receipt_id here, it will be generated as part of apply_action_receipt
@@ -199,15 +171,9 @@ fn initiate_distribution(
 /// Increments the nonce for the given global contract identifier and writes
 /// it to state immediately.
 fn increment_nonce(
-    protocol_version: u32,
     state_update: &mut TrieUpdate,
     id: &GlobalContractIdentifier,
 ) -> Result<u64, RuntimeError> {
-    if !ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
-        // If the feature is not enabled yet the nonce will be ignored anyway.
-        return Ok(0);
-    }
-
     let identifier: GlobalContractCodeIdentifier = id.clone().into();
 
     let nonce_key = TrieKey::GlobalContractNonce { identifier };
@@ -233,8 +199,7 @@ fn apply_distribution_current_shard(
         }
     };
 
-    let is_nonce_fresh =
-        check_and_update_nonce(global_contract_data, &identifier, apply_state, state_update)?;
+    let is_nonce_fresh = check_and_update_nonce(global_contract_data, &identifier, state_update)?;
     if !is_nonce_fresh {
         return Ok(0);
     }
@@ -273,15 +238,8 @@ fn apply_distribution_current_shard(
 fn check_and_update_nonce(
     global_contract_data: &GlobalContractDistributionReceipt,
     identifier: &GlobalContractCodeIdentifier,
-    apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
 ) -> Result<bool, RuntimeError> {
-    if !ProtocolFeature::GlobalContractDistributionNonce
-        .enabled(apply_state.current_protocol_version)
-    {
-        return Ok(true);
-    }
-
     let nonce_key = TrieKey::GlobalContractNonce { identifier: identifier.clone() };
     let stored_nonce = get_nonce(state_update, &nonce_key)?;
     let incoming_nonce = global_contract_data.nonce();

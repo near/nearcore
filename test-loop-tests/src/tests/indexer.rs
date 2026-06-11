@@ -18,7 +18,6 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, Finality, NumBlocks};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountContractView, ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView,
 };
@@ -225,9 +224,6 @@ fn test_indexer_delayed_local_receipt() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_failed_local_tx() {
     init_test_logger();
-    if !ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     let mut env = setup();
     env.validator_runner().send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(

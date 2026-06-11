@@ -29,15 +29,12 @@ use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
-use near_store::trie::AccessOptions;
 use near_store::{
-    StorageError, TrieAccess, TrieUpdate, compute_gas_key_balance_sum, get_access_key,
-    remove_account, set_access_key,
+    StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, remove_account,
+    set_access_key,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
-use near_wallet_contract::{
-    eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
-};
+use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::sync::Arc;
 
 pub(crate) fn action_stake(
@@ -231,52 +228,17 @@ pub(crate) fn action_implicit_account_creation_transfer(
         AccountType::EthImplicitAccount => {
             let chain_id = epoch_info_provider.chain_id();
 
-            if ProtocolFeature::EthImplicitGlobalContract
-                .enabled(apply_state.current_protocol_version)
-            {
-                // Use a deployed global contract for ETH implicit accounts.
-                let global_contract_hash = eth_wallet_global_contract_hash(&chain_id);
-                let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + global_contract_hash.as_bytes().len() as u64;
+            // Use a deployed global contract for ETH implicit accounts.
+            let global_contract_hash = eth_wallet_global_contract_hash(&chain_id);
+            let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                + global_contract_hash.as_bytes().len() as u64;
 
-                *account = Some(Account::new(
-                    deposit,
-                    Balance::ZERO,
-                    AccountContract::Global(global_contract_hash),
-                    storage_usage,
-                ));
-            } else {
-                // We deploy "near[wallet contract hash]" magic bytes as the contract code,
-                // to mark that this is a neard-defined contract. It will not be used on a function call.
-                // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes(&chain_id);
-
-                let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + magic_bytes.code().len() as u64
-                    + fee_config.storage_usage_config.num_extra_bytes_record;
-
-                let contract_hash = *magic_bytes.hash();
-                *account = Some(Account::new(
-                    deposit,
-                    Balance::ZERO,
-                    AccountContract::from_local_code_hash(contract_hash),
-                    storage_usage,
-                ));
-                state_update.set_code(account_id.clone(), &magic_bytes);
-
-                // Precompile Wallet Contract and store result (compiled code or error) in the database.
-                // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
-                // is a no-op if the contract was already compiled. If a protocol upgrade with a
-                // different `wasm_config` is scheduled for the next epoch, also warm the new
-                // cache key in the background.
-                precompile_contract_with_warming(
-                    &wallet_contract(contract_hash).expect("should definitely exist"),
-                    Arc::clone(&apply_state.config.wasm_config),
-                    apply_state.next_wasm_config.clone(),
-                    apply_state.cache.as_deref(),
-                );
-                near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
-            }
+            *account = Some(Account::new(
+                deposit,
+                Balance::ZERO,
+                AccountContract::Global(global_contract_hash),
+                storage_usage,
+            ));
         }
         AccountType::NearDeterministicAccount => {
             *account = Some(create_deterministic_account(
@@ -298,15 +260,9 @@ pub(crate) fn action_deploy_contract(
     config: Arc<VmConfig>,
     next_config: Option<Arc<VmConfig>>,
     cache: Option<&dyn ContractRuntimeCache>,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
-    clear_account_contract_storage_usage(
-        state_update,
-        account_id,
-        account,
-        current_protocol_version,
-    )?;
+    clear_account_contract_storage_usage(state_update, account_id, account)?;
 
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     account.set_storage_usage(
@@ -351,12 +307,7 @@ pub(crate) fn action_delete_account(
     let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
         .enabled(current_protocol_version)
     {
-        let contract_storage = get_contract_storage_usage(
-            state_update,
-            account_id,
-            account_ref,
-            current_protocol_version,
-        )?;
+        let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
         account_ref.storage_usage().saturating_sub(contract_storage)
     } else {
         // Legacy behavior: only subtracts local contract code, misses the
@@ -366,7 +317,6 @@ pub(crate) fn action_delete_account(
             state_update,
             account_id.clone(),
             account_ref.local_contract_hash().unwrap_or_default(),
-            current_protocol_version,
         )?;
         debug_assert!(
             code_len == 0 || account_storage_usage > code_len,
@@ -423,22 +373,13 @@ pub(crate) fn action_delete_account(
 /// Returns the storage usage for the contract code with the given `code_hash` and deployed to the
 /// given `account_id`. If no contract was deployed to the account, returns `0`.
 ///
-/// This implements different behaviors based on the protocol version:
-/// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
-/// the code but from the value-ref in the trie leaf node, otherwise it reads the code and returns its size.
+/// The code-length is obtained without reading the code but from the value-ref in the trie leaf node.
 fn get_code_len_or_default(
     state_update: &TrieUpdate,
     account_id: AccountId,
     code_hash: CryptoHash,
-    protocol_version: ProtocolVersion,
 ) -> Result<StorageUsage, StorageError> {
-    let code_len =
-        if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
-            state_update.get_code_len(account_id, code_hash)?
-        } else {
-            let key = near_primitives::trie_key::TrieKey::ContractCode { account_id };
-            state_update.get(&key, AccessOptions::DEFAULT)?.map(|code| code.len())
-        };
+    let code_len = state_update.get_code_len(account_id, code_hash)?;
     debug_assert!(
         code_len.is_some() || code_hash == CryptoHash::default(),
         "Non-default code hash for account with no contract deployed: {:?}",
@@ -451,16 +392,12 @@ fn get_contract_storage_usage(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     account: &Account,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<StorageUsage, StorageError> {
     Ok(match account.contract().as_ref() {
         AccountContract::None => 0,
-        AccountContract::Local(code_hash) => get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            *code_hash,
-            current_protocol_version,
-        )?,
+        AccountContract::Local(code_hash) => {
+            get_code_len_or_default(state_update, account_id.clone(), *code_hash)?
+        }
         AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
             account.contract().identifier_storage_usage()
         }
@@ -472,10 +409,8 @@ pub(crate) fn clear_account_contract_storage_usage(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     account: &mut Account,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    let contract_storage =
-        get_contract_storage_usage(state_update, account_id, account, current_protocol_version)?;
+    let contract_storage = get_contract_storage_usage(state_update, account_id, account)?;
     account.set_storage_usage(account.storage_usage().saturating_sub(contract_storage));
     Ok(())
 }
@@ -1018,7 +953,6 @@ mod tests {
             Arc::clone(&apply_state.config.wasm_config),
             None,
             None,
-            apply_state.current_protocol_version,
         );
         assert!(res.is_ok());
         test_delete_account(
