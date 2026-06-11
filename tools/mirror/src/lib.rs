@@ -38,6 +38,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 mod chain_tracker;
@@ -2384,13 +2385,25 @@ impl<T: ChainAccess> TxMirror<T> {
         let _ = index_target_task.await;
         let send_txs_result = send_txs_task.await;
         actor_system.stop();
-        // queue_txs_loop only sees the send loop exit as a closed channel; the
-        // underlying error is in the join result
-        if let Ok(Err(err)) = send_txs_result {
+        if let Some(err) = Self::send_txs_loop_error(send_txs_result) {
             tracing::error!(target: "mirror", ?err, "transaction sending thread exited");
             return Err(err.context("transaction sending thread failure"));
         }
         result
+    }
+
+    // queue_txs_loop only sees the send loop exit as a closed channel; the
+    // underlying error or panic is in the join result
+    fn send_txs_loop_error(
+        join_result: Result<anyhow::Result<()>, JoinError>,
+    ) -> Option<anyhow::Error> {
+        match join_result {
+            Ok(Ok(())) => None,
+            Ok(Err(err)) => Some(err),
+            // cancelled means our own abort() above, not a failure
+            Err(join_error) if join_error.is_cancelled() => None,
+            Err(join_error) => Some(anyhow::anyhow!(join_error)),
+        }
     }
 }
 
