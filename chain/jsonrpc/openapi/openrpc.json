@@ -5953,6 +5953,11 @@
             "const": "DepositWithFunctionCall",
             "description": "Having a deposit with a function call action is not allowed with a function call access key.",
             "type": "string"
+          },
+          {
+            "const": "DelegateActionRequiresNonGasKey",
+            "description": "Gas keys track nonces per index in dedicated storage, which the delegate\naction path does not support, so a gas key can't sign a delegate action.",
+            "type": "string"
           }
         ],
         "title": "InvalidAccessKeyError"
