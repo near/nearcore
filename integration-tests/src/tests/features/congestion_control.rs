@@ -90,10 +90,6 @@ fn setup_account(
     let signer = InMemorySigner::test_signer(&signer_id);
 
     let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
-    // Bumped 10x for AccountCostIncrease: the 10x more expensive account creation plus the
-    // per-receipt gas pre-payment at the inflated `min_gas_purchase_price` outgrew the
-    // original 10 NEAR partway through the test, causing `NotEnoughBalance` rejections
-    // instead of `ShardCongested`.
     let amount = Balance::from_near(100);
 
     *nonce += 1;
