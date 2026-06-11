@@ -27,11 +27,10 @@ use std::time::{Duration, Instant};
 // We could just forget it and not save any of this, but keeping this info
 // makes it easy to print out human-friendly info later on when we find this
 // transaction on chain.
-const REFORWARD_AFTER_BLOCKS: BlockHeight = 10;
-
 struct TxSendInfo {
-    // kept so the tx can be re-forwarded as-is (same hash, idempotent) if it is
-    // not observed on chain in time; the first send may die in a node's mempool
+    // kept so the tx can be re-forwarded byte-identical if not observed on
+    // chain in time; forwarding is fire-and-forget and the network never
+    // retries a dropped tx, so it would otherwise be lost for good
     target_tx: SignedTransaction,
     sent_at: Instant,
     source_height: Option<BlockHeight>,
@@ -236,13 +235,12 @@ impl TxTracker {
         self.sent_txs.len()
     }
 
-    // Sent txs not observed on chain within REFORWARD_AFTER_BLOCKS target blocks,
-    // to be re-forwarded byte-identical: the same hash cannot execute twice, so
-    // this is safe no matter whether the first copy is lost or still in a pool.
+    // Sent txs not observed on chain within REFORWARD_AFTER_BLOCKS target blocks.
     pub(crate) fn reforward_candidates(
         &mut self,
         target_height: BlockHeight,
     ) -> Vec<SignedTransaction> {
+        const REFORWARD_AFTER_BLOCKS: BlockHeight = 10;
         let mut txs = Vec::new();
         for info in self.sent_txs.values_mut() {
             if target_height.saturating_sub(info.sent_at_target_height) >= REFORWARD_AFTER_BLOCKS {
@@ -270,10 +268,8 @@ impl TxTracker {
             if t.nonce.is_some() {
                 return Ok(());
             }
-            // An entry without a nonce was stored by a previous run whose
-            // in-flight resolution died with it. The key may well be on the
-            // target chain by now, so query it again. Pending outcomes are kept:
-            // the resumed indexer can still observe and resolve them.
+            // the run that stored this entry died before resolving the nonce, so
+            // query again; pending outcomes are kept for the resumed indexer
         }
         match &nonce_key.kind {
             NonceKind::AccessKey => {
@@ -283,8 +279,10 @@ impl TxTracker {
                     &nonce_key.public_key,
                 )
                 .await?;
-                let mut t = existing.unwrap_or_default();
-                t.nonce = std::cmp::max(t.nonce, nonce);
+                let t = LatestTargetNonce {
+                    nonce: std::cmp::max(existing.as_ref().and_then(|t| t.nonce), nonce),
+                    pending_outcomes: existing.map(|t| t.pending_outcomes).unwrap_or_default(),
+                };
                 crate::put_target_nonce(db, nonce_key, &t)?;
             }
             NonceKind::GasKey(_) => {
@@ -304,8 +302,16 @@ impl TxTracker {
                             public_key: nonce_key.public_key.clone(),
                             kind: NonceKind::GasKey(i as NonceIndex),
                         };
-                        let mut t = crate::read_target_nonce(db, &key)?.unwrap_or_default();
-                        t.nonce = std::cmp::max(t.nonce, Some(*nonce));
+                        let stored = crate::read_target_nonce(db, &key)?;
+                        let t = LatestTargetNonce {
+                            nonce: std::cmp::max(
+                                stored.as_ref().and_then(|t| t.nonce),
+                                Some(*nonce),
+                            ),
+                            pending_outcomes: stored
+                                .map(|t| t.pending_outcomes)
+                                .unwrap_or_default(),
+                        };
                         crate::put_target_nonce(db, &key, &t)?;
                     }
                 } else if existing.is_none() {
