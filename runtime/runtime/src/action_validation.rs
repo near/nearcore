@@ -102,7 +102,7 @@ pub(crate) fn validate_actions_with_mode(
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);
             }
         } else {
-            if let Action::Delegate(_) = action {
+            if let Action::Delegate(_) | Action::DelegateV2(_) = action {
                 if found_delegate_action {
                     return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
                 }
@@ -147,6 +147,11 @@ fn validate_action_with_mode(
         Action::Delegate(a) => {
             validate_delegate_action(limit_config, a, receiver, current_protocol_version, mode)
         }
+        // TODO(gas-keys): accept DelegateV2 once execution lands; rejected until then.
+        Action::DelegateV2(_) => Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "DelegateV2".to_owned(),
+            version: current_protocol_version,
+        }),
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver)
         }

@@ -39,8 +39,8 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
-    InvalidTxError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, EpochError, IntegerOverflowError,
+    InvalidAccessKeyError, InvalidTxError, ReceiptValidationError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -733,6 +733,18 @@ impl Runtime {
                     signed_delegate_action,
                     &mut result,
                 )?;
+            }
+            // TODO(gas-keys): execute DelegateV2; rejected at validation until then.
+            Action::DelegateV2(_) => {
+                result.result = Err(ActionErrorKind::NewReceiptValidationError(
+                    ReceiptValidationError::ActionsValidation(
+                        ActionsValidationError::UnsupportedProtocolFeature {
+                            protocol_feature: "DelegateV2".to_owned(),
+                            version: apply_state.current_protocol_version,
+                        },
+                    ),
+                )
+                .into());
             }
             Action::TransferToGasKey(transfer_to_gas_key) => {
                 metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();

@@ -4,7 +4,9 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+use crate::action::delegate::{
+    DelegateAction, DelegateActionV2Payload, SignedDelegateAction, SignedDelegateActionV2,
+};
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
     GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
@@ -1483,6 +1485,10 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     } = 8,
+    DelegateV2 {
+        delegate_action: DelegateActionV2Payload,
+        signature: Signature,
+    } = 16,
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1549,6 +1555,10 @@ impl From<Action> for ActionView {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
             Action::Delegate(action) => ActionView::Delegate {
+                delegate_action: action.delegate_action,
+                signature: action.signature,
+            },
+            Action::DelegateV2(action) => ActionView::DelegateV2 {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
@@ -1622,6 +1632,9 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
+            }
+            ActionView::DelegateV2 { delegate_action, signature } => {
+                Action::DelegateV2(Box::new(SignedDelegateActionV2 { delegate_action, signature }))
             }
             ActionView::DeployGlobalContract { code } => {
                 Action::DeployGlobalContract(DeployGlobalContractAction {

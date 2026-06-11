@@ -5,6 +5,7 @@
 
 use super::Action;
 use crate::signable_message::{SignableMessage, SignableMessageType};
+use crate::transaction::TransactionNonce;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature, Signer};
 use near_primitives_core::hash::{CryptoHash, hash};
@@ -16,6 +17,19 @@ use std::io::{Error, ErrorKind, Read};
 
 /// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
+/// This is an index number of Action::DelegateV2 in Action enumeration
+const ACTION_DELEGATE_V2_NUMBER: u8 = 14;
+/// Borsh discriminants of the delegate actions, rejected by `NonDelegateAction`
+/// so a delegate action can't be nested. Must list exactly the variants for
+/// which `Action::is_delegate` is true; cross-checked in
+/// `test_delegate_variant_encodings_match`.
+const DELEGATE_VARIANT_NUMBERS: [u8; 2] = [ACTION_DELEGATE_NUMBER, ACTION_DELEGATE_V2_NUMBER];
+/// JSON-schema variant names of the delegate actions, excluded from
+/// `NonDelegateAction`'s schema. Must list exactly the variants for which
+/// `Action::is_delegate` is true; cross-checked in
+/// `test_delegate_variant_encodings_match`.
+#[cfg(feature = "schemars")]
+const DELEGATE_VARIANT_NAMES: [&str; 2] = ["Delegate", "DelegateV2"];
 /// This action allows to execute the inner actions behalf of the defined sender.
 #[derive(
     BorshSerialize,
@@ -87,6 +101,246 @@ impl From<SignedDelegateAction> for Action {
     }
 }
 
+/// Delegate action with gas key support: `nonce` selects either the access
+/// key's nonce or one of a gas key's parallel nonces by index, mirroring
+/// `TransactionV1`.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DelegateActionV2 {
+    /// Signer of the delegated actions
+    pub sender_id: AccountId,
+    /// Receiver of the delegated actions.
+    pub receiver_id: AccountId,
+    /// List of actions to be executed.
+    pub actions: Vec<NonDelegateAction>,
+    /// Nonce of the signing key, advanced when this action is processed. For
+    /// a gas key it also selects which of the parallel nonces to advance.
+    pub nonce: TransactionNonce,
+    /// The maximal height of the block in the blockchain below which the given DelegateActionV2 is valid.
+    pub max_block_height: BlockHeight,
+    /// Public key used to sign this delegated action.
+    pub public_key: PublicKey,
+}
+
+impl DelegateActionV2 {
+    pub fn get_actions(&self) -> Vec<Action> {
+        self.actions.iter().map(|a| a.clone().into()).collect()
+    }
+}
+
+/// Versions of the delegate action carried by `Action::DelegateV2`. New
+/// versions add a variant here rather than a new `Action` variant. The variant
+/// is part of the signed payload, so a signature can't be ambiguous across
+/// versions.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum DelegateActionV2Payload {
+    V2(DelegateActionV2) = 0,
+}
+
+impl DelegateActionV2Payload {
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            DelegateActionV2Payload::V2(delegate_action) => &delegate_action.public_key,
+        }
+    }
+
+    pub fn get_actions(&self) -> Vec<Action> {
+        match self {
+            DelegateActionV2Payload::V2(delegate_action) => delegate_action.get_actions(),
+        }
+    }
+
+    /// Delegate action hash used for NEP-461 signature scheme which tags
+    /// different messages before hashing
+    ///
+    /// For more details, see: [NEP-461](https://github.com/near/NEPs/pull/461)
+    pub fn get_nep461_hash(&self) -> CryptoHash {
+        let signable = SignableMessage::new(&self, SignableMessageType::DelegateActionV2);
+        let bytes = borsh::to_vec(&signable).expect("failed to serialize");
+        hash(&bytes)
+    }
+}
+
+impl From<DelegateActionV2> for DelegateActionV2Payload {
+    fn from(delegate_action: DelegateActionV2) -> Self {
+        DelegateActionV2Payload::V2(delegate_action)
+    }
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct SignedDelegateActionV2 {
+    pub delegate_action: DelegateActionV2Payload,
+    pub signature: Signature,
+}
+
+impl SignedDelegateActionV2 {
+    pub fn verify(&self) -> bool {
+        let hash = self.delegate_action.get_nep461_hash();
+        self.signature.verify(hash.as_ref(), self.delegate_action.public_key())
+    }
+
+    pub fn sign(signer: &Signer, delegate_action: DelegateActionV2Payload) -> Self {
+        let signature = signer.sign(delegate_action.get_nep461_hash().as_bytes());
+        Self { delegate_action, signature }
+    }
+}
+
+impl From<SignedDelegateActionV2> for Action {
+    fn from(action: SignedDelegateActionV2) -> Self {
+        Self::DelegateV2(Box::new(action))
+    }
+}
+
+/// Convenience wrapper for common logic accessing fields on delegate actions
+/// of different versions.
+#[derive(Clone, Copy, Debug)]
+pub enum VersionedDelegateAction<'a> {
+    V1(&'a DelegateAction),
+    V2(&'a DelegateActionV2),
+}
+
+impl VersionedDelegateAction<'_> {
+    pub fn sender_id(&self) -> &AccountId {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.sender_id,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.sender_id,
+        }
+    }
+
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.receiver_id,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.receiver_id,
+        }
+    }
+
+    pub fn actions(&self) -> &[NonDelegateAction] {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.actions,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.actions,
+        }
+    }
+
+    pub fn get_actions(&self) -> Vec<Action> {
+        self.actions().iter().map(|a| a.clone().into()).collect()
+    }
+
+    pub fn nonce(&self) -> TransactionNonce {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => {
+                TransactionNonce::from_nonce(delegate_action.nonce)
+            }
+            VersionedDelegateAction::V2(delegate_action) => delegate_action.nonce,
+        }
+    }
+
+    pub fn max_block_height(&self) -> BlockHeight {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => delegate_action.max_block_height,
+            VersionedDelegateAction::V2(delegate_action) => delegate_action.max_block_height,
+        }
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            VersionedDelegateAction::V1(delegate_action) => &delegate_action.public_key,
+            VersionedDelegateAction::V2(delegate_action) => &delegate_action.public_key,
+        }
+    }
+}
+
+impl<'a> From<&'a DelegateAction> for VersionedDelegateAction<'a> {
+    fn from(delegate_action: &'a DelegateAction) -> Self {
+        VersionedDelegateAction::V1(delegate_action)
+    }
+}
+
+impl<'a> From<&'a DelegateActionV2> for VersionedDelegateAction<'a> {
+    fn from(delegate_action: &'a DelegateActionV2) -> Self {
+        VersionedDelegateAction::V2(delegate_action)
+    }
+}
+
+impl<'a> From<&'a DelegateActionV2Payload> for VersionedDelegateAction<'a> {
+    fn from(delegate_action: &'a DelegateActionV2Payload) -> Self {
+        match delegate_action {
+            DelegateActionV2Payload::V2(delegate_action) => {
+                VersionedDelegateAction::V2(delegate_action)
+            }
+        }
+    }
+}
+
+/// Convenience wrapper for common logic accessing signed delegate actions of
+/// different versions.
+#[derive(Clone, Copy, Debug)]
+pub enum VersionedSignedDelegateAction<'a> {
+    V1(&'a SignedDelegateAction),
+    V2(&'a SignedDelegateActionV2),
+}
+
+impl VersionedSignedDelegateAction<'_> {
+    pub fn delegate_action(&self) -> VersionedDelegateAction<'_> {
+        match self {
+            VersionedSignedDelegateAction::V1(signed) => (&signed.delegate_action).into(),
+            VersionedSignedDelegateAction::V2(signed) => (&signed.delegate_action).into(),
+        }
+    }
+
+    pub fn verify(&self) -> bool {
+        match self {
+            VersionedSignedDelegateAction::V1(signed) => signed.verify(),
+            VersionedSignedDelegateAction::V2(signed) => signed.verify(),
+        }
+    }
+}
+
+impl<'a> From<&'a SignedDelegateAction> for VersionedSignedDelegateAction<'a> {
+    fn from(signed: &'a SignedDelegateAction) -> Self {
+        VersionedSignedDelegateAction::V1(signed)
+    }
+}
+
+impl<'a> From<&'a SignedDelegateActionV2> for VersionedSignedDelegateAction<'a> {
+    fn from(signed: &'a SignedDelegateActionV2) -> Self {
+        VersionedSignedDelegateAction::V2(signed)
+    }
+}
+
 impl DelegateAction {
     pub fn get_actions(&self) -> Vec<Action> {
         self.actions.iter().map(|a| a.clone().into()).collect()
@@ -131,12 +385,12 @@ impl schemars::JsonSchema for NonDelegateAction {
         if let Some(one_of) = action_schema.get_mut("oneOf")
             && let Some(arr) = one_of.as_array_mut()
         {
-            // Remove the Delegate variant
+            // Remove every delegate-style variant; none may be nested.
             arr.retain(|variant| {
                 !variant
                     .get("properties")
                     .and_then(|p| p.as_object())
-                    .map(|p| p.contains_key("Delegate"))
+                    .map(|p| DELEGATE_VARIANT_NAMES.iter().any(|name| p.contains_key(*name)))
                     .unwrap_or(false)
             });
         }
@@ -163,25 +417,23 @@ mod private_non_delegate_action {
     }
 
     #[derive(Debug, thiserror::Error)]
-    #[error("attempted to construct NonDelegateAction from Action::Delegate")]
+    #[error(
+        "attempted to construct NonDelegateAction from a delegate action (Delegate or DelegateV2)"
+    )]
     pub struct IsDelegateAction;
 
     impl TryFrom<Action> for NonDelegateAction {
         type Error = IsDelegateAction;
 
         fn try_from(action: Action) -> Result<Self, IsDelegateAction> {
-            if matches!(action, Action::Delegate(_)) {
-                Err(IsDelegateAction)
-            } else {
-                Ok(Self(action))
-            }
+            if action.is_delegate() { Err(IsDelegateAction) } else { Ok(Self(action)) }
         }
     }
 
     impl borsh::de::BorshDeserialize for NonDelegateAction {
         fn deserialize_reader<R: Read>(rd: &mut R) -> ::core::result::Result<Self, Error> {
             match u8::deserialize_reader(rd)? {
-                ACTION_DELEGATE_NUMBER => Err(Error::new(
+                n if DELEGATE_VARIANT_NUMBERS.contains(&n) => Err(Error::new(
                     ErrorKind::InvalidInput,
                     "DelegateAction mustn't contain a nested one",
                 )),
@@ -195,7 +447,104 @@ mod private_non_delegate_action {
 mod tests {
     use super::*;
     use crate::action::CreateAccountAction;
-    use near_crypto::KeyType;
+    use near_crypto::{InMemorySigner, KeyType};
+
+    #[test]
+    fn test_signed_delegate_action_v2_verify() {
+        let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
+        let delegate_action = DelegateActionV2 {
+            sender_id: "alice.near".parse().unwrap(),
+            receiver_id: "bob.near".parse().unwrap(),
+            actions: vec![],
+            nonce: TransactionNonce::from_nonce_and_index(1, 3),
+            max_block_height: 1000,
+            public_key: signer.public_key(),
+        };
+        let signed = SignedDelegateActionV2::sign(&signer, delegate_action.clone().into());
+        assert!(signed.verify());
+
+        // A signature bound to nonce index 3 must not verify for another index.
+        let forged = SignedDelegateActionV2 {
+            delegate_action: DelegateActionV2 {
+                nonce: TransactionNonce::from_nonce_and_index(1, 4),
+                ..delegate_action.clone()
+            }
+            .into(),
+            signature: signed.signature,
+        };
+        assert!(!forged.verify());
+
+        // A signature under the V1 message discriminant must not verify for a
+        // V2 action; V1 and V2 signing domains are disjoint.
+        let versioned = DelegateActionV2Payload::from(delegate_action);
+        let v1_tagged_signature =
+            SignableMessage::new(&versioned, SignableMessageType::DelegateAction).sign(&signer);
+        let forged =
+            SignedDelegateActionV2 { delegate_action: versioned, signature: v1_tagged_signature };
+        assert!(!forged.verify());
+    }
+
+    #[test]
+    fn test_delegate_action_v2_borsh_roundtrip() {
+        let action: Action = SignedDelegateActionV2 {
+            delegate_action: DelegateActionV2 {
+                sender_id: "alice.near".parse().unwrap(),
+                receiver_id: "bob.near".parse().unwrap(),
+                actions: vec![],
+                nonce: TransactionNonce::from_nonce_and_index(1, 7),
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            }
+            .into(),
+            signature: Signature::empty(KeyType::ED25519),
+        }
+        .into();
+        let bytes = borsh::to_vec(&action).unwrap();
+        assert_eq!(bytes[0], ACTION_DELEGATE_V2_NUMBER);
+        assert_eq!(Action::try_from_slice(&bytes).unwrap(), action);
+    }
+
+    #[test]
+    fn test_delegate_variant_encodings_match() {
+        let delegate_v2: Action = SignedDelegateActionV2 {
+            delegate_action: DelegateActionV2 {
+                sender_id: "alice.near".parse().unwrap(),
+                receiver_id: "bob.near".parse().unwrap(),
+                actions: vec![],
+                nonce: TransactionNonce::from_nonce_and_index(1, 0),
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            }
+            .into(),
+            signature: Signature::empty(KeyType::ED25519),
+        }
+        .into();
+        let delegates = [create_delegate_action(vec![]), delegate_v2];
+
+        for action in &delegates {
+            assert!(action.is_delegate());
+            let bytes = borsh::to_vec(action).unwrap();
+            assert!(DELEGATE_VARIANT_NUMBERS.contains(&bytes[0]));
+            // NonDelegateAction refuses it via both the typed and borsh paths.
+            assert!(NonDelegateAction::try_from(action.clone()).is_err());
+            assert_eq!(
+                NonDelegateAction::try_from_slice(&bytes).map_err(|e| e.kind()),
+                Err(ErrorKind::InvalidInput)
+            );
+            #[cfg(feature = "schemars")]
+            assert!(DELEGATE_VARIANT_NAMES.contains(&action.as_ref()));
+        }
+        assert_eq!(DELEGATE_VARIANT_NUMBERS.len(), delegates.len());
+        #[cfg(feature = "schemars")]
+        assert_eq!(DELEGATE_VARIANT_NAMES.len(), delegates.len());
+
+        // A non-delegate is accepted and absent from the reject set.
+        let non_delegate = Action::CreateAccount(CreateAccountAction {});
+        assert!(!non_delegate.is_delegate());
+        let bytes = borsh::to_vec(&non_delegate).unwrap();
+        assert!(!DELEGATE_VARIANT_NUMBERS.contains(&bytes[0]));
+        assert!(NonDelegateAction::try_from(non_delegate).is_ok());
+    }
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
     ///
@@ -295,48 +644,32 @@ mod tests {
             .as_array()
             .expect("NonDelegateAction oneOf must be an array");
 
-        // Verify that none of the variants have a Delegate property
-        for variant in one_of {
-            if let Some(properties) = variant.get("properties") {
-                if let Some(props_obj) = properties.as_object() {
-                    assert!(
-                        !props_obj.contains_key("Delegate"),
-                        "NonDelegateAction schema should not contain Delegate variant"
-                    );
-                }
-            }
-        }
+        // No delegate-style variant may appear.
+        let has_delegate_variant = |variant: &serde_json::Value| {
+            variant
+                .get("properties")
+                .and_then(|p| p.as_object())
+                .map(|p| DELEGATE_VARIANT_NAMES.iter().any(|name| p.contains_key(*name)))
+                .unwrap_or(false)
+        };
+        assert!(
+            !one_of.iter().any(has_delegate_variant),
+            "NonDelegateAction schema must not contain any delegate variant"
+        );
 
-        // Verify that the Action schema (for comparison) does include Delegate
+        // Action (for comparison) includes all delegate variants.
         let action_schema = Action::json_schema(&mut generator);
         let action_json = serde_json::to_value(&action_schema).unwrap();
-
-        // Action MUST have a oneOf array
         let action_one_of = action_json
             .get("oneOf")
             .expect("Action schema must have oneOf")
             .as_array()
             .expect("Action oneOf must be an array");
 
-        // Count how many variants have Delegate
-        let delegate_count = action_one_of
-            .iter()
-            .filter(|variant| {
-                variant
-                    .get("properties")
-                    .and_then(|p| p.as_object())
-                    .map(|p| p.contains_key("Delegate"))
-                    .unwrap_or(false)
-            })
-            .count();
+        let delegate_count = action_one_of.iter().filter(|v| has_delegate_variant(v)).count();
+        assert_eq!(delegate_count, DELEGATE_VARIANT_NAMES.len());
 
-        assert_eq!(delegate_count, 1, "Action schema should contain exactly one Delegate variant");
-
-        // NonDelegateAction should have one less variant than Action
-        assert_eq!(
-            one_of.len(),
-            action_one_of.len() - 1,
-            "NonDelegateAction should have one less variant than Action (excluding Delegate)"
-        );
+        // NonDelegateAction excludes exactly the delegate variants.
+        assert_eq!(one_of.len(), action_one_of.len() - DELEGATE_VARIANT_NAMES.len());
     }
 }

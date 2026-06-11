@@ -3,6 +3,7 @@
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::DeployGlobalContractAction;
+use near_primitives::action::delegate::VersionedDelegateAction;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
@@ -135,6 +136,20 @@ pub fn total_send_fees(
                     )?)
                     .unwrap()
             }
+            DelegateV2(signed_delegate_action) => {
+                let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
+                let delegate_action =
+                    VersionedDelegateAction::from(&signed_delegate_action.delegate_action);
+
+                delegate_cost
+                    .checked_add(total_send_fees(
+                        config,
+                        sender_is_receiver,
+                        &delegate_action.get_actions(),
+                        delegate_action.receiver_id(),
+                    )?)
+                    .unwrap()
+            }
             DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
                 let num_bytes = code.len() as u64;
 
@@ -241,6 +256,19 @@ pub fn total_prepaid_send_fees(
                     &delegate_action.receiver_id,
                 )?
             }
+            DelegateV2(signed_delegate_action) => {
+                let delegate_action =
+                    VersionedDelegateAction::from(&signed_delegate_action.delegate_action);
+                let sender_is_receiver =
+                    delegate_action.sender_id() == delegate_action.receiver_id();
+
+                total_send_fees(
+                    config,
+                    sender_is_receiver,
+                    &delegate_action.get_actions(),
+                    delegate_action.receiver_id(),
+                )?
+            }
             _ => ParameterCost::ZERO,
         };
         result = result.checked_add_result(delta)?;
@@ -288,6 +316,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
+        DelegateV2(_) => fees.fee(ActionCosts::delegate).exec_fee(),
         DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
             let num_bytes = code.len() as u64;
             let base_fee = fees.fee(ActionCosts::deploy_global_contract_base).exec_fee();
@@ -455,6 +484,17 @@ fn signature_kind(key_type: KeyType) -> SignatureKind {
     }
 }
 
+/// Inner delegate action of a delegate-style action (`Delegate` or
+/// `DelegateV2`), used by the recursive cost/fee functions so both variants are
+/// handled identically.
+fn delegate_inner_action(action: &Action) -> Option<VersionedDelegateAction<'_>> {
+    match action {
+        Action::Delegate(a) => Some((&a.delegate_action).into()),
+        Action::DelegateV2(a) => Some((&a.delegate_action).into()),
+        _ => None,
+    }
+}
+
 /// Extra cost burnt at conversion for the signature verifications this
 /// transaction triggers: the signer's own signature plus each `Delegate`
 /// action's inner signer, each looked up by scheme in
@@ -471,8 +511,8 @@ fn signature_verification_cost(
     let costs = &fees.signature_verification_costs;
     let mut total = costs[signature_kind(signer_public_key.key_type())];
     for action in actions {
-        if let Action::Delegate(signed_delegate_action) = action {
-            let kind = signature_kind(signed_delegate_action.delegate_action.public_key.key_type());
+        if let Some(delegate_action) = delegate_inner_action(action) {
+            let kind = signature_kind(delegate_action.public_key().key_type());
             total = total.checked_add_result(costs[kind])?;
         }
     }
@@ -489,18 +529,14 @@ pub fn total_prepaid_exec_fees(
     let fees = &config.fees;
     for action in actions {
         let mut delta;
-        // In case of Action::Delegate it's needed to add Gas which is required for the inner actions.
-        if let Action::Delegate(signed_delegate_action) = action {
-            let actions = signed_delegate_action.delegate_action.get_actions();
-            delta = total_prepaid_exec_fees(
-                config,
-                &actions,
-                &signed_delegate_action.delegate_action.receiver_id,
-            )?;
+        // For a delegate action it's needed to add gas required for the inner actions.
+        if let Some(delegate_action) = delegate_inner_action(action) {
+            let actions = delegate_action.get_actions();
+            delta = total_prepaid_exec_fees(config, &actions, delegate_action.receiver_id())?;
             delta = delta.checked_add_result(exec_fee(
                 config,
                 action,
-                &signed_delegate_action.delegate_action.receiver_id,
+                delegate_action.receiver_id(),
             ))?;
             delta =
                 delta.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
@@ -517,10 +553,10 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
     let mut total_balance = Balance::ZERO;
     for action in actions {
         let action_balance;
-        if let Action::Delegate(signed_delegate_action) = action {
+        if let Some(delegate_action) = delegate_inner_action(action) {
             // Note, here Relayer pays the deposit but if actions fail, the deposit is
             // refunded to Sender of DelegateAction
-            let actions = signed_delegate_action.delegate_action.get_actions();
+            let actions = delegate_action.get_actions();
             action_balance = total_deposit(&actions)?;
         } else {
             action_balance = action.get_deposit_balance();
@@ -547,8 +583,8 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
     let mut total_gas = Gas::ZERO;
     for action in actions {
         let action_gas;
-        if let Action::Delegate(signed_delegate_action) = action {
-            let actions = signed_delegate_action.delegate_action.get_actions();
+        if let Some(delegate_action) = delegate_inner_action(action) {
+            let actions = delegate_action.get_actions();
             action_gas = total_prepaid_gas(&actions)?;
         } else {
             action_gas = action.get_prepaid_gas();
@@ -564,8 +600,10 @@ mod tests {
     use super::*;
     use near_crypto::SecretKey;
     use near_primitives::action::TransferAction;
-    use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-    use near_primitives::transaction::TransactionV0;
+    use near_primitives::action::delegate::{
+        DelegateAction, DelegateActionV2, SignedDelegateAction, SignedDelegateActionV2,
+    };
+    use near_primitives::transaction::{TransactionNonce, TransactionV0};
     use std::sync::Arc;
 
     const VERIFY_GAS: u64 = 80_000_000_000;
@@ -668,6 +706,41 @@ mod tests {
             two.gas_burnt.as_gas(),
             ed_inner.gas_burnt.as_gas() + 2 * VERIFY_GAS,
             "outer + inner verify charged"
+        );
+    }
+
+    fn delegate_v2_with_inner(inner_key_type: KeyType) -> Action {
+        let public_key = SecretKey::from_seed(inner_key_type, "inner").public_key();
+        let signature = SecretKey::from_seed(KeyType::ED25519, "dummy").sign(b"x");
+        Action::DelegateV2(Box::new(SignedDelegateActionV2 {
+            delegate_action: DelegateActionV2 {
+                sender_id: "alice.near".parse().unwrap(),
+                receiver_id: "bob.near".parse().unwrap(),
+                actions: vec![transfer().try_into().unwrap()],
+                nonce: TransactionNonce::from_nonce_and_index(1, 0),
+                max_block_height: 100,
+                public_key,
+            }
+            .into(),
+            signature,
+        }))
+    }
+
+    #[test]
+    fn delegate_v2_inner_costs_counted() {
+        assert_eq!(
+            total_deposit(&[delegate_v2_with_inner(KeyType::ED25519)]).unwrap(),
+            Balance::from_yoctonear(1),
+            "inner transfer deposit must be counted"
+        );
+
+        let config = config_with_verify_gas(VERIFY_GAS);
+        let ed = cost_of(&config, KeyType::ED25519, vec![delegate_v2_with_inner(KeyType::ED25519)]);
+        let pq = cost_of(&config, KeyType::ED25519, vec![delegate_v2_with_inner(KeyType::MLDSA65)]);
+        assert_eq!(
+            pq.gas_burnt.as_gas(),
+            ed.gas_burnt.as_gas() + VERIFY_GAS,
+            "inner PQ verify charged for V2 delegate"
         );
     }
 

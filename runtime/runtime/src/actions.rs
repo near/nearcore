@@ -765,7 +765,7 @@ pub(crate) fn check_actor_permissions(
         | Action::FunctionCall(_)
         | Action::Transfer(_)
         | Action::TransferToGasKey(_) => (),
-        Action::Delegate(_) => (),
+        Action::Delegate(_) | Action::DelegateV2(_) => (),
         Action::DeterministicStateInit(_) => (),
     };
     Ok(())
@@ -825,6 +825,7 @@ pub(crate) fn check_account_existence(
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
+        | Action::DelegateV2(_)
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
         | Action::TransferToGasKey(_)
