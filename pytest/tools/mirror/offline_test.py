@@ -448,17 +448,8 @@ def build_images(config, test_cases):
                              str(check_fork_dir),
                              ordinal=1,
                              single_node=True)
-    # Wait until the node serves a final block: check_fork queries use
-    # finality=final, and RPC-level errors come back as 200s with an 'error'
-    # field rather than raising, so check the response body.
-    for attempt in range(30):
-        time.sleep(2)
-        try:
-            res = temp_node.json_rpc('block', {'finality': 'final'})
-        except Exception:
-            continue
-        if 'error' not in res:
-            break
+    # check_fork queries use finality=final
+    utils.wait_for_final_block(temp_node)
 
     for tc in test_cases:
         tc.check_fork(temp_node)

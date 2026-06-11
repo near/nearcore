@@ -371,6 +371,26 @@ def poll_blocks(node: cluster.LocalNode,
     raise AssertionError(msg)
 
 
+def wait_for_final_block(node: cluster.BaseNode, timeout: float = 60) -> None:
+    """Waits until the node serves a final block.
+
+    A freshly started node has no final block for the first few seconds, and
+    RPC-level errors come back as 200 responses with an 'error' field rather
+    than raising, so check the response body.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            res = node.get_final_block()
+        except Exception:
+            pass
+        else:
+            if 'error' not in res:
+                return
+        time.sleep(2)
+    raise AssertionError(f'node did not serve a final block within {timeout}s')
+
+
 def wait_for_blocks(node: cluster.LocalNode,
                     *,
                     target: typing.Optional[int] = None,
