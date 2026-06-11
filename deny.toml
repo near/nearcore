@@ -72,6 +72,9 @@ skip = [
     # criterion, rocksdb depend on this older version of the crate.
     { name = "rustc-hash", version = "<2" },
 
+    # bindgen (build-dep of librocksdb-sys) pulls an older itertools.
+    { name = "itertools", version = "=0.13.0" },
+
     # Hashbrowns
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },

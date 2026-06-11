@@ -80,6 +80,9 @@ jobs:
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        uses: ./.github/actions/install-clang
+
       # Run the tests
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
         if: (github.event_name != 'pull_request' || matrix.run_on_pr)
@@ -151,6 +154,7 @@ jobs:
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
       - run: echo "CARGO=1" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/install-clang
       - run: cargo build --profile dev-release -p neard --bin neard --features nightly
       # Note: We're not running spin_up_cluster.py for non-nightly
       # because spinning up non-nightly clusters is already covered
@@ -194,6 +198,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
+      - uses: ./.github/actions/install-clang
       - run: just check-protocol-schema
 
   py_style_check:
@@ -265,6 +270,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
+      - uses: ./.github/actions/install-clang
       - run: just check-cargo-clippy
 
   doctests:
@@ -295,6 +301,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
+      - uses: ./.github/actions/install-clang
       - run: just doctests
 
   spellcheck:
@@ -403,6 +410,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-udeps
+      - uses: ./.github/actions/install-clang
       - run: just check-cargo-udeps
 
   cargo_audit:
