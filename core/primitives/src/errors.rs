@@ -358,7 +358,7 @@ pub enum InvalidAccessKeyError {
     DepositWithFunctionCall = 5,
     /// Gas keys track nonces per index in dedicated storage, which the delegate
     /// action path does not support, so a gas key can't sign a delegate action.
-    RequiresNonGasKey = 6,
+    DelegateActionRequiresNonGasKey = 6,
 }
 
 /// Describes the error for validating a list of actions.
@@ -991,7 +991,7 @@ impl Display for InvalidAccessKeyError {
                     "Having a deposit with a function call action is not allowed with a function call access key."
                 )
             }
-            InvalidAccessKeyError::RequiresNonGasKey => {
+            InvalidAccessKeyError::DelegateActionRequiresNonGasKey => {
                 write!(f, "Gas keys can't be used to sign a delegate action")
             }
         }

@@ -624,7 +624,7 @@ fn validate_delegate_action_key(
     // than silently advancing an unrelated counter and bypassing the gas key balance.
     if access_key.gas_key_info().is_some() {
         result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-            InvalidAccessKeyError::RequiresNonGasKey,
+            InvalidAccessKeyError::DelegateActionRequiresNonGasKey,
         )
         .into());
         return Ok(());
@@ -1901,7 +1901,7 @@ mod tests {
         assert_eq!(
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::RequiresNonGasKey,
+                InvalidAccessKeyError::DelegateActionRequiresNonGasKey,
             )
             .into())
         );
@@ -1919,7 +1919,7 @@ mod tests {
         assert_eq!(
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::RequiresNonGasKey,
+                InvalidAccessKeyError::DelegateActionRequiresNonGasKey,
             )
             .into())
         );
