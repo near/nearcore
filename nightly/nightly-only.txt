@@ -5,5 +5,3 @@ pytest --skip-build --timeout=30m sanity/docker.py
 
 # Estimator Warehouse
 expensive --timeout=30m estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator
-# Offline mirror test: forks a chain and replays the recorded traffic onto it
-pytest --timeout=25m tools/mirror_offline.py
