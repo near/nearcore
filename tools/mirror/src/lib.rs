@@ -1898,12 +1898,12 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut sent_source_height = None;
 
         loop {
-            (&mut send_time).await;
-
-            if shutdown.is_cancelled() {
+            tokio::select! {
+                biased;
                 // stop sending and drop our end of blocks_sent, which tells
                 // queue_txs_loop that every batch we sent is now in the channel
-                return Ok(());
+                _ = shutdown.cancelled() => return Ok(()),
+                _ = &mut send_time => {}
             }
 
             let tx_batch = {
@@ -2005,9 +2005,8 @@ impl<T: ChainAccess> TxMirror<T> {
 
         loop {
             let msg = target_stream.recv().await.unwrap();
-            let msg_height = msg.block.header.height;
             *target_head.write() = msg.block.header.hash;
-            *target_height.write() = msg_height;
+            *target_height.write() = msg.block.header.height;
             let target_block_info = {
                 let mut tracker = tracker.lock();
                 tracker.on_target_block(&tx_block_queue, db.as_ref(), msg)?
@@ -2078,7 +2077,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     while let Some(tx_batch) = blocks_sent.recv().await {
                         self.record_sent_batch(tx_batch, &tracker, &tx_block_queue, &target_height, &send_delay)?;
                     }
-                    return Self::drain_sent_txs(&tracker).await;
+                    break;
                 }
                 // time to send a batch of transactions
                 _ = queue_txs_time.tick() => {
@@ -2087,8 +2086,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 tx_batch = blocks_sent.recv() => {
                     let Some(tx_batch) = tx_batch else {
-                        // the send loop exited on cancellation
-                        return Self::drain_sent_txs(&tracker).await;
+                        if !shutdown.is_cancelled() {
+                            anyhow::bail!("send tx loop exited unexpectedly");
+                        }
+                        break;
                     };
                     source_hash = tx_batch.source_hash;
                     self.record_sent_batch(tx_batch, &tracker, &tx_block_queue, &target_height, &send_delay)?;
@@ -2114,16 +2115,21 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
             }
         }
+        Self::drain_sent_txs(&tracker, &mut accounts_to_unstake).await
     }
 
     // waits until the still-running target indexer observes every sent tx in a
     // target block, since a restart would resume past any tx not yet included
     async fn drain_sent_txs(
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
+        accounts_to_unstake: &mut mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
     ) -> anyhow::Result<()> {
         tracing::info!(target: "mirror", "stopped sending, waiting for already sent transactions to appear on the target chain");
         let deadline = Instant::now() + DRAIN_TIMEOUT;
         loop {
+            // discard unstake events so the indexer never blocks on a full
+            // channel, which would stop it from observing the sent txs
+            while accounts_to_unstake.try_recv().is_ok() {}
             let sent_txs_remaining = tracker.lock().sent_txs_remaining();
             if sent_txs_remaining == 0 {
                 tracing::info!(target: "mirror", "all sent transactions observed on the target chain, exiting after drain");
@@ -2211,6 +2217,9 @@ impl<T: ChainAccess> TxMirror<T> {
         if let Some(stop_height) = stop_height {
             if last_height >= stop_height {
                 tracing::info!(target: "mirror", stop_height, last_height, "already sent all transactions up to --stop-height");
+                // in online mode the source node is already running, and its
+                // db handles keep the process alive unless the actors stop
+                actor_system.stop();
                 return Ok(());
             }
         }
