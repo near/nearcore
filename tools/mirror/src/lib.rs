@@ -449,8 +449,6 @@ struct MirrorConfig {
 
 const CREATE_ACCOUNT_DELTA: usize = 5;
 
-const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
-
 // TODO: separate out the code that uses the target chain clients, and
 // make it an option to send the transactions to some RPC node.
 // that way it would be possible to run this code and send transactions with an
@@ -2124,6 +2122,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         accounts_to_unstake: &mut mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
     ) -> anyhow::Result<()> {
+        const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
         tracing::info!(target: "mirror", "stopped sending, waiting for already sent transactions to appear on the target chain");
         let deadline = Instant::now() + DRAIN_TIMEOUT;
         loop {
