@@ -2209,19 +2209,6 @@ impl<T: ChainAccess> TxMirror<T> {
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
 
-        // When resuming after having already sent everything up to --stop-height (e.g. a
-        // restart of a finished mirror over a finite source), there are no more blocks to
-        // send and we're done. Without this we'd bail below as if the source were broken.
-        if let Some(stop_height) = stop_height {
-            if last_height >= stop_height {
-                tracing::info!(target: "mirror", stop_height, last_height, "already sent all transactions up to --stop-height");
-                // in online mode the source node is already running, and its
-                // db handles keep the process alive unless the actors stop
-                actor_system.stop();
-                return Ok(());
-            }
-        }
-
         let next_heights =
             self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA + 1).await?;
 
