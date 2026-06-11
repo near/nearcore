@@ -1431,10 +1431,7 @@
               "DelegateV2": {
                 "properties": {
                   "delegate_action": {
-                    "$ref": "#/components/schemas/DelegateAction"
-                  },
-                  "extension": {
-                    "$ref": "#/components/schemas/DelegateActionExtension"
+                    "$ref": "#/components/schemas/DelegateActionV2"
                   },
                   "signature": {
                     "$ref": "#/components/schemas/Signature"
@@ -1442,7 +1439,6 @@
                 },
                 "required": [
                   "delegate_action",
-                  "extension",
                   "signature"
                 ],
                 "type": "object"
@@ -3290,36 +3286,65 @@
         "title": "DelegateAction",
         "type": "object"
       },
-      "DelegateActionExtension": {
-        "description": "Extra information carried by a `SignedDelegateActionV2` alongside the inner\n`DelegateAction`. New delegate-action capabilities add a variant here rather\nthan a whole new signed action type.",
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "description": "Signed by a gas key. `nonce_index` selects one of the gas key's parallel\nnonces, which the `DelegateAction.nonce` advances.",
-            "properties": {
-              "GasKey": {
-                "properties": {
-                  "nonce_index": {
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "nonce_index"
-                ],
-                "type": "object"
-              }
+      "DelegateActionV2": {
+        "description": "Delegate action with gas key support: `nonce` selects either the access\nkey's nonce or one of a gas key's parallel nonces by index, mirroring\n`TransactionV1`.",
+        "properties": {
+          "actions": {
+            "description": "List of actions to be executed.",
+            "items": {
+              "$ref": "#/components/schemas/NonDelegateAction"
             },
-            "required": [
-              "GasKey"
+            "type": "array"
+          },
+          "max_block_height": {
+            "description": "The maximal height of the block in the blockchain below which the given DelegateActionV2 is valid.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TransactionNonce"
+              }
             ],
-            "title": "GasKey",
-            "type": "object"
+            "description": "Nonce of the signing key, advanced when this action is processed. For\na gas key it also selects which of the parallel nonces to advance."
+          },
+          "public_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "Public key used to sign this delegated action."
+          },
+          "receiver_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "Receiver of the delegated actions."
+          },
+          "sender_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "Signer of the delegated actions"
           }
+        },
+        "required": [
+          "sender_id",
+          "receiver_id",
+          "actions",
+          "nonce",
+          "max_block_height",
+          "public_key"
         ],
-        "title": "DelegateActionExtension"
+        "title": "DelegateActionV2",
+        "type": "object"
       },
       "DeleteAccountAction": {
         "properties": {
@@ -6047,18 +6072,13 @@
             "type": "string"
           },
           {
-<<<<<<< HEAD
             "const": "DelegateActionRequiresNonGasKey",
-            "description": "Gas keys track nonces per index in dedicated storage, which the delegate\naction path does not support, so a gas key can't sign a delegate action.",
-=======
-            "const": "RequiresNonGasKey",
-            "description": "Gas keys track nonces per index in dedicated storage, which a plain\n`Delegate` action does not support, so a gas key must sign a `DelegateV2`\nwith a `GasKey` extension instead.",
+            "description": "Gas keys track nonces per index in dedicated storage, which a plain\naccess key nonce does not select, so a gas key must sign a `DelegateV2`\nwith a gas key nonce instead.",
             "type": "string"
           },
           {
-            "const": "RequiresGasKey",
-            "description": "A `DelegateV2` with a `GasKey` extension must be signed by a gas key.",
->>>>>>> 0dc2ee58e (chore(gas-keys): regenerate openapi and protocol schema)
+            "const": "DelegateActionRequiresGasKey",
+            "description": "A delegate action with a gas key nonce must be signed by a gas key.",
             "type": "string"
           }
         ],
@@ -10864,13 +10884,9 @@
         "type": "object"
       },
       "SignedDelegateActionV2": {
-        "description": "Meta transaction carrying a `DelegateAction` plus extensible extra info in\n`extension`. The signature binds the inner action and the extension together.",
         "properties": {
           "delegate_action": {
-            "$ref": "#/components/schemas/DelegateAction"
-          },
-          "extension": {
-            "$ref": "#/components/schemas/DelegateActionExtension"
+            "$ref": "#/components/schemas/DelegateActionV2"
           },
           "signature": {
             "$ref": "#/components/schemas/Signature"
@@ -10878,7 +10894,6 @@
         },
         "required": [
           "delegate_action",
-          "extension",
           "signature"
         ],
         "title": "SignedDelegateActionV2",
@@ -12126,6 +12141,66 @@
           }
         ],
         "title": "TrackedShardsConfig"
+      },
+      "TransactionNonce": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Simple nonce without index, used by ordinary access keys",
+            "properties": {
+              "Nonce": {
+                "properties": {
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Nonce"
+            ],
+            "title": "Nonce",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Nonce with index, used by gas keys",
+            "properties": {
+              "GasKeyNonce": {
+                "properties": {
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "nonce_index": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce",
+                  "nonce_index"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyNonce"
+            ],
+            "title": "GasKeyNonce",
+            "type": "object"
+          }
+        ],
+        "title": "TransactionNonce"
       },
       "TransferAction": {
         "properties": {
