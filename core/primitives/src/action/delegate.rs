@@ -142,7 +142,7 @@ impl DelegateActionV2 {
     ///
     /// For more details, see: [NEP-461](https://github.com/near/NEPs/pull/461)
     pub fn get_nep461_hash(&self) -> CryptoHash {
-        let signable = SignableMessage::new(&self, SignableMessageType::DelegateAction);
+        let signable = SignableMessage::new(&self, SignableMessageType::DelegateActionV2);
         let bytes = borsh::to_vec(&signable).expect("failed to serialize");
         hash(&bytes)
     }
@@ -415,10 +415,18 @@ mod tests {
         let forged = SignedDelegateActionV2 {
             delegate_action: DelegateActionV2 {
                 nonce: TransactionNonce::from_nonce_and_index(1, 4),
-                ..delegate_action
+                ..delegate_action.clone()
             },
             signature: signed.signature,
         };
+        assert!(!forged.verify());
+
+        // A signature under the V1 message discriminant must not verify for a
+        // V2 action; V1 and V2 signing domains are disjoint.
+        let v1_tagged_signature =
+            SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction)
+                .sign(&signer);
+        let forged = SignedDelegateActionV2 { delegate_action, signature: v1_tagged_signature };
         assert!(!forged.verify());
     }
 
