@@ -1,25 +1,25 @@
 action_create_account: {
   old: {
-    send_sir: 3850000000000,
-    send_not_sir: 3850000000000,
-    execution: 3850000000000
+    send_sir: 3_850_000_000_000,
+    send_not_sir: 3_850_000_000_000,
+    execution: 3_850_000_000_000
   },
   new: {
-    send_sir: 500000000000,
-    send_not_sir: 500000000000,
-    execution: 7200000000000,
+    send_sir: 500_000_000_000,
+    send_not_sir: 500_000_000_000,
+    execution: 7_200_000_000_000,
   }
 }
 action_deterministic_state_init: {
   old: {
-    send_sir: 3850000000000,
-    send_not_sir: 3850000000000,
-    execution: 4080000000000
+    send_sir: 3_850_000_000_000,
+    send_not_sir: 3_850_000_000_000,
+    execution: 4_080_000_000_000
   },
   new: {
-    send_sir: 500000000000,
-    send_not_sir: 500000000000,
-    execution: 7430000000000
+    send_sir: 500_000_000_000,
+    send_not_sir: 500_000_000_000,
+    execution: 7_430_000_000_000
   }
 }
 # Minimum price at which gas attached to a receipt is purchased.
