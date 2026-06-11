@@ -814,36 +814,33 @@ pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL: LazyLock<IntCoun
 pub(crate) static PARTIAL_WITNESS_DB_LOOKUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_partial_witness_db_lookup_total",
-        "Hash-based chunk-producer lookups performed during V2 partial \
+        "Anchored chunk-producer lookups performed during V2 partial \
          witness validation. `result` is one of: `hit` (producer \
-         returned), `miss_prev_block` (prev block header not yet in the \
-         epoch manager — witness will be deferred), `miss_db_entry` \
-         (block known but DBCol::ChunkProducers entry absent — also \
-         deferred; a persistent non-zero rate signals an upstream writer \
-         bug), or `error` (other EpochError).",
+         returned), `miss_anchor_block` (anchor block not yet in the \
+         epoch manager — witness dropped), `miss_db_entry` (anchor known \
+         but DBCol::ChunkProducers row absent — also dropped; a \
+         persistent non-zero rate signals an upstream writer bug), or \
+         `error` (other EpochError).",
         &["shard_id", "result"],
     )
     .unwrap()
 });
 
-pub static PARTIAL_WITNESS_PENDING_CACHE_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "near_partial_witness_pending_cache_size",
-        "Current number of blocks with deferred V2 partial witnesses awaiting \
-         DBCol::ChunkProducers population.",
-    )
-    .unwrap()
-});
-
-// No shard_id label: eviction removes one `prev_block_hash` bucket which can
-// contain witnesses from multiple shards — no single shard to attribute to.
-pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL: LazyLock<IntCounter> =
+// ACCEPTED LIVENESS RISK: a part owner that is the sole holder of its RS part
+// and lacks the anchor state drops the part for the whole validator set. The
+// anchor is ~2 blocks behind the chunk, so a node missing it is 3+ blocks
+// behind within the head+5 relevance window — expected to be rare. Watch this
+// counter; if it shows up in practice, revisit (bounded anchor-keyed deferral
+// or a retransmit path).
+pub(crate) static PARTIAL_WITNESS_ANCHOR_ABSENT_DROPS_TOTAL: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
-        try_create_int_counter(
-            "near_partial_witness_pending_cache_evictions_total",
-            "Total LRU evictions from the V2 partial witness pending cache. \
-             Sustained non-zero rate indicates the 64-block capacity is tight \
-             relative to header-sync slowness or witness flood traffic.",
+        try_create_int_counter_vec(
+            "near_partial_witness_anchor_absent_drops_total",
+            "V2 partial witnesses dropped because the prev_prev anchor state \
+             was not available locally (node behind on blocks). No deferral: \
+             parts are verified before any caching, so an unverifiable part \
+             is dropped.",
+            &["shard_id"],
         )
         .unwrap()
     });

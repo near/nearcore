@@ -3,7 +3,7 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::epoch_info::EpochInfo;
+use near_primitives::epoch_info::{ChunkProducerKickoutState, EpochInfo};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -492,23 +492,71 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
-    /// Hash-based chunk producer lookup. When EarlyKickout is enabled for the
-    /// block's epoch, reads from the ChunkProducers DB column and errors on
-    /// miss. Otherwise falls back to deterministic computation.
+    /// Anchored chunk producer lookup: reads the kickout state at `anchor_hash`
+    /// (the chunk's prev_prev block) from `DBCol::ChunkProducers` and samples
+    /// the producer from the chunk epoch's `EpochInfo` at the chunk's signed
+    /// `height_created`.
     ///
-    /// Only safe to call when `prev_block_hash` is guaranteed to have been
-    /// processed (registered with the epoch manager via `add_validator_proposals`
-    /// and written to the ChunkProducers DB column via `save_chunk_producers_for_header`).
-    // TODO(early-kickout): once dynamic sampling ships and the DB may
-    // diverge from computation (blacklisted producers excluded), consider adding
-    // a lenient variant with computation fallback for non-critical paths.
-    fn get_chunk_producer_info_db(
+    /// `EpochInfo` and shard layout resolve by the chunk's `epoch_id`; the
+    /// kickout state resolves by `anchor_hash` (with the shard id remapped to
+    /// the anchor's shard layout across a resharding boundary). When
+    /// EarlyKickout is not enabled for the anchor's own epoch (pre-activation
+    /// anchors, plus every anchor on non-nightly builds), the state is the
+    /// identity (empty blacklist) and the result is byte-identical to
+    /// `get_chunk_producer_info`.
+    ///
+    /// Producer selection MUST resolve through this anchoring everywhere — the
+    /// chunk production gate, consensus chunk-header signature verification and
+    /// witness validation. A divergence between any two of those sites is a
+    /// chain split.
+    ///
+    /// Errors with `MissingBlock` when the anchor is unknown and
+    /// `ChunkProducerNotInDB` when the anchor is known but its state row is
+    /// missing; witness-path callers treat both as "anchor state not available"
+    /// and drop the message.
+    ///
+    /// Early kickout adjusts ONLY chunk-producer selection. The chunk
+    /// validator/endorser set stays sampled on (epoch, height) via
+    /// `get_chunk_validator_assignments` — intentionally independent: witness
+    /// part counts and part routing both derive from the validator set, so
+    /// they agree with each other regardless of producer kickout.
+    fn get_chunk_producer_info_anchored(
         &self,
-        prev_block_hash: &CryptoHash,
+        anchor_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError>;
 
+    /// Anchored chunk producer lookup for callers that hold the chunk's
+    /// processed prev block: derives the chunk's epoch, height and anchor from
+    /// `prev_block_hash` (`anchor = prev_block.prev_hash()`) and resolves via
+    /// `get_chunk_producer_info_anchored`. This derivation is the canonical
+    /// definition of a chunk's anchor; the `prev_prev_hash` carried by V2
+    /// witness messages is only a receiver availability shortcut and is
+    /// cross-checked against it once the prev block arrives.
+    fn get_chunk_producer_info_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let block_info = self.get_block_info(prev_block_hash)?;
+        let height_created = block_info.height() + 1;
+        self.get_chunk_producer_info_anchored(
+            block_info.prev_hash(),
+            &epoch_id,
+            height_created,
+            shard_id,
+        )
+    }
+
     /// Gets the chunk validators for a given height and shard.
+    ///
+    /// Intentionally NOT kickout-aware: early kickout blacklists only chunk
+    /// PRODUCERS (see `get_chunk_producer_info_anchored`); the validator set —
+    /// and with it the witness part count and part routing — remains a pure
+    /// function of (epoch, shard, height).
     fn get_chunk_validator_assignments(
         &self,
         epoch_id: &EpochId,
@@ -822,6 +870,64 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
 }
 
+impl EpochManagerHandle {
+    /// Kickout state at `anchor_hash` for a chunk shard living in
+    /// `chunk_shard_layout`. Pre-activation anchors (and every anchor on
+    /// non-nightly builds) resolve to the identity state; post-activation
+    /// anchors must have a row in `DBCol::ChunkProducers` (strict —
+    /// `ChunkProducerNotInDB` on a miss).
+    // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
+    // One option is a large RocksDB memtable for this column.
+    fn get_chunk_producer_kickout_state(
+        &self,
+        anchor_hash: &CryptoHash,
+        chunk_shard_layout: &ShardLayout,
+        chunk_shard_id: ShardId,
+    ) -> Result<ChunkProducerKickoutState, EpochError> {
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_primitives::version::ProtocolFeature;
+            use near_store::DBCol;
+            use near_store::adapter::StoreAdapter;
+
+            // Gate on the anchor's own epoch version: rows for an anchor exist
+            // iff the writer (`save_chunk_producers_for_header`) ran for it, and
+            // the writer gates on the anchor's epoch version. This also covers
+            // the activation edge where the anchor is pre-EarlyKickout while the
+            // chunk's epoch is post-activation.
+            let anchor_epoch_id = self.get_epoch_id(anchor_hash)?;
+            let anchor_protocol_version = self.get_epoch_protocol_version(&anchor_epoch_id)?;
+            if ProtocolFeature::EarlyKickout.enabled(anchor_protocol_version) {
+                // Rows are keyed under the shard layout of the epoch after the
+                // anchor; remap the chunk's shard id across at most one
+                // resharding boundary (the chunk's epoch is either that epoch or
+                // the one right after it).
+                let state_epoch_id = self.get_epoch_id_from_prev_block(anchor_hash)?;
+                let state_shard_layout = self.get_shard_layout(&state_epoch_id)?;
+                let state_shard_id = if state_shard_layout == *chunk_shard_layout {
+                    chunk_shard_id
+                } else {
+                    chunk_shard_layout.get_parent_shard_id(chunk_shard_id)?
+                };
+                let epoch_manager = self.read();
+                let key = get_block_shard_id(anchor_hash, state_shard_id);
+                return match epoch_manager
+                    .store
+                    .store_ref()
+                    .get_ser::<ChunkProducerKickoutState>(DBCol::ChunkProducers, &key)
+                {
+                    Some(state) => Ok(state),
+                    None => Err(EpochError::ChunkProducerNotInDB(*anchor_hash, state_shard_id)),
+                };
+            }
+        }
+        #[cfg(not(feature = "nightly"))]
+        let _ = (anchor_hash, chunk_shard_layout, chunk_shard_id);
+        Ok(ChunkProducerKickoutState::identity())
+    }
+}
+
 impl EpochManagerAdapter for EpochManagerHandle {
     fn num_total_parts(&self) -> usize {
         let epoch_manager = self.read();
@@ -948,49 +1054,29 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
 
-    fn get_chunk_producer_info_db(
+    fn get_chunk_producer_info_anchored(
         &self,
-        prev_block_hash: &CryptoHash,
+        anchor_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        // Check the protocol version of the block's OWN epoch (not the chunk's
-        // epoch). The DB entry was written when prev_block was processed, using
-        // the block's epoch version. At epoch boundaries the chunk's epoch may
-        // have EarlyKickout enabled while the parent block's epoch didn't.
-        // For genesis chunks (prev_block_hash = default), get_epoch_id returns
-        // the genesis epoch — the DB entry is saved during genesis init.
-        // When EarlyKickout is enabled for the block's epoch, read from the
-        // ChunkProducers DB column (strict — errors on miss).
-        // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
-        // One option is a large RocksDB memtable for this column.
-        #[cfg(feature = "nightly")]
-        {
-            use near_primitives::utils::get_block_shard_id;
-            use near_primitives::version::ProtocolFeature;
-            use near_store::DBCol;
-            use near_store::adapter::StoreAdapter;
-
-            let block_epoch_id = self.get_epoch_id(prev_block_hash)?;
-            let block_protocol_version = self.get_epoch_protocol_version(&block_epoch_id)?;
-            if ProtocolFeature::EarlyKickout.enabled(block_protocol_version) {
-                let epoch_manager = self.read();
-                let key = get_block_shard_id(prev_block_hash, shard_id);
-                return match epoch_manager
-                    .store
-                    .store_ref()
-                    .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-                {
-                    Some(validator) => Ok(validator),
-                    None => Err(EpochError::ChunkProducerNotInDB(*prev_block_hash, shard_id)),
-                };
-            }
-        }
-        // Feature not enabled for prev_block's epoch — fall back to computation.
-        let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let block_info = self.get_block_info(prev_block_hash)?;
-        let height = block_info.height() + 1;
-        let cpk = ChunkProductionKey { epoch_id: chunk_epoch_id, height_created: height, shard_id };
-        self.get_chunk_producer_info(&cpk)
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let kickout_state =
+            self.get_chunk_producer_kickout_state(anchor_hash, &shard_layout, shard_id)?;
+        let Some(validator_id) = epoch_info.sample_chunk_producer_with_kickout(
+            &shard_layout,
+            shard_id,
+            height_created,
+            &kickout_state,
+        ) else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                shard_id, height_created,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
     }
 
     fn get_chunk_validator_assignments(

@@ -1,10 +1,10 @@
-/// Tests for the ChunkProducers DB column across resharding boundaries.
+/// Tests for the ChunkProducers kickout-state column across resharding boundaries.
 ///
-/// Verifies that `get_chunk_producer_info_db(prev_block_hash, shard_id)` returns
-/// the correct chunk producer even when the shard layout changes between epochs
-/// (i.e. a shard that didn't exist in epoch E1 can be looked up using the hash
-/// of the last block in E1, because the write side saves using the next epoch's
-/// shard layout at the boundary).
+/// Verifies that `get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id)`
+/// returns the correct chunk producer even when the shard layout changes between
+/// epochs. With the last block of E1 as the prev block, the chunk lives in the
+/// new layout while the anchor (prev_prev) state rows live in the old layout, so
+/// this exercises the resolver's shard-id remap across the resharding boundary.
 #[cfg(feature = "nightly")]
 mod tests {
     use crate::setup::builder::TestLoopBuilder;
@@ -106,17 +106,20 @@ mod tests {
         );
 
         // For every shard in the NEW layout (including shards that didn't exist
-        // in the old layout), verify that get_chunk_producer_info_db returns a
-        // valid result using the last block hash of the OLD epoch.
+        // in the old layout), verify that the anchored lookup returns a valid
+        // result using the last block hash of the OLD epoch as the prev block
+        // (the anchor is then that block's prev, whose state rows are keyed
+        // under the OLD layout).
         let next_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(boundary_block_hash).unwrap();
         let next_height = block.header().height() + 1;
 
         for shard_id in new_shard_layout.shard_ids() {
-            let db_result = epoch_manager.get_chunk_producer_info_db(boundary_block_hash, shard_id);
+            let db_result = epoch_manager
+                .get_chunk_producer_info_from_prev_block(boundary_block_hash, shard_id);
             assert!(
                 db_result.is_ok(),
-                "get_chunk_producer_info_db failed for shard_id={} at boundary block: {:?}",
+                "get_chunk_producer_info_from_prev_block failed for shard_id={} at boundary block: {:?}",
                 shard_id,
                 db_result.err()
             );

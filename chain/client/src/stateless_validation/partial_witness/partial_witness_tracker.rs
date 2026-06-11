@@ -27,11 +27,19 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
 
-/// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
-/// of the partial_witness so the LRU cache size need not be too large.
+/// Max number of assembly buckets to keep in the witness tracker cache. We reach here only after
+/// validation of the partial_witness so the LRU cache size need not be too large.
 /// This effectively limits memory usage to the size of the cache multiplied by
 /// MAX_COMPRESSED_STATE_WITNESS_SIZE times the number of shards.
-const WITNESS_PARTS_CACHE_SIZE: usize = 5;
+///
+/// Buckets are keyed by (chunk production key, anchor), so a chunk producer
+/// equivocating across fork anchors occupies one bucket per anchor instead of
+/// poisoning the canonical slot. The capacity is sized well above the
+/// ~5-height relevance window to keep such fork-anchor buckets from evicting
+/// canonical ones: every part is signature-verified before it gets here, so
+/// only the slot's actual producer can create buckets for its chunk, and each
+/// anchor must be a locally-processed block.
+const WITNESS_PARTS_CACHE_SIZE: usize = 16;
 
 /// Number of entries to keep in LRU cache of the processed state witnesses
 /// We only store small amount of data (ChunkProductionKey) per entry there,
@@ -77,7 +85,7 @@ struct CacheEntry {
 }
 
 enum CacheUpdate {
-    WitnessPart(VersionedPartialEncodedStateWitness, Arc<ReedSolomonEncoder>),
+    WitnessPart(Box<VersionedPartialEncodedStateWitness>, Arc<ReedSolomonEncoder>),
     AccessedContractHashes(HashSet<CodeHash>),
     AccessedContractCodes(Vec<CodeBytes>),
 }
@@ -129,7 +137,7 @@ impl CacheEntry {
     ) -> Option<(DecodePartialWitnessResult, Vec<CodeBytes>)> {
         match update {
             CacheUpdate::WitnessPart(partial_witness, encoder) => {
-                self.process_witness_part(partial_witness, encoder);
+                self.process_witness_part(*partial_witness, encoder);
             }
             CacheUpdate::AccessedContractHashes(code_hashes) => {
                 self.set_requested_contracts(code_hashes);
@@ -318,12 +326,22 @@ impl CacheEntry {
     }
 }
 
+/// Assembly bucket key. Including the signed prev_prev anchor means parts (and
+/// companion data) signed over different anchors assemble in distinct buckets,
+/// so a fork or non-canonical anchor cannot poison the canonical slot.
+/// `anchor` is `None` for the V1 wire, which carries no anchor.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct WitnessAssemblyKey {
+    pub chunk_production_key: ChunkProductionKey,
+    pub anchor: Option<CryptoHash>,
+}
+
 /// Per-shard state tracking for partial witness processing.
 struct ShardWitnessTracker {
     /// Cache of witness parts being assembled for this shard.
-    parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
+    parts_cache: LruCache<WitnessAssemblyKey, CacheEntry>,
     /// Track processed witnesses to avoid duplicate processing for this shard.
-    processed_witnesses: SyncLruCache<ChunkProductionKey, ()>,
+    processed_witnesses: SyncLruCache<WitnessAssemblyKey, ()>,
 }
 
 impl ShardWitnessTracker {
@@ -372,15 +390,18 @@ impl PartialEncodedStateWitnessTracker {
         partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
-        let key = partial_witness.chunk_production_key();
-        let encoder = self.get_encoder(&key)?;
-        let update = CacheUpdate::WitnessPart(partial_witness, encoder);
+        let key = WitnessAssemblyKey {
+            chunk_production_key: partial_witness.chunk_production_key(),
+            anchor: partial_witness.prev_prev_hash().copied(),
+        };
+        let encoder = self.get_encoder(&key.chunk_production_key)?;
+        let update = CacheUpdate::WitnessPart(Box::new(partial_witness), encoder);
         self.process_update(key, true, update)
     }
 
     pub fn store_accessed_contract_hashes(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessAssemblyKey,
         hashes: HashSet<CodeHash>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
@@ -388,29 +409,48 @@ impl PartialEncodedStateWitnessTracker {
         self.process_update(key, true, update)
     }
 
+    /// `ContractCodeResponse` carries no anchor on the wire, so deliver the
+    /// codes to every assembly bucket of this chunk production key. The codes
+    /// are content-addressed (validated against the requested hashes), so
+    /// cross-bucket delivery cannot poison a bucket.
     pub fn store_accessed_contract_codes(
         &self,
         key: ChunkProductionKey,
         codes: Vec<CodeBytes>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, codes_len = codes.len(), "store_accessed_contract_codes");
-        let update = CacheUpdate::AccessedContractCodes(codes);
-        self.process_update(key, false, update)
+        let assembly_keys = {
+            let shard_tracker_mutex = self.shard_tracker(key.shard_id);
+            let shard_tracker = shard_tracker_mutex.lock();
+            shard_tracker
+                .parts_cache
+                .iter()
+                .map(|(assembly_key, _)| assembly_key)
+                .filter(|assembly_key| assembly_key.chunk_production_key == key)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        for assembly_key in assembly_keys {
+            let update = CacheUpdate::AccessedContractCodes(codes.clone());
+            self.process_update(assembly_key, false, update)?;
+        }
+        Ok(())
+    }
+
+    fn shard_tracker(&self, shard_id: ShardId) -> Arc<Mutex<ShardWitnessTracker>> {
+        let mut map = self.shard_trackers.lock();
+        Arc::clone(
+            map.entry(shard_id).or_insert_with(|| Arc::new(Mutex::new(ShardWitnessTracker::new()))),
+        )
     }
 
     fn process_update(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessAssemblyKey,
         create_if_not_exists: bool,
         update: CacheUpdate,
     ) -> Result<(), Error> {
-        let shard_tracker_mutex = {
-            let mut map = self.shard_trackers.lock();
-            Arc::clone(
-                map.entry(key.shard_id)
-                    .or_insert_with(|| Arc::new(Mutex::new(ShardWitnessTracker::new()))),
-            )
-        };
+        let shard_tracker_mutex = self.shard_tracker(key.chunk_production_key.shard_id);
         let mut shard_tracker = shard_tracker_mutex.lock();
 
         // Check if this witness was already processed.
@@ -447,7 +487,7 @@ impl PartialEncodedStateWitnessTracker {
             // Record the time taken from receiving first part to decoding partial witness.
             let time_to_last_part = Instant::now().signed_duration_since(entry_created_at);
             metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
-                .with_label_values(&[key.shard_id.to_string().as_str()])
+                .with_label_values(&[key.chunk_production_key.shard_id.to_string().as_str()])
                 .observe(time_to_last_part.as_seconds_f64());
 
             let total_size = shard_tracker.total_size();
@@ -461,8 +501,8 @@ impl PartialEncodedStateWitnessTracker {
                     tracing::error!(
                         target: "client",
                         ?err,
-                        shard_id = %key.shard_id,
-                        height_created = key.height_created,
+                        shard_id = %key.chunk_production_key.shard_id,
+                        height_created = key.chunk_production_key.height_created,
                         "failed to reed solomon decode witness parts, maybe malicious or corrupt data"
                     );
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
@@ -475,13 +515,13 @@ impl PartialEncodedStateWitnessTracker {
                 let _span = tracing::debug_span!(
                     target: "client",
                     "decode_state_witness",
-                    height = key.height_created,
-                    shard_id = %key.shard_id,
+                    height = key.chunk_production_key.height_created,
+                    shard_id = %key.chunk_production_key.shard_id,
                     tag_witness_distribution = true)
                 .entered();
                 self.decode_state_witness(&encoded_witness)?
             };
-            if witness.chunk_production_key() != key {
+            if witness.chunk_production_key() != key.chunk_production_key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
                     witness.chunk_production_key(),
@@ -499,8 +539,8 @@ impl PartialEncodedStateWitnessTracker {
                 target: "client",
                 "send_witness_to_chunk_validation_actor",
                 chunk_hash = ?witness.chunk_header().chunk_hash(),
-                height = key.height_created,
-                shard_id = %key.shard_id,
+                height = key.chunk_production_key.height_created,
+                shard_id = %key.chunk_production_key.shard_id,
                 raw_witness_size = raw_witness_size,
                 encoded_witness_size = encoded_witness.size_bytes(),
                 tag_witness_distribution = true,
@@ -509,6 +549,7 @@ impl PartialEncodedStateWitnessTracker {
             self.chunk_validation_sender.send(ChunkStateWitnessMessage {
                 witness,
                 raw_witness_size,
+                anchor: key.anchor,
                 processing_done_tracker: None,
             });
 
@@ -517,7 +558,7 @@ impl PartialEncodedStateWitnessTracker {
             shard_tracker.total_size()
         };
         metrics::PARTIAL_WITNESS_CACHE_SIZE
-            .with_label_values(&[key.shard_id.to_string().as_str()])
+            .with_label_values(&[key.chunk_production_key.shard_id.to_string().as_str()])
             .set(total_size as f64);
 
         Ok(())
@@ -536,12 +577,12 @@ impl PartialEncodedStateWitnessTracker {
     // Function to insert a new entry into the cache for the chunk hash if it does not already exist
     // We additionally check if an evicted entry has been fully decoded and processed.
     fn maybe_insert_new_entry_in_parts_cache(
-        parts_cache: &mut LruCache<ChunkProductionKey, CacheEntry>,
-        key: &ChunkProductionKey,
+        parts_cache: &mut LruCache<WitnessAssemblyKey, CacheEntry>,
+        key: &WitnessAssemblyKey,
     ) {
         if !parts_cache.contains(key) {
             if let Some((evicted_key, evicted_entry)) =
-                parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
+                parts_cache.push(key.clone(), CacheEntry::new(key.chunk_production_key.shard_id))
             {
                 tracing::debug!(
                     target: "client",

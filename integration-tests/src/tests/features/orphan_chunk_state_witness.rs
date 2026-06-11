@@ -197,6 +197,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         let witness_message = near_chain::chain::ChunkStateWitnessMessage {
             witness: witness.clone(),
             raw_witness_size,
+            anchor: None,
             processing_done_tracker: Some(processing_done_tracker),
         };
         env.chunk_validation_actors[account_index].handle(witness_message);
@@ -256,6 +257,7 @@ fn test_orphan_witness_valid() {
     let witness_message = near_chain::chain::ChunkStateWitnessMessage {
         witness: witness,
         raw_witness_size: witness_size,
+        anchor: None,
         processing_done_tracker: None,
     };
     env.chunk_validation_actors[excluded_validator_idx].handle(witness_message);
@@ -287,8 +289,9 @@ fn test_orphan_witness_too_large() {
 
     // Test with a witness that exceeds the max size limit
     let oversized_witness_size = default_orphan_state_witness_max_size().as_u64() as usize + 1;
-    let outcome =
-        chunk_validation_actor.handle_orphan_witness(witness, oversized_witness_size).unwrap();
+    let outcome = chunk_validation_actor
+        .handle_orphan_witness(witness, None, oversized_witness_size)
+        .unwrap();
     assert!(matches!(outcome, HandleOrphanWitnessOutcome::TooBig(_)))
 }
 
@@ -312,7 +315,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V6(inner) => inner.height_created = bad_height,
     });
 
-    let outcome = chunk_validation_actor.handle_orphan_witness(witness, 2000).unwrap();
+    let outcome = chunk_validation_actor.handle_orphan_witness(witness, None, 2000).unwrap();
     assert_eq!(
         outcome,
         HandleOrphanWitnessOutcome::TooFarFromHead {
@@ -354,6 +357,7 @@ fn test_orphan_witness_not_fully_validated() {
     let witness_message = ChunkStateWitnessMessage {
         witness,
         raw_witness_size: witness_size,
+        anchor: None,
         processing_done_tracker: None,
     };
     let excluded_validator_idx = env.get_client_index(&excluded_validator);

@@ -360,6 +360,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let witness_message = ChunkStateWitnessMessage {
         witness,
         raw_witness_size: witness_size,
+        anchor: None,
         processing_done_tracker: None,
     };
     let result =

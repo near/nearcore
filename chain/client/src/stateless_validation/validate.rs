@@ -5,6 +5,7 @@ use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -13,8 +14,10 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 use strum::IntoStaticStr;
 
@@ -36,6 +39,14 @@ pub enum ChunkRelevance {
     /// Chunk is irrelevant because it's impossible to establish the ID of the epoch
     /// to which it should belong.
     UnknownEpochId,
+    /// V2 witness whose prev_prev anchor state is not available locally (node
+    /// behind on blocks): the producer signature cannot be verified, so the
+    /// message is dropped without being stored or forwarded.
+    AnchorStateUnavailable,
+    /// Message wire version is on the wrong side of the EarlyKickout activation
+    /// boundary for its epoch. Honest peers can race the boundary, so this is a
+    /// silent drop rather than an error.
+    WrongWireVersion,
 }
 
 impl ChunkRelevance {
@@ -122,32 +133,64 @@ pub fn validate_partial_encoded_state_witness(
         }
         VersionedPartialEncodedStateWitness::V2(v2) => {
             let shard_id_label = shard_id.to_string();
-            let prev_block_hash = v2.prev_block_hash();
-            let result = epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id);
+            let anchor_hash = v2.prev_prev_hash();
+            // Resolve the producer via the anchored lookup from the SIGNED
+            // (anchor, epoch, height) — no dependency on the prev block, so the
+            // signature is verifiable before anything is stored or forwarded.
+            let result = epoch_manager.get_chunk_producer_info_anchored(
+                anchor_hash,
+                &epoch_id,
+                height_created,
+                shard_id,
+            );
             let label = match &result {
                 Ok(_) => "hit",
-                // Witness raced its prev block; defer, don't fail.
-                Err(EpochError::MissingBlock(_)) => "miss_prev_block",
-                // Block known but no `DBCol::ChunkProducers` entry; steady-state ~0, persistent = writer bug.
+                // Anchor block not yet processed locally; witness will be dropped.
+                Err(EpochError::MissingBlock(_)) => "miss_anchor_block",
+                // Anchor known but no `DBCol::ChunkProducers` row; steady-state ~0, persistent = writer bug.
                 Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
                 Err(_) => "error",
             };
             metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
                 .with_label_values(&[shard_id_label.as_str(), label])
                 .inc();
-            let info = result?;
-            // Cross-check the signed chunk key against what `prev_block_hash` implies. The producer
-            // signature authenticates (epoch_id, shard_id, height_created, prev_block_hash); without
-            // this check an authenticated producer for (prev_block, shard) could sign a witness with
-            // any (epoch_id, height_created) and we would store/forward under a forged key.
-            let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-            let expected_height = epoch_manager.get_block_info(prev_block_hash)?.height() + 1;
-            if expected_epoch_id != epoch_id || expected_height != height_created {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "V2 witness chunk key mismatch: signed (epoch_id={:?}, height={}) does not \
-                     match prev_block_hash-implied (epoch_id={:?}, height={})",
-                    epoch_id, height_created, expected_epoch_id, expected_height,
-                )));
+            let info = match result {
+                Ok(info) => info,
+                // Behind node: the anchor state is not available, so the producer
+                // signature cannot be verified. DROP — no deferral. See the
+                // accepted-liveness-risk note on the drop counter metric.
+                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+                    metrics::PARTIAL_WITNESS_ANCHOR_ABSENT_DROPS_TOTAL
+                        .with_label_values(&[shard_id_label.as_str()])
+                        .inc();
+                    return Ok(ChunkRelevance::AnchorStateUnavailable);
+                }
+                Err(err) => return Err(err.into()),
+            };
+            // Anchor sanity checks (skipped for the default-hash anchor of
+            // genesis-adjacent chunks, whose pseudo block info has no meaningful
+            // height or epoch): the signed height must leave room for the prev
+            // block between the anchor and the chunk, and the signed epoch must
+            // be one of the two epochs reachable two blocks after the anchor.
+            // Full canonicality (`prev_prev_hash` is really the prev of the
+            // chunk's prev block) is checked once the prev block arrives.
+            if *anchor_hash != CryptoHash::default() {
+                let anchor_height = epoch_manager.get_block_info(anchor_hash)?.height();
+                if height_created < anchor_height + 2 {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 witness signed height {} is too low for anchor height {}",
+                        height_created, anchor_height,
+                    )));
+                }
+                let state_epoch_id = epoch_manager.get_epoch_id_from_prev_block(anchor_hash)?;
+                let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(anchor_hash)?;
+                if epoch_id != state_epoch_id && epoch_id != next_epoch_id {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 witness signed epoch {:?} is not reachable from anchor {:?} \
+                         (expected {:?} or {:?})",
+                        epoch_id, anchor_hash, state_epoch_id, next_epoch_id,
+                    )));
+                }
             }
             info
         }
@@ -159,6 +202,42 @@ pub fn validate_partial_encoded_state_witness(
     Ok(ChunkRelevance::Relevant)
 }
 
+/// Resolve the chunk producer for a producer-signed companion message
+/// (`ChunkContractAccesses` / `PartialEncodedContractDeploys`).
+///
+/// The wire-version gate mirrors the witness path: epochs at/after
+/// `EarlyKickout` activation require the anchored V2 shape (resolved via the
+/// anchored lookup from the signed prev_prev anchor), pre-activation epochs
+/// require V1 (resolved via the static sampler). A message on the wrong side
+/// of the boundary, or one whose anchor state is unavailable, is irrelevant
+/// (dropped), not an error.
+fn resolve_companion_chunk_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    key: &ChunkProductionKey,
+    prev_prev_hash: Option<&CryptoHash>,
+) -> Result<Result<ValidatorStake, ChunkRelevance>, Error> {
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+    let expect_anchor = ProtocolFeature::EarlyKickout.enabled(protocol_version);
+    match (expect_anchor, prev_prev_hash) {
+        (true, Some(anchor_hash)) => {
+            match epoch_manager.get_chunk_producer_info_anchored(
+                anchor_hash,
+                &key.epoch_id,
+                key.height_created,
+                key.shard_id,
+            ) {
+                Ok(info) => Ok(Ok(info)),
+                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+                    Ok(Err(ChunkRelevance::AnchorStateUnavailable))
+                }
+                Err(err) => Err(err.into()),
+            }
+        }
+        (false, None) => Ok(Ok(epoch_manager.get_chunk_producer_info(key)?)),
+        (true, None) | (false, Some(_)) => Ok(Err(ChunkRelevance::WrongWireVersion)),
+    }
+}
+
 pub fn validate_partial_encoded_contract_deploys(
     epoch_manager: &dyn EpochManagerAdapter,
     partial_deploys: &PartialEncodedContractDeploys,
@@ -166,7 +245,14 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
+    let chunk_producer = match resolve_companion_chunk_producer(
+        epoch_manager,
+        key,
+        partial_deploys.prev_prev_hash(),
+    )? {
+        Ok(chunk_producer) => chunk_producer,
+        Err(irrelevant) => return Ok(irrelevant),
+    };
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
@@ -214,7 +300,7 @@ pub fn validate_chunk_contract_accesses(
         signer.validator_id(),
         store
     )?);
-    validate_witness_contract_accesses_signature(epoch_manager, accesses)?;
+    require_relevant!(validate_witness_contract_accesses_signature(epoch_manager, accesses)?);
 
     Ok(ChunkRelevance::Relevant)
 }
@@ -375,10 +461,17 @@ fn validate_witness_contract_code_request_signature(
 fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
-) -> Result<(), Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
+) -> Result<ChunkRelevance, Error> {
+    let chunk_producer = match resolve_companion_chunk_producer(
+        epoch_manager,
+        accesses.chunk_production_key(),
+        accesses.prev_prev_hash(),
+    )? {
+        Ok(chunk_producer) => chunk_producer,
+        Err(irrelevant) => return Ok(irrelevant),
+    };
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
     }
-    Ok(())
+    Ok(ChunkRelevance::Relevant)
 }

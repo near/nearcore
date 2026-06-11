@@ -24,10 +24,11 @@ pub fn verify_block_vrf(
     Ok(())
 }
 
-/// Verify chunk header signature using hash-based chunk producer lookup.
-/// Uses get_chunk_producer_info_db(prev_block_hash, shard_id) which reads from
-/// the ChunkProducers DB column when EarlyKickout is enabled, and errors on
-/// a missing DB entry.
+/// Verify chunk header signature using the anchored chunk producer lookup.
+/// Resolves the producer via get_chunk_producer_info_from_prev_block, which
+/// anchors the kickout state on the prev block's prev (prev_prev) — in exact
+/// lockstep with the chunk production gate in `chunk_producer.rs`. A divergence
+/// between the two is a chain split.
 pub fn verify_chunk_header_signature_by_hash(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
@@ -48,7 +49,8 @@ pub fn verify_chunk_header_signature_by_hash_and_parts(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id)?;
+    let chunk_producer =
+        epoch_manager.get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id)?;
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 

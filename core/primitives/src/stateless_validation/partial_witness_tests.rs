@@ -30,11 +30,13 @@ fn make_witness(
     protocol_version: ProtocolVersion,
 ) -> VersionedPartialEncodedStateWitness {
     let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
+    let prev_prev_hash = CryptoHash::hash_bytes(b"prev_prev_block");
     let chunk_header = test_chunk_header(prev_block_hash, signer, protocol_version);
 
     VersionedPartialEncodedStateWitness::new(
         test_epoch_id(),
         chunk_header,
+        prev_prev_hash,
         0,
         b"test_witness_data".to_vec(),
         17,
@@ -69,6 +71,8 @@ fn test_v2_construction_and_accessors() {
     assert!(matches!(w, VersionedPartialEncodedStateWitness::V2(_)));
     let expected_hash = CryptoHash::hash_bytes(b"prev_block");
     assert_eq!(w.prev_block_hash(), Some(&expected_hash));
+    let expected_prev_prev = CryptoHash::hash_bytes(b"prev_prev_block");
+    assert_eq!(w.prev_prev_hash(), Some(&expected_prev_prev));
     assert_eq!(w.part_ord(), 0);
     assert_eq!(w.part_size(), 17);
     assert_eq!(w.encoded_length(), 17);

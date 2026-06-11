@@ -487,20 +487,22 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id =
-            match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
-                Ok(info) => Some(info.take_account_id()),
-                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
-                    // prev_block not processed (orphan) or invalid shard selection.
-                    // Downstream target selection falls through to a random shard
-                    // tracker anyway — for orphans, old_block = true forces
-                    // request_own_parts_from_others = true, which bypasses
-                    // chunk_producer_account_id at the shard_representative_target
-                    // match below.
-                    None
-                }
-                Err(err) => return Err(err.into()),
-            };
+        let chunk_producer_account_id = match self
+            .epoch_manager
+            .get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id)
+        {
+            Ok(info) => Some(info.take_account_id()),
+            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
+                // prev_block not processed (orphan) or invalid shard selection.
+                // Downstream target selection falls through to a random shard
+                // tracker anyway — for orphans, old_block = true forces
+                // request_own_parts_from_others = true, which bypasses
+                // chunk_producer_account_id at the shard_representative_target
+                // match below.
+                None
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -1855,7 +1857,7 @@ impl ShardsManagerActor {
 
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info_db(&prev_block_hash, header.shard_id())?
+            .get_chunk_producer_info_from_prev_block(&prev_block_hash, header.shard_id())?
             .take_account_id();
 
         if have_all_parts {
@@ -3436,7 +3438,7 @@ mod test {
         // When requesting chunks for orphans, prev_block_hash (from the chunk header) is unknown
         // to the epoch manager because the parent block hasn't been processed yet. Verify the
         // orphan path executes without panics and still emits network requests:
-        // - request_partial_encoded_chunk: get_chunk_producer_info_db returns MissingBlock, so
+        // - request_partial_encoded_chunk: get_chunk_producer_info_from_prev_block returns MissingBlock, so
         //   chunk_producer_account_id is None. Target selection bypasses it anyway because
         //   old_block = true forces request_own_parts_from_others = true, picking a random
         //   shard tracker.
@@ -3738,32 +3740,36 @@ mod test {
     #[cfg(feature = "nightly")]
     #[test]
     fn test_bad_signature_chunk_evicted_on_full_validation() {
-        use near_primitives::test_utils::create_test_signer;
-        use near_primitives::types::validator_stake::ValidatorStake;
+        use near_primitives::epoch_info::{ChunkProducerKickoutState, ChunkProducerKickoutStateV1};
         use near_primitives::utils::get_block_shard_id;
         use near_store::DBCol;
+        use std::collections::BTreeSet;
 
         let fixture = ChunkTestFixture::default();
 
-        // Overwrite the ChunkProducers DB entry for the mock chunk's shard
-        // with a bogus validator whose public key differs from the actual signer.
-        // This makes the hash-based signature check fail during full validation.
+        // Blacklist the actual producer in the anchor's kickout state. The
+        // anchored resolver then samples a different producer for this shard,
+        // so the chunk's header signature no longer matches during full
+        // validation. (The fixture chunk's prev block is the default hash,
+        // whose anchor is also the default hash.)
         let shard_id = fixture.mock_chunk_header.shard_id();
-        let prev_block_hash = *fixture.mock_chunk_header.prev_block_hash();
+        let anchor_hash = *fixture.mock_chunk_header.prev_block_hash();
         {
-            let key = get_block_shard_id(&prev_block_hash, shard_id);
-            let bogus_signer = create_test_signer("bogus_producer");
-            let bogus_stake = ValidatorStake::new(
-                "bogus_producer".parse().unwrap(),
-                bogus_signer.public_key(),
-                near_primitives::types::Balance::ZERO,
-            );
-            // Delete the existing write-once entry, then insert the bogus one.
+            let actual_producer = fixture
+                .epoch_manager
+                .get_chunk_producer_info_from_prev_block(&anchor_hash, shard_id)
+                .unwrap()
+                .take_account_id();
+            let key = get_block_shard_id(&anchor_hash, shard_id);
+            let blacklist_state = ChunkProducerKickoutState::V1(ChunkProducerKickoutStateV1 {
+                blacklist: BTreeSet::from([actual_producer]),
+            });
+            // Delete the existing write-once entry, then insert the blacklist state.
             let mut store_update = fixture.chain_store.store().store_update();
             store_update.delete(DBCol::ChunkProducers, &key);
             store_update.commit();
             let mut store_update = fixture.chain_store.store().store_update();
-            store_update.insert_ser(DBCol::ChunkProducers, &key, &bogus_stake);
+            store_update.insert_ser(DBCol::ChunkProducers, &key, &blacklist_state);
             store_update.commit();
         }
 

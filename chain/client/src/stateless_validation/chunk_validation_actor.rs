@@ -26,6 +26,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -191,11 +192,25 @@ impl ChunkValidationActor {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&witness.chunk_production_key())?
-            .account_id()
-            .clone();
+        // Resolve the ack target via the anchored lookup so it matches the
+        // actual producer once kickout state has content. The witness can
+        // arrive before its prev block; in that case skip the ack (it is only
+        // used for latency metrics on the producer).
+        let chunk_producer = match self.epoch_manager.get_chunk_producer_info_from_prev_block(
+            witness.chunk_header().prev_block_hash(),
+            witness.chunk_header().shard_id(),
+        ) {
+            Ok(info) => info.account_id().clone(),
+            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+                tracing::debug!(
+                    target: "chunk_validation",
+                    chunk_production_key = ?witness.chunk_production_key(),
+                    "skipping state witness ack: prev block not available for anchored producer lookup",
+                );
+                return Ok(());
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Skip sending ack to self.
         if let Some(validator_signer) = self.validator_signer.get() {
@@ -216,6 +231,7 @@ impl ChunkValidationActor {
     pub fn handle_orphan_witness(
         &mut self,
         witness: ChunkStateWitness,
+        anchor: Option<CryptoHash>,
         witness_size: ChunkStateWitnessSize,
     ) -> Result<HandleOrphanWitnessOutcome, Error> {
         let chunk_header = witness.chunk_header();
@@ -265,9 +281,11 @@ impl ChunkValidationActor {
 
         // Orphan witness is OK, save it to the pool
         tracing::debug!(target: "chunk_validation", "saving an orphaned chunk state witness to orphan pool");
-        self.orphan_witness_pool
-            .lock()
-            .add_orphan_state_witness(witness, witness_size_u64 as usize);
+        self.orphan_witness_pool.lock().add_orphan_state_witness(
+            witness,
+            anchor,
+            witness_size_u64 as usize,
+        );
         Ok(HandleOrphanWitnessOutcome::SavedToPool)
     }
 
@@ -278,7 +296,7 @@ impl ChunkValidationActor {
             .lock()
             .take_state_witnesses_waiting_for_block(new_block.hash());
 
-        for witness in ready_witnesses {
+        for (witness, anchor) in ready_witnesses {
             let header = witness.chunk_header();
             tracing::debug!(
                 target: "chunk_validation",
@@ -289,7 +307,7 @@ impl ChunkValidationActor {
                 "processing an orphaned chunk state witness, its previous block has arrived"
             );
 
-            if let Err(err) = self.process_chunk_state_witness(witness, new_block, None) {
+            if let Err(err) = self.process_chunk_state_witness(witness, anchor, new_block, None) {
                 tracing::error!(target: "chunk_validation", ?err, "error processing orphan chunk state witness");
             }
         }
@@ -323,6 +341,7 @@ impl ChunkValidationActor {
     fn process_chunk_state_witness(
         &self,
         witness: ChunkStateWitness,
+        anchor: Option<CryptoHash>,
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
@@ -341,6 +360,28 @@ impl ChunkValidationActor {
                 "Previous block hash mismatch: witness={}, block={}",
                 witness.chunk_header().prev_block_hash(),
                 prev_block.hash()
+            )));
+        }
+
+        // Canonicality checks, deferred until the prev block is available.
+        // A mismatch is producer misbehavior (the partial-witness signature
+        // covered a non-canonical anchor or height); handled locally as an
+        // invalid witness, not via slashing.
+        if let Some(anchor) = anchor {
+            if anchor != *prev_block.header().prev_hash() {
+                return Err(Error::InvalidChunkStateWitness(format!(
+                    "witness anchor {} is not the prev of the chunk's prev block {}",
+                    anchor,
+                    prev_block.hash(),
+                )));
+            }
+        }
+        let height_created = witness.chunk_header().height_created();
+        if height_created != prev_block.header().height() + 1 {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "witness height {} is not prev block height {} + 1",
+                height_created,
+                prev_block.header().height(),
             )));
         }
 
@@ -378,8 +419,14 @@ impl ChunkValidationActor {
         let chunk_production_key = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
         let chunk_header = state_witness.chunk_header().clone();
-        let chunk_producer_name =
-            self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
+        // Anchored resolution: keeps the tracing/evidence identity consistent
+        // with the ban path (`ban_chunk_producer_for_producing_invalid_chunk`).
+        // The prev block is processed by this point (`process_chunk_state_witness`
+        // requires it).
+        let chunk_producer_name = self
+            .epoch_manager
+            .get_chunk_producer_info_from_prev_block(&prev_block_hash, shard_id)?
+            .take_account_id();
 
         let expected_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
@@ -514,7 +561,8 @@ impl ChunkValidationActor {
         &mut self,
         msg: ChunkStateWitnessMessage,
     ) -> Result<(), Error> {
-        let ChunkStateWitnessMessage { witness, raw_witness_size, processing_done_tracker } = msg;
+        let ChunkStateWitnessMessage { witness, raw_witness_size, anchor, processing_done_tracker } =
+            msg;
 
         // Check if we're a validator
         if self.validator_signer.get().is_none() {
@@ -546,6 +594,7 @@ impl ChunkValidationActor {
                 // Previous block exists
                 match self.process_chunk_state_witness(
                     witness,
+                    anchor,
                     &prev_block,
                     processing_done_tracker,
                 ) {
@@ -565,7 +614,7 @@ impl ChunkValidationActor {
                     target: "chunk_validation",
                     "previous block not found - handling as orphan witness"
                 );
-                match self.handle_orphan_witness(witness, raw_witness_size) {
+                match self.handle_orphan_witness(witness, anchor, raw_witness_size) {
                     Ok(outcome) => {
                         tracing::debug!(target: "chunk_validation", ?outcome, "orphan witness handled");
                         Ok(())

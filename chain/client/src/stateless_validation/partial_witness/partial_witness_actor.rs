@@ -1,15 +1,14 @@
 use super::encoding::CONTRACT_DEPLOYS_RATIO_DATA_PARTS;
 pub use super::encoding::WITNESS_RATIO_DATA_PARTS;
 use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
-use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
+use super::partial_witness_tracker::{PartialEncodedStateWitnessTracker, WitnessAssemblyKey};
 use crate::metrics;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use crate::stateless_validation::contracts_cache_contains_contract;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
-    ChunkRelevance, validate_chunk_contract_accesses, validate_chunk_relevant_as_validator,
-    validate_contract_code_request, validate_partial_encoded_contract_deploys,
-    validate_partial_encoded_state_witness,
+    ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
+    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
 };
 use itertools::Itertools;
 use lru::LruCache;
@@ -20,7 +19,6 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
-use near_client_primitives::types::BlockNotificationMessage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::state_witness::{
@@ -65,119 +63,6 @@ use std::sync::Arc;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
-/// Capacity (distinct `prev_block_hash` keys) of the cache deferring V2 witnesses whose prev
-/// block is not yet in `DBCol::ChunkProducers`.
-///
-/// TODO(stedfn): C13 hardening follow-up — DoS caps, and raise above `block_fetch_horizon`.
-pub(super) const PENDING_V2_WITNESS_CACHE_SIZE: usize = 64;
-
-/// Origin of a deferred V2 witness; replay dispatches on this.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DeferOrigin {
-    /// Direct from chunk producer; replay re-forwards after validation.
-    InitEmit,
-    /// Relay from another validator; replay must NOT re-forward.
-    Forwarded,
-}
-
-#[derive(Debug)]
-pub(super) struct PendingV2WitnessEntry {
-    pub(super) witness: VersionedPartialEncodedStateWitness,
-    pub(super) origin: DeferOrigin,
-}
-
-/// Cache for V2 witnesses deferred when `prev_block_hash` is not yet available. Keyed by
-/// `prev_block_hash`, each bucket holding one entry per validator part. Replayed on
-/// `BlockNotificationMessage`.
-pub(super) struct PendingV2WitnessCache {
-    entries: LruCache<CryptoHash, Vec<PendingV2WitnessEntry>>,
-}
-
-impl PendingV2WitnessCache {
-    pub(super) fn new() -> Self {
-        Self { entries: LruCache::new(NonZeroUsize::new(PENDING_V2_WITNESS_CACHE_SIZE).unwrap()) }
-    }
-
-    pub(super) fn insert(
-        &mut self,
-        prev_block_hash: CryptoHash,
-        witness: VersionedPartialEncodedStateWitness,
-        origin: DeferOrigin,
-    ) {
-        let entry = PendingV2WitnessEntry { witness, origin };
-        if let Some(pending) = self.entries.get_mut(&prev_block_hash) {
-            pending.push(entry);
-            return;
-        }
-        // `push` (not `put`) returns the evicted entry on overflow, so Some here is a real eviction.
-        if self.entries.push(prev_block_hash, vec![entry]).is_some() {
-            metrics::PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL.inc();
-        }
-    }
-
-    // Test-only: exercises LRU eviction. Production drains via `drain_all`.
-    #[cfg(test)]
-    pub(super) fn drain(&mut self, prev_block_hash: &CryptoHash) -> Vec<PendingV2WitnessEntry> {
-        self.entries.pop(prev_block_hash).unwrap_or_default()
-    }
-
-    /// Remove and return every entry across every bucket (scan-on-notification replay).
-    pub(super) fn drain_all(&mut self) -> Vec<(CryptoHash, PendingV2WitnessEntry)> {
-        let mut out = Vec::new();
-        while let Some((hash, entries)) = self.entries.pop_lru() {
-            for entry in entries {
-                out.push((hash, entry));
-            }
-        }
-        out
-    }
-
-    /// Bucket count (distinct `prev_block_hash`), NOT total deferred witnesses
-    /// (each bucket holds one entry per validator part).
-    pub(super) fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// Defer a witness into the pending cache. Returns `false` for V1 (cannot defer).
-    pub(super) fn try_defer(
-        &mut self,
-        witness: VersionedPartialEncodedStateWitness,
-        origin: DeferOrigin,
-    ) -> bool {
-        let Some(prev_block_hash) = witness.prev_block_hash().copied() else {
-            // V1 can legitimately hit DBNotFoundErr from epoch-based producer lookup
-            // (e.g. across epoch transitions). Defer mechanism is V2-only (keys on
-            // `prev_block_hash`); V1 has no equivalent, drop.
-            tracing::debug!(
-                target: "client",
-                "V1 witness with DBNotFoundErr cannot be deferred (no prev_block_hash); dropping",
-            );
-            return false;
-        };
-        tracing::debug!(
-            target: "client",
-            ?prev_block_hash,
-            ?origin,
-            chunk_production_key = ?witness.chunk_production_key(),
-            "deferring V2 partial witness until prev block is processed",
-        );
-        self.insert(prev_block_hash, witness, origin);
-        metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(self.len() as i64);
-        true
-    }
-}
-
-/// Outcome of the actor-thread pre-check before dispatching a deferred V2 witness.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ReplayDisposition {
-    /// Pre-checks passed; dispatch now.
-    Ready,
-    /// Transient; keep cached and reclassify on the next notification.
-    Requeue,
-    /// Permanently irrelevant; drop.
-    Retire,
-}
-
 /// True iff the witness wire version is on the wrong side of the EarlyKickout boundary.
 /// `version = None` (unresolved, e.g. header-sync lag) returns false: must not poison V2 traffic.
 pub(super) fn witness_kicked_out(
@@ -190,67 +75,6 @@ pub(super) fn witness_kicked_out(
     let expect_v2 = ProtocolFeature::EarlyKickout.enabled(version);
     let is_v2 = matches!(witness, VersionedPartialEncodedStateWitness::V2(_));
     is_v2 != expect_v2
-}
-
-/// Classify a deferred V2 witness on the actor thread before spawner-side validate+store
-/// (cheap checks only, no signature verify).
-///
-/// Pure classifier: never stores/forwards, and the EarlyKickout gate lives at the act-sites.
-pub(super) fn pre_check_replay(
-    epoch_manager: &dyn EpochManagerAdapter,
-    runtime: &dyn RuntimeAdapter,
-    my_signer: &MutableValidatorSigner,
-    witness: &VersionedPartialEncodedStateWitness,
-) -> ReplayDisposition {
-    let Some(signer) = my_signer.get() else {
-        return ReplayDisposition::Requeue;
-    };
-    let validator_account_id = signer.validator_id().clone();
-
-    match validate_chunk_relevant_as_validator(
-        epoch_manager,
-        &witness.chunk_production_key(),
-        &validator_account_id,
-        runtime.store(),
-    ) {
-        Ok(ChunkRelevance::Relevant) => {}
-        Ok(ChunkRelevance::TooLate) => return ReplayDisposition::Retire,
-        Ok(ChunkRelevance::TooEarly | ChunkRelevance::UnknownEpochId) => {
-            return ReplayDisposition::Requeue;
-        }
-        Err(Error::DBNotFoundErr(_)) => return ReplayDisposition::Requeue,
-        Err(Error::NotAChunkValidator) => return ReplayDisposition::Retire,
-        // Relevance resolves the epoch from the unverified signed `epoch_id`, so a bogus epoch
-        // surfaces here. V2 prev unknown → behind on headers → `Requeue`; prev known + mismatched
-        // epoch → forged → `Retire`. V1 (no prev) → `Retire`.
-        Err(Error::EpochOutOfBounds(_)) => match witness.prev_block_hash() {
-            Some(prev) if epoch_manager.get_block_info(prev).is_err() => {
-                return ReplayDisposition::Requeue;
-            }
-            _ => return ReplayDisposition::Retire,
-        },
-        // Anything else won't become valid by waiting. Retire.
-        Err(_) => return ReplayDisposition::Retire,
-    }
-
-    // V2: also verify the prev-block-backed producer lookup resolves now.
-    if let VersionedPartialEncodedStateWitness::V2(v2) = witness {
-        let shard_id = witness.chunk_production_key().shard_id;
-        match epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id) {
-            Ok(_) => {}
-            // `IOErr` is a transient disk failure; keep cached rather than drop (no retransmit).
-            Err(
-                EpochError::MissingBlock(_)
-                | EpochError::ChunkProducerNotInDB(_, _)
-                | EpochError::IOErr(_),
-            ) => {
-                return ReplayDisposition::Requeue;
-            }
-            Err(_) => return ReplayDisposition::Retire,
-        }
-    }
-
-    ReplayDisposition::Ready
 }
 
 pub struct PartialWitnessActor {
@@ -278,8 +102,6 @@ pub struct PartialWitnessActor {
     witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     /// AccountId in the key corresponds to the requester (chunk validator).
     processed_contract_code_requests: LruCache<(ChunkProductionKey, AccountId), ()>,
-    /// V2 witnesses deferred on `DBCol::ChunkProducers` miss. See `PendingV2WitnessCache`.
-    pending_v2_witnesses: Arc<Mutex<PendingV2WitnessCache>>,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -294,7 +116,6 @@ pub struct DistributeStateWitnessRequest {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PartialWitnessSenderForClient {
     pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
-    pub block_notification: Sender<BlockNotificationMessage>,
 }
 
 impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
@@ -359,12 +180,6 @@ impl Handler<ContractCodeResponseMessage> for PartialWitnessActor {
     }
 }
 
-impl Handler<BlockNotificationMessage> for PartialWitnessActor {
-    fn handle(&mut self, _msg: BlockNotificationMessage) {
-        self.handle_block_notification();
-    }
-}
-
 impl PartialWitnessActor {
     pub fn new(
         clock: Clock,
@@ -399,7 +214,6 @@ impl PartialWitnessActor {
             processed_contract_code_requests: LruCache::new(
                 NonZeroUsize::new(PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE).unwrap(),
             ),
-            pending_v2_witnesses: Arc::new(Mutex::new(PendingV2WitnessCache::new())),
         }
     }
 
@@ -438,6 +252,17 @@ impl PartialWitnessActor {
             .expect("Chunk validators must be defined")
             .ordered_chunk_validators();
 
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+        // The chunk's anchor: prev of the chunk's prev block. The producer has
+        // processed the prev block (it produced the chunk on top of it), so the
+        // header lookup cannot race. Companion messages carry it only at/after
+        // EarlyKickout activation (V2 wire shapes).
+        let chain_store = ChainStoreAdapter::new(self.runtime.store().clone());
+        let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
+        let prev_prev_hash = *chain_store.get_block_header(&prev_block_hash)?.prev_hash();
+        let companion_prev_prev_hash =
+            ProtocolFeature::EarlyKickout.enabled(protocol_version).then_some(prev_prev_hash);
+
         if !contract_accesses.is_empty() {
             self.send_contract_accesses_to_chunk_validators(
                 key.clone(),
@@ -446,6 +271,7 @@ impl PartialWitnessActor {
                     block_hash: state_witness.main_state_transition().block_hash,
                     shard_id: main_transition_shard_id,
                 },
+                companion_prev_prev_hash,
                 &chunk_validators,
                 &signer,
             );
@@ -456,7 +282,6 @@ impl PartialWitnessActor {
         let encoder = self.witness_encoders.entry(chunk_validators.len());
         let network_adapter = self.network_adapter.clone();
         let state_witness_tracker = self.state_witness_tracker.clone();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
 
         self.witness_creation_spawner.spawn("compress_and_distribute_witness", move || {
             if let Err(err) = Self::compress_and_distribute_witness(
@@ -466,6 +291,7 @@ impl PartialWitnessActor {
                 network_adapter,
                 state_witness_tracker,
                 encoder,
+                prev_prev_hash,
                 protocol_version,
             ) {
                 tracing::error!(target: "client", ?err, "failed to compress and distribute chunk state witness");
@@ -473,7 +299,11 @@ impl PartialWitnessActor {
         });
 
         if !contract_deploys.is_empty() {
-            self.send_chunk_contract_deploys_parts(key, contract_deploys)?;
+            self.send_chunk_contract_deploys_parts(
+                key,
+                contract_deploys,
+                companion_prev_prev_hash,
+            )?;
         }
         Ok(())
     }
@@ -485,6 +315,7 @@ impl PartialWitnessActor {
         network_adapter: PeerManagerAdapter,
         state_witness_tracker: Arc<Mutex<ChunkStateWitnessTracker>>,
         encoder: Arc<ReedSolomonEncoder>,
+        prev_prev_hash: CryptoHash,
         protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         let witness_bytes = compress_witness(&state_witness)?;
@@ -498,6 +329,7 @@ impl PartialWitnessActor {
             &signer,
             &network_adapter,
             &state_witness_tracker,
+            prev_prev_hash,
             protocol_version,
         );
 
@@ -508,6 +340,7 @@ impl PartialWitnessActor {
         &mut self,
         key: &ChunkProductionKey,
         deploys: ChunkContractDeploys,
+        prev_prev_hash: Option<CryptoHash>,
     ) -> Result<Vec<(AccountId, PartialEncodedContractDeploys)>, Error> {
         let part_owners = self.ordered_contract_deploys_part_owners(key)?;
         // Note that target validators do not include the chunk producers, and thus in some case
@@ -532,6 +365,7 @@ impl PartialWitnessActor {
                         data: part.unwrap(),
                         encoded_length,
                     },
+                    prev_prev_hash,
                     &signer,
                 );
                 (validator, partial_deploys)
@@ -551,6 +385,7 @@ impl PartialWitnessActor {
         signer: &ValidatorSigner,
         network_adapter: &PeerManagerAdapter,
         state_witness_tracker: &Arc<Mutex<ChunkStateWitnessTracker>>,
+        prev_prev_hash: CryptoHash,
         protocol_version: ProtocolVersion,
     ) {
         let _span = tracing::debug_span!(
@@ -579,6 +414,7 @@ impl PartialWitnessActor {
             witness_bytes,
             chunk_validators,
             signer,
+            prev_prev_hash,
             protocol_version,
         );
         encode_timer.observe_duration();
@@ -605,35 +441,28 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
-    fn handle_partial_encoded_state_witness(
-        &self,
-        partial_witness: VersionedPartialEncodedStateWitness,
-    ) -> Result<(), Error> {
-        let shard_id_label = partial_witness.chunk_production_key().shard_id.to_string();
-        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
-            .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
-            .inc();
-        self.dispatch_partial_encoded_state_witness(partial_witness)
-    }
-
-    /// Init-emit dispatch shared by the public handler and replay (no receive-counter bump).
-    fn dispatch_partial_encoded_state_witness(
+    pub(super) fn handle_partial_encoded_state_witness(
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
-            "dispatch_partial_encoded_state_witness",
+            "handle_partial_encoded_state_witness",
             height = partial_witness.chunk_production_key().height_created,
             shard_id = %partial_witness.chunk_production_key().shard_id,
             part_ord = partial_witness.part_ord(),
             tag_witness_distribution = true,
         )
         .entered();
-        tracing::debug!(target: "client", ?partial_witness, "dispatching partial encoded state witness");
+        tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness");
 
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             partial_witness.chunk_production_key();
+
+        let shard_id_label = shard_id.to_string();
+        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
+            .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
+            .inc();
 
         let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
         if witness_kicked_out(version, &partial_witness) {
@@ -651,8 +480,10 @@ impl PartialWitnessActor {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
 
-        // V1 resolves the producer via the epoch sampler; V2 via a `prev_block_hash` DB lookup
-        // that defers on `MissingBlock`/`ChunkProducerNotInDB` (replayed on block notification).
+        // Resolve the producer to exclude it from forwarding targets. V1 uses the
+        // epoch sampler; V2 the anchored lookup from the signed (anchor, epoch,
+        // height). An unavailable anchor means the signature cannot be verified:
+        // drop without caching (see PARTIAL_WITNESS_ANCHOR_ABSENT_DROPS_TOTAL).
         let chunk_producer_info = match &partial_witness {
             VersionedPartialEncodedStateWitness::V1(_) => {
                 self.epoch_manager.get_chunk_producer_info(&ChunkProductionKey {
@@ -662,15 +493,27 @@ impl PartialWitnessActor {
                 })
             }
             VersionedPartialEncodedStateWitness::V2(v2) => {
-                self.epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id)
+                self.epoch_manager.get_chunk_producer_info_anchored(
+                    v2.prev_prev_hash(),
+                    &epoch_id,
+                    height_created,
+                    shard_id,
+                )
             }
         };
         let chunk_producer = match chunk_producer_info {
             Ok(info) => info.take_account_id(),
             Err(EpochError::ChunkProducerNotInDB(_, _) | EpochError::MissingBlock(_))
-                if partial_witness.prev_block_hash().is_some() =>
+                if partial_witness.prev_prev_hash().is_some() =>
             {
-                self.pending_v2_witnesses.lock().try_defer(partial_witness, DeferOrigin::InitEmit);
+                metrics::PARTIAL_WITNESS_ANCHOR_ABSENT_DROPS_TOTAL
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .inc();
+                tracing::debug!(
+                    target: "client",
+                    chunk_production_key = ?partial_witness.chunk_production_key(),
+                    "dropping partial witness: anchor state not available",
+                );
                 return Ok(());
             }
             Err(err) => return Err(err.into()),
@@ -687,10 +530,10 @@ impl PartialWitnessActor {
 
         let network_adapter = self.network_adapter.clone();
         let partial_witness_tracker = self.partial_witness_tracker.clone();
-        let pending_v2_witnesses = self.pending_v2_witnesses.clone();
 
         self.partial_witness_spawner.spawn("handle_partial_encoded_state_witness", move || {
-            // Validate the partial encoded state witness and forward the part to all the chunk validators.
+            // Validate the partial encoded state witness (including the producer
+            // signature) and only then forward the part to the chunk validators.
             match validate_partial_encoded_state_witness(
                 epoch_manager.as_ref(),
                 &partial_witness,
@@ -717,17 +560,13 @@ impl PartialWitnessActor {
                         tracing::error!(target: "client", ?err, "failed to store partial encoded state witness");
                     }
                 }
-                Ok(_) => {
+                Ok(irrelevant) => {
                     tracing::debug!(
                         target: "client",
                         chunk_production_key = ?partial_witness.chunk_production_key(),
+                        reason = <&str>::from(irrelevant),
                         "received irrelevant partial encoded state witness",
                     );
-                }
-                Err(Error::DBNotFoundErr(_)) => {
-                    pending_v2_witnesses
-                        .lock()
-                        .try_defer(partial_witness, DeferOrigin::InitEmit);
                 }
                 Err(err) => {
                     // TODO: ban sending peer
@@ -742,159 +581,6 @@ impl PartialWitnessActor {
         });
 
         Ok(())
-    }
-
-    fn pre_check_replay(&self, witness: &VersionedPartialEncodedStateWitness) -> ReplayDisposition {
-        pre_check_replay(
-            self.epoch_manager.as_ref(),
-            self.runtime.as_ref(),
-            &self.my_signer,
-            witness,
-        )
-    }
-
-    /// Bucket count in this actor's own pending cache. Integration tests read this instead of the
-    /// process-global `PARTIAL_WITNESS_PENDING_CACHE_SIZE` gauge (every node writes the gauge).
-    #[cfg(feature = "test_features")]
-    pub fn pending_cache_bucket_count(&self) -> usize {
-        self.pending_v2_witnesses.lock().len()
-    }
-
-    /// Scan all deferred V2 witnesses on every block notification and reclassify each.
-    ///
-    /// Scans all buckets, not the notified `block_hash`: keying on block-hash match stranded
-    /// witnesses stuck in `TooEarly`/`UnknownEpochId`, which can exhaust the RS parity budget.
-    fn handle_block_notification(&self) {
-        let all_entries = {
-            let mut cache = self.pending_v2_witnesses.lock();
-            let entries = cache.drain_all();
-            metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(0);
-            entries
-        };
-        if all_entries.is_empty() {
-            return;
-        }
-
-        let total = all_entries.len();
-        let mut to_requeue: Vec<(CryptoHash, PendingV2WitnessEntry)> = Vec::new();
-        let mut dispatched = 0usize;
-        let mut retired = 0usize;
-
-        for (prev_block_hash, entry) in all_entries {
-            match self.pre_check_replay(&entry.witness) {
-                ReplayDisposition::Ready => {
-                    dispatched += 1;
-                    let PendingV2WitnessEntry { witness, origin } = entry;
-                    match origin {
-                        DeferOrigin::Forwarded => self.replay_forwarded_partial_witness(witness),
-                        DeferOrigin::InitEmit => {
-                            // Already counted on initial receive; replay must not double-count.
-                            if let Err(err) = self.dispatch_partial_encoded_state_witness(witness) {
-                                tracing::warn!(
-                                    target: "client",
-                                    ?err,
-                                    "failed to dispatch ready deferred V2 partial witness",
-                                );
-                            }
-                        }
-                    }
-                }
-                ReplayDisposition::Requeue => {
-                    to_requeue.push((prev_block_hash, entry));
-                }
-                ReplayDisposition::Retire => {
-                    retired += 1;
-                }
-            }
-        }
-
-        let requeued = to_requeue.len();
-        if !to_requeue.is_empty() {
-            let mut cache = self.pending_v2_witnesses.lock();
-            for (hash, entry) in to_requeue {
-                cache.insert(hash, entry.witness, entry.origin);
-            }
-            metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
-        }
-
-        tracing::debug!(
-            target: "client",
-            total,
-            dispatched,
-            requeued,
-            retired,
-            "processed deferred V2 partial witnesses on block notification",
-        );
-    }
-
-    /// Validate and store a replayed V2 witness that arrived as a forward. Store-only:
-    /// re-forwarding would duplicate what other validators already received.
-    pub(super) fn replay_forwarded_partial_witness(
-        &self,
-        partial_witness: VersionedPartialEncodedStateWitness,
-    ) {
-        // Kickout gate: this replay path was the one act-site missing the gate, so a forwarded
-        // witness on the wrong side of the EarlyKickout boundary would otherwise slip through.
-        let epoch_id = partial_witness.chunk_production_key().epoch_id;
-        let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
-        if witness_kicked_out(version, &partial_witness) {
-            tracing::debug!(
-                target: "client",
-                ?epoch_id,
-                version = partial_witness.version_label(),
-                "dropping replayed forwarded partial witness: kickout gate",
-            );
-            return;
-        }
-
-        let Ok(signer) = self.my_validator_signer() else {
-            return;
-        };
-        let validator_account_id = signer.validator_id().clone();
-        let epoch_manager = self.epoch_manager.clone();
-        let runtime_adapter = self.runtime.clone();
-        let partial_witness_tracker = self.partial_witness_tracker.clone();
-        let pending_v2_witnesses = self.pending_v2_witnesses.clone();
-
-        self.partial_witness_spawner.spawn("replay_forwarded_partial_witness", move || {
-            match validate_partial_encoded_state_witness(
-                epoch_manager.as_ref(),
-                &partial_witness,
-                &validator_account_id,
-                runtime_adapter.store(),
-            ) {
-                Ok(ChunkRelevance::Relevant) => {
-                    if let Err(err) =
-                        partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)
-                    {
-                        tracing::error!(
-                            target: "client",
-                            ?err,
-                            "failed to store replayed forwarded partial witness",
-                        );
-                    }
-                }
-                Ok(_) => {
-                    tracing::debug!(
-                        target: "client",
-                        chunk_production_key = ?partial_witness.chunk_production_key(),
-                        "replayed forwarded partial witness now irrelevant",
-                    );
-                }
-                // Race with `pre_check_replay`: Ready on the actor thread, then a DB miss here. Re-defer.
-                Err(Error::DBNotFoundErr(_)) => {
-                    pending_v2_witnesses.lock().try_defer(partial_witness, DeferOrigin::Forwarded);
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        target: "client",
-                        chunk_production_key = ?partial_witness.chunk_production_key(),
-                        ?err,
-                        "replayed forwarded partial witness failed validation",
-                    );
-                }
-            }
-        });
     }
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
@@ -937,11 +623,13 @@ impl PartialWitnessActor {
         let partial_witness_tracker = self.partial_witness_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
-        let pending_v2_witnesses = self.pending_v2_witnesses.clone();
         self.partial_witness_spawner.spawn(
             "handle_partial_encoded_state_witness_forward",
             move || {
-                // Validate the partial encoded state witness and store the partial encoded state witness.
+                // Validate the partial encoded state witness (including the
+                // producer signature) and only then store it. Anything that
+                // cannot be verified right now (anchor state unavailable,
+                // unknown epoch) is dropped — verify-before-cache.
                 match validate_partial_encoded_state_witness(
                     epoch_manager.as_ref(),
                     &partial_witness,
@@ -953,29 +641,13 @@ impl PartialWitnessActor {
                             tracing::error!(target: "client", ?err, "failed to store partial encoded state witness");
                         }
                     }
-                    Ok(_) => {
+                    Ok(irrelevant) => {
                         tracing::debug!(
                             target: "client",
                             chunk_production_key = ?partial_witness.chunk_production_key(),
+                            reason = <&str>::from(irrelevant),
                             "received irrelevant partial encoded state witness",
                         );
-                    }
-                    Err(Error::DBNotFoundErr(_)) => {
-                        pending_v2_witnesses
-                            .lock()
-                            .try_defer(partial_witness, DeferOrigin::Forwarded);
-                    }
-                    // Assignments resolve from the signed `epoch_id` first, so an unsynced epoch
-                    // surfaces as `EpochOutOfBounds`: prev unknown → defer, forged → drop. Mirrors
-                    // `pre_check_replay`.
-                    Err(Error::EpochOutOfBounds(_))
-                        if partial_witness
-                            .prev_block_hash()
-                            .is_some_and(|prev| epoch_manager.get_block_info(prev).is_err()) =>
-                    {
-                        pending_v2_witnesses
-                            .lock()
-                            .try_defer(partial_witness, DeferOrigin::Forwarded);
                     }
                     Err(err) => {
                         // TODO: ban sending peer
@@ -1132,8 +804,13 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
-        self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
+        self.partial_witness_tracker.store_accessed_contract_hashes(
+            WitnessAssemblyKey {
+                chunk_production_key: key.clone(),
+                anchor: accesses.prev_prev_hash().copied(),
+            },
+            missing_contract_hashes.clone(),
+        )?;
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager
@@ -1160,6 +837,7 @@ impl PartialWitnessActor {
         key: ChunkProductionKey,
         contract_accesses: HashSet<CodeHash>,
         main_transition: MainTransitionKey,
+        prev_prev_hash: Option<CryptoHash>,
         chunk_validators: &[AccountId],
         my_signer: &ValidatorSigner,
     ) {
@@ -1179,7 +857,13 @@ impl PartialWitnessActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(key, contract_accesses, main_transition, my_signer),
+                ChunkContractAccesses::new(
+                    key,
+                    contract_accesses,
+                    main_transition,
+                    prev_prev_hash,
+                    my_signer,
+                ),
             ),
         ));
     }
@@ -1194,10 +878,12 @@ impl PartialWitnessActor {
         &mut self,
         key: ChunkProductionKey,
         contract_codes: Vec<ContractCode>,
+        prev_prev_hash: Option<CryptoHash>,
     ) -> Result<(), Error> {
         let contracts = contract_codes.into_iter().map(|contract| contract.into()).collect();
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contracts)?;
-        let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
+        let validator_parts =
+            self.generate_contract_deploys_parts(&key, compressed_deploys, prev_prev_hash)?;
         for (part_owner, deploys_part) in validator_parts {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedContractDeploys(vec![part_owner], deploys_part),
@@ -1439,6 +1125,7 @@ pub fn generate_state_witness_parts(
     witness_bytes: EncodedChunkStateWitness,
     chunk_validators: &[AccountId],
     signer: &ValidatorSigner,
+    prev_prev_hash: CryptoHash,
     protocol_version: ProtocolVersion,
 ) -> Vec<(AccountId, VersionedPartialEncodedStateWitness)> {
     let _span = tracing::debug_span!(
@@ -1465,6 +1152,7 @@ pub fn generate_state_witness_parts(
             let partial_witness = VersionedPartialEncodedStateWitness::new(
                 epoch_id,
                 chunk_header.clone(),
+                prev_prev_hash,
                 part_ord,
                 part.unwrap().into_vec(),
                 encoded_length,

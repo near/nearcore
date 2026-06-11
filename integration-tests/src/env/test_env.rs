@@ -404,6 +404,7 @@ impl TestEnv {
                     let witness_message = ChunkStateWitnessMessage {
                         witness: state_witness.clone(),
                         raw_witness_size,
+                        anchor: None,
                         processing_done_tracker: Some(processing_done_tracker),
                     };
 

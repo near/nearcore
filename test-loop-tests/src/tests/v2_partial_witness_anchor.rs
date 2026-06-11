@@ -1,12 +1,11 @@
-//! Integration smoke test for the V2 partial witness defer/replay path, exercising
-//! `PartialWitnessActor`'s `PendingV2WitnessCache` end-to-end across two test-loop nodes: a V2
-//! witness arriving before its `prev_block` defers, and the BlockNotification scan resolves and
-//! dispatches it once the block lands. The oracle reads the receiver actor's OWN cache via
-//! `pending_cache_bucket_count`, not the process-global `PARTIAL_WITNESS_PENDING_CACHE_SIZE` gauge
-//! (every node writes the gauge). Nightly-gated: the V2 wire path needs `ProtocolFeature::EarlyKickout`.
-//!
-//! A prior multi-notification `Requeue` test was dropped (its `cache > 0` oracle was a false
-//! positive); pinning it needs actor-local cache-key inspection, deferred to follow-up.
+//! Integration smoke test for prev_prev-anchored V2 partial witness validation
+//! across two test-loop nodes. A V2 witness part arriving BEFORE its prev block
+//! is signature-verified against the anchor (two blocks back) and assembled
+//! immediately — no deferral, no block-notification replay (the
+//! `PendingV2WitnessCache` machinery is gone). The decoded witness waits in the
+//! orphan-witness pool and is validated when the held block is released, so the
+//! chain keeps including chunks afterwards. Nightly-gated: the V2 wire path
+//! needs `ProtocolFeature::EarlyKickout`.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -71,7 +70,7 @@ impl BlockHolder {
 /// producer's PM is what fires `NetworkRequests::Block` (broadcast); the
 /// receiver's PM is what fires `NetworkRequests::BlockRequest` (catch-up
 /// sync). Without dropping both, receiver back-fills the held block via the
-/// BlockRequest path and the defer collapses immediately.
+/// BlockRequest path and the witness-before-block window collapses.
 fn register_block_holder(env: &mut TestLoopEnv, holder: &Arc<Mutex<BlockHolder>>) {
     let node_handles: Vec<_> =
         env.node_datas.iter().map(|n| n.peer_manager_sender.actor_handle()).collect();
@@ -103,10 +102,10 @@ fn register_block_holder(env: &mut TestLoopEnv, holder: &Arc<Mutex<BlockHolder>>
 }
 
 #[test]
-// Spice distributes witnesses via its own data-distribution path, not the V2
-// partial-witness pending cache this test drives, so the defer never fires.
+// Spice distributes witnesses via its own data-distribution path, not the
+// anchored V2 partial-witness path this test drives.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_v2_init_emit_defer_then_replay() {
+fn test_v2_witness_verifies_without_prev_block() {
     init_test_logger();
     let mut env = make_env();
 
@@ -124,31 +123,25 @@ fn test_v2_init_emit_defer_then_replay() {
         .expect("receiver node datas")
         .client_sender
         .clone();
-    // Receiver actor's OWN cache, not the process-global gauge (every node writes
-    // it, zeroed each block). `pending_cache_bucket_count` = distinct
-    // `prev_block_hash` buckets; fine for `> 0` / `== 0`.
-    let receiver_pw_handle = env
-        .node_datas
-        .iter()
-        .find(|n| n.account_id.as_str() == RECEIVER)
-        .expect("receiver node datas")
-        .partial_witness_sender
-        .actor_handle();
+
     let holder = BlockHolder::new(1);
     register_block_holder(&mut env, &holder);
 
-    // Run until receiver buffers >= 1 V2 witness.
-    env.test_loop.run_until(
-        |data| data.get(&receiver_pw_handle).pending_cache_bucket_count() > 0,
-        Duration::seconds(5),
-    );
-    assert!(
-        env.test_loop.data.get(&receiver_pw_handle).pending_cache_bucket_count() > 0,
-        "receiver should have deferred at least one V2 witness",
-    );
+    // Run until a block is held back from the receiver. While the block is
+    // held, the producer keeps distributing V2 witness parts for the next
+    // height; the receiver verifies them against the prev_prev anchor (which
+    // it has) even though the prev block is missing.
+    env.test_loop.run_until(|_| holder.lock().held.len() == 1, Duration::seconds(5));
+    let held_height = holder.lock().held[0].header().height();
+
+    // Give the receiver time to process witness parts for held_height + 1
+    // while the prev block is still missing. The assembled witness lands in
+    // the orphan pool; nothing is deferred at the partial-witness layer.
+    env.test_loop.run_for(Duration::seconds(2));
+
+    // Release the held block directly to the receiver client.
     let held_block = {
         let mut h = holder.lock();
-        assert_eq!(h.held.len(), 1, "exactly one block held");
         h.held.remove(0)
     };
     receiver_client_sender.send(
@@ -160,16 +153,29 @@ fn test_v2_init_emit_defer_then_replay() {
         .span_wrap(),
     );
 
-    // Wait for receiver cache to drain. Proves BlockNotification scan ran +
-    // resolved (prev now = released block → producer-DB lookup → Ready → dispatch).
+    // The chain must keep including chunks past the held height: that requires
+    // the receiver (the only chunk validator) to have endorsed chunks whose
+    // witness parts arrived before their prev block.
+    let client_handle = env
+        .node_datas
+        .iter()
+        .find(|n| n.account_id.as_str() == RECEIVER)
+        .expect("receiver node datas")
+        .client_sender
+        .actor_handle();
     env.test_loop.run_until(
-        |data| data.get(&receiver_pw_handle).pending_cache_bucket_count() == 0,
-        Duration::seconds(5),
-    );
-    assert_eq!(
-        env.test_loop.data.get(&receiver_pw_handle).pending_cache_bucket_count(),
-        0,
-        "pending cache must drain after block notification",
+        |data| {
+            let client = &data.get(&client_handle).client;
+            let Ok(head) = client.chain.head() else {
+                return false;
+            };
+            if head.height <= held_height + 2 {
+                return false;
+            }
+            let head_block = client.chain.get_block(&head.last_block_hash).unwrap();
+            head_block.header().chunk_mask().iter().all(|included| *included)
+        },
+        Duration::seconds(20),
     );
 
     drop(env);

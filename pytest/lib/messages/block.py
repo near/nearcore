@@ -390,6 +390,18 @@ class ChunkContractAccessesInner:
     pass
 
 
+class ChunkContractAccessesV2:
+    pass
+
+
+class ChunkContractAccessesInnerV2:
+    pass
+
+
+class MainTransitionKey:
+    pass
+
+
 class PartialEncodedContractDeploys:
     pass
 
@@ -399,6 +411,14 @@ class PartialEncodedContractDeploysV1:
 
 
 class PartialEncodedContractDeploysInner:
+    pass
+
+
+class PartialEncodedContractDeploysV2:
+    pass
+
+
+class PartialEncodedContractDeploysInnerV2:
     pass
 
 
@@ -1255,9 +1275,14 @@ block_schema = [
     }],
     [
         ChunkContractAccesses, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [['V1', ChunkContractAccessesV1],]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                ['V1', ChunkContractAccessesV1],
+                ['V2', ChunkContractAccessesV2],
+            ]
         }
     ],
     [
@@ -1282,10 +1307,47 @@ block_schema = [
         }
     ],
     [
+        ChunkContractAccessesV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkContractAccessesInnerV2],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ChunkContractAccessesInnerV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['main_transition', MainTransitionKey],
+                ['prev_prev_hash', [32]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        MainTransitionKey, {
+            'kind': 'struct',
+            'fields': [
+                ['block_hash', [32]],
+                ['shard_id', 'u64'],
+            ]
+        }
+    ],
+    [
         PartialEncodedContractDeploys, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [['V1', PartialEncodedContractDeploysV1],]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                ['V1', PartialEncodedContractDeploysV1],
+                ['V2', PartialEncodedContractDeploysV2],
+            ]
         }
     ],
     [
@@ -1305,6 +1367,28 @@ block_schema = [
             'fields': [
                 ['next_chunk', ChunkProductionKey],
                 ['part', PartialEncodedContractDeploysPart],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', PartialEncodedContractDeploysInnerV2],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysInnerV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['part', PartialEncodedContractDeploysPart],
+                ['prev_prev_hash', [32]],
                 ['signature_differentiator', SignatureDifferentiator],
             ]
         }

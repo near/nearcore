@@ -163,9 +163,13 @@ impl ChunkProducer {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
+        // Production gate. MUST stay in exact lockstep with the consensus
+        // verifier (`verify_chunk_header_signature_by_hash`, reached from chunk
+        // header validation in `chain.rs`): both resolve through the anchored
+        // lookup, and a divergence is a chain split.
         let chunk_proposer = self
             .epoch_manager
-            .get_chunk_producer_info_db(prev_block.hash(), shard_id)?
+            .get_chunk_producer_info_from_prev_block(prev_block.hash(), shard_id)?
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
             tracing::debug!(

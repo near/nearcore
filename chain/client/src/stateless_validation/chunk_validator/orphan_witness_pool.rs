@@ -17,6 +17,10 @@ pub struct OrphanStateWitnessPool {
 
 struct CacheEntry {
     witness: ChunkStateWitness,
+    /// Signed prev_prev anchor from the partial-witness layer (None for V1
+    /// wire); threaded through so the canonicality check can run once the
+    /// witness leaves the pool.
+    anchor: Option<CryptoHash>,
     _metrics_tracker: OrphanWitnessMetricsTracker,
 }
 
@@ -43,11 +47,16 @@ impl OrphanStateWitnessPool {
     /// shard_id, size, epoch_id and distance from the tip. The pool would still work without it, but without
     /// validation it'd be possible to fill the whole cache with spam.
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
-    pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
+    pub fn add_orphan_state_witness(
+        &mut self,
+        witness: ChunkStateWitness,
+        anchor: Option<CryptoHash>,
+        witness_size: usize,
+    ) {
         // Insert the new ChunkStateWitness into the cache
         let cache_key = witness.chunk_production_key();
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
-        let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
+        let cache_entry = CacheEntry { witness, anchor, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {
             // Another witness has been ejected from the cache due to capacity limit
             let header = &ejected_entry.witness.chunk_header();
@@ -67,7 +76,7 @@ impl OrphanStateWitnessPool {
     pub fn take_state_witnesses_waiting_for_block(
         &mut self,
         prev_block: &CryptoHash,
-    ) -> Vec<ChunkStateWitness> {
+    ) -> Vec<(ChunkStateWitness, Option<CryptoHash>)> {
         let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
         for (cache_key, cache_entry) in &self.witness_cache {
             if cache_entry.witness.chunk_header().prev_block_hash() == prev_block {
@@ -80,7 +89,7 @@ impl OrphanStateWitnessPool {
                 .witness_cache
                 .pop(&cache_key)
                 .expect("The cache contains this entry, a moment ago it was iterated over");
-            result.push(ready_witness.witness);
+            result.push((ready_witness.witness, ready_witness.anchor));
         }
         result
     }
@@ -194,7 +203,12 @@ mod tests {
     }
 
     /// Assert that both vec are equal after sorting. It's order-independent, unlike the standard assert_eq!
-    fn assert_contents(mut observed: Vec<ChunkStateWitness>, mut expected: Vec<ChunkStateWitness>) {
+    fn assert_contents(
+        observed: Vec<(ChunkStateWitness, Option<CryptoHash>)>,
+        mut expected: Vec<ChunkStateWitness>,
+    ) {
+        let mut observed: Vec<ChunkStateWitness> =
+            observed.into_iter().map(|(witness, _anchor)| witness).collect();
         let sort_comparator = |witness1: &ChunkStateWitness, witness2: &ChunkStateWitness| {
             let bytes1 = borsh::to_vec(witness1).unwrap();
             let bytes2 = borsh::to_vec(witness2).unwrap();
@@ -242,10 +256,10 @@ mod tests {
         let witness3 = make_witness(101, ShardId::new(1), block(100));
         let witness4 = make_witness(101, ShardId::new(2), block(100));
 
-        pool.add_orphan_state_witness(witness1.clone(), 0);
-        pool.add_orphan_state_witness(witness2.clone(), 0);
-        pool.add_orphan_state_witness(witness3.clone(), 0);
-        pool.add_orphan_state_witness(witness4.clone(), 0);
+        pool.add_orphan_state_witness(witness1.clone(), None, 0);
+        pool.add_orphan_state_witness(witness2.clone(), None, 0);
+        pool.add_orphan_state_witness(witness3.clone(), None, 0);
+        pool.add_orphan_state_witness(witness4.clone(), None, 0);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
         assert_contents(waiting_for_99, vec![witness1, witness2]);
@@ -266,8 +280,8 @@ mod tests {
         {
             let witness1 = make_witness(100, ShardId::new(1), block(99));
             let witness2 = make_witness(100, ShardId::new(1), block(99));
-            pool.add_orphan_state_witness(witness1, 0);
-            pool.add_orphan_state_witness(witness2.clone(), 0);
+            pool.add_orphan_state_witness(witness1, None, 0);
+            pool.add_orphan_state_witness(witness2.clone(), None, 0);
 
             let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
             assert_contents(waiting_for_99, vec![witness2]);
@@ -277,8 +291,8 @@ mod tests {
         {
             let witness3 = make_witness(102, ShardId::new(1), block(100));
             let witness4 = make_witness(102, ShardId::new(1), block(101));
-            pool.add_orphan_state_witness(witness3, 0);
-            pool.add_orphan_state_witness(witness4.clone(), 0);
+            pool.add_orphan_state_witness(witness3, None, 0);
+            pool.add_orphan_state_witness(witness4.clone(), None, 0);
 
             let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
             assert_contents(waiting_for_101, vec![witness4]);
@@ -299,11 +313,11 @@ mod tests {
         let witness2 = make_witness(101, ShardId::new(1), block(100));
         let witness3 = make_witness(101, ShardId::new(2), block(100));
 
-        pool.add_orphan_state_witness(witness1, 0);
-        pool.add_orphan_state_witness(witness2.clone(), 0);
+        pool.add_orphan_state_witness(witness1, None, 0);
+        pool.add_orphan_state_witness(witness2.clone(), None, 0);
 
         // Inserting the third witness causes the pool to go over capacity, so witness1 should be ejected.
-        pool.add_orphan_state_witness(witness3.clone(), 0);
+        pool.add_orphan_state_witness(witness3.clone(), None, 0);
 
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
         assert_contents(waiting_for_100, vec![witness2, witness3]);
@@ -322,7 +336,7 @@ mod tests {
 
         let large_shard_id = ShardId::max();
         let witness = make_witness(101, large_shard_id.into(), block(99));
-        pool.add_orphan_state_witness(witness.clone(), 0);
+        pool.add_orphan_state_witness(witness.clone(), None, 0);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
         assert_contents(waiting_for_99, vec![witness]);
@@ -340,10 +354,10 @@ mod tests {
         let witness3 = make_witness(102, ShardId::new(1), block(101));
         let witness4 = make_witness(103, ShardId::new(1), block(102));
 
-        pool.add_orphan_state_witness(witness1, 0);
-        pool.add_orphan_state_witness(witness2.clone(), 0);
-        pool.add_orphan_state_witness(witness3, 0);
-        pool.add_orphan_state_witness(witness4.clone(), 0);
+        pool.add_orphan_state_witness(witness1, None, 0);
+        pool.add_orphan_state_witness(witness2.clone(), None, 0);
+        pool.add_orphan_state_witness(witness3, None, 0);
+        pool.add_orphan_state_witness(witness4.clone(), None, 0);
 
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
         assert_contents(waiting_for_100, vec![witness2]);
@@ -366,10 +380,10 @@ mod tests {
     #[test]
     fn destructor_does_not_crash() {
         let mut pool = OrphanStateWitnessPool::new(10);
-        pool.add_orphan_state_witness(make_witness(100, ShardId::new(0), block(99)), 0);
-        pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99)), 0);
-        pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99)), 1);
-        pool.add_orphan_state_witness(make_witness(101, ShardId::new(0), block(100)), 0);
+        pool.add_orphan_state_witness(make_witness(100, ShardId::new(0), block(99)), None, 0);
+        pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99)), None, 0);
+        pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99)), None, 1);
+        pool.add_orphan_state_witness(make_witness(101, ShardId::new(0), block(100)), None, 0);
         std::mem::drop(pool);
     }
 
@@ -383,24 +397,24 @@ mod tests {
         let witness1 = make_witness(100, ShardId::new(1), block(99));
         let witness2 = make_witness(100, ShardId::new(2), block(99));
         let witness3 = make_witness(100, ShardId::new(3), block(99));
-        pool.add_orphan_state_witness(witness0, 0);
-        pool.add_orphan_state_witness(witness1, 0);
-        pool.add_orphan_state_witness(witness2, 0);
-        pool.add_orphan_state_witness(witness3, 0);
+        pool.add_orphan_state_witness(witness0, None, 0);
+        pool.add_orphan_state_witness(witness1, None, 0);
+        pool.add_orphan_state_witness(witness2, None, 0);
+        pool.add_orphan_state_witness(witness3, None, 0);
 
         // Another witness on shard 1, height 100. Should replace witness1
         let witness5 = make_witness(100, ShardId::new(1), block(99));
-        pool.add_orphan_state_witness(witness5.clone(), 0);
+        pool.add_orphan_state_witness(witness5.clone(), None, 0);
 
         // Witnesses for shards 0, 1, 2, 3 at height 101, looking for block 100
         let witness6 = make_witness(101, ShardId::new(0), block(100));
         let witness7 = make_witness(101, ShardId::new(1), block(100));
         let witness8 = make_witness(101, ShardId::new(2), block(100));
         let witness9 = make_witness(101, ShardId::new(3), block(100));
-        pool.add_orphan_state_witness(witness6, 0);
-        pool.add_orphan_state_witness(witness7.clone(), 0);
-        pool.add_orphan_state_witness(witness8.clone(), 0);
-        pool.add_orphan_state_witness(witness9.clone(), 0);
+        pool.add_orphan_state_witness(witness6, None, 0);
+        pool.add_orphan_state_witness(witness7.clone(), None, 0);
+        pool.add_orphan_state_witness(witness8.clone(), None, 0);
+        pool.add_orphan_state_witness(witness9.clone(), None, 0);
 
         // Pool capacity is 5, so three witnesses at height 100 should be ejected.
         // The only surviving witness should be witness5, which was the freshest one among them
@@ -411,9 +425,9 @@ mod tests {
         let witness10 = make_witness(102, ShardId::new(1), block(101));
         let witness11 = make_witness(102, ShardId::new(4), block(100));
         let witness12 = make_witness(102, ShardId::new(1), block(77));
-        pool.add_orphan_state_witness(witness10, 0);
-        pool.add_orphan_state_witness(witness11.clone(), 0);
-        pool.add_orphan_state_witness(witness12.clone(), 0);
+        pool.add_orphan_state_witness(witness10, None, 0);
+        pool.add_orphan_state_witness(witness11.clone(), None, 0);
+        pool.add_orphan_state_witness(witness12.clone(), None, 0);
 
         // Check that witnesses waiting for block 100 are correct
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));

@@ -4163,6 +4163,11 @@ pub struct BlockCatchUpResponse {
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,
+    /// Signed prev_prev anchor carried by the V2 partial witness parts this
+    /// witness was assembled from (`None` for the V1 wire). Checked against
+    /// `prev_block.prev_hash()` once the prev block is available — a mismatch
+    /// means the producer signed a non-canonical anchor.
+    pub anchor: Option<CryptoHash>,
     pub processing_done_tracker: Option<ProcessingDoneTracker>,
 }
 

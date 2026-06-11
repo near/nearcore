@@ -137,19 +137,17 @@ impl Chain {
                 .add_validator_proposals(block_info, *genesis.header().random_value())?
                 .into(),
         );
-        // Save chunk producers for height 1 (next height after genesis).
+        // Save the kickout state under the genesis hash: the anchor of chunks
+        // at height genesis+2 (their prev_prev is the genesis block).
         store_update.save_chunk_producers_for_header(
             epoch_manager,
             genesis.header(),
             genesis_protocol_version,
         )?;
-        // Save chunk producers for the genesis chunks themselves (height 0).
-        // Genesis chunks have prev_block_hash = CryptoHash::default().
-        store_update.save_genesis_chunk_producers(
-            epoch_manager,
-            genesis_protocol_version,
-            genesis.header().height(),
-        )?;
+        // Save the kickout state under CryptoHash::default(): the anchor of
+        // chunks at height genesis+1 (their prev_prev is the genesis block's
+        // prev, the default hash) and of the genesis chunks themselves.
+        store_update.save_genesis_chunk_producers(epoch_manager, genesis_protocol_version)?;
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;

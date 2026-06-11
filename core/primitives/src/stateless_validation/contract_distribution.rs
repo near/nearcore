@@ -23,11 +23,17 @@ pub const MAX_CONTRACTS_PER_REQUEST: usize = 1282;
 /// Contains contracts (as code-hashes) accessed during the application of a chunk.
 /// This is used by the chunk producer to let the chunk validators know about which contracts
 /// are needed for validating a witness, so that the chunk validators can request missing code.
+///
+/// V2 adds the chunk's `prev_prev_hash` anchor so receivers verify the producer
+/// signature via the anchored resolver, mirroring
+/// `VersionedPartialEncodedStateWitness`. Emitted at/after `EarlyKickout`
+/// activation; V1 before.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum ChunkContractAccesses {
     V1(ChunkContractAccessesV1) = 0,
+    V2(ChunkContractAccessesV2) = 1,
 }
 
 /// Contains information necessary to identify StateTransitionData in the storage.
@@ -38,36 +44,64 @@ pub struct MainTransitionKey {
 }
 
 impl ChunkContractAccesses {
+    /// `prev_prev_hash = Some(..)` builds the anchored V2 message (at/after
+    /// `EarlyKickout` activation), `None` builds V1.
     pub fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
         main_transition: MainTransitionKey,
+        prev_prev_hash: Option<CryptoHash>,
         signer: &ValidatorSigner,
     ) -> Self {
-        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, main_transition, signer))
+        match prev_prev_hash {
+            Some(prev_prev_hash) => Self::V2(ChunkContractAccessesV2::new(
+                next_chunk,
+                contracts,
+                main_transition,
+                prev_prev_hash,
+                signer,
+            )),
+            None => Self::V1(ChunkContractAccessesV1::new(
+                next_chunk,
+                contracts,
+                main_transition,
+                signer,
+            )),
+        }
     }
 
     pub fn contracts(&self) -> &[CodeHash] {
         match self {
             Self::V1(accesses) => &accesses.inner.contracts,
+            Self::V2(accesses) => &accesses.inner.contracts,
         }
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
             Self::V1(accesses) => &accesses.inner.next_chunk,
+            Self::V2(accesses) => &accesses.inner.next_chunk,
         }
     }
 
     pub fn main_transition(&self) -> &MainTransitionKey {
         match self {
             Self::V1(accesses) => &accesses.inner.main_transition,
+            Self::V2(accesses) => &accesses.inner.main_transition,
+        }
+    }
+
+    pub fn prev_prev_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(accesses) => Some(&accesses.inner.prev_prev_hash),
         }
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
         match self {
             Self::V1(accesses) => accesses.verify_signature(public_key),
+            Self::V2(accesses) => accesses.verify_signature(public_key),
         }
     }
 }
@@ -121,6 +155,67 @@ impl ChunkContractAccessesInner {
             contracts: contracts.into_iter().collect(),
             main_transition,
             signature_differentiator: "ChunkContractAccessesInner".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractAccessesV2 {
+    inner: ChunkContractAccessesInnerV2,
+    /// Signature of the inner, signed by the chunk producer of the next chunk.
+    signature: Signature,
+}
+
+impl ChunkContractAccessesV2 {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+        prev_prev_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ChunkContractAccessesInnerV2::new(
+            next_chunk,
+            contracts,
+            main_transition,
+            prev_prev_hash,
+        );
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Self { inner, signature }
+    }
+
+    fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractAccessesInnerV2 {
+    /// Production metadata of the chunk created after the chunk the accesses belong to.
+    next_chunk: ChunkProductionKey,
+    /// List of code-hashes for the contracts accessed.
+    contracts: Vec<CodeHash>,
+    /// Corresponds to the StateTransitionData where the contracts were accessed.
+    main_transition: MainTransitionKey,
+    /// Anchor for chunk-producer resolution: hash of the block two behind the
+    /// chunk. See `PartialEncodedStateWitnessInnerV2::prev_prev_hash`.
+    prev_prev_hash: CryptoHash,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl ChunkContractAccessesInnerV2 {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+        prev_prev_hash: CryptoHash,
+    ) -> Self {
+        Self {
+            next_chunk,
+            contracts: contracts.into_iter().collect(),
+            main_transition,
+            prev_prev_hash,
+            signature_differentiator: "ChunkContractAccessesInnerV2".to_owned(),
         }
     }
 }
@@ -417,37 +512,59 @@ impl ReedSolomonEncoderSerialize for ChunkContractDeploys {}
 #[cfg(feature = "solomon")]
 impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
 
+/// V2 adds the chunk's `prev_prev_hash` anchor so receivers verify the producer
+/// signature via the anchored resolver. Emitted at/after `EarlyKickout`
+/// activation; V1 before.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum PartialEncodedContractDeploys {
     V1(PartialEncodedContractDeploysV1) = 0,
+    V2(PartialEncodedContractDeploysV2) = 1,
 }
 
 impl PartialEncodedContractDeploys {
+    /// `prev_prev_hash = Some(..)` builds the anchored V2 message (at/after
+    /// `EarlyKickout` activation), `None` builds V1.
     pub fn new(
         key: ChunkProductionKey,
         part: PartialEncodedContractDeploysPart,
+        prev_prev_hash: Option<CryptoHash>,
         signer: &ValidatorSigner,
     ) -> Self {
-        Self::V1(PartialEncodedContractDeploysV1::new(key, part, signer))
+        match prev_prev_hash {
+            Some(prev_prev_hash) => {
+                Self::V2(PartialEncodedContractDeploysV2::new(key, part, prev_prev_hash, signer))
+            }
+            None => Self::V1(PartialEncodedContractDeploysV1::new(key, part, signer)),
+        }
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match &self {
             Self::V1(v1) => &v1.inner.next_chunk,
+            Self::V2(v2) => &v2.inner.next_chunk,
         }
     }
 
     pub fn part(&self) -> &PartialEncodedContractDeploysPart {
         match &self {
             Self::V1(v1) => &v1.inner.part,
+            Self::V2(v2) => &v2.inner.part,
+        }
+    }
+
+    pub fn prev_prev_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(&v2.inner.prev_prev_hash),
         }
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
         match self {
-            Self::V1(accesses) => accesses.verify_signature(public_key),
+            Self::V1(deploys) => deploys.verify_signature(public_key),
+            Self::V2(deploys) => deploys.verify_signature(public_key),
         }
     }
 }
@@ -458,6 +575,9 @@ impl Into<(ChunkProductionKey, PartialEncodedContractDeploysPart)>
     fn into(self) -> (ChunkProductionKey, PartialEncodedContractDeploysPart) {
         match self {
             Self::V1(PartialEncodedContractDeploysV1 { inner, .. }) => {
+                (inner.next_chunk, inner.part)
+            }
+            Self::V2(PartialEncodedContractDeploysV2 { inner, .. }) => {
                 (inner.next_chunk, inner.part)
             }
         }
@@ -516,6 +636,54 @@ impl PartialEncodedContractDeploysInner {
             next_chunk,
             part,
             signature_differentiator: "PartialEncodedContractDeploysInner".to_owned(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysV2 {
+    inner: PartialEncodedContractDeploysInnerV2,
+    signature: Signature,
+}
+
+impl PartialEncodedContractDeploysV2 {
+    pub fn new(
+        key: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        prev_prev_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = PartialEncodedContractDeploysInnerV2::new(key, part, prev_prev_hash);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Self { inner, signature }
+    }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysInnerV2 {
+    next_chunk: ChunkProductionKey,
+    part: PartialEncodedContractDeploysPart,
+    /// Anchor for chunk-producer resolution: hash of the block two behind the
+    /// chunk. See `PartialEncodedStateWitnessInnerV2::prev_prev_hash`.
+    prev_prev_hash: CryptoHash,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl PartialEncodedContractDeploysInnerV2 {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        prev_prev_hash: CryptoHash,
+    ) -> Self {
+        Self {
+            next_chunk,
+            part,
+            prev_prev_hash,
+            signature_differentiator: "PartialEncodedContractDeploysInnerV2".to_owned(),
         }
     }
 }

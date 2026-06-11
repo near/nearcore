@@ -13,7 +13,7 @@ use near_primitives_core::{
 };
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Information per epoch.
 #[derive(
@@ -28,6 +28,78 @@ pub enum EpochInfo {
 }
 
 pub type RngSeed = [u8; 32];
+
+/// Per-anchor chunk producer kickout state stored in `DBCol::ChunkProducers`.
+///
+/// The row keyed by `(anchor_block_hash, shard_id)` holds the kickout state as of
+/// that block. A chunk anchored on that block (the block two hashes behind the
+/// chunk, i.e. the chunk's prev_prev block) samples its producer from the chunk
+/// epoch's `EpochInfo` at the chunk's signed `height_created`, excluding the
+/// blacklisted accounts.
+///
+/// In the identity landing the blacklist is always empty, so producer selection is
+/// byte-identical to `sample_chunk_producer`. A later PR fills the blacklist from
+/// per-block chunk production stats.
+///
+/// Blacklist entries are `AccountId`s (not epoch-relative `ValidatorId`s) so the
+/// state stays meaningful when the anchor and the chunk are in different epochs.
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+)]
+pub enum ChunkProducerKickoutState {
+    V1(ChunkProducerKickoutStateV1),
+}
+
+#[derive(
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+pub struct ChunkProducerKickoutStateV1 {
+    /// Accounts excluded from chunk producer sampling at this anchor.
+    pub blacklist: BTreeSet<AccountId>,
+}
+
+impl Default for ChunkProducerKickoutState {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
+impl ChunkProducerKickoutState {
+    /// The empty-blacklist state: producer selection is identical to the static
+    /// epoch sampler.
+    pub fn identity() -> Self {
+        Self::V1(ChunkProducerKickoutStateV1::default())
+    }
+
+    pub fn blacklist(&self) -> &BTreeSet<AccountId> {
+        match self {
+            Self::V1(v1) => &v1.blacklist,
+        }
+    }
+
+    pub fn is_identity(&self) -> bool {
+        self.blacklist().is_empty()
+    }
+
+    /// Resolve the blacklisted accounts to validator ids in `epoch_info`.
+    /// Accounts that are not validators in that epoch are dropped: a producer
+    /// blacklisted at the anchor cannot be sampled in an epoch where it is not
+    /// in the validator set anyway.
+    pub fn exclude_ids(&self, epoch_info: &EpochInfo) -> HashSet<ValidatorId> {
+        self.blacklist()
+            .iter()
+            .filter_map(|account_id| epoch_info.get_validator_id(account_id).copied())
+            .collect()
+    }
+}
 
 #[derive(
     Default,
@@ -593,6 +665,99 @@ impl EpochInfo {
         }
     }
 
+    /// Sample a chunk producer for (shard_id, height), excluding any validator in
+    /// `exclude`. Mirrors `sample_chunk_producer`, filtering the per-shard settlement
+    /// first. Returns None when every eligible producer is excluded (caller falls back
+    /// to `sample_chunk_producer`).
+    pub fn sample_chunk_producer_excluding(
+        &self,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        height: BlockHeight,
+        exclude: &HashSet<ValidatorId>,
+    ) -> Option<ValidatorId> {
+        if exclude.is_empty() {
+            return self.sample_chunk_producer(shard_layout, shard_id, height);
+        }
+        let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
+        match &self {
+            Self::V1(v1) => Self::sample_excluding_modulo(
+                v1.chunk_producers_settlement.get(shard_index)?,
+                exclude,
+                height,
+            ),
+            Self::V2(v2) => Self::sample_excluding_modulo(
+                v2.chunk_producers_settlement.get(shard_index)?,
+                exclude,
+                height,
+            ),
+            Self::V3(v3) => Self::sample_excluding_weighted(
+                v3.chunk_producers_settlement.get(shard_index)?,
+                exclude,
+                &v3.validators,
+                Self::chunk_produce_seed(&v3.rng_seed, height, shard_id),
+            ),
+            Self::V4(v4) => Self::sample_excluding_weighted(
+                v4.chunk_producers_settlement.get(shard_index)?,
+                exclude,
+                &v4.validators,
+                Self::chunk_produce_seed(&v4.rng_seed, height, shard_id),
+            ),
+            Self::V5(v5) => Self::sample_excluding_weighted(
+                v5.chunk_producers_settlement.get(shard_index)?,
+                exclude,
+                &v5.validators,
+                Self::chunk_produce_seed(&v5.rng_seed, height, shard_id),
+            ),
+        }
+    }
+
+    /// Sample a chunk producer for (shard_id, height), excluding the accounts
+    /// blacklisted in `kickout_state`. With the identity state this is exactly
+    /// `sample_chunk_producer`. When every eligible producer is blacklisted, fall
+    /// back to the unfiltered sampler: a chunk slot must always have a producer.
+    pub fn sample_chunk_producer_with_kickout(
+        &self,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        height: BlockHeight,
+        kickout_state: &ChunkProducerKickoutState,
+    ) -> Option<ValidatorId> {
+        let exclude = kickout_state.exclude_ids(self);
+        self.sample_chunk_producer_excluding(shard_layout, shard_id, height, &exclude)
+            .or_else(|| self.sample_chunk_producer(shard_layout, shard_id, height))
+    }
+
+    /// Filter `settlement` by `exclude`, then pick by `height` modulo (V1/V2 rule).
+    fn sample_excluding_modulo(
+        settlement: &[ValidatorId],
+        exclude: &HashSet<ValidatorId>,
+        height: BlockHeight,
+    ) -> Option<ValidatorId> {
+        let filtered: Vec<ValidatorId> =
+            settlement.iter().copied().filter(|id| !exclude.contains(id)).collect();
+        (!filtered.is_empty()).then(|| filtered[(height % filtered.len() as u64) as usize])
+    }
+
+    /// Filter `settlement` by `exclude`, then pick via a fresh stake-weighted
+    /// distribution renormalized over the surviving producers (V3/V4/V5 rule).
+    fn sample_excluding_weighted(
+        settlement: &[ValidatorId],
+        exclude: &HashSet<ValidatorId>,
+        validators: &[ValidatorStake],
+        seed: [u8; 32],
+    ) -> Option<ValidatorId> {
+        let filtered: Vec<ValidatorId> =
+            settlement.iter().copied().filter(|id| !exclude.contains(id)).collect();
+        if filtered.is_empty() {
+            return None;
+        }
+        let stakes: Vec<Balance> =
+            filtered.iter().map(|&id| validators[id as usize].stake()).collect();
+        let sampler = StakeWeightedIndex::new(stakes);
+        Some(filtered[sampler.sample(seed)])
+    }
+
     #[cfg(feature = "rand")]
     pub fn sample_chunk_validators(
         &self,
@@ -721,4 +886,179 @@ pub struct EpochInfoV1 {
     /// Current protocol version during this epoch.
     #[default(PROTOCOL_VERSION)]
     pub protocol_version: ProtocolVersion,
+}
+
+#[cfg(test)]
+mod sample_excluding_tests {
+    use super::{EpochInfo, EpochInfoV1, EpochInfoV2, EpochInfoV3, EpochInfoV4, EpochInfoV5};
+    use crate::rand::StakeWeightedIndex;
+    use crate::shard_layout::ShardLayout;
+    use crate::types::validator_stake::ValidatorStake;
+    use crate::validator_mandates::ValidatorMandates;
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives_core::types::{Balance, BlockHeight, ShardId, ValidatorId};
+    use near_primitives_core::version::PROTOCOL_VERSION;
+    use std::collections::HashSet;
+
+    const SEED: [u8; 32] = [7; 32];
+
+    fn validators(stakes: &[u128]) -> Vec<ValidatorStake> {
+        stakes
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| {
+                let account_id: crate::types::AccountId = format!("test{i}").parse().unwrap();
+                let public_key =
+                    SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key();
+                ValidatorStake::new(account_id, public_key, Balance::from_yoctonear(s))
+            })
+            .collect()
+    }
+
+    /// Single-shard layout plus its shard id.
+    fn layout() -> (ShardLayout, ShardId) {
+        let layout = ShardLayout::single_shard();
+        let shard_id = layout.shard_ids().next().unwrap();
+        (layout, shard_id)
+    }
+
+    fn v1(settlement: Vec<ValidatorId>) -> EpochInfo {
+        EpochInfo::V1(EpochInfoV1 {
+            chunk_producers_settlement: vec![settlement],
+            ..Default::default()
+        })
+    }
+
+    fn v2(settlement: Vec<ValidatorId>) -> EpochInfo {
+        EpochInfo::V2(EpochInfoV2 {
+            chunk_producers_settlement: vec![settlement],
+            ..Default::default()
+        })
+    }
+
+    fn sampler(settlement: &[ValidatorId], vs: &[ValidatorStake]) -> StakeWeightedIndex {
+        StakeWeightedIndex::new(settlement.iter().map(|&id| vs[id as usize].stake()).collect())
+    }
+
+    fn v3(settlement: Vec<ValidatorId>, vs: Vec<ValidatorStake>) -> EpochInfo {
+        let cp_sampler = sampler(&settlement, &vs);
+        EpochInfo::V3(EpochInfoV3 {
+            validators: vs,
+            chunk_producers_settlement: vec![settlement],
+            rng_seed: SEED,
+            chunk_producers_sampler: vec![cp_sampler],
+            ..Default::default()
+        })
+    }
+
+    fn v4(settlement: Vec<ValidatorId>, vs: Vec<ValidatorStake>) -> EpochInfo {
+        let cp_sampler = sampler(&settlement, &vs);
+        EpochInfo::V4(EpochInfoV4 {
+            validators: vs,
+            chunk_producers_settlement: vec![settlement],
+            rng_seed: SEED,
+            chunk_producers_sampler: vec![cp_sampler],
+            ..Default::default()
+        })
+    }
+
+    fn v5(settlement: Vec<ValidatorId>, vs: Vec<ValidatorStake>) -> EpochInfo {
+        let cp_sampler = sampler(&settlement, &vs);
+        EpochInfo::V5(EpochInfoV5 {
+            epoch_height: 0,
+            validators: vs,
+            validator_to_index: Default::default(),
+            block_producers_settlement: vec![],
+            chunk_producers_settlement: vec![settlement],
+            stake_change: Default::default(),
+            validator_reward: Default::default(),
+            validator_kickout: Default::default(),
+            minted_amount: Balance::ZERO,
+            seat_price: Balance::ZERO,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout: ShardLayout::single_shard(),
+            last_resharding: None,
+            rng_seed: SEED,
+            block_producers_sampler: StakeWeightedIndex::default(),
+            chunk_producers_sampler: vec![cp_sampler],
+            validator_mandates: ValidatorMandates::default(),
+        })
+    }
+
+    /// For a two-producer settlement, excluding the default producer must yield the
+    /// single survivor (exact, seed-independent) across every EpochInfo variant.
+    #[test]
+    fn sample_chunk_producer_excluding_variants() {
+        let (sl, shard_id) = layout();
+        let height: BlockHeight = 1;
+        let stakes = [1_000_000u128, 3_000_000];
+        let vs = validators(&stakes);
+        let variants = [
+            v1(vec![0, 1]),
+            v2(vec![0, 1]),
+            v3(vec![0, 1], vs.clone()),
+            v4(vec![0, 1], vs.clone()),
+            v5(vec![0, 1], vs),
+        ];
+        for ei in variants {
+            let default = ei.sample_chunk_producer(&sl, shard_id, height).unwrap();
+            let exclude = HashSet::from([default]);
+            let survivor = if default == 0 { 1 } else { 0 };
+            assert_eq!(
+                ei.sample_chunk_producer_excluding(&sl, shard_id, height, &exclude),
+                Some(survivor),
+                "variant {ei:?} excluding default {default} should leave {survivor}",
+            );
+        }
+    }
+
+    /// Empty `exclude` must delegate to `sample_chunk_producer` (modulo + weighted).
+    #[test]
+    fn sample_chunk_producer_excluding_empty_delegates() {
+        let (sl, shard_id) = layout();
+        let vs = validators(&[1_000_000, 2_000_000, 3_000_000]);
+        let empty = HashSet::new();
+        for ei in [v2(vec![0, 1, 2]), v5(vec![0, 1, 2], vs)] {
+            for height in 0..10 {
+                assert_eq!(
+                    ei.sample_chunk_producer_excluding(&sl, shard_id, height, &empty),
+                    ei.sample_chunk_producer(&sl, shard_id, height),
+                );
+            }
+        }
+    }
+
+    /// Excluding every producer returns `None` (the caller's fallback signal).
+    #[test]
+    fn sample_chunk_producer_excluding_all_returns_none() {
+        let (sl, shard_id) = layout();
+        let vs = validators(&[1_000_000, 2_000_000]);
+        let exclude = HashSet::from([0, 1]);
+        for ei in [v1(vec![0, 1]), v5(vec![0, 1], vs)] {
+            assert_eq!(ei.sample_chunk_producer_excluding(&sl, shard_id, 3, &exclude), None);
+        }
+    }
+
+    /// Weighted path: deterministic across calls, and the survivor matches an
+    /// independently reconstructed renormalized distribution over the survivors.
+    #[test]
+    fn sample_chunk_producer_excluding_deterministic() {
+        let (sl, shard_id) = layout();
+        let stakes = [1_000_000u128, 2_000_000, 5_000_000];
+        let vs = validators(&stakes);
+        let ei = v5(vec![0, 1, 2], vs.clone());
+        let exclude = HashSet::from([0]);
+        let height: BlockHeight = 4;
+
+        let first = ei.sample_chunk_producer_excluding(&sl, shard_id, height, &exclude);
+        let second = ei.sample_chunk_producer_excluding(&sl, shard_id, height, &exclude);
+        assert_eq!(first, second);
+
+        // Independently rebuild the renormalized distribution over survivors [1, 2].
+        let survivors: Vec<ValidatorId> = vec![1, 2];
+        let survivor_stakes = survivors.iter().map(|&id| vs[id as usize].stake()).collect();
+        let expected_index = StakeWeightedIndex::new(survivor_stakes)
+            .sample(EpochInfo::chunk_produce_seed(&SEED, height, shard_id));
+        assert_eq!(first, Some(survivors[expected_index]));
+    }
 }
