@@ -423,6 +423,12 @@ pub enum ProtocolFeature {
     /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
     /// state when validating received block headers.
     ValidateBlockOrdinalAndEpochSyncDataHash,
+    /// Authenticate `ContractCodeResponse` messages with a chunk-producer
+    /// signature, matching the signed-message pattern already used by
+    /// `ChunkContractAccesses` and `ContractCodeRequest`. Senders emit
+    /// `ContractCodeResponseV2` (with a signed inner payload); receivers
+    /// require a verifiable signature before processing the response.
+    SignedContractCodeResponse,
 }
 
 impl ProtocolFeature {
@@ -544,7 +550,8 @@ impl ProtocolFeature {
             | ProtocolFeature::UniqueChunkTransactions
             | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
             | ProtocolFeature::YieldWithId
-            | ProtocolFeature::ExecutionMetadataV4 => 85,
+            | ProtocolFeature::ExecutionMetadataV4
+            | ProtocolFeature::SignedContractCodeResponse => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
