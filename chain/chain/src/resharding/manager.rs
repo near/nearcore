@@ -1,6 +1,7 @@
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use super::types::{ReshardingSender, ScheduleResharding};
 use crate::ChainStoreUpdate;
+use crate::metrics::RESHARDING_MEMTRIE_SPLIT_DURATION;
 use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_chain_primitives::Error;
@@ -180,6 +181,7 @@ impl ReshardingManager {
             target: "resharding", "process_memtrie_resharding_storage_update",
             ?block_hash, block_height, ?parent_shard_uid)
         .entered();
+        let _timer = RESHARDING_MEMTRIE_SPLIT_DURATION.start_timer();
 
         let parent_chunk_extra =
             self.store.chunk_store().get_chunk_extra(block_hash, parent_shard_uid)?;
