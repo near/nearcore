@@ -383,6 +383,12 @@ def build_images(config, test_cases):
             0: {
                 "tracked_shards_config": "AllShards",
                 "archive": True,
+                # A pending state snapshot locks flat head updates; on a slow
+                # machine it can outlive this short chain, leaving the flat
+                # head at genesis, and fork-network forks at the flat head.
+                # Nothing here needs snapshots (no state sync), so disable.
+                # This config propagates to the forked target nodes too.
+                "store.state_snapshot_config.state_snapshot_type": "Disabled",
             }
         },
     )
@@ -397,6 +403,9 @@ def build_images(config, test_cases):
     logger.info('Phase 2: issuing pre-fork transactions')
     ctx = TestContext(source_node, source_node.signer_key, nonce=2)
 
+    # The source node's RPC can briefly refuse connections right after it first
+    # reports ready, so retry until it is reliably serving before querying it.
+    source_node.wait_for_rpc(timeout=30)
     tip = source_node.get_latest_block()
     ctx.bhash = base58.b58decode(tip.hash.encode('utf8'))
 
@@ -439,7 +448,17 @@ def build_images(config, test_cases):
                              str(check_fork_dir),
                              ordinal=1,
                              single_node=True)
-    time.sleep(5)
+    # Wait until the node serves a final block: check_fork queries use
+    # finality=final, and RPC-level errors come back as 200s with an 'error'
+    # field rather than raising, so check the response body.
+    for attempt in range(30):
+        time.sleep(2)
+        try:
+            res = temp_node.json_rpc('block', {'finality': 'final'})
+        except Exception:
+            continue
+        if 'error' not in res:
+            break
 
     for tc in test_cases:
         tc.check_fork(temp_node)
@@ -545,6 +564,7 @@ def run_mirror(config, test_cases, target_img, source_img, validator_keys,
     # Start mirror (--no-secret: fork-network uses identity key mapping)
     logger.info('Starting mirror process')
     mirror = mirror_utils.MirrorProcess(near_root, str(source_dir),
+                                        end_source_height,
                                         config.get('binary_name', 'neard'))
     time_limit = mirror_utils.allowed_run_time(target_node_dirs[0],
                                                mirror.start_time,
