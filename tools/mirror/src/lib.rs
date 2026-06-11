@@ -187,6 +187,19 @@ struct LatestTargetNonce {
     pending_outcomes: HashSet<CryptoHash>,
 }
 
+impl LatestTargetNonce {
+    // merges a nonce queried from the chain into what a previous run stored,
+    // keeping any pending outcomes for the resumed indexer to resolve
+    fn merged(stored: Option<Self>, nonce: Option<Nonce>) -> Self {
+        match stored {
+            Some(t) => {
+                Self { nonce: std::cmp::max(t.nonce, nonce), pending_outcomes: t.pending_outcomes }
+            }
+            None => Self { nonce, pending_outcomes: HashSet::new() },
+        }
+    }
+}
+
 // TODO: move DB related stuff to its own file and add a way to
 // keep track of updates in memory and write them all in one transaction
 fn read_target_nonce(db: &DB, key: &NonceLookupKey) -> anyhow::Result<Option<LatestTargetNonce>> {

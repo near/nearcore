@@ -279,10 +279,7 @@ impl TxTracker {
                     &nonce_key.public_key,
                 )
                 .await?;
-                let t = LatestTargetNonce {
-                    nonce: std::cmp::max(existing.as_ref().and_then(|t| t.nonce), nonce),
-                    pending_outcomes: existing.map(|t| t.pending_outcomes).unwrap_or_default(),
-                };
+                let t = LatestTargetNonce::merged(existing, nonce);
                 crate::put_target_nonce(db, nonce_key, &t)?;
             }
             NonceKind::GasKey(_) => {
@@ -303,15 +300,7 @@ impl TxTracker {
                             kind: NonceKind::GasKey(i as NonceIndex),
                         };
                         let stored = crate::read_target_nonce(db, &key)?;
-                        let t = LatestTargetNonce {
-                            nonce: std::cmp::max(
-                                stored.as_ref().and_then(|t| t.nonce),
-                                Some(*nonce),
-                            ),
-                            pending_outcomes: stored
-                                .map(|t| t.pending_outcomes)
-                                .unwrap_or_default(),
-                        };
+                        let t = LatestTargetNonce::merged(stored, Some(*nonce));
                         crate::put_target_nonce(db, &key, &t)?;
                     }
                 } else if existing.is_none() {
