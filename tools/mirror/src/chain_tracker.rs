@@ -28,9 +28,6 @@ use std::time::{Duration, Instant};
 // makes it easy to print out human-friendly info later on when we find this
 // transaction on chain.
 struct TxSendInfo {
-    // kept so the tx can be re-forwarded byte-identical if not observed on
-    // chain in time; forwarding is fire-and-forget and the network never
-    // retries a dropped tx, so it would otherwise be lost for good
     target_tx: SignedTransaction,
     sent_at: Instant,
     source_height: Option<BlockHeight>,
@@ -279,7 +276,7 @@ impl TxTracker {
                     &nonce_key.public_key,
                 )
                 .await?;
-                let t = LatestTargetNonce::merged(existing, nonce);
+                let t = LatestTargetNonce::from_stored_and_queried(existing, nonce);
                 crate::put_target_nonce(db, nonce_key, &t)?;
             }
             NonceKind::GasKey(_) => {
@@ -300,7 +297,7 @@ impl TxTracker {
                             kind: NonceKind::GasKey(i as NonceIndex),
                         };
                         let stored = crate::read_target_nonce(db, &key)?;
-                        let t = LatestTargetNonce::merged(stored, Some(*nonce));
+                        let t = LatestTargetNonce::from_stored_and_queried(stored, Some(*nonce));
                         crate::put_target_nonce(db, &key, &t)?;
                     }
                 } else if existing.is_none() {
