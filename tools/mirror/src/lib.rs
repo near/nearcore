@@ -181,7 +181,7 @@ struct TargetNonce {
 // ignored, and it's set to block_height*1000000, so to generate
 // transactions with valid nonces, we need to map valid source chain
 // nonces to valid target chain nonces.
-#[derive(BorshDeserialize, BorshSerialize, Debug, Default)]
+#[derive(BorshDeserialize, BorshSerialize, Debug)]
 struct LatestTargetNonce {
     nonce: Option<Nonce>,
     pending_outcomes: HashSet<CryptoHash>,
@@ -929,9 +929,8 @@ impl<T: ChainAccess> TxMirror<T> {
         })
     }
 
-    // Re-submits already-sent txs byte-identical. The tx hash is unchanged, so
-    // this cannot double-execute: if the first copy is still in a pool or already
-    // executed this is a no-op, and if it died in a node's mempool this revives it.
+    // Re-submitting byte-identical cannot double-execute: the hash is unchanged,
+    // so this is a no-op unless the first copy was dropped.
     async fn reforward_transactions(
         target_client: &MultithreadRuntimeHandle<RpcHandlerActor>,
         txs: Vec<SignedTransaction>,
