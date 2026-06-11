@@ -2117,7 +2117,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     // waits until the still-running target indexer observes every sent tx in a
-    // target block, so txs that died in the mempool aren't lost across a restart
+    // target block, since a restart would resume past any tx not yet included
     async fn drain_sent_txs(
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
     ) -> anyhow::Result<()> {
