@@ -1,0 +1,4 @@
+# Tests for tools that ship with neard, living under pytest/tools.
+
+# Offline mirror test: forks a chain and replays the recorded traffic onto it
+pytest --timeout=12m tools/mirror_offline.py

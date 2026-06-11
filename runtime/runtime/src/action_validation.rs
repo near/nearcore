@@ -81,15 +81,6 @@ pub(crate) fn validate_actions_with_mode(
     // `Action::post_quantum_signatures_required` (including the recursive
     // walk into `Delegate`) forces every future action variant to make an
     // explicit decision at compile time.
-    //
-    // TODO(post-quantum): see the matching note in
-    // `ValidatedTransaction::check_valid_for_config`. This gate doesn't
-    // close the "implicit protocol upgrade" divergence at the wire-decode
-    // layer: a pre-feature old binary rejects the whole chunk/receipt on
-    // borsh-decode of an unknown variant, while a new binary decodes it
-    // and rejects only the action here. Needs a systemic fix (forward-
-    // compat envelope around `Action`/`SignedTransaction`), not per-
-    // feature mitigation.
     if !ProtocolFeature::PostQuantumSignatures.enabled(current_protocol_version)
         && actions.iter().any(Action::post_quantum_signatures_required)
     {

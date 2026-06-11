@@ -463,14 +463,7 @@ impl EpochSync {
         last_epoch: &EpochSyncProofLastEpochData,
         current_epoch_first_block_header: &BlockHeader,
     ) -> Result<(), Error> {
-        let epoch_sync_data_hash = CryptoHash::hash_borsh(&(
-            &last_epoch.first_block_in_epoch,
-            &last_epoch.second_last_block_in_epoch,
-            &last_epoch.last_block_in_epoch,
-            &last_epoch.epoch_info,
-            &last_epoch.next_epoch_info,
-            &last_epoch.next_next_epoch_info,
-        ));
+        let epoch_sync_data_hash = last_epoch.compute_epoch_sync_data_hash();
         let expected_epoch_sync_data_hash =
             current_epoch_first_block_header.epoch_sync_data_hash().ok_or_else(|| {
                 Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string())

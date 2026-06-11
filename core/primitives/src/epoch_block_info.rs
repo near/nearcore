@@ -1,7 +1,7 @@
 use crate::block_header::BlockHeader;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use crate::types::{AccountId, EpochId, ShardId, ValidatorStakeV1};
+use crate::types::{AccountId, EpochId, ShardId, SpiceChunkEndorsementStats, ValidatorStakeV1};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, BlockHeight, ProtocolVersion};
@@ -106,6 +106,10 @@ impl BlockInfo {
                 chunk_endorsements: chunk_endorsements_from_header(header),
                 shard_split: header.shard_split().cloned(),
                 last_certified_block_epoch,
+                spice_chunk_endorsement_stats: header
+                    .spice_chunk_endorsement_stats()
+                    .expect("spice block header must carry spice_chunk_endorsement_stats")
+                    .to_vec(),
             });
         }
         BlockInfo::new(
@@ -316,6 +320,17 @@ impl BlockInfo {
             Self::V5(info) => Some(&info.last_certified_block_epoch),
         }
     }
+
+    /// Accumulated per-validator endorsement stats, populated only on spice
+    /// chains and non-empty only on the epoch's last block.
+    /// See `SpiceChunkEndorsementStats`.
+    #[inline]
+    pub fn spice_chunk_endorsement_stats(&self) -> Option<&[SpiceChunkEndorsementStats]> {
+        match self {
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
+            Self::V5(info) => Some(&info.spice_chunk_endorsement_stats),
+        }
+    }
 }
 
 fn chunk_endorsements_from_header(header: &BlockHeader) -> ChunkEndorsementsBitmap {
@@ -362,6 +377,9 @@ pub struct BlockInfoV5 {
     pub shard_split: Option<(ShardId, AccountId)>,
     /// Epoch id of the last block whose chunk execution results are certified.
     pub last_certified_block_epoch: EpochId,
+    /// Mirrors the header field; the epoch info aggregator reads it from the
+    /// epoch's last block to drive spice reward and kickout.
+    pub spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
 
 // V3 -> V4: Add shard_split for dynamic resharding, remove slashed

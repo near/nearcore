@@ -287,6 +287,51 @@
         "title": "AccessKeyView",
         "type": "object"
       },
+      "AccountContractView": {
+        "description": "RPC view of a non-empty [`AccountContract`]. The `AccountContract::None`\nvariant is represented externally as a JSON `null` via `Option`, so this\nenum only carries the three \"contract is present\" cases. Serializes as\nan externally-tagged object:\n\n- `Local(hash)` → `{\"local\": \"<CryptoHash>\"}`\n- `GlobalHash(hash)` → `{\"global_hash\": \"<CryptoHash>\"}`\n- `GlobalAccountId(id)` → `{\"global_account_id\": \"<AccountId>\"}`\n\nMirrors [`AccountContract`] 1:1 (minus `None`) so consumers can preserve\nthe distinction between a global-by-hash and global-by-account contract\nwithout descending into a nested identifier.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "local": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "local"
+            ],
+            "title": "Local",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "global_hash"
+            ],
+            "title": "GlobalHash",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            },
+            "required": [
+              "global_account_id"
+            ],
+            "title": "GlobalAccountId",
+            "type": "object"
+          }
+        ],
+        "title": "AccountContractView"
+      },
       "AccountCreationConfigView": {
         "description": "The structure describes configuration for creation of new accounts.",
         "properties": {
@@ -2362,6 +2407,15 @@
             ],
             "description": "Signature of the block producer."
           },
+          "spice_chunk_endorsement_stats": {
+            "items": {
+              "$ref": "#/components/schemas/SpiceChunkEndorsementStats"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "timestamp": {
             "description": "Legacy json number. Should not be used.",
             "format": "uint64",
@@ -3436,6 +3490,23 @@
       },
       "ExecutionMetadataView": {
         "properties": {
+          "contracts": {
+            "description": "One entry per action in the receipt (V4+ only): the contract attached\nto the receiver account immediately before that action ran. The inner\n`Option` is `Some` (a tagged contract object) when the account had a\ncontract and `None` (rendered as JSON `null`) when it did not (e.g. an\naccount with no code, or one that did not yet exist). The outer\n`Option` is `None` for older metadata versions.",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AccountContractView"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "gas_profile": {
             "items": {
               "$ref": "#/components/schemas/CostGasUsed"
@@ -10776,6 +10847,27 @@
           "is_double_sign"
         ],
         "title": "SlashedValidator",
+        "type": "object"
+      },
+      "SpiceChunkEndorsementStats": {
+        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.",
+        "properties": {
+          "expected": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "produced": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "produced",
+          "expected"
+        ],
+        "title": "SpiceChunkEndorsementStats",
         "type": "object"
       },
       "StakeAction": {

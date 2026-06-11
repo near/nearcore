@@ -1001,6 +1001,21 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
+            if ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
+                .enabled(epoch_protocol_version)
+            {
+                // block_ordinal is the number of blocks up to and including this one.
+                if block_merkle_tree.size() + 1 != header.block_ordinal() {
+                    return Err(Error::InvalidBlockOrdinal);
+                }
+
+                let expected_epoch_sync_data_hash =
+                    self.epoch_manager.compute_epoch_sync_data_hash(header.prev_hash())?;
+                if expected_epoch_sync_data_hash != header.epoch_sync_data_hash() {
+                    return Err(Error::InvalidEpochSyncDataHash);
+                }
+            }
+
             if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
@@ -2553,6 +2568,7 @@ impl Chain {
         if ProtocolFeature::Spice.enabled(protocol_version) {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
+            self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(
