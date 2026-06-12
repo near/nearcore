@@ -79,6 +79,7 @@ struct ChunkExecutionData {
 /// Construction-only dependencies shared with every per-shard executor. Bundled
 /// so `PerShardChunkExecutor::new` takes one argument instead of eight; the
 /// coordinator keeps its own clones (the apply path stays coordinator-side for now).
+#[derive(Clone)]
 pub(crate) struct PerShardDeps {
     pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub(crate) epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -109,7 +110,7 @@ pub(crate) struct PerShardChunkExecutor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     apply_done_sender: Sender<ExecutorApplyChunksDone>,
     blocks_in_execution: HashSet<CryptoHash>,
-    pending: BTreeSet<(BlockHeight, CryptoHash)>,
+    parked_blocks: BTreeSet<(BlockHeight, CryptoHash)>,
     unverified_receipts: HashMap<CryptoHash, Vec<ReceiptProof>>,
 }
 
@@ -147,7 +148,7 @@ impl PerShardChunkExecutor {
             apply_chunks_spawner,
             apply_done_sender,
             blocks_in_execution: HashSet::new(),
-            pending: BTreeSet::new(),
+            parked_blocks: BTreeSet::new(),
             unverified_receipts: HashMap::new(),
         }
     }
@@ -166,8 +167,9 @@ pub struct ChunkExecutorActor {
     data_distributor_adapter: SpiceDataDistributorAdapter,
     config: ChunkPersistenceConfig,
 
-    /// One executor per tracked shard, reconciled on every block.
-    per_shard_executors: HashMap<ShardId, PerShardChunkExecutor>,
+    /// One executor per tracked shard, reconciled on every block. Keyed by
+    /// `ShardUId` so per-shard state can't be conflated across shard layouts.
+    per_shard_executors: HashMap<ShardUId, PerShardChunkExecutor>,
 
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
@@ -482,26 +484,24 @@ impl ChunkExecutorActor {
     }
 
     /// Lazily construct the executor for `shard_uid`, cloning a `ChainStoreAdapter`
-    /// and the shared deps from the coordinator.
+    /// and the shared deps from the coordinator only when the executor is absent
+    /// (the hot reconcile path hits the already-present branch and clones nothing).
     fn get_or_create_per_shard_executor(
         &mut self,
         shard_uid: ShardUId,
     ) -> &mut PerShardChunkExecutor {
-        let deps = self.per_shard_deps();
-        let chain_store = self.chain_store.clone();
-        let transaction_validity_period = self.transaction_validity_period;
-        let spawner = self.apply_chunks_spawner.clone();
-        let apply_done_sender = self.myself_sender.clone();
-        self.per_shard_executors.entry(shard_uid.shard_id()).or_insert_with(|| {
-            PerShardChunkExecutor::new(
+        if !self.per_shard_executors.contains_key(&shard_uid) {
+            let executor = PerShardChunkExecutor::new(
                 shard_uid,
-                chain_store,
-                deps,
-                transaction_validity_period,
-                spawner,
-                apply_done_sender,
-            )
-        })
+                self.chain_store.clone(),
+                self.per_shard_deps(),
+                self.transaction_validity_period,
+                self.apply_chunks_spawner.clone(),
+                self.myself_sender.clone(),
+            );
+            self.per_shard_executors.insert(shard_uid, executor);
+        }
+        self.per_shard_executors.get_mut(&shard_uid).expect("inserted above when absent")
     }
 
     /// Spawn executors for newly-tracked shards and evict ones no longer tracked.
@@ -513,9 +513,8 @@ impl ChunkExecutorActor {
         for shard_uid in &tracked {
             self.get_or_create_per_shard_executor(*shard_uid);
         }
-        let tracked_ids: HashSet<ShardId> =
-            tracked.iter().map(|shard_uid| shard_uid.shard_id()).collect();
-        self.per_shard_executors.retain(|shard_id, _| tracked_ids.contains(shard_id));
+        let tracked_set: HashSet<ShardUId> = tracked.iter().copied().collect();
+        self.per_shard_executors.retain(|shard_uid, _| tracked_set.contains(shard_uid));
         Ok(())
     }
 
@@ -542,8 +541,8 @@ impl ChunkExecutorActor {
         let header = block.header();
         let prev_block_hash = header.prev_hash();
         // Keep the per-shard executor set in sync with tracked shards. Dispatch is
-        // still coordinator-side in this PR, so spawn/evict here is inert beyond
-        // maintaining the registry; PR 4 routes applies through these executors.
+        // still coordinator-side, so spawn/evict here only maintains the registry.
+        // TODO(spice): route chunk applies through these per-shard executors.
         self.reconcile_tracked_shards(prev_block_hash)?;
         let prev_block = self.chain_store.get_block(&prev_block_hash)?;
         let store = self.chain_store.store();
