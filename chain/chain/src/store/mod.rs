@@ -54,7 +54,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::sync::Arc;
-use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
+use utils::{
+    check_transaction_validity_period, compute_transaction_validity,
+    early_prepare_txs_check_validity_period,
+};
 
 pub mod latest_witnesses;
 pub mod utils;
@@ -517,17 +520,12 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Vec<bool> {
-        chunk
-            .to_transactions()
-            .into_iter()
-            .map(|signed_tx| {
-                self.check_transaction_validity_period(
-                    prev_block_header,
-                    signed_tx.transaction.block_hash(),
-                )
-                .is_ok()
-            })
-            .collect()
+        compute_transaction_validity(
+            &self.store,
+            self.transaction_validity_period,
+            prev_block_header,
+            chunk,
+        )
     }
 
     /// Builds a closure that checks whether a gapped strict-nonce transaction's

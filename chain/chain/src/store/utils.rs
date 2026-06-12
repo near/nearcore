@@ -74,6 +74,29 @@ pub fn check_transaction_validity_period(
     validity_period_validate_is_ancestor(&base_header, prev_block_header, chain_store)
 }
 
+/// Computes, for each transaction in `chunk`, whether it is still within its
+/// validity period relative to `prev_block_header`.
+pub fn compute_transaction_validity(
+    chain_store: &ChainStoreAdapter,
+    transaction_validity_period: BlockHeightDelta,
+    prev_block_header: &BlockHeader,
+    chunk: &ShardChunk,
+) -> Vec<bool> {
+    chunk
+        .to_transactions()
+        .into_iter()
+        .map(|signed_tx| {
+            check_transaction_validity_period(
+                chain_store,
+                prev_block_header,
+                signed_tx.transaction.block_hash(),
+                transaction_validity_period,
+            )
+            .is_ok()
+        })
+        .collect()
+}
+
 /// Transaction validity period check used in early prepare transactions. It's different from the
 /// standard `check_transaction_validity_period` because early transaction preparation doesn't know
 /// what the previous block hash is, it only knows the one before that. Normal validity check uses
