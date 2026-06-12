@@ -309,6 +309,8 @@ fn block_has_feature(env: &TestLoopEnv, block_hash: &CryptoHash) -> bool {
 /// account-creating receipt executes one block after the transaction is converted - a
 /// same-shard receipt would execute in the same block as the conversion and could never cross
 /// the upgrade boundary.
+// TODO(spice-test): This test can be removed once the AccountCostIncrease feature is stabilized.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[test]
 fn test_create_account_cost_protocol_upgrade() {
     init_test_logger();

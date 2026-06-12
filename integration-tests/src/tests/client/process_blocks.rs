@@ -2125,7 +2125,20 @@ fn test_block_execution_outcomes() {
     // zero with the test's gas_price.
     let expected_refund_receipts_in_chunk =
         if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 2 } else { 0 };
-    assert_eq!(next_chunk.prev_outgoing_receipts().len(), expected_refund_receipts_in_chunk);
+    // The refund receipts are produced by executing block 2's chunk. Without spice they ride in
+    // block 3's chunk as `prev_outgoing_receipts`; with spice chunks carry no outgoing receipts
+    // (that field is always empty) and the produced receipts are stored keyed by the block whose
+    // chunk produced them.
+    let refund_receipts_in_chunk = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.clients[0]
+            .chain
+            .chain_store()
+            .get_outgoing_receipts(block.hash(), shard_id)
+            .map_or(0, |receipts| receipts.len())
+    } else {
+        next_chunk.prev_outgoing_receipts().len()
+    };
+    assert_eq!(refund_receipts_in_chunk, expected_refund_receipts_in_chunk);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
