@@ -399,8 +399,6 @@ fn test_yield_then_resume_two_actions() {
 /// When processing the receipt fails, the yielded receipt should be cancelled and there should be
 /// no PromiseYieldStatus in the state, even though it was written by the first action.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_two_actions_failure() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
