@@ -8,7 +8,8 @@ use crate::stateless_validation::contracts_cache_contains_contract;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
     ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
-    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
+    validate_contract_code_response, validate_partial_encoded_contract_deploys,
+    validate_partial_encoded_state_witness,
 };
 use itertools::Itertools;
 use lru::LruCache;
@@ -34,8 +35,8 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
-    ContractCodeResponse, ContractUpdates, MainTransitionKey, PartialEncodedContractDeploys,
-    PartialEncodedContractDeploysPart,
+    ContractCodeResponse, ContractUpdates, MAX_CONTRACTS_PER_REQUEST, MainTransitionKey,
+    PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -46,6 +47,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::ContractCode;
@@ -773,6 +775,87 @@ impl PartialWitnessActor {
         Ok(())
     }
 
+    /// Derives the `MainTransitionKey` for a `ChunkProductionKey` from chain state,
+    /// mirroring `collect_state_transition_data()` in `state_witness.rs`:
+    /// 1. Walk back from HEAD to the block at `height_created - 1` (the prev block).
+    /// 2. Read the prev chunk header for the shard from that block.
+    /// 3. Walk back to the block where that chunk was included, tracking shard_id
+    ///    changes due to resharding.
+    /// 4. Return the `MainTransitionKey` at that point.
+    ///
+    /// Returns `Ok(None)` when the chain data is not yet available.
+    fn derive_main_transition_key(
+        &self,
+        key: &ChunkProductionKey,
+    ) -> Result<Option<MainTransitionKey>, Error> {
+        let chain_store = ChainStoreAdapter::new(self.runtime.store().clone());
+
+        let target_height = key
+            .height_created
+            .checked_sub(1)
+            .ok_or_else(|| Error::Other("height_created is 0".to_owned()))?;
+
+        let Ok(head) = chain_store.head() else {
+            return Ok(None);
+        };
+        if head.height < target_height {
+            return Ok(None);
+        }
+
+        // Walk back from HEAD to the canonical block at target_height (fork-safe via prev_hash;
+        // bounded by the finality gap, typically ~2-3 blocks).
+        let mut current_hash = head.last_block_hash;
+        loop {
+            let header = chain_store.get_block_header(&current_hash)?;
+            if header.height() == target_height {
+                break;
+            }
+            if header.height() <= target_height {
+                // Walked past target_height: prev block was on a non-canonical fork.
+                return Ok(None);
+            }
+            current_hash = *header.prev_hash();
+        }
+        let prev_block_hash = current_hash;
+
+        // Block body may not be available yet even when the header is.
+        let Ok(prev_block) = chain_store.get_block(&prev_block_hash) else {
+            return Ok(None);
+        };
+
+        let prev_chunk_header =
+            self.epoch_manager.get_prev_chunk_header(&prev_block, key.shard_id)?;
+        let prev_chunk_height_included = prev_chunk_header.height_included();
+
+        // Walk back to the block where the prev chunk was included, tracking shard_id
+        // changes due to resharding (mirrors collect_state_transition_data).
+        let mut current_block_hash = prev_block_hash;
+        let mut next_shard_id = key.shard_id;
+        loop {
+            let header = chain_store.get_block_header(&current_block_hash)?;
+            if header.height() < prev_chunk_height_included {
+                return Err(Error::Other(format!(
+                    "derive_main_transition_key walked past target height {} to {}",
+                    prev_chunk_height_included,
+                    header.height(),
+                )));
+            }
+
+            let current_shard_id = self
+                .epoch_manager
+                .get_prev_shard_id_from_prev_hash(&current_block_hash, next_shard_id)?
+                .1;
+            next_shard_id = current_shard_id;
+
+            if header.height() == prev_chunk_height_included {
+                break;
+            }
+            current_block_hash = *header.prev_hash();
+        }
+
+        Ok(Some(MainTransitionKey { block_hash: current_block_hash, shard_id: next_shard_id }))
+    }
+
     /// Handles contract code requests message from chunk validators.
     /// As response to this message, sends the contract code requested to
     /// the requesting chunk validator for the given hashes of the contract code.
@@ -799,11 +882,23 @@ impl PartialWitnessActor {
         }
         self.processed_contract_code_requests.push(processed_requests_key, ());
 
+        if request.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
+            return Ok(());
+        }
+
         let _timer = near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME
             .with_label_values(&[&key.shard_id.to_string()])
             .start_timer();
 
-        let main_transition_key = request.main_transition();
+        let main_transition_key = match self.derive_main_transition_key(key)? {
+            Some(derived) => {
+                if derived != *request.main_transition() {
+                    return Ok(());
+                }
+                derived
+            }
+            None => return Ok(()),
+        };
         let Some(transition_data) = self.runtime.store().get_ser::<StoredChunkStateTransitionData>(
             DBCol::StateTransitionData,
             &near_primitives::utils::get_block_shard_id(
@@ -855,7 +950,10 @@ impl PartialWitnessActor {
                 Err(err) => return Err(err.into()),
             }
         }
-        let response = ContractCodeResponse::encode(key.clone(), &contracts)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+        let signer = self.my_validator_signer()?;
+        let response =
+            ContractCodeResponse::encode(key.clone(), &contracts, &signer, protocol_version)?;
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
         ));
@@ -864,6 +962,15 @@ impl PartialWitnessActor {
 
     /// Handles contract code responses message from chunk producer.
     fn handle_contract_code_response(&self, response: ContractCodeResponse) -> Result<(), Error> {
+        if !validate_contract_code_response(
+            self.epoch_manager.as_ref(),
+            &response,
+            self.runtime.store(),
+        )?
+        .is_relevant()
+        {
+            return Ok(());
+        }
         let key = response.chunk_production_key().clone();
         let contracts = response.decompress_contracts()?;
         self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)

@@ -127,9 +127,15 @@ mod tests {
         let mut block_merkle_tree = PartialMerkleTree::default();
         for i in 0..3 {
             clock.advance(Duration::milliseconds(1));
+            let epoch_sync_data_hash = if blocks[i].header().is_genesis() {
+                epoch_manager.compute_epoch_sync_data_hash(blocks[i].hash()).unwrap()
+            } else {
+                None
+            };
             blocks.push(
                 TestBlockBuilder::from_prev_block(clock.clock(), &blocks[i], signer.clone())
                     .block_merkle_tree(&mut block_merkle_tree)
+                    .epoch_sync_data_hash(epoch_sync_data_hash)
                     .build(),
             );
         }

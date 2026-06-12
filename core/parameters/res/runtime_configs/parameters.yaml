@@ -289,6 +289,7 @@ one_yocto_on_promise: false
 p256_verify_host_fn: false
 yield_with_id_host_fns: false
 chain_id_host_fn: false
+bls12381_not_in_group_fix: false
 
 
 # Congestion Control configuration
@@ -336,6 +337,10 @@ global_contract_storage_amount_per_byte: 999999999999999999999999999 yN
 
 deploy_global_contract_execution_base: 0
 deploy_global_contract_execution_per_byte: 0
+
+# Gas charged at tx conversion per ML-DSA-65 signature verification the tx
+# triggers. 0 until PostQuantumSignatures activates (see 85.yaml).
+ml_dsa_65_verification_cost: 0
 
 action_use_global_contract: {
   send_sir: 999_999_999_999_999,

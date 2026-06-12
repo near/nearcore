@@ -1,3 +1,4 @@
+use crate::hash_domain::HashDomainTag;
 use crate::util::try_fixed_array;
 use aws_lc_rs::signature::UnparsedPublicKey;
 use aws_lc_rs::unstable::signature::{ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair};
@@ -30,10 +31,6 @@ pub const ML_DSA_65_SEED_LENGTH: usize = 32;
 /// the account-id payload for ML-DSA-65 implicit accounts when that
 /// feature lands; update this comment then.
 pub const ML_DSA_65_HASH_LENGTH: usize = 32;
-/// Domain-separation tag for `MlDsa65PublicKey`-to-hash derivation.
-/// Prepended to the raw pubkey bytes before SHA3-256, so an ML-DSA-65
-/// hash can never collide with another use of SHA3 in the protocol.
-const ML_DSA_65_HASH_DOMAIN_TAG: &[u8] = b"near:ml-dsa-65-pubkey-hash:v1";
 /// Wire-format prefix for an ML-DSA-65 access-key identifier (the SHA3-256
 /// digest, not the full pubkey). Used in `view_access_key_list` responses
 /// and accepted by `PublicKeyHandle::from_str`.
@@ -169,7 +166,7 @@ impl MlDsa65PublicKey {
     pub fn to_public_key_handle(&self) -> MlDsa65PublicKeyHandle {
         use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
-        hasher.update(ML_DSA_65_HASH_DOMAIN_TAG);
+        hasher.update(HashDomainTag::MlDsa65PubkeyV1.as_bytes());
         hasher.update(&self.0[..]);
         let mut out = [0u8; ML_DSA_65_HASH_LENGTH];
         out.copy_from_slice(&hasher.finalize());

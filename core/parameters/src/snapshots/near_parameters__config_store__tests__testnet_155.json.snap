@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -102,7 +103,8 @@ expression: config_view
     "pessimistic_gas_price_inflation_ratio": [
       1,
       1
-    ]
+    ],
+    "ml_dsa_65_verification_cost": 100000000000
   },
   "wasm_config": {
     "ext_costs": {
@@ -210,6 +212,7 @@ expression: config_view
     "p256_verify_host_fn": true,
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,
+    "bls12381_not_in_group_fix": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,

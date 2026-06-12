@@ -196,7 +196,7 @@ extern "C" {
         gas_weight: u64,
         register_id: u64,
     ) -> u64;
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_yield_create_with_id(
         method_name_len: u64,
         method_name_ptr: u64,
@@ -214,7 +214,7 @@ extern "C" {
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_yield_resume_with_yield_id(
         yield_id_len: u64,
         yield_id_ptr: u64,
@@ -2112,13 +2112,14 @@ fn promise_batch_action_add_gas_key_with_function_call(
 ) {
 }
 
-// Stubs for yield_with_id host functions on stable, so `call_promise` compiles
-// when the contract is built without the `nightly` feature. The host functions
-// are gated on `ProtocolFeature::YieldWithId`, so reaching these on stable means
-// a test is exercising a nightly-only code path under the wrong build. Panic
-// loudly rather than returning a plausible-looking value that would let the
-// test silently succeed.
-#[cfg(not(feature = "nightly"))]
+// Stubs for yield_with_id host functions, so `call_promise` compiles when the
+// contract is built without the `latest_protocol` feature (the
+// backwards-compatible build targeting the oldest supported protocol version).
+// The host functions are gated on `ProtocolFeature::YieldWithId` (enabled at
+// protocol version 85), so reaching these on an older protocol means a test is
+// exercising the wrong build. Panic loudly rather than returning a
+// plausible-looking value that would let the test silently succeed.
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_yield_create_with_id(
     _method_name_len: u64,
     _method_name_ptr: u64,
@@ -2130,19 +2131,19 @@ fn promise_yield_create_with_id(
     _yield_id_len: u64,
     _yield_id_ptr: u64,
 ) -> u64 {
-    let msg = b"promise_yield_create_with_id called on non-nightly build";
+    let msg = b"promise_yield_create_with_id called on a build without latest_protocol";
     unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
     unreachable!()
 }
 
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_yield_resume_with_yield_id(
     _yield_id_len: u64,
     _yield_id_ptr: u64,
     _payload_len: u64,
     _payload_ptr: u64,
 ) -> u32 {
-    let msg = b"promise_yield_resume_with_yield_id called on non-nightly build";
+    let msg = b"promise_yield_resume_with_yield_id called on a build without latest_protocol";
     unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
     unreachable!()
 }

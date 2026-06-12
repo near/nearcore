@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.8"
+    "version": "1.2.10"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1368,6 +1368,47 @@
           "permission"
         ],
         "type": "object"
+      },
+      "AccountContractView": {
+        "description": "RPC view of a non-empty [`AccountContract`]. The `AccountContract::None`\nvariant is represented externally as a JSON `null` via `Option`, so this\nenum only carries the three \"contract is present\" cases. Serializes as\nan externally-tagged object:\n\n- `Local(hash)` → `{\"local\": \"<CryptoHash>\"}`\n- `GlobalHash(hash)` → `{\"global_hash\": \"<CryptoHash>\"}`\n- `GlobalAccountId(id)` → `{\"global_account_id\": \"<AccountId>\"}`\n\nMirrors [`AccountContract`] 1:1 (minus `None`) so consumers can preserve\nthe distinction between a global-by-hash and global-by-account contract\nwithout descending into a nested identifier.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "local": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "local"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "global_hash"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            },
+            "required": [
+              "global_account_id"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "AccountCreationConfigView": {
         "description": "The structure describes configuration for creation of new accounts.",
@@ -3450,6 +3491,13 @@
               }
             ],
             "description": "Signature of the block producer."
+          },
+          "spice_chunk_endorsement_stats": {
+            "items": {
+              "$ref": "#/components/schemas/SpiceChunkEndorsementStats"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "timestamp": {
             "description": "Legacy json number. Should not be used.",
@@ -5905,6 +5953,24 @@
       },
       "ExecutionMetadataView": {
         "properties": {
+          "contracts": {
+            "description": "One entry per action in the receipt (V4+ only): the contract attached\nto the receiver account immediately before that action ran. The inner\n`Option` is `Some` (a tagged contract object) when the account had a\ncontract and `None` (rendered as JSON `null`) when it did not (e.g. an\naccount with no code, or one that did not yet exist). The outer\n`Option` is `None` for older metadata versions.",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AccountContractView"
+                },
+                {
+                  "enum": [
+                    null
+                  ],
+                  "nullable": true
+                }
+              ]
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "gas_profile": {
             "items": {
               "$ref": "#/components/schemas/CostGasUsed"
@@ -8377,6 +8443,13 @@
             "description": "Having a deposit with a function call action is not allowed with a function call access key.",
             "enum": [
               "DepositWithFunctionCall"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Gas keys track nonces per index in dedicated storage, which the delegate\naction path does not support, so a gas key can't sign a delegate action.",
+            "enum": [
+              "DelegateActionRequiresNonGasKey"
             ],
             "type": "string"
           }
@@ -19255,6 +19328,14 @@
             ],
             "description": "Describes the cost of creating a data receipt, `DataReceipt`."
           },
+          "ml_dsa_65_verification_cost": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Describes the extra cost of verifying an ML-DSA-65 signature above the\ncost of verifying the standard signature types."
+          },
           "pessimistic_gas_price_inflation_ratio": {
             "description": "Pessimistic gas price inflation ratio.",
             "items": {
@@ -19625,6 +19706,26 @@
         "required": [
           "account_id",
           "is_double_sign"
+        ],
+        "type": "object"
+      },
+      "SpiceChunkEndorsementStats": {
+        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.",
+        "properties": {
+          "expected": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "produced": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "produced",
+          "expected"
         ],
         "type": "object"
       },
@@ -20801,6 +20902,10 @@
       },
       "VMConfigView": {
         "properties": {
+          "bls12381_not_in_group_fix": {
+            "description": "See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).",
+            "type": "boolean"
+          },
           "chain_id_host_fn": {
             "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
             "type": "boolean"

@@ -1,5 +1,5 @@
 use crate::apply_block_cost;
-use crate::estimator_context::EstimatorContext;
+use crate::estimator_context::{BlockLatency, EstimatorContext};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 use near_parameters::ExtCosts;
@@ -74,7 +74,7 @@ pub(crate) fn transaction_cost_ext(
         blocks
     };
 
-    let measurements = testbed.measure_blocks(blocks, block_latency);
+    let measurements = testbed.measure_blocks(blocks, BlockLatency::Uniform(block_latency));
     if verbose {
         // prints individual block measurements (without division by number of
         // inner items) which helps understanding issue with high variance
@@ -187,7 +187,7 @@ pub(crate) fn fn_cost_with_setup(
     method: &str,
     ext_cost: ExtCosts,
     count: u64,
-    block_latency: usize,
+    block_latency: BlockLatency,
 ) -> GasCost {
     // Under `AccountCostIncrease` each function-call receipt also produces a price_surplus
     // gas-refund receipt that lands one block later.
@@ -200,7 +200,7 @@ pub(crate) fn fn_cost_with_setup(
             0
         };
     let (total_cost, measured_count) = {
-        let overhead = overhead_per_measured_block(ctx, block_latency);
+        let overhead = overhead_per_measured_block(ctx, block_latency.measured());
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
 
@@ -320,7 +320,7 @@ pub(crate) fn fn_cost_in_contract(
     );
     blocks.insert(n_warmup_blocks, vec![base_tx]);
 
-    let mut measurements = testbed.measure_blocks(blocks, 0);
+    let mut measurements = testbed.measure_blocks(blocks, BlockLatency::Uniform(0));
     measurements.drain(0..n_warmup_blocks);
 
     let (base_gas_cost, _base_ext_costs) = measurements.remove(0);

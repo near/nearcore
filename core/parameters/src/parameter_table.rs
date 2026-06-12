@@ -1,7 +1,8 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
 use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
-    ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
+    ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, SignatureKind,
+    StorageUsageConfig,
 };
 use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
@@ -430,6 +431,15 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::DeployGlobalContractExecutionBase)?,
                 deploy_global_contract_execution_per_byte: params
                     .get(Parameter::DeployGlobalContractExecutionPerByte)?,
+                signature_verification_costs: enum_map::enum_map! {
+                    // Extra verification cost relative to the classical
+                    // schemes, whose base verification cost is already part of
+                    // `action_receipt_creation`. They stay 0 for backwards
+                    // compatibility; only ML-DSA-65 carries a charge. Adding a
+                    // new `SignatureKind` variant forces a decision here.
+                    SignatureKind::Ed25519 | SignatureKind::Secp256k1 => ParameterCost::ZERO,
+                    SignatureKind::MlDsa65 => params.get(Parameter::MlDsa65VerificationCost)?,
+                },
             }),
             wasm_config: Arc::new(Config {
                 ext_costs: ExtCostsConfig {
@@ -459,6 +469,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
                 yield_with_id_host_fns: params.get(Parameter::YieldWithIdHostFns)?,
                 chain_id_host_fn: params.get(Parameter::ChainIdHostFn)?,
+                bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

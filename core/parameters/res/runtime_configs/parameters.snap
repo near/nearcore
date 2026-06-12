@@ -178,7 +178,7 @@ wasm_alt_bn128_g1_sum_base                     3_000_000_000
 wasm_alt_bn128_g1_sum_element                  5_000_000_000
 wasm_yield_create_base                       153_411_779_276
 wasm_yield_create_byte                            15_643_988
-wasm_yield_create_with_id_base           300_000_000_000_000
+wasm_yield_create_with_id_base               290_000_000_000
 wasm_yield_resume_base                     1_195_627_285_210
 wasm_yield_resume_byte                            47_683_715
 wasm_bls12381_p1_sum_base                     16_500_000_000
@@ -271,6 +271,7 @@ action_deploy_global_contract_per_byte
 global_contract_storage_amount_per_byte 0.0001 N
 deploy_global_contract_execution_base     20_000_000_000_000
 deploy_global_contract_execution_per_byte         250_000_000
+ml_dsa_65_verification_cost                  100_000_000_000
 action_use_global_contract              
 - send_sir:          184_765_750_000
 - send_not_sir:      184_765_750_000
@@ -283,5 +284,6 @@ global_contract_host_fns                true
 gas_key_host_fns                        true
 one_yocto_on_promise                    true
 p256_verify_host_fn                     true
-yield_with_id_host_fns                  false
+yield_with_id_host_fns                  true
 chain_id_host_fn                        true
+bls12381_not_in_group_fix               false

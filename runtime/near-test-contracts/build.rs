@@ -6,6 +6,7 @@
 /// build logs.
 // cspell:ignore Ctarget, Dwarnings, Zbuild
 use std::env;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -115,13 +116,16 @@ fn cargo_build_cmd(target_dir: &Path) -> Command {
 
     res.env("RUSTC_BOOTSTRAP", "1"); // FIXME: remove once `-Zbuild-std` is no longer necessary
     res.env("RUSTFLAGS", "-Dwarnings -Ctarget-cpu=mvp");
-    res.env("CARGO_TARGET_DIR", target_dir);
 
     res.args([
-        "build",
-        "-Zbuild-std=panic_abort,std",
-        "--target=wasm32-unknown-unknown",
-        "--release",
+        OsStr::new("build"),
+        OsStr::new("-Zbuild-std=panic_abort,std"),
+        OsStr::new("--target=wasm32-unknown-unknown"),
+        OsStr::new("--release"),
+        // Set the output dir via `--target-dir`, which wins over `CARGO_TARGET_DIR`, so
+        // a `cargo` PATH shim re-exporting that env var can't redirect the sub-build.
+        OsStr::new("--target-dir"),
+        target_dir.as_os_str(),
     ]);
 
     res

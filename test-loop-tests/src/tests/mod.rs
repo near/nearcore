@@ -13,6 +13,7 @@ mod chunk_validator_failover;
 mod chunk_validator_kickout;
 mod chunks_management;
 mod cloud_archival;
+mod combined_transactions_size_limit;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;
@@ -39,6 +40,7 @@ mod jsonrpc;
 mod malicious_chunk_producer;
 mod max_receipt_size;
 mod ml_dsa_access_key;
+mod ml_dsa_verification_cost;
 mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;

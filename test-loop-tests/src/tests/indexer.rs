@@ -8,22 +8,22 @@ use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
-use near_crypto::Signer;
 use near_indexer::{
     AwaitForNodeSyncedEnum, IndexerConfig, IndexerExecutionOutcomeWithReceipt, StreamerMessage,
     SyncModeEnum, start,
 };
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, Finality, Nonce, NumBlocks};
+use near_primitives::types::{AccountId, Balance, Finality, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView};
+use near_primitives::views::{
+    AccountContractView, ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView,
+};
 use near_store::StoreConfig;
 use std::iter::repeat_with;
-use std::sync::atomic::AtomicU64;
 use tokio::sync::mpsc;
 
 #[test]
@@ -101,16 +101,13 @@ fn test_indexer_instant_receipt() {
 
     // Step 1: Call yield_create — produces a PromiseYield instant receipt that
     // gets stored/postponed as a PromiseYield receipt (awaiting data) and persisted in DBCol::Receipts.
-    let yield_create_tx = SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "call_yield_create_return_promise".to_owned(),
+    let yield_create_tx = env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "call_yield_create_return_promise",
         vec![42u8; 16],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        tx_block_hash(&env),
     );
     env.rpc_node().submit_tx(yield_create_tx.clone());
     let tx_outcome = env
@@ -139,16 +136,13 @@ fn test_indexer_instant_receipt() {
 
     // Step 2: Call yield_resume — provides data for the PromiseYield, causing
     // the callback to execute in a subsequent block.
-    let resume_tx = SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "call_yield_resume_read_data_id_from_storage".to_owned(),
+    let resume_tx = env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "call_yield_resume_read_data_id_from_storage",
         vec![42u8; 16],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        tx_block_hash(&env),
     );
     env.rpc_runner().run_tx(resume_tx, Duration::seconds(5));
 
@@ -321,6 +315,77 @@ fn test_indexer_deploy_contract_local_tx() {
     assert_eq!(code, CryptoHash::hash_bytes(near_test_contracts::rs_contract()).as_bytes());
 }
 
+/// Deploys a global contract, points the user account at it, then calls a
+/// function on that account. The function-call receipt's `ExecutionMetadata`
+/// view (V4+) must carry the resolved `GlobalHash` contract — the case the
+/// new metadata variant exists to surface, since the receiver account is
+/// `user_account` but the actually-executed code lives at the global hash.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_global_contract_function_call_metadata() {
+    init_test_logger();
+
+    let mut env = setup();
+    let code = near_test_contracts::rs_contract();
+    let code_hash = CryptoHash::hash_bytes(code);
+
+    // Deploy the global contract under a CodeHash identifier.
+    let deploy_tx = env.rpc_node().tx_deploy_global_contract(
+        &user_account(),
+        code.to_vec(),
+        GlobalContractDeployMode::CodeHash,
+    );
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    // Point the user account at the just-deployed global contract.
+    let use_tx = env
+        .rpc_node()
+        .tx_use_global_contract(&user_account(), GlobalContractIdentifier::CodeHash(code_hash));
+    env.rpc_runner().run_tx(use_tx, Duration::seconds(5));
+
+    // Invoke a function on the user account; the call executes through the
+    // global contract.
+    let call_tx = env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "log_something",
+        vec![],
+        Balance::ZERO,
+        Gas::from_teragas(100),
+    );
+    let call_tx_hash = call_tx.get_hash();
+    env.rpc_node().submit_tx(call_tx);
+    let tx_outcome =
+        env.rpc_runner().run_until_outcome_available(call_tx_hash, Duration::seconds(5));
+    let ExecutionStatus::SuccessReceiptId(call_receipt_id) =
+        tx_outcome.outcome_with_id.outcome.status
+    else {
+        panic!("function-call tx should convert to a receipt");
+    };
+    let call_outcome =
+        env.rpc_runner().run_until_outcome_available(call_receipt_id, Duration::seconds(5));
+    let call_height = env.rpc_node().block(call_outcome.block_hash).header().height();
+
+    // Read the function-call receipt out of the indexer stream and check the
+    // V4 metadata.
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(call_height));
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, call_height);
+    let indexer_outcome_with_receipt = msg.shards[0]
+        .receipt_execution_outcomes
+        .iter()
+        .find(|o| o.execution_outcome.id == call_receipt_id)
+        .expect("function-call receipt should appear in receipt_execution_outcomes");
+
+    let metadata = &indexer_outcome_with_receipt.execution_outcome.outcome.metadata;
+    assert_eq!(metadata.version, 4);
+    assert_eq!(
+        metadata.contracts.as_deref(),
+        Some(&[Some(AccountContractView::GlobalHash(code_hash))][..]),
+    );
+}
+
 /// Test that `receipt_execution_outcomes` preserves execution order (not hash-sorted order).
 ///
 /// Submits multiple local transactions in the same chunk and verifies
@@ -438,57 +503,29 @@ fn receive_indexer_message(
     ret.unwrap()
 }
 
-fn next_nonce() -> Nonce {
-    static NEXT_VALUE: AtomicU64 = AtomicU64::new(1);
-    NEXT_VALUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-}
-
-fn tx_block_hash(env: &TestLoopEnv) -> CryptoHash {
-    let idx = env.rpc_data_idx();
-    let node_data = &env.node_datas[idx];
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    client.chain.head().unwrap().last_block_hash
-}
-
-fn user_signer() -> Signer {
-    create_user_test_signer(&user_account())
-}
-
 fn create_local_tx(env: &TestLoopEnv) -> SignedTransaction {
-    SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "does_not_matter".to_owned(),
+    env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "does_not_matter",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(100),
-        tx_block_hash(env),
     )
 }
 
 fn create_burn_gas_tx(env: &TestLoopEnv, gas_to_burn: Gas) -> SignedTransaction {
-    SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "burn_gas_raw".to_owned(),
+    env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "burn_gas_raw",
         gas_to_burn.as_gas().to_le_bytes().to_vec(),
+        Balance::ZERO,
         GAS_LIMIT,
-        tx_block_hash(env),
     )
 }
 
 fn deploy_test_contract(env: &mut TestLoopEnv) {
-    let tx = SignedTransaction::deploy_contract(
-        next_nonce(),
-        &user_account(),
-        near_test_contracts::rs_contract().to_vec(),
-        &user_signer(),
-        tx_block_hash(env),
-    );
+    let tx = env.rpc_node().tx_deploy_test_contract(&user_account());
     env.rpc_runner().run_tx(tx, Duration::seconds(3));
 }

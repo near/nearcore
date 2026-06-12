@@ -1,8 +1,7 @@
-use crate::Error;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::types::{AccountId, Nonce, NonceIndex};
-use near_store::{TrieAccess, get_access_key, get_account, get_gas_key_nonce};
+use near_store::{StorageError, TrieAccess, get_access_key, get_account, get_gas_key_nonce};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -53,21 +52,23 @@ impl SignerOverlay {
     }
 
     /// Returns mutable references to the account and per-key state, loading
-    /// from the trie on first access.
+    /// from the trie on first access. `Ok(None)` signals that the requested
+    /// account, access key, or gas-key nonce does not exist in state. Storage
+    /// errors propagate as `Err`.
     pub fn get_or_load_entry_mut(
         &mut self,
         trie: &dyn TrieAccess,
         account_id: &AccountId,
         public_key: &PublicKey,
         nonce_index: Option<NonceIndex>,
-    ) -> Result<(&mut Account, &mut KeyEntry), Error> {
+    ) -> Result<Option<(&mut Account, &mut KeyEntry)>, StorageError> {
         // Ensure the account is loaded.
         let entry = match self.entries.entry(account_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let account = get_account(trie, account_id)
-                    .map_err(|_| Error::InvalidTransactions)?
-                    .ok_or(Error::InvalidTransactions)?;
+                let Some(account) = get_account(trie, account_id)? else {
+                    return Ok(None);
+                };
                 entry.insert(AccountEntry { account, keys: HashMap::new() })
             }
         };
@@ -79,9 +80,9 @@ impl SignerOverlay {
         let key_entry = match keys.entry(public_key.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let access_key = get_access_key(trie, account_id, public_key)
-                    .map_err(|_| Error::InvalidTransactions)?
-                    .ok_or(Error::InvalidTransactions)?;
+                let Some(access_key) = get_access_key(trie, account_id, public_key)? else {
+                    return Ok(None);
+                };
                 entry.insert(KeyEntry { access_key, gas_key_nonces: HashMap::new() })
             }
         };
@@ -89,13 +90,13 @@ impl SignerOverlay {
         // Ensure the requested gas key nonce is loaded.
         if let Some(idx) = nonce_index {
             if let Entry::Vacant(e) = key_entry.gas_key_nonces.entry(idx) {
-                let nonce = get_gas_key_nonce(trie, account_id, public_key, idx)
-                    .map_err(|_| Error::InvalidTransactions)?
-                    .ok_or(Error::InvalidTransactions)?;
+                let Some(nonce) = get_gas_key_nonce(trie, account_id, public_key, idx)? else {
+                    return Ok(None);
+                };
                 e.insert(nonce);
             }
         }
 
-        Ok((account, key_entry))
+        Ok(Some((account, key_entry)))
     }
 }
