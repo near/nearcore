@@ -13,3 +13,6 @@ wasm_yield_create_with_id_base: { old: 300_000_000_000_000, new: 290_000_000_000
 # to the transaction conversion cost to cover the difference.
 # 100 Ggas
 ml_dsa_65_verification_cost: { old: 0, new: 100_000_000_000 }
+# Must exceed the largest receipt's congestion gas (> max_total_prepaid_gas).
+min_outgoing_gas:           { old: 1_000_000_000_000_000, new: 2_000_000_000_000_000 }
+allowed_shard_outgoing_gas: { old: 1_000_000_000_000_000, new: 2_000_000_000_000_000 }
