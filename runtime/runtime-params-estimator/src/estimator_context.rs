@@ -266,6 +266,39 @@ pub(crate) struct Testbed<'c> {
     transaction_builder: TransactionBuilder,
 }
 
+/// Expected block latency (extra blocks needed to drain all receipts) for the
+/// blocks passed to [`Testbed::measure_blocks`].
+pub(crate) enum BlockLatency {
+    /// Every block drains in the same number of extra blocks.
+    Uniform(usize),
+    /// Setup and measured blocks alternate, as produced by `fn_cost_with_setup`:
+    /// even-indexed blocks run the setup, odd-indexed blocks the measurement.
+    SetupAndMeasured { setup: usize, measured: usize },
+}
+
+impl BlockLatency {
+    fn expected_at(&self, block_index: usize) -> usize {
+        match self {
+            BlockLatency::Uniform(latency) => *latency,
+            BlockLatency::SetupAndMeasured { setup, measured } => {
+                if block_index.is_multiple_of(2) {
+                    *setup
+                } else {
+                    *measured
+                }
+            }
+        }
+    }
+
+    /// Latency of the measured blocks, used to size the per-measurement overhead.
+    pub(crate) fn measured(&self) -> usize {
+        match self {
+            BlockLatency::Uniform(latency) => *latency,
+            BlockLatency::SetupAndMeasured { measured, .. } => *measured,
+        }
+    }
+}
+
 impl Testbed<'_> {
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
@@ -282,13 +315,13 @@ impl Testbed<'_> {
     pub(crate) fn measure_blocks(
         &mut self,
         blocks: Vec<Vec<SignedTransaction>>,
-        block_latency: usize,
+        block_latency: BlockLatency,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
         let allow_failures = false;
 
         let mut res = Vec::with_capacity(blocks.len());
 
-        for block in blocks {
+        for (block_index, block) in blocks.into_iter().enumerate() {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
             let extra_blocks;
             let gas_cost = {
@@ -298,9 +331,10 @@ impl Testbed<'_> {
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
+            let expected_latency = block_latency.expected_at(block_index);
             assert_eq!(
-                block_latency, extra_blocks,
-                "block latency {block_latency} does not match expected {extra_blocks}"
+                expected_latency, extra_blocks,
+                "block {block_index}: expected block latency {expected_latency} but drained in {extra_blocks}"
             );
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();

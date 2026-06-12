@@ -11,6 +11,7 @@ mod chunk_validator_failover;
 mod chunk_validator_kickout;
 mod chunks_management;
 mod cloud_archival;
+mod combined_transactions_size_limit;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;

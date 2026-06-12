@@ -232,6 +232,12 @@ pub enum Error {
     /// Invalid block merkle root.
     #[error("Invalid Block Merkle Root")]
     InvalidBlockMerkleRoot,
+    /// Invalid block ordinal.
+    #[error("Invalid Block Ordinal")]
+    InvalidBlockOrdinal,
+    /// Invalid epoch sync data hash.
+    #[error("Invalid Epoch Sync Data Hash")]
+    InvalidEpochSyncDataHash,
     /// Invalid split shard ids.
     #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
     InvalidSplitShardsIds(ShardId, ShardId),
@@ -280,6 +286,10 @@ pub enum Error {
     /// match the epoch id of the last fully certified block as of prev.
     #[error("Invalid prev_last_certified_block_epoch_id: {0}")]
     InvalidPrevLastCertifiedBlockEpochId(String),
+    /// `spice_chunk_endorsement_stats` on a spice block header doesn't match the
+    /// value recomputed from the chain.
+    #[error("Invalid spice_chunk_endorsement_stats: {0}")]
+    InvalidSpiceChunkEndorsementStats(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -368,12 +378,15 @@ impl Error {
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
+            | Error::InvalidBlockOrdinal
+            | Error::InvalidEpochSyncDataHash
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
             | Error::BadHeaderForProtocolVersion(_)
             | Error::InvalidSpiceCoreStatements(_)
-            | Error::InvalidPrevLastCertifiedBlockEpochId(_) => true,
+            | Error::InvalidPrevLastCertifiedBlockEpochId(_)
+            | Error::InvalidSpiceChunkEndorsementStats(_) => true,
         }
     }
 
@@ -455,6 +468,8 @@ impl Error {
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkle_root",
+            Error::InvalidBlockOrdinal => "invalid_block_ordinal",
+            Error::InvalidEpochSyncDataHash => "invalid_epoch_sync_data_hash",
             Error::InvalidProtocolVersion => "invalid_protocol_version",
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
@@ -464,6 +479,7 @@ impl Error {
             Error::InvalidPrevLastCertifiedBlockEpochId(_) => {
                 "invalid_prev_last_certified_block_epoch_id"
             }
+            Error::InvalidSpiceChunkEndorsementStats(_) => "invalid_spice_chunk_endorsement_stats",
         }
     }
 }

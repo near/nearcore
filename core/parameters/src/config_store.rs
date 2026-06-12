@@ -62,8 +62,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
-    // PostQuantumSignatures: ML-DSA-65 signature-verification gas.
-    (154, include_config!("154.yaml")),
     (155, include_config!("155.yaml")),
 ];
 

@@ -357,6 +357,12 @@ pub enum ProtocolFeature {
     /// subtracted, overstating storage usage for accounts with global
     /// contracts and making them marginally harder to delete.
     FixDeleteAccountGlobalContractStorageUsage,
+    /// Skip transactions whose hash already appeared earlier in the same chunk.
+    /// A transaction hash is also its outcome id, and outcomes are committed
+    /// (via the chunk outcome root) keyed by that id. Including a transaction
+    /// twice would otherwise commit two conflicting outcomes (a success and an
+    /// InvalidNonce failure) under one id.
+    UniqueChunkTransactions,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
@@ -402,9 +408,27 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
+    /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
+    /// per-action `Vec<AccountContract>`: one entry per action in the
+    /// receipt, set to the contract that was executed for `FunctionCall`
+    /// actions and to `AccountContract::None` for everything else (matching
+    /// the receipt's action order). This is relevant when the receiver
+    /// account and the contract source diverge — e.g. global contracts.
+    /// Wire format changes (new borsh discriminant), so the cutover must be
+    /// coordinated across the network.
+    ExecutionMetadataV4,
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
+    /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
+    /// state when validating received block headers.
+    ValidateBlockOrdinalAndEpochSyncDataHash,
+    /// Authenticate `ContractCodeResponse` messages with a chunk-producer
+    /// signature, matching the signed-message pattern already used by
+    /// `ChunkContractAccesses` and `ContractCodeRequest`. Senders emit
+    /// `ContractCodeResponseV2` (with a signed inner payload); receivers
+    /// require a verifiable signature before processing the response.
+    SignedContractCodeResponse,
 }
 
 impl ProtocolFeature {
@@ -521,16 +545,20 @@ impl ProtocolFeature {
             | ProtocolFeature::ContinuousEpochSync
             | ProtocolFeature::DynamicResharding
             | ProtocolFeature::StickyReshardingValidatorAssignment
-            | ProtocolFeature::YieldWithId => 85,
+            | ProtocolFeature::StrictNonce
+            | ProtocolFeature::PostQuantumSignatures
+            | ProtocolFeature::UniqueChunkTransactions
+            | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
+            | ProtocolFeature::YieldWithId
+            | ProtocolFeature::ExecutionMetadataV4
+            | ProtocolFeature::SignedContractCodeResponse => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::PostQuantumSignatures => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

@@ -36,7 +36,7 @@ use near_client::{
 use near_client::{ChunkEndorsementHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::client::ChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -86,6 +86,7 @@ fn setup(
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
     tempfile::TempDir,
+    Arc<EpochManagerHandle>,
 ) {
     let store = create_test_store();
 
@@ -264,7 +265,7 @@ fn setup(
     let shards_manager_adapter = start_shards_manager(
         actor_system,
         epoch_manager.clone(),
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         network_adapter.into_sender(),
         client_actor.clone().into_sender(),
@@ -287,6 +288,7 @@ fn setup(
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
         tempdir,
+        epoch_manager,
     )
 }
 
@@ -343,6 +345,7 @@ fn setup_mock_with_validity_period(
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir,
+        epoch_manager,
     ) = setup(
         clock.clone(),
         actor_system.clone(),
@@ -371,6 +374,7 @@ fn setup_mock_with_validity_period(
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir: Some(runtime_tempdir.into()),
+        epoch_manager,
     }
 }
 
@@ -385,6 +389,7 @@ pub struct ActorHandlesForTesting {
     // this TempDir isn't dropped before test finishes, but is dropped after to avoid leaking temp
     // dirs.
     pub runtime_tempdir: Option<Arc<tempfile::TempDir>>,
+    pub epoch_manager: Arc<EpochManagerHandle>,
 }
 
 /// Sets up ClientActor and ViewClientActor without network.

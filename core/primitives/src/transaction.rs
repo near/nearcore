@@ -11,6 +11,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
 use near_primitives_core::version::ProtocolFeature;
@@ -310,21 +311,12 @@ impl ValidatedTransaction {
         // so the exhaustive `Action` match in
         // `Action::post_quantum_signatures_required` forces every future
         // action variant to make an explicit decision at compile time.
-        //
-        // TODO(post-quantum): this gate alone does not close the "implicit protocol
-        // upgrade" divergence: on a pre-feature protocol an old binary fails
-        // to borsh-decode an ML-DSA-65 tx and rejects the whole chunk, while
-        // a new binary decodes it and rejects only the tx, splitting chunk
-        // endorsements. The same exposure exists today for GasKeys, StrictNonce
-        // and DynamicResharding wire variants; needs a systemic fix (e.g. a
-        // forward-compat envelope around `SignedTransaction`), not a
-        // per-feature mitigation.
         if !ProtocolFeature::PostQuantumSignatures.enabled(protocol_version)
             && signed_tx.post_quantum_signatures_required()
         {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
-        let tx_size = signed_tx.get_size();
+        let tx_size = signed_tx.size_for_limits(protocol_version);
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
         if tx_size > max_tx_size {
             return Err(InvalidTxError::TransactionSizeExceeded {
@@ -361,6 +353,16 @@ impl ValidatedTransaction {
 
     pub fn get_size(&self) -> u64 {
         self.0.get_size()
+    }
+
+    /// See [`SignedTransaction::wire_size`].
+    pub fn wire_size(&self) -> u64 {
+        self.0.wire_size()
+    }
+
+    /// See [`SignedTransaction::size_for_limits`].
+    pub fn size_for_limits(&self, protocol_version: ProtocolVersion) -> u64 {
+        self.0.size_for_limits(protocol_version)
     }
 
     pub fn signer_id(&self) -> &AccountId {
@@ -423,6 +425,30 @@ impl SignedTransaction {
 
     pub fn get_size(&self) -> u64 {
         self.size
+    }
+
+    /// Full borsh-serialized size of the signed transaction, including the
+    /// signature.
+    ///
+    /// [`Self::get_size`] counts only the inner `Transaction` body, omitting
+    /// the signature - ~65 B for ed25519 but up to ~3.3 KiB for ML-DSA-65.
+    /// Use this where the true on-wire / in-witness size matters.
+    pub fn wire_size(&self) -> u64 {
+        let signature_size =
+            borsh::object_length(&self.signature).expect("borsh signature length") as u64;
+        self.size + signature_size
+    }
+
+    /// Transaction size charged against the `max_transaction_size` and
+    /// `combined_transactions_size_limit` gates: [`Self::wire_size`] from
+    /// [`ProtocolFeature::PostQuantumSignatures`] onward, else the legacy
+    /// [`Self::get_size`]. Version-gated to keep chunk production deterministic.
+    pub fn size_for_limits(&self, protocol_version: ProtocolVersion) -> u64 {
+        if ProtocolFeature::PostQuantumSignatures.enabled(protocol_version) {
+            self.wire_size()
+        } else {
+            self.get_size()
+        }
     }
 
     /// Returns `true` if this transaction carries any post-quantum key
@@ -632,6 +658,26 @@ pub enum ExecutionMetadata {
     V2(crate::profile_data_v2::ProfileDataV2) = 1,
     /// V3: With ProfileData by gas parameters
     V3(Box<ProfileDataV3>) = 2,
+    /// V4: With ProfileData by gas parameters and the contract attached to
+    /// the receiver account at the time each action ran. Lets consumers
+    /// distinguish receiver from contract source (e.g. global contracts) and
+    /// see what code an account had even on receipts that did not invoke a
+    /// `FunctionCall`.
+    V4(Box<ExecutionMetadataV4>) = 3,
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default, ProtocolSchema,
+)]
+pub struct ExecutionMetadataV4 {
+    pub profile: ProfileDataV3,
+    /// One entry per action in the receipt: the contract attached to the
+    /// receiver account immediately before that action ran. Captured for
+    /// every action kind, including ones that don't execute a contract;
+    /// `AccountContract::None` when the account did not yet exist (e.g. the
+    /// `CreateAccount` action that materialized it). Order matches the
+    /// receipt's `actions` vector.
+    pub contracts: Vec<AccountContract>,
 }
 
 impl fmt::Debug for ExecutionOutcome {
@@ -1109,5 +1155,52 @@ mod tests {
         );
         ValidatedTransaction::check_valid_for_config(&config, &signed_tx, post)
             .expect("same transaction must be accepted post-feature");
+    }
+
+    /// `wire_size` equals the full borsh length of the signed transaction
+    /// (body + signature) and exceeds the body-only `get_size` by exactly the
+    /// serialized signature length. For ed25519 that delta is tiny.
+    #[test]
+    fn test_wire_size_counts_signature() {
+        let signed_tx = signed_tx_with_action(
+            KeyType::ED25519,
+            Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }),
+        );
+        let full_len = borsh::to_vec(&signed_tx).unwrap().len() as u64;
+        assert_eq!(signed_tx.wire_size(), full_len, "wire_size must equal full borsh length");
+        let signature_len = borsh::object_length(&signed_tx.signature).unwrap() as u64;
+        assert_eq!(signed_tx.wire_size(), signed_tx.get_size() + signature_len);
+        assert!(signature_len < 100, "ed25519 signature unexpectedly large: {signature_len}");
+    }
+
+    /// The motivation for the change: an ML-DSA-65 signature is invisible to
+    /// `get_size` but adds ~3.3 KiB that `wire_size` accounts for.
+    #[test]
+    fn test_wire_size_ml_dsa_signature_is_large() {
+        let signed_tx = signed_tx_with_action(
+            KeyType::MLDSA65,
+            Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }),
+        );
+        assert_eq!(signed_tx.wire_size(), borsh::to_vec(&signed_tx).unwrap().len() as u64);
+        let hidden_by_get_size = signed_tx.wire_size() - signed_tx.get_size();
+        assert!(
+            hidden_by_get_size > 3000,
+            "ML-DSA-65 signature should add >3 KiB beyond get_size, got {hidden_by_get_size}"
+        );
+    }
+
+    /// `size_for_limits` is the body-only size before `PostQuantumSignatures`
+    /// and the full wire size from that version onward.
+    #[test]
+    fn test_size_for_limits_version_gated() {
+        let signed_tx = signed_tx_with_action(
+            KeyType::MLDSA65,
+            Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }),
+        );
+        let pre = ProtocolFeature::PostQuantumSignatures.protocol_version() - 1;
+        let post = ProtocolFeature::PostQuantumSignatures.protocol_version();
+        assert_eq!(signed_tx.size_for_limits(pre), signed_tx.get_size());
+        assert_eq!(signed_tx.size_for_limits(post), signed_tx.wire_size());
+        assert!(signed_tx.size_for_limits(post) > signed_tx.size_for_limits(pre));
     }
 }

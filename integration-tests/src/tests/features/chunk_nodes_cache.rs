@@ -125,20 +125,22 @@ fn compare_node_counts() {
             let receipt_execution_outcome =
                 env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
             let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
-            match metadata {
+            let profile_data = match metadata {
                 ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
-                ExecutionMetadata::V2(_profile_data) => panic!("expected newest ExecutionMetadata"),
-                ExecutionMetadata::V3(profile_data) => TrieNodesCount {
-                    db_reads: {
-                        let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
-                        assert_eq!(cost.as_gas() % touching_trie_node_cost.as_gas(), 0);
-                        cost.checked_div(touching_trie_node_cost.as_gas()).unwrap().as_gas()
-                    },
-                    mem_reads: {
-                        let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
-                        assert_eq!(cost.as_gas() % read_cached_trie_node_cost.as_gas(), 0);
-                        cost.checked_div(read_cached_trie_node_cost.as_gas()).unwrap().as_gas()
-                    },
+                ExecutionMetadata::V2(_) => panic!("expected newest ExecutionMetadata"),
+                ExecutionMetadata::V3(profile_data) => *profile_data,
+                ExecutionMetadata::V4(v4) => v4.profile,
+            };
+            TrieNodesCount {
+                db_reads: {
+                    let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
+                    assert_eq!(cost.as_gas() % touching_trie_node_cost.as_gas(), 0);
+                    cost.checked_div(touching_trie_node_cost.as_gas()).unwrap().as_gas()
+                },
+                mem_reads: {
+                    let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
+                    assert_eq!(cost.as_gas() % read_cached_trie_node_cost.as_gas(), 0);
+                    cost.checked_div(read_cached_trie_node_cost.as_gas()).unwrap().as_gas()
                 },
             }
         })

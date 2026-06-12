@@ -1,3 +1,4 @@
+use crate::shutdown::SignalHandler;
 use anyhow::Context;
 use near_primitives::types::BlockHeight;
 use near_primitives::views::AccessKeyPermissionView;
@@ -71,7 +72,8 @@ impl RunCmd {
             None
         };
 
-        run_async(crate::run(
+        let signal_handler = SignalHandler::install();
+        let result = run_async(crate::run(
             self.source_home,
             self.target_home,
             self.mirror_db_path,
@@ -79,7 +81,15 @@ impl RunCmd {
             self.stop_height,
             self.online_source,
             self.config_path,
-        ))
+            signal_handler.shutdown_token(),
+        ));
+        signal_handler.mark_run_finished();
+        // run() aborts spawned tasks, awaits them, and calls actor_system.stop(). By the time we
+        // get here the tokio runtime is dropped and all Arc<DB> refs should be gone. Wait for RocksDB
+        // background threads to finish flushing; signal_handler makes sure the
+        // process still responds to SIGTERM if this ever hangs.
+        near_store::db::RocksDB::block_until_all_instances_are_dropped();
+        result
     }
 }
 
