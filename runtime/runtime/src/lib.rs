@@ -39,8 +39,8 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ActionsValidationError, EpochError, IntegerOverflowError,
-    InvalidAccessKeyError, InvalidTxError, ReceiptValidationError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -730,21 +730,20 @@ impl Runtime {
                     apply_state,
                     action_receipt,
                     account_id,
-                    signed_delegate_action,
+                    signed_delegate_action.as_ref().into(),
                     &mut result,
                 )?;
             }
-            // TODO(gas-keys): execute DelegateV2; rejected at validation until then.
-            Action::DelegateV2(_) => {
-                result.result = Err(ActionErrorKind::NewReceiptValidationError(
-                    ReceiptValidationError::ActionsValidation(
-                        ActionsValidationError::UnsupportedProtocolFeature {
-                            protocol_feature: "DelegateV2".to_owned(),
-                            version: apply_state.current_protocol_version,
-                        },
-                    ),
-                )
-                .into());
+            Action::DelegateV2(signed_delegate_action) => {
+                metrics::ACTION_CALLED_COUNT.delegate.inc();
+                apply_delegate_action(
+                    state_update,
+                    apply_state,
+                    action_receipt,
+                    account_id,
+                    signed_delegate_action.as_ref().into(),
+                    &mut result,
+                )?;
             }
             Action::TransferToGasKey(transfer_to_gas_key) => {
                 metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
