@@ -1544,7 +1544,10 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info_db(chunk_header.prev_block_hash(), chunk_header.shard_id())?
+            .get_chunk_producer_info_from_prev_block(
+                chunk_header.prev_block_hash(),
+                chunk_header.shard_id(),
+            )?
             .take_account_id();
         tracing::error!(
             target: "client",
@@ -1938,10 +1941,9 @@ impl Client {
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
 
-        // ChunkValidationActor drains its orphan-witness pool; PartialWitnessActor replays deferred V2 witnesses.
+        // ChunkValidationActor drains its orphan-witness pool.
         let block_notification = BlockNotificationMessage { block: block.clone() };
         self.chunk_validation_sender.block_notification.send(block_notification.clone());
-        self.partial_witness_adapter.block_notification.send(block_notification.clone());
 
         // Notify all subscribed watchers about the new block.
         self.block_notification_watch_sender.send_replace(Some(block_notification));

@@ -3691,3 +3691,111 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
         "epoch should not advance when last_certified_block_epoch is behind block epoch"
     );
 }
+
+/// Aggregator must attribute chunk production to the producer resolved via the
+/// grandparent anchor's ChunkProducers DB row (same-epoch), not the canonical
+/// sampler, mirroring consensus resolution.
+#[cfg(feature = "nightly")]
+#[test]
+fn test_aggregator_anchored_chunk_producers() {
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let validators =
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let mut em = setup_epoch_manager(
+        validators,
+        10,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
+    let h = hash_range(4);
+
+    // Record blocks at heights 0..=3 with a full chunk mask so the shard
+    // tracker accumulates chunk stats.
+    let mut prev = CryptoHash::default();
+    for (height, hash) in h.iter().enumerate() {
+        let epoch_id =
+            if height == 0 { EpochId::default() } else { em.get_epoch_id(&prev).unwrap() };
+        let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+        let num_shards = shard_layout.shard_ids().count();
+        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+            shard_layout
+                .shard_ids()
+                .map(|shard_id| {
+                    let assignments = em
+                        .get_chunk_validator_assignments(&epoch_id, shard_id, height as u64)
+                        .unwrap();
+                    vec![true; assignments.assignments().iter().len()]
+                })
+                .collect(),
+        );
+        em.record_block_info(
+            BlockInfo::new(
+                *hash,
+                height as u64,
+                (height as u64).saturating_sub(2),
+                prev,
+                prev,
+                vec![],
+                vec![true; num_shards],
+                DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
+                height as u64 * NUM_NS_IN_SECOND,
+                chunk_endorsements,
+                None,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit();
+        prev = *hash;
+    }
+
+    let epoch_id = em.get_epoch_id(&h[3]).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+
+    // The chunk at height 3 anchors at h[1] (same epoch). Replace the row with
+    // the validator the canonical sampler would NOT pick.
+    let canonical_id = epoch_info.sample_chunk_producer(&shard_layout, shard_id, 3).unwrap();
+    let anchored_id = 1 - canonical_id;
+    let anchored_stake = epoch_info.get_validator(anchored_id);
+    {
+        let key = get_block_shard_id(&h[1], shard_id);
+        let mut update = em.store.store_ref().store_update();
+        update.delete(DBCol::ChunkProducers, &key);
+        update.commit();
+        let mut update = em.store.store_ref().store_update();
+        update.insert_ser(DBCol::ChunkProducers, &key, &anchored_stake);
+        update.commit();
+    }
+
+    let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
+    let stats = &aggregator.shard_tracker[&shard_id];
+
+    // Heights 1 and 2 resolve via the legacy sampler (genesis-adjacent anchors);
+    // height 3 must be attributed to the anchored DB row's validator.
+    let mut expected: HashMap<ValidatorId, u64> = HashMap::new();
+    for height in 1..=2 {
+        let id = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
+        *expected.entry(id).or_default() += 1;
+    }
+    *expected.entry(anchored_id).or_default() += 1;
+    for validator_id in [0, 1] {
+        let expected_count = expected.get(&validator_id).copied().unwrap_or(0);
+        let actual_count = stats.get(&validator_id).map(|s| s.expected()).unwrap_or(0);
+        assert_eq!(
+            actual_count, expected_count,
+            "chunk production attribution mismatch for validator {validator_id}"
+        );
+    }
+}

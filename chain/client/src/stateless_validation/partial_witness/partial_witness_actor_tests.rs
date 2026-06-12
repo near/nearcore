@@ -1,8 +1,4 @@
-use super::partial_witness_actor::{
-    DeferOrigin, PENDING_V2_WITNESS_CACHE_SIZE, PartialWitnessActor, PendingV2WitnessCache,
-    ReplayDisposition, pre_check_replay, witness_kicked_out,
-};
-use crate::metrics;
+use super::partial_witness_actor::{PartialWitnessActor, witness_kicked_out};
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{IntoAsyncSender, IntoSender, noop};
@@ -43,6 +39,7 @@ fn make_witness(
     VersionedPartialEncodedStateWitness::new(
         EpochId(CryptoHash::default()),
         chunk_header,
+        CryptoHash::hash_bytes(b"prev_prev_block"),
         0,
         b"payload".to_vec(),
         7,
@@ -51,132 +48,17 @@ fn make_witness(
     )
 }
 
+/// V1 witnesses never carry `prev_block_hash` or the grandparent anchor.
 #[test]
-fn inserts_group_by_prev_block_hash() {
-    let signer = create_test_signer("test_account");
-    let block_a = CryptoHash::hash_bytes(b"block_a");
-    let block_b = CryptoHash::hash_bytes(b"block_b");
-    let mut cache = PendingV2WitnessCache::new();
-
-    cache.insert(
-        block_a,
-        make_witness(&signer, block_a, post_kickout_version()),
-        DeferOrigin::InitEmit,
-    );
-    cache.insert(
-        block_a,
-        make_witness(&signer, block_a, post_kickout_version()),
-        DeferOrigin::Forwarded,
-    );
-    cache.insert(
-        block_b,
-        make_witness(&signer, block_b, post_kickout_version()),
-        DeferOrigin::InitEmit,
-    );
-    assert_eq!(cache.len(), 2);
-
-    let drained_a = cache.drain(&block_a);
-    assert_eq!(drained_a.len(), 2);
-    assert!(
-        drained_a.iter().all(|e| e.witness.prev_block_hash() == Some(&block_a)),
-        "drained witnesses must all point to block_a",
-    );
-    assert!(drained_a.iter().any(|e| e.origin == DeferOrigin::InitEmit), "init-emit entry present",);
-    assert!(drained_a.iter().any(|e| e.origin == DeferOrigin::Forwarded), "forward entry present",);
-
-    let drained_b = cache.drain(&block_b);
-    assert_eq!(drained_b.len(), 1);
-    assert_eq!(drained_b[0].witness.prev_block_hash(), Some(&block_b));
-    assert_eq!(drained_b[0].origin, DeferOrigin::InitEmit);
-
-    assert_eq!(cache.len(), 0);
-    assert!(cache.drain(&block_a).is_empty(), "re-draining yields nothing");
-}
-
-#[test]
-fn drain_unknown_block_is_empty() {
-    let mut cache = PendingV2WitnessCache::new();
-    assert!(cache.drain(&CryptoHash::hash_bytes(b"absent")).is_empty());
-}
-
-#[test]
-fn capacity_cap_evicts_oldest_block() {
-    let signer = create_test_signer("test_account");
-    let mut cache = PendingV2WitnessCache::new();
-    let total = PENDING_V2_WITNESS_CACHE_SIZE + 2;
-    let hashes: Vec<CryptoHash> =
-        (0..total).map(|i| CryptoHash::hash_bytes(format!("blk_{i}").as_bytes())).collect();
-    // Eviction counter is process-global; measure this test's own overflow via a
-    // local before/after delta.
-    let evictions_before = metrics::PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL.get();
-    for h in &hashes {
-        cache.insert(*h, make_witness(&signer, *h, post_kickout_version()), DeferOrigin::InitEmit);
-    }
-    assert_eq!(cache.len(), PENDING_V2_WITNESS_CACHE_SIZE);
-    let evictions_delta =
-        metrics::PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL.get() - evictions_before;
-    assert_eq!(evictions_delta, (total - PENDING_V2_WITNESS_CACHE_SIZE) as u64);
-
-    for h in &hashes[..total - PENDING_V2_WITNESS_CACHE_SIZE] {
-        assert!(cache.drain(h).is_empty(), "oldest block {h:?} should have been evicted",);
-    }
-    for h in &hashes[total - PENDING_V2_WITNESS_CACHE_SIZE..] {
-        assert_eq!(cache.drain(h).len(), 1, "newer block {h:?} must still be cached");
-    }
-}
-
-/// V1 witnesses never carry `prev_block_hash`, so they can never be deferred.
-#[test]
-fn prev_block_hash_absent_for_v1() {
+fn anchor_hashes_absent_for_v1_present_for_v2() {
     let signer = create_test_signer("test_account");
     let block = CryptoHash::hash_bytes(b"block");
     let v1 = make_witness(&signer, block, pre_kickout_version());
     assert!(v1.prev_block_hash().is_none(), "V1 witness must not carry prev_block_hash");
+    assert!(v1.prev_prev_block_hash().is_none(), "V1 witness must not carry prev_prev_block_hash");
     let v2 = make_witness(&signer, block, post_kickout_version());
     assert_eq!(v2.prev_block_hash(), Some(&block));
-}
-
-/// `drain_all` returns every entry across every bucket and leaves the cache empty.
-#[test]
-fn drain_all_returns_every_entry_and_empties_cache() {
-    let signer = create_test_signer("test_account");
-    let block_a = CryptoHash::hash_bytes(b"drain_all_a");
-    let block_b = CryptoHash::hash_bytes(b"drain_all_b");
-    let mut cache = PendingV2WitnessCache::new();
-
-    cache.insert(
-        block_a,
-        make_witness(&signer, block_a, post_kickout_version()),
-        DeferOrigin::InitEmit,
-    );
-    cache.insert(
-        block_a,
-        make_witness(&signer, block_a, post_kickout_version()),
-        DeferOrigin::Forwarded,
-    );
-    cache.insert(
-        block_b,
-        make_witness(&signer, block_b, post_kickout_version()),
-        DeferOrigin::InitEmit,
-    );
-    assert_eq!(cache.len(), 2);
-
-    let drained = cache.drain_all();
-    assert_eq!(drained.len(), 3, "every entry across both buckets returned");
-    assert_eq!(cache.len(), 0, "cache empty after drain_all");
-
-    assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::InitEmit));
-    assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::Forwarded));
-
-    for (hash, entry) in &drained {
-        assert_eq!(
-            entry.witness.prev_block_hash(),
-            Some(hash),
-            "drained entry's prev_block_hash must match its bucket key",
-        );
-    }
-
-    assert!(cache.drain_all().is_empty());
+    assert_eq!(v2.prev_prev_block_hash(), Some(&CryptoHash::hash_bytes(b"prev_prev_block")));
 }
 
 // Kickout gate symmetry tests. Pure function: security boundary (which
@@ -214,13 +96,11 @@ fn witness_kicked_out_unknown_epoch_proceeds_both_variants() {
     assert!(!witness_kicked_out(None, &v2_witness(&signer)));
 }
 
-// `pre_check_replay` arm coverage via `setup()`: HEAD == FINAL_HEAD == genesis, shard 0,
-// validator "test". Pure classifier, so a pre-kickout V2 fixture reaches the arms on stable.
-
 fn build_v2_witness(
     signer: &ValidatorSigner,
     epoch_id: EpochId,
     prev_block_hash: CryptoHash,
+    prev_prev_block_hash: CryptoHash,
     height_created: BlockHeight,
     shard_id: ShardId,
 ) -> VersionedPartialEncodedStateWitness {
@@ -247,6 +127,7 @@ fn build_v2_witness(
     VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
         epoch_id,
         chunk_header,
+        prev_prev_block_hash,
         0,
         b"payload".to_vec(),
         7,
@@ -257,187 +138,6 @@ fn build_v2_witness(
 fn mutable_signer(signer: Arc<ValidatorSigner>) -> MutableValidatorSigner {
     MutableConfigValue::new(Some(signer), "validator_signer")
 }
-
-/// Signer None → Requeue (validator reload in progress / not configured).
-#[test]
-fn pre_check_replay_requeue_signer_unavailable() {
-    let (_chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let no_signer =
-        MutableConfigValue::<Option<Arc<ValidatorSigner>>>::new(None, "validator_signer");
-    let witness = build_v2_witness(
-        signer.as_ref(),
-        EpochId(CryptoHash::default()),
-        CryptoHash::default(),
-        1,
-        ShardId::new(0),
-    );
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &no_signer, &witness),
-        ReplayDisposition::Requeue,
-    );
-}
-
-/// Height > HEAD + `MAX_HEIGHTS_AHEAD` (= 5) → Requeue.
-#[test]
-fn pre_check_replay_requeue_too_early() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let head_height = chain.genesis().height();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-    let too_early_height = head_height + 5 + 1;
-    let witness = build_v2_witness(
-        signer.as_ref(),
-        epoch_id,
-        genesis_hash,
-        too_early_height,
-        ShardId::new(0),
-    );
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Requeue,
-    );
-}
-
-/// V2 with unknown prev_block_hash → Requeue via `MissingBlock`.
-#[test]
-fn pre_check_replay_requeue_missing_block_v2() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-    let unknown_prev = CryptoHash::hash_bytes(b"unknown_prev_block");
-    // height=1 keeps relevance window happy so V2 producer-DB arm runs.
-    let witness = build_v2_witness(signer.as_ref(), epoch_id, unknown_prev, 1, ShardId::new(0));
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Requeue,
-    );
-}
-
-/// Height <= FINAL_HEAD → Retire.
-#[test]
-fn pre_check_replay_retire_too_late() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let final_head_height = chain.genesis().height();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-    let witness = build_v2_witness(
-        signer.as_ref(),
-        epoch_id,
-        genesis_hash,
-        final_head_height,
-        ShardId::new(0),
-    );
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Retire,
-    );
-}
-
-/// Signer account not in chunk validator set → Retire.
-#[test]
-fn pre_check_replay_retire_not_a_chunk_validator() {
-    let (chain, epoch_manager, runtime, _signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-    let stranger = Arc::new(create_test_signer("not_a_validator"));
-    let witness = build_v2_witness(stranger.as_ref(), epoch_id, genesis_hash, 1, ShardId::new(0));
-    let my_signer = mutable_signer(stranger);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Retire,
-    );
-}
-
-/// Shard outside layout → Retire (catch-all `Err(_)` arm, `InvalidShardId`).
-#[test]
-fn pre_check_replay_retire_invalid_shard() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-    let bogus_shard = ShardId::new(9999);
-    let witness = build_v2_witness(signer.as_ref(), epoch_id, genesis_hash, 1, bogus_shard);
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Retire,
-    );
-}
-
-/// V2 on genesis → Ready (genesis init populates `DBCol::ChunkProducers`; strict DB read is
-/// nightly-only).
-#[cfg(feature = "nightly")]
-#[test]
-fn pre_check_replay_ready_when_v2_db_resolves() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-    let witness = build_v2_witness(signer.as_ref(), epoch_id, genesis_hash, 1, ShardId::new(0));
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Ready,
-    );
-}
-
-/// Bogus `epoch_id` → `EpochOutOfBounds`, V2 prev unknown → behind on headers → Requeue.
-#[test]
-fn pre_check_replay_requeue_unknown_epoch_unsynced_prev() {
-    let (_chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let bogus_epoch = EpochId(CryptoHash::hash_bytes(b"bogus_epoch"));
-    let unknown_prev = CryptoHash::hash_bytes(b"unknown_prev_block");
-    let witness = build_v2_witness(signer.as_ref(), bogus_epoch, unknown_prev, 1, ShardId::new(0));
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Requeue,
-    );
-}
-
-/// Bogus `epoch_id` → `EpochOutOfBounds`, but V2 prev (genesis) known → forged → Retire.
-#[test]
-fn pre_check_replay_retire_unknown_epoch_known_prev() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let bogus_epoch = EpochId(CryptoHash::hash_bytes(b"bogus_epoch"));
-    let witness = build_v2_witness(signer.as_ref(), bogus_epoch, genesis_hash, 1, ShardId::new(0));
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Retire,
-    );
-}
-
-/// V2 producer-DB miss: delete the (genesis_hash, shard 0) slot → `ChunkProducerNotInDB` →
-/// Requeue. Strict DB read = nightly only.
-#[cfg(feature = "nightly")]
-#[test]
-fn pre_check_replay_requeue_chunk_producer_not_in_db() {
-    use near_primitives::utils::get_block_shard_id;
-    use near_store::DBCol;
-
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
-    let genesis_hash = *chain.genesis().hash();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-    let shard_id = ShardId::new(0);
-
-    let key = get_block_shard_id(&genesis_hash, shard_id);
-    let mut update = runtime.store().store_update();
-    update.delete(DBCol::ChunkProducers, &key);
-    update.commit();
-
-    let witness = build_v2_witness(signer.as_ref(), epoch_id, genesis_hash, 1, shard_id);
-    let my_signer = mutable_signer(signer);
-    assert_eq!(
-        pre_check_replay(epoch_manager.as_ref(), runtime.as_ref(), &my_signer, &witness),
-        ReplayDisposition::Requeue,
-    );
-}
-
-// C6 regression: `replay_forwarded_partial_witness` was the one act-site missing the kickout
-// gate; prove a kicked witness is dropped before spawn.
 
 /// Counts spawns, doesn't run the closure.
 struct CountingSpawner {
@@ -481,13 +181,20 @@ fn build_test_actor(
 /// Forwarded witness on the wrong side of the EarlyKickout boundary → dropped before spawn.
 /// Fixture is kicked under both builds (V2/pre-kickout on stable, V1/post-kickout on nightly).
 #[test]
-fn replay_forwarded_drops_kicked_witness() {
+fn forward_drops_kicked_witness_before_spawn() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
     let genesis_hash = *chain.genesis().hash();
     #[cfg(not(feature = "nightly"))]
     let witness = {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-        build_v2_witness(signer.as_ref(), epoch_id, genesis_hash, 1, ShardId::new(0))
+        build_v2_witness(
+            signer.as_ref(),
+            epoch_id,
+            genesis_hash,
+            CryptoHash::default(),
+            1,
+            ShardId::new(0),
+        )
     };
     #[cfg(feature = "nightly")]
     let witness = make_witness(signer.as_ref(), genesis_hash, pre_kickout_version());
@@ -495,42 +202,42 @@ fn replay_forwarded_drops_kicked_witness() {
     let spawn_count = Arc::new(AtomicUsize::new(0));
     let spawner = Arc::new(CountingSpawner { count: spawn_count.clone() });
     let actor = build_test_actor(epoch_manager, runtime, signer, spawner);
-    actor.replay_forwarded_partial_witness(witness);
+    actor.handle_partial_encoded_state_witness_forward(witness).unwrap();
 
     assert_eq!(
         spawn_count.load(Ordering::SeqCst),
         0,
-        "kicked V2 forward must be dropped by the gate before spawning validate+store",
+        "kicked forward must be dropped by the gate before spawning validate+store",
     );
 }
 
 /// Runs the spawned closure inline so the test sees its side effects.
-#[cfg(feature = "test_features")]
 struct InlineSpawner;
 
-#[cfg(feature = "test_features")]
 impl AsyncComputationSpawner for InlineSpawner {
     fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
         f();
     }
 }
 
-/// Forwarded V2 part for an unsynced epoch must defer, not drop: an unknown epoch surfaces as
-/// `EpochOutOfBounds` (not `DBNotFoundErr`), and the new arm defers it.
-#[cfg(feature = "test_features")]
+/// P2-7 regression: a forwarded V2 part for an unsynced epoch surfaces as
+/// `EpochOutOfBounds` (not `DBNotFoundErr`). With the defer cache gone it must be
+/// dropped quietly — no error bubbles out of the handler.
 #[test]
-fn forward_defers_v2_on_unknown_epoch_unsynced_prev() {
+fn forward_drops_v2_on_unknown_epoch_unsynced_prev() {
     let (_chain, epoch_manager, runtime, signer) = setup(Clock::real());
     let bogus_epoch = EpochId(CryptoHash::hash_bytes(b"bogus_epoch"));
     let unknown_prev = CryptoHash::hash_bytes(b"unknown_prev_block");
-    let witness = build_v2_witness(signer.as_ref(), bogus_epoch, unknown_prev, 1, ShardId::new(0));
+    let unknown_prev_prev = CryptoHash::hash_bytes(b"unknown_prev_prev_block");
+    let witness = build_v2_witness(
+        signer.as_ref(),
+        bogus_epoch,
+        unknown_prev,
+        unknown_prev_prev,
+        1,
+        ShardId::new(0),
+    );
 
     let actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
     actor.handle_partial_encoded_state_witness_forward(witness).unwrap();
-
-    assert_eq!(
-        actor.pending_cache_bucket_count(),
-        1,
-        "forwarded V2 part on an unsynced epoch must be deferred, not dropped",
-    );
 }

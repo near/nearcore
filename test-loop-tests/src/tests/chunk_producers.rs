@@ -1,6 +1,6 @@
 /// Tests for the ChunkProducers DB column across resharding boundaries.
 ///
-/// Verifies that `get_chunk_producer_info_db(prev_block_hash, shard_id)` returns
+/// Verifies that `get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id)` returns
 /// the correct chunk producer even when the shard layout changes between epochs
 /// (i.e. a shard that didn't exist in epoch E1 can be looked up using the hash
 /// of the last block in E1, because the write side saves using the next epoch's
@@ -106,17 +106,18 @@ mod tests {
         );
 
         // For every shard in the NEW layout (including shards that didn't exist
-        // in the old layout), verify that get_chunk_producer_info_db returns a
+        // in the old layout), verify that get_chunk_producer_info_from_prev_block returns a
         // valid result using the last block hash of the OLD epoch.
         let next_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(boundary_block_hash).unwrap();
         let next_height = block.header().height() + 1;
 
         for shard_id in new_shard_layout.shard_ids() {
-            let db_result = epoch_manager.get_chunk_producer_info_db(boundary_block_hash, shard_id);
+            let db_result = epoch_manager
+                .get_chunk_producer_info_from_prev_block(boundary_block_hash, shard_id);
             assert!(
                 db_result.is_ok(),
-                "get_chunk_producer_info_db failed for shard_id={} at boundary block: {:?}",
+                "get_chunk_producer_info_from_prev_block failed for shard_id={} at boundary block: {:?}",
                 shard_id,
                 db_result.err()
             );

@@ -165,7 +165,7 @@ impl ChunkProducer {
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let chunk_proposer = self
             .epoch_manager
-            .get_chunk_producer_info_db(prev_block.hash(), shard_id)?
+            .get_chunk_producer_info_from_prev_block(prev_block.hash(), shard_id)?
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
             tracing::debug!(

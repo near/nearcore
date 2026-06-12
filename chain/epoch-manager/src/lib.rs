@@ -1876,8 +1876,21 @@ impl EpochManager {
                 Err(e) => return Err(e),
             };
 
+            let chunk_producers = self.anchored_chunk_producers_for_aggregator(
+                &epoch_id,
+                &epoch_info,
+                &shard_layout,
+                &prev_hash,
+                prev_height + 1,
+            );
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
+            aggregator.update_tail(
+                &block_info,
+                &epoch_info,
+                &shard_layout,
+                prev_height,
+                chunk_producers.as_ref(),
+            );
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
@@ -1888,6 +1901,77 @@ impl EpochManager {
 
             cur_hash = prev_hash;
         }))
+    }
+
+    /// Resolve per-shard chunk producers at `height` (the chunk height of the
+    /// block built on `prev_hash`) via the grandparent anchor, mirroring
+    /// `get_chunk_producer_info_anchored` so kickout stats track the producers
+    /// that consensus actually resolved.
+    ///
+    /// Returns `None` when the legacy sampler applies: EarlyKickout off for the
+    /// epoch, no real grandparent (genesis), anchor `BlockInfo` missing (epoch
+    /// sync tail), or anchor in a previous epoch (cross-epoch arm — the
+    /// canonical sampler is exact there since the blacklist is provably empty).
+    fn anchored_chunk_producers_for_aggregator(
+        &self,
+        epoch_id: &EpochId,
+        epoch_info: &EpochInfo,
+        shard_layout: &ShardLayout,
+        prev_hash: &CryptoHash,
+        height: BlockHeight,
+    ) -> Option<HashMap<ShardId, ValidatorId>> {
+        // `DBCol::ChunkProducers` only exists under nightly (as does an enabled
+        // EarlyKickout); stable always uses the legacy sampler.
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_store::DBCol;
+
+            if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
+                return None;
+            }
+            // Missing prev `BlockInfo` is the epoch-sync special case handled by
+            // the caller; resolve that block with the legacy sampler.
+            let prev_block_info = self.get_block_info(prev_hash).ok()?;
+            if prev_block_info.is_genesis() {
+                return None;
+            }
+            let anchor = *prev_block_info.prev_hash();
+            let anchor_block_info = self.get_block_info(&anchor).ok()?;
+            if anchor_block_info.epoch_id() != epoch_id {
+                return None;
+            }
+            let mut chunk_producers = HashMap::new();
+            for shard_id in shard_layout.shard_ids() {
+                let key = get_block_shard_id(&anchor, shard_id);
+                let validator_id = match self
+                    .store
+                    .store_ref()
+                    .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                    .and_then(|stake| epoch_info.get_validator_id(stake.account_id()).copied())
+                {
+                    Some(validator_id) => validator_id,
+                    None => {
+                        // Row absent (writer bug) or account not in the epoch;
+                        // keep aggregation alive with the canonical sample.
+                        tracing::debug!(
+                            target: "epoch_tracker",
+                            ?anchor,
+                            %shard_id,
+                            "chunk producer missing in DB during aggregation, sampling canonically",
+                        );
+                        epoch_info.sample_chunk_producer(shard_layout, shard_id, height)?
+                    }
+                };
+                chunk_producers.insert(shard_id, validator_id);
+            }
+            Some(chunk_producers)
+        }
+        #[cfg(not(feature = "nightly"))]
+        {
+            let _ = (epoch_id, epoch_info, shard_layout, prev_hash, height);
+            None
+        }
     }
 
     /// Get the shard split to include in the block header, if any.

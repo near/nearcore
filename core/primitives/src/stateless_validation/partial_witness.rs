@@ -134,6 +134,7 @@ impl Debug for PartialEncodedStateWitnessV2 {
             .field("shard_id", &self.inner.shard_id)
             .field("height_created", &self.inner.height_created)
             .field("prev_block_hash", &self.inner.prev_block_hash)
+            .field("prev_prev_block_hash", &self.inner.prev_prev_block_hash)
             .field("part_ord", &self.inner.part_ord)
             .finish()
     }
@@ -143,6 +144,7 @@ impl PartialEncodedStateWitnessV2 {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        prev_prev_block_hash: CryptoHash,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -151,6 +153,7 @@ impl PartialEncodedStateWitnessV2 {
         let inner = PartialEncodedStateWitnessInnerV2::new(
             epoch_id,
             chunk_header,
+            prev_prev_block_hash,
             part_ord,
             part,
             encoded_length,
@@ -169,6 +172,12 @@ impl PartialEncodedStateWitnessV2 {
 
     pub fn prev_block_hash(&self) -> &CryptoHash {
         &self.inner.prev_block_hash
+    }
+
+    /// Grandparent anchor of the chunk; `CryptoHash::default()` when the chunk
+    /// has no real grandparent (height <= genesis_height + 1).
+    pub fn prev_prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_prev_block_hash
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
@@ -199,6 +208,10 @@ pub struct PartialEncodedStateWitnessInnerV2 {
     shard_id: ShardId,
     height_created: BlockHeight,
     prev_block_hash: CryptoHash,
+    /// Grandparent anchor used for producer resolution; signed so a validator
+    /// can resolve and signature-verify the part before processing the parent
+    /// block. `CryptoHash::default()` when the chunk has no real grandparent.
+    prev_prev_block_hash: CryptoHash,
     part_ord: usize,
     part: Box<[u8]>,
     encoded_length: usize,
@@ -209,6 +222,7 @@ impl PartialEncodedStateWitnessInnerV2 {
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        prev_prev_block_hash: CryptoHash,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -218,6 +232,7 @@ impl PartialEncodedStateWitnessInnerV2 {
             shard_id: chunk_header.shard_id(),
             height_created: chunk_header.height_created(),
             prev_block_hash: *chunk_header.prev_block_hash(),
+            prev_prev_block_hash,
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,
@@ -228,8 +243,9 @@ impl PartialEncodedStateWitnessInnerV2 {
 
 /// Wire-format versioned partial encoded state witness.
 ///
-/// V1 is the legacy format; V2 adds `prev_block_hash` to enable
-/// hash-based chunk-producer lookup against `DBCol::ChunkProducers`.
+/// V1 is the legacy format; V2 adds `prev_block_hash` and the grandparent
+/// anchor `prev_prev_block_hash`, enabling hash-based chunk-producer lookup
+/// against `DBCol::ChunkProducers` before the parent block is processed.
 ///
 /// Rollout policy:
 /// - Before EarlyKickout activation: only V1 is emitted and accepted.
@@ -263,6 +279,7 @@ impl VersionedPartialEncodedStateWitness {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        prev_prev_block_hash: CryptoHash,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -273,6 +290,7 @@ impl VersionedPartialEncodedStateWitness {
             Self::V2(PartialEncodedStateWitnessV2::new(
                 epoch_id,
                 chunk_header,
+                prev_prev_block_hash,
                 part_ord,
                 part,
                 encoded_length,
@@ -301,6 +319,15 @@ impl VersionedPartialEncodedStateWitness {
         match self {
             Self::V1(_) => None,
             Self::V2(v2) => Some(v2.prev_block_hash()),
+        }
+    }
+
+    /// Grandparent anchor of the chunk (V2 only); see
+    /// [`PartialEncodedStateWitnessV2::prev_prev_block_hash`].
+    pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(v2.prev_prev_block_hash()),
         }
     }
 

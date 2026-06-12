@@ -5,6 +5,7 @@ use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -123,13 +124,21 @@ pub fn validate_partial_encoded_state_witness(
         }
         VersionedPartialEncodedStateWitness::V2(v2) => {
             let shard_id_label = shard_id.to_string();
-            let prev_block_hash = v2.prev_block_hash();
-            let result = epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id);
+            let prev_prev_block_hash = v2.prev_prev_block_hash();
+            // Resolve the producer from the signed (anchor, epoch, height). The
+            // anchor is one block older than the parent, so it is reliably
+            // already processed even when the witness races its parent block.
+            let result = epoch_manager.get_chunk_producer_info_anchored(
+                Some(prev_prev_block_hash),
+                &epoch_id,
+                height_created,
+                shard_id,
+            );
             let label = match &result {
                 Ok(_) => "hit",
-                // Witness raced its prev block; defer, don't fail.
-                Err(EpochError::MissingBlock(_)) => "miss_prev_block",
-                // Block known but no `DBCol::ChunkProducers` entry; steady-state ~0, persistent = writer bug.
+                // Anchor not processed: node is two or more blocks behind. Drop.
+                Err(EpochError::MissingBlock(_)) => "miss_anchor_block",
+                // Anchor known but no `DBCol::ChunkProducers` entry; steady-state ~0, persistent = writer bug.
                 Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
                 Err(_) => "error",
             };
@@ -137,18 +146,52 @@ pub fn validate_partial_encoded_state_witness(
                 .with_label_values(&[shard_id_label.as_str(), label])
                 .inc();
             let info = result?;
-            // Cross-check the signed chunk key against what `prev_block_hash` implies. The producer
-            // signature authenticates (epoch_id, shard_id, height_created, prev_block_hash); without
-            // this check an authenticated producer for (prev_block, shard) could sign a witness with
-            // any (epoch_id, height_created) and we would store/forward under a forged key.
-            let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-            let expected_height = epoch_manager.get_block_info(prev_block_hash)?.height() + 1;
-            if expected_epoch_id != epoch_id || expected_height != height_created {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "V2 witness chunk key mismatch: signed (epoch_id={:?}, height={}) does not \
-                     match prev_block_hash-implied (epoch_id={:?}, height={})",
-                    epoch_id, height_created, expected_epoch_id, expected_height,
-                )));
+            // Cross-check the signed chunk key against the signed anchor. The producer
+            // signature authenticates (epoch_id, shard_id, height_created, prev_block_hash,
+            // prev_prev_block_hash); without this check an authenticated producer could sign
+            // a witness with any (epoch_id, height_created) and we would store/forward under
+            // a forged key.
+            //
+            // Tight check when the parent block is locally known: the signed anchor, height
+            // and epoch must match exactly what the parent implies. Loose check when the
+            // parent is absent (witness raced it — the 1-block-behind win): the signed height
+            // must be consistent with the anchor's height; the upper bound comes from the
+            // `MAX_HEIGHTS_AHEAD` relevance gate above.
+            match epoch_manager.get_block_info(v2.prev_block_hash()) {
+                Ok(parent_info) => {
+                    let expected_epoch_id =
+                        epoch_manager.get_epoch_id_from_prev_block(v2.prev_block_hash())?;
+                    if parent_info.prev_hash() != prev_prev_block_hash
+                        || parent_info.height() + 1 != height_created
+                        || expected_epoch_id != epoch_id
+                    {
+                        return Err(Error::InvalidPartialChunkStateWitness(format!(
+                            "V2 witness chunk key mismatch: signed (epoch_id={:?}, height={}, \
+                             prev_prev={:?}) does not match prev_block_hash-implied \
+                             (epoch_id={:?}, height={}, prev_prev={:?})",
+                            epoch_id,
+                            height_created,
+                            prev_prev_block_hash,
+                            expected_epoch_id,
+                            parent_info.height() + 1,
+                            parent_info.prev_hash(),
+                        )));
+                    }
+                }
+                Err(EpochError::MissingBlock(_)) => {
+                    if prev_prev_block_hash != &CryptoHash::default() {
+                        let anchor_height =
+                            epoch_manager.get_block_info(prev_prev_block_hash)?.height();
+                        if height_created < anchor_height + 2 {
+                            return Err(Error::InvalidPartialChunkStateWitness(format!(
+                                "V2 witness height {} below anchor-implied minimum {}",
+                                height_created,
+                                anchor_height + 2,
+                            )));
+                        }
+                    }
+                }
+                Err(err) => return Err(err.into()),
             }
             info
         }
@@ -252,7 +295,7 @@ pub fn validate_contract_code_response(
     Ok(ChunkRelevance::Relevant)
 }
 
-pub fn validate_chunk_relevant_as_validator(
+fn validate_chunk_relevant_as_validator(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk: &ChunkProductionKey,
     validator_account_id: &AccountId,
