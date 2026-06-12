@@ -366,7 +366,7 @@ pub enum Action {
     TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
     WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
     /// Meta transaction carrying a `DelegateActionV2`, which supports gas keys.
-    DelegateV2(Box<delegate::SignedDelegateActionV2>) = 14,
+    DelegateV2(Box<delegate::VersionedSignedDelegateAction>) = 14,
 }
 
 const _: () = assert!(

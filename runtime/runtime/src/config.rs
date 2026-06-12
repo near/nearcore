@@ -3,7 +3,7 @@
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::DeployGlobalContractAction;
-use near_primitives::action::delegate::VersionedDelegateAction;
+use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
@@ -139,7 +139,7 @@ pub fn total_send_fees(
             DelegateV2(signed_delegate_action) => {
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
                 let delegate_action =
-                    VersionedDelegateAction::from(&signed_delegate_action.delegate_action);
+                    VersionedDelegateActionRef::from(&signed_delegate_action.delegate_action);
 
                 delegate_cost
                     .checked_add(total_send_fees(
@@ -258,7 +258,7 @@ pub fn total_prepaid_send_fees(
             }
             DelegateV2(signed_delegate_action) => {
                 let delegate_action =
-                    VersionedDelegateAction::from(&signed_delegate_action.delegate_action);
+                    VersionedDelegateActionRef::from(&signed_delegate_action.delegate_action);
                 let sender_is_receiver =
                     delegate_action.sender_id() == delegate_action.receiver_id();
 
@@ -487,7 +487,7 @@ fn signature_kind(key_type: KeyType) -> SignatureKind {
 /// Inner delegate action of a delegate-style action (`Delegate` or
 /// `DelegateV2`), used by the recursive cost/fee functions so both variants are
 /// handled identically.
-fn delegate_inner_action(action: &Action) -> Option<VersionedDelegateAction<'_>> {
+fn delegate_inner_action(action: &Action) -> Option<VersionedDelegateActionRef<'_>> {
     match action {
         Action::Delegate(a) => Some((&a.delegate_action).into()),
         Action::DelegateV2(a) => Some((&a.delegate_action).into()),
@@ -601,7 +601,7 @@ mod tests {
     use near_crypto::SecretKey;
     use near_primitives::action::TransferAction;
     use near_primitives::action::delegate::{
-        DelegateAction, DelegateActionV2, SignedDelegateAction, SignedDelegateActionV2,
+        DelegateAction, DelegateActionV2, SignedDelegateAction, VersionedSignedDelegateAction,
     };
     use near_primitives::transaction::{TransactionNonce, TransactionV0};
     use std::sync::Arc;
@@ -712,7 +712,7 @@ mod tests {
     fn delegate_v2_with_inner(inner_key_type: KeyType) -> Action {
         let public_key = SecretKey::from_seed(inner_key_type, "inner").public_key();
         let signature = SecretKey::from_seed(KeyType::ED25519, "dummy").sign(b"x");
-        Action::DelegateV2(Box::new(SignedDelegateActionV2 {
+        Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
             delegate_action: DelegateActionV2 {
                 sender_id: "alice.near".parse().unwrap(),
                 receiver_id: "bob.near".parse().unwrap(),
