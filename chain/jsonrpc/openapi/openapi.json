@@ -19240,6 +19240,14 @@
       "RuntimeConfigView": {
         "description": "View that preserves JSON format of the runtime config.",
         "properties": {
+          "account_creation_charge": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "How much creating an account should cost in NEAR. Taken into account when burning gas for\naccount creation."
+          },
           "account_creation_config": {
             "allOf": [
               {
@@ -19255,6 +19263,14 @@
               }
             ],
             "description": "The configuration for congestion control."
+          },
+          "min_gas_purchase_price": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Minimum price at which the gas attached to a receipt is purchased. The price at which it is\nburned might be lower, in which case the difference is refunded after execution."
           },
           "storage_amount_per_byte": {
             "allOf": [
