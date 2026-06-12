@@ -57,8 +57,8 @@ use std::collections::BTreeMap;
 use testlib::fees_utils::FeeHelper;
 
 /// Gas price, pinned (min == max) so it stays constant for a deterministic before/after
-/// comparison. Set to the realistic mainnet minimum gas price of 100 MyoctoNEAR/gas, which is
-/// exactly 10x below the feature's `min_gas_purchase_price` (1 GyoctoNEAR/gas) - i.e. the gas
+/// comparison. Set to the realistic mainnet minimum gas price of 0.0001 NEAR/TGas, which is
+/// exactly 10x below the feature's `min_gas_purchase_price` (0.001 NEAR/Tgas) - i.e. the gas
 /// attached to receipts is genuinely purchased at 10x the price it is burned at.
 const GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 /// Initial balance of every genesis account used by the tests.

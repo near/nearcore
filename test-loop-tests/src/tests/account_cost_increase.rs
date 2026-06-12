@@ -116,7 +116,7 @@ fn test_create_account_cost() {
     // [CreateAccount] should cost at least account_creation_charge
     let create_account_tx = env.rpc_node().tx_from_actions(
         &signer,
-        &create_account_id("newaccount.alice"),
+        &create_account_id("account1.alice"),
         vec![Action::CreateAccount(CreateAccountAction {})],
     );
     let create_account_tx_cost = measure_transaction_cost(&mut env, create_account_tx);
@@ -251,7 +251,7 @@ fn test_create_account_cost() {
     // [CreateAccount, DeployContract, FunctionCall] where the function call fails should not charge for the new account
     let create_fail_tx = env.rpc_node().tx_from_actions(
         &signer,
-        &create_account_id("someaccount.alice"),
+        &create_account_id("account2.alice"),
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::UseGlobalContract(Box::new(UseGlobalContractAction {
