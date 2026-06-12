@@ -556,11 +556,11 @@ impl ProtocolFeature {
             | ProtocolFeature::YieldWithId
             | ProtocolFeature::ExecutionMetadataV4
             | ProtocolFeature::SignedContractCodeResponse
-            | ProtocolFeature::DelegateV2 => 85,
+            | ProtocolFeature::DelegateV2
+            | ProtocolFeature::AccountCostIncrease => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
-            ProtocolFeature::AccountCostIncrease => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
