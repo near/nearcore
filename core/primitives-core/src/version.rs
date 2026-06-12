@@ -341,6 +341,8 @@ pub enum ProtocolFeature {
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
+    /// Meta transactions with gas key support via `Action::DelegateV2`.
+    DelegateV2,
     /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
     /// Previously, the allowance was decremented in-place before later checks
     /// (storage stake, function call permission) that could return an error,
@@ -551,7 +553,8 @@ impl ProtocolFeature {
             | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
             | ProtocolFeature::YieldWithId
             | ProtocolFeature::ExecutionMetadataV4
-            | ProtocolFeature::SignedContractCodeResponse => 85,
+            | ProtocolFeature::SignedContractCodeResponse
+            | ProtocolFeature::DelegateV2 => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

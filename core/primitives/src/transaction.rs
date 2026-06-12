@@ -47,7 +47,19 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, Copy, ProtocolSchema)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    Copy,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum TransactionNonce {
     /// Simple nonce without index, used by ordinary access keys
     Nonce { nonce: Nonce },
