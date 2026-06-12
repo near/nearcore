@@ -6,6 +6,7 @@ use near_primitives::action::{
 };
 use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::views::FinalExecutionStatus;
 use testlib::fees_utils::FeeHelper;
