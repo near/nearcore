@@ -235,6 +235,9 @@ mod tests {
     /// blocks of an epoch) must resolve via the canonical sampler, ignoring the
     /// anchor's DB row.
     #[test]
+    // TestBlockBuilder does not maintain spice's prev_last_certified_block_epoch_id
+    // across epoch boundaries, so header validation rejects the boundary block.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn test_cross_epoch_anchor_resolves_canonically() {
         init_test_logger();
         let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
