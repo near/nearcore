@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
@@ -24,6 +22,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
+use std::collections::BTreeMap;
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 
