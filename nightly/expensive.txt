@@ -35,7 +35,7 @@ expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_f
 expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly,protocol_feature_spice
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
-expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly,protocol_feature_spice
+expensive --timeout=12m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly,protocol_feature_spice
 
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet --features nightly
