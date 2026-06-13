@@ -485,11 +485,9 @@ impl SpiceCoreWriterActor {
             if in_block_execution_results.contains(chunk_id) {
                 continue;
             }
-            // The result may already be certified on a different fork: `execution_results` is
-            // keyed only by the endorsed chunk, while `uncertified_chunks` is ancestry-relative,
-            // so a producer building on a branch that lacks the certifying block re-emits these
-            // endorsements. The certification recorded the result via a block core statement
-            // without populating `uncertified_execution_results`, so there is nothing to save.
+            // Already certified on another fork: `execution_results` is keyed only by the chunk,
+            // while `uncertified_chunks` is ancestry-relative, so a fork lacking the certifying
+            // block re-emits these endorsements; that certification saved no uncertified result.
             if self
                 .get_execution_result_from_store(&chunk_id.block_hash, chunk_id.shard_id)
                 .is_some()

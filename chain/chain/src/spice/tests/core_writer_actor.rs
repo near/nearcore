@@ -417,8 +417,7 @@ fn test_handle_processed_block_with_endorsements_for_chunk_certified_on_another_
     let all_validators = test_validators();
     let execution_result = test_execution_result_for_chunk(&chunk_header);
 
-    // Certifying fork stores the certified result via a ChunkExecutionResult core statement, which
-    // never populates uncertified_execution_results, and stores all endorsements globally.
+    // Certifies via a ChunkExecutionResult core statement, which stores no uncertified result.
     let mut certifying_statements = all_validators
         .iter()
         .map(|validator| {
@@ -433,9 +432,8 @@ fn test_handle_processed_block_with_endorsements_for_chunk_certified_on_another_
     process_block(&mut chain, certifying_fork.clone());
     core_writer_actor.handle_processed_block(*certifying_fork.hash()).unwrap();
 
-    // Sibling fork carries a single sub-threshold endorsement, so it is valid without a result.
-    // The globally stored endorsements re-cross the threshold while processing it, which must not
-    // require the never-stored uncertified result for the already-certified chunk.
+    // Sub-threshold endorsement keeps this sibling fork valid without a result; the globally
+    // stored endorsements re-cross the threshold and must not need the uncertified result.
     let endorsing_fork = build_block(
         &mut chain,
         &block,
