@@ -83,7 +83,7 @@ where
 {
     fn send(&self, msg: M) {
         let mut this = self.clone();
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &msg);
+        let description = event_description::<A, M>(&msg);
         let callback = move |data: &mut TestLoopData| {
             let actor = data.get_mut(&this.actor_handle);
             actor.handle(msg, &mut this);
@@ -104,7 +104,7 @@ where
 {
     fn send_async(&self, msg: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let mut this = self.clone();
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &msg);
+        let description = event_description::<A, M>(&msg);
         let (sender, receiver) = oneshot::channel::<R>();
         let callback = move |data: &mut TestLoopData| {
             let actor = data.get_mut(&this.actor_handle);
@@ -147,4 +147,16 @@ where
 // example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
 fn pretty_type_name<T>() -> &'static str {
     type_name::<T>().split("::").last().unwrap()
+}
+
+// Full `{:?}` payload only when the `test_loop` target is enabled: for large messages it
+// base58-encodes every hash, dominating test runtime. The type name is always kept so the
+// diagnostic panics that print the description stay legible.
+fn event_description<A, M: Debug>(msg: &M) -> String {
+    let type_name = pretty_type_name::<A>();
+    if tracing::enabled!(target: "test_loop", tracing::Level::INFO) {
+        format!("{type_name}({msg:?})")
+    } else {
+        type_name.to_string()
+    }
 }

@@ -13,7 +13,7 @@ use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_o11y::testonly::init_test_logger;
+use near_o11y::testonly::init_test_logger_with_directives;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -31,7 +31,7 @@ use std::sync::Arc;
 /// This test is designed to reproduce finality bugs on the epoch boundaries.
 #[test]
 fn ultra_slow_test_consensus_with_epoch_switches() {
-    init_test_logger();
+    init_test_logger_with_directives("test_loop=warn");
 
     let seed: u64 = thread_rng().r#gen();
     println!("RNG seed: {seed}. If test fails use it to find the issue.");
