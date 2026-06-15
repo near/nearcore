@@ -791,8 +791,10 @@ class RosettaTestCase(unittest.TestCase):
         # nightly-only for now, so detect it to assert the right shape on both stable and nightly
         # builds.
         min_gas_purchase_price = int(
-            self.node.json_rpc('EXPERIMENTAL_protocol_config', {'finality': 'final'})
-            ['result']['runtime_config']['min_gas_purchase_price'])
+            self.node.json_rpc(
+                'EXPERIMENTAL_protocol_config',
+                {'finality': 'final'
+                })['result']['runtime_config']['min_gas_purchase_price'])
         account_cost_increase_enabled = min_gas_purchase_price > 0
 
         # 1. Create implicit account.
@@ -910,7 +912,8 @@ class RosettaTestCase(unittest.TestCase):
         if account_cost_increase_enabled:
             # The gas attached to the receipt was purchased above the burn price, so the surplus
             # is refunded to the signer in a single new forward receipt.
-            gas_refund_ids = json_res['receipts_outcome'][0]['outcome']['receipt_ids']
+            gas_refund_ids = json_res['receipts_outcome'][0]['outcome'][
+                'receipt_ids']
             self.assertEqual(1, len(gas_refund_ids))
             gas_refund_id = {'hash': 'receipt:' + gas_refund_ids[0]}
             self.assertEqual(gas_refund_id, related.identifier)
@@ -990,7 +993,9 @@ class RosettaTestCase(unittest.TestCase):
             self.assertEqual(2, len(receipt_ids))
             delete_receipt_related.append({
                 'direction': 'forward',
-                'transaction_identifier': {'hash': 'receipt:' + receipt_ids[1]}
+                'transaction_identifier': {
+                    'hash': 'receipt:' + receipt_ids[1]
+                }
             })
             gas_prepayment = '-281103350000000000000'
             balance_refund = '9718896650000000000000'

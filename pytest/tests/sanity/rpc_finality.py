@@ -64,11 +64,12 @@ class TestRpcFinality(unittest.TestCase):
         logger.info(tx_result)
         logger.info("Done")
 
-        min_gas_purchase_price = int(
-            nodes[0].json_rpc("EXPERIMENTAL_protocol_config",
-                              {"finality": "final"})['result']['runtime_config']
-            ['min_gas_purchase_price'])
-        receipt_gas = tx_result['result']['receipts_outcome'][0]['outcome']['gas_burnt']
+        min_gas_purchase_price = int(nodes[0].json_rpc(
+            "EXPERIMENTAL_protocol_config",
+            {"finality": "final"
+            })['result']['runtime_config']['min_gas_purchase_price'])
+        receipt_gas = tx_result['result']['receipts_outcome'][0]['outcome'][
+            'gas_burnt']
         # How much was charged to send the transfer
         upfront_charge = token_transfer + receipt_gas * min_gas_purchase_price
 
