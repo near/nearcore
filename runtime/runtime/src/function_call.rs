@@ -152,7 +152,7 @@ pub(crate) fn action_function_call(
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
         // Fetch metadata for PromiseYield timeout queue
-        let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
+        let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
         let initial_promise_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
