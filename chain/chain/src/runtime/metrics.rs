@@ -200,8 +200,7 @@ pub(crate) static DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS: LazyLock<IntCounterVec> 
     LazyLock::new(|| {
         try_create_int_counter_vec(
             "near_dynamic_resharding_find_split_errors_total",
-            "Number of failures to compute the trie split for a shard. A non-zero value \
-             means this node's proposed split may diverge from other nodes'.",
+            "Number of failures to compute the trie split for a shard during chunk application.",
             &["shard_uid"],
         )
         .unwrap()

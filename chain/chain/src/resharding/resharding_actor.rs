@@ -36,6 +36,9 @@ pub struct ReshardingActor {
     flat_storage_resharder: FlatStorageResharder,
     /// Takes care of performing resharding on the trie state.
     trie_state_resharder: TrieStateResharder,
+    /// Used to detect whether an in-progress resharding was cancelled, so the
+    /// terminal `Done` status is not written over a cancellation.
+    resharding_handle: ReshardingHandle,
     /// TEST ONLY. If non zero, the start of scheduled tasks (such as split parent)
     /// will be postponed by the specified number of blocks.
     #[cfg(feature = "test_features")]
@@ -84,7 +87,7 @@ impl ReshardingActor {
         );
         let trie_state_resharder = TrieStateResharder::new(
             runtime_adapter,
-            resharding_handle,
+            resharding_handle.clone(),
             resharding_config,
             ResumeAllowed::No,
         );
@@ -94,6 +97,7 @@ impl ReshardingActor {
             resharding_started: HashSet::new(),
             flat_storage_resharder,
             trie_state_resharder,
+            resharding_handle,
             #[cfg(feature = "test_features")]
             adv_task_delay_by_blocks: 0,
             #[cfg(feature = "test_features")]
@@ -270,13 +274,17 @@ impl ReshardingActor {
         }
 
         tracing::info!(target: "resharding", "trie state resharder starting");
-        set_resharding_status(&parent_shard_uid, ReshardingStatus::ReshardingTrieState);
         if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "failed to start trie state resharding");
             set_resharding_status(&parent_shard_uid, ReshardingStatus::Failed);
             return;
         }
 
+        // The resharders return `Ok` on cancellation (and set `Inactive` themselves), so don't
+        // overwrite that with `Done` if resharding was cancelled mid-flight (e.g. on shutdown).
+        if self.resharding_handle.0.is_cancelled() {
+            return;
+        }
         set_resharding_status(&parent_shard_uid, ReshardingStatus::Done);
         RESHARDING_TOTAL_DURATION
             .with_label_values(&[&parent_shard_uid.to_string()])

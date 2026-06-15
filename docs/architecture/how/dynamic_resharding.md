@@ -301,13 +301,12 @@ Prometheus metrics covering the dynamic resharding pipeline, by stage.
 - `near_dynamic_resharding_memory_usage_threshold`, `near_dynamic_resharding_min_child_memory_usage`, `near_dynamic_resharding_max_number_of_shards` -- the active `DynamicReshardingConfig` thresholds, so dashboards can compute `usage / threshold` without hardcoding values. Same update cadence as above.
 - `near_dynamic_resharding_proposed_split_{left,right}_memory{shard_uid}` -- balance of the currently proposed split, both 0 when no split is proposed. Mirrors `ChunkExtra.proposed_split`; exported on every tracked chunk apply.
 - `near_dynamic_resharding_proposed_split_info{shard_uid, boundary_account}` -- info-style metric (value 1) carrying the proposed boundary account; join on `shard_uid`.
-- `near_dynamic_resharding_find_split_errors_total{shard_uid}` -- failures of `find_trie_split` swallowed during chunk application. **Alert on > 0**: this node's proposal may diverge from other nodes'.
+- `near_dynamic_resharding_find_split_errors_total{shard_uid}` -- failures to compute the trie split for a shard during chunk application. **Alert on > 0**: the shard won't be proposed for resharding and the failure warrants investigation.
 
 ### Selection and consensus (`chain/epoch-manager/`, `chain/chain/src/validate.rs`)
 
 - `near_dynamic_resharding_validation_failures_total{kind}` -- `kind` is `chunk_header` (`InvalidChunkHeaderShardSplit`) or `block_header` (`InvalidBlockHeaderShardSplit`). **Alert on > 0**: a malicious peer or, worse, non-determinism in the split computation.
-- `near_dynamic_resharding_scheduled_epoch_height{parent_shard_id, boundary_account}` -- set in `next_next_shard_layout()` when a split is selected; the value is the epoch height at which the new layout takes effect.
-- `near_dynamic_resharding_split_missing_shard_total` -- splits skipped because the shard no longer exists in the next layout; should never fire given the cooldown invariant.
+- `near_dynamic_resharding_scheduled_epoch_height{shard_uid, boundary_account}` -- set in `next_next_shard_layout()` when a split is selected; the value is the epoch height at which the new layout takes effect.
 - `near_resharding_assignment_strategy_total{strategy}` -- chunk producer assignment strategy chosen at each epoch finalization (`carry_over` / `sticky_resharding` / `fresh`). Alert on `fresh` increments when sticky assignment is enabled.
 
 ### Preparation in epoch N+1 (memtrie preload, `core/store/`)
