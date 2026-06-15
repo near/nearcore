@@ -25,9 +25,11 @@ pub struct RuntimeConfigView {
     pub witness_config: WitnessConfigView,
     /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
     /// burned might be lower, in which case the difference is refunded after execution.
+    #[serde(default)]
     pub min_gas_purchase_price: Balance,
     /// How much creating an account should cost in NEAR. Taken into account when burning gas for
     /// account creation.
+    #[serde(default)]
     pub account_creation_charge: Balance,
 }
 
