@@ -14,7 +14,7 @@
 //! allowance.
 //!
 //! Each scenario runs through a list of [`SubmitMethod`]s, covering every way the gas can be paid
-//! for: signed directly with a full access key, a function call access key and relayed as a meta
+//! for: signed directly with a full access key, a function call access key or relayed as a meta
 //! transaction paid by the relayer's full access key. All methods share one set of accounts
 //! ([`actor`], [`relayer`], [`contract`], [`receiver`]) in an environment provisioned up front so
 //! that every method can run every scenario (see [`build_env`]): scenarios only differ in the
