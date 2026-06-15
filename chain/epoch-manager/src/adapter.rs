@@ -24,6 +24,13 @@ use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+/// Height distance from a chunk's grandparent anchor to the chunk, absent
+/// skipped slots: a chunk anchored at block `A` is nominally at height
+/// `A.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`. The writer
+/// (`save_chunk_producers_for_header`) samples at this offset, and witness
+/// validation uses it as the anchor-implied minimum chunk height.
+pub const CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET: BlockHeight = 2;
+
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
 /// prefer the former whenever possible. The latter is for legacy tests.
@@ -552,6 +559,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     ///
     /// Errors with `MissingBlock` when the anchor block has not been processed
     /// (node is two or more blocks behind the chunk).
+    ///
+    /// This cross-epoch-anchor rule is the canonical statement; the kickout
+    /// aggregator (`EpochManager::anchored_chunk_producers_for_aggregator`)
+    /// mirrors it and must stay in lockstep so stats track the producers
+    /// consensus actually resolved.
     // TODO(early-kickout): once dynamic sampling ships and the DB may
     // diverge from computation (blacklisted producers excluded), consider adding
     // a lenient variant with computation fallback for non-critical paths.
@@ -575,8 +587,19 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let height_created = self.get_block_info(prev_block_hash)?.height() + 1;
-        let anchor = self.grandparent_anchor(prev_block_hash)?;
+        // Read the parent `BlockInfo` once and derive both the chunk height and
+        // the grandparent anchor from it (the standalone `grandparent_anchor`
+        // would re-read the same block). This is a hot path: chunk-header
+        // signature verification and chunk-request target selection.
+        let prev_block_info = self.get_block_info(prev_block_hash)?;
+        let height_created = prev_block_info.height() + 1;
+        // Mirrors `grandparent_anchor`: no real grandparent for a genesis chunk
+        // (`prev == default`) or when the parent is the genesis block.
+        let anchor = if prev_block_hash == &CryptoHash::default() || prev_block_info.is_genesis() {
+            None
+        } else {
+            Some(*prev_block_info.prev_hash())
+        };
         self.get_chunk_producer_info_anchored(
             anchor.as_ref(),
             &chunk_epoch_id,

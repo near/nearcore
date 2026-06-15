@@ -431,7 +431,9 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
-    fn handle_partial_encoded_state_witness(
+    // `pub(super)` so the actor tests can drive it directly, mirroring
+    // `handle_partial_encoded_state_witness_forward`.
+    pub(super) fn handle_partial_encoded_state_witness(
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {

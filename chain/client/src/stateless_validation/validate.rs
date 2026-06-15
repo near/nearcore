@@ -3,7 +3,7 @@ use crate::metrics;
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -26,7 +26,7 @@ const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 /// This enum represents whether a particular chunk is relevant in the context of validating
 /// a chunk endorsement or a partial witness.
-#[derive(IntoStaticStr)]
+#[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ChunkRelevance {
     Relevant,
@@ -182,11 +182,11 @@ pub fn validate_partial_encoded_state_witness(
                     if prev_prev_block_hash != &CryptoHash::default() {
                         let anchor_height =
                             epoch_manager.get_block_info(prev_prev_block_hash)?.height();
-                        if height_created < anchor_height + 2 {
+                        if height_created < anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET {
                             return Err(Error::InvalidPartialChunkStateWitness(format!(
                                 "V2 witness height {} below anchor-implied minimum {}",
                                 height_created,
-                                anchor_height + 2,
+                                anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
                             )));
                         }
                     }

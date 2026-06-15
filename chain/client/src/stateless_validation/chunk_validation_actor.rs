@@ -26,6 +26,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -191,11 +192,26 @@ impl ChunkValidationActor {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&witness.chunk_production_key())?
-            .account_id()
-            .clone();
+        let key = witness.chunk_production_key();
+        // Resolve the producer the way production and witness verification do:
+        // via the grandparent anchor (EarlyKickout-aware). Under skipped slots
+        // the anchored producer differs from the canonical height-based sampler,
+        // and the canonical pick would address the ack to the wrong validator.
+        // The full witness only carries `prev_block_hash`, so the anchor is
+        // derived from the parent block. The parent may not be processed locally
+        // yet (a witness can race it); the anchored lookup is then unavailable,
+        // so fall back to the canonical sampler — the ack is a best-effort
+        // latency signal and must never abort witness processing.
+        let chunk_producer = match self.epoch_manager.get_chunk_producer_info_from_prev_block(
+            witness.chunk_header().prev_block_hash(),
+            key.shard_id,
+        ) {
+            Ok(info) => info.take_account_id(),
+            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+                self.epoch_manager.get_chunk_producer_info(&key)?.account_id().clone()
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Skip sending ack to self.
         if let Some(validator_signer) = self.validator_signer.get() {

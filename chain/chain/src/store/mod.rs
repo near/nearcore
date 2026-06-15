@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
 use near_chain_primitives::error::Error;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
 use near_primitives::errors::{EpochError, InvalidTxError};
@@ -1853,7 +1853,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(anchor_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let height = header.height() + 2;
+        let height = header.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 
         for shard_id in shard_layout.shard_ids() {
             if let Some(validator_id) =

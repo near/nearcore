@@ -3672,13 +3672,14 @@ mod test {
         );
     }
 
-    /// Test that when EarlyKickout is enabled and the ChunkProducers DB entry
-    /// is missing, a chunk forward is cached (not rejected) via the
-    /// DBNotFoundErr path. This exercises the ChunkProducerNotInDB → DBNotFoundErr
-    /// error mapping that replaced the broad ValidatorError catch.
+    /// Test that when the chunk's prev block is unprocessed (orphan), the
+    /// anchored producer lookup fails with MissingBlock and the chunk forward is
+    /// cached (not rejected) via the DBNotFoundErr path. This exercises the
+    /// MissingBlock → DBNotFoundErr error mapping that replaced the broad
+    /// ValidatorError catch.
     #[cfg(feature = "nightly")]
     #[test]
-    fn test_forward_cached_on_chunk_producer_db_miss() {
+    fn test_forward_cached_on_unprocessed_prev_block() {
         // Orphan fixture: prev_block_hash is unknown to the epoch manager, so the
         // anchored producer lookup fails with MissingBlock (-> DBNotFoundErr) and
         // the forward is cached for later validation.

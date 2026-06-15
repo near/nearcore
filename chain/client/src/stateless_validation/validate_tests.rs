@@ -143,3 +143,143 @@ fn v2_witness_with_height_below_anchor_minimum_is_rejected() {
         "error message must reference the loose cross-check; got: {msg}"
     );
 }
+
+/// Loose cross-check accept path (parent block absent): a valid anchor with a
+/// signed height at the anchor-implied minimum (`anchor.height + 2`) must
+/// validate successfully. This is the headline 1-block-behind win — the witness
+/// resolves and signature-verifies before the parent is processed. Nightly-only:
+/// resolution reads the anchor's `DBCol::ChunkProducers` row, which only exists
+/// when EarlyKickout is enabled (the genesis row is seeded at chain init).
+#[cfg(feature = "nightly")]
+#[test]
+fn v2_witness_with_absent_parent_and_valid_anchor_is_accepted() {
+    use crate::stateless_validation::validate::ChunkRelevance;
+
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    // Parent unknown locally (raced); anchor = genesis (seeded at init). Height
+    // exactly the anchor-implied minimum, so the loose check passes.
+    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
+    let height = genesis_height + 2;
+    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        unknown_parent,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        0,
+        height,
+        shard_id,
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        CongestionInfo::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer.as_ref(),
+        PROTOCOL_VERSION,
+    ));
+
+    let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
+        epoch_id,
+        chunk_header,
+        genesis_hash,
+        0,
+        b"payload".to_vec(),
+        7,
+        signer.as_ref(),
+    ));
+
+    let store = chain.chain_store().store();
+    let result = validate_partial_encoded_state_witness(
+        chain.epoch_manager.as_ref(),
+        &witness,
+        signer.validator_id(),
+        &store,
+    );
+
+    assert!(
+        matches!(result, Ok(ChunkRelevance::Relevant)),
+        "parent-absent witness with a valid anchor must be accepted; got {result:?}"
+    );
+}
+
+/// Tight cross-check (parent block known): a forged grandparent anchor that
+/// does not match the parent's prev hash must be rejected, even with a correct
+/// height and epoch. Without this check an authenticated producer for one
+/// anchor could store/forward under a different anchor's key.
+///
+/// Runs on the canonical resolution path (EarlyKickout off): producer
+/// resolution ignores the anchor, so the tight cross-check is reached. Under
+/// EarlyKickout a forged non-default anchor is rejected earlier still — the
+/// anchored DB lookup fails with `MissingBlock` because the anchor is not a
+/// processed block.
+#[cfg(not(feature = "nightly"))]
+#[test]
+fn v2_witness_with_anchor_mismatch_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    // Parent = genesis (known); its prev hash is the default sentinel. Forge a
+    // non-default anchor while keeping height/epoch correct, so only the anchor
+    // mismatch trips the cross-check.
+    let forged_anchor = CryptoHash::hash_bytes(b"forged_anchor_block");
+    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        genesis_hash,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        0,
+        genesis_height + 1,
+        shard_id,
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        CongestionInfo::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer.as_ref(),
+        PROTOCOL_VERSION,
+    ));
+
+    let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
+        epoch_id,
+        chunk_header,
+        forged_anchor,
+        0,
+        b"payload".to_vec(),
+        7,
+        signer.as_ref(),
+    ));
+
+    let store = chain.chain_store().store();
+    let result = validate_partial_encoded_state_witness(
+        chain.epoch_manager.as_ref(),
+        &witness,
+        signer.validator_id(),
+        &store,
+    );
+
+    let err = result.err().expect("validation must reject a forged anchor");
+    let Error::InvalidPartialChunkStateWitness(msg) = err else {
+        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    };
+    assert!(
+        msg.contains("V2 witness chunk key mismatch"),
+        "error message must reference the cross-check; got: {msg}"
+    );
+}

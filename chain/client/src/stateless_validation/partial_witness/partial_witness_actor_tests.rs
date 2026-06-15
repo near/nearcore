@@ -241,3 +241,37 @@ fn forward_drops_v2_on_unknown_epoch_unsynced_prev() {
     let actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
     actor.handle_partial_encoded_state_witness_forward(witness).unwrap();
 }
+
+/// Init-emit path: a V2 part whose grandparent anchor is unprocessed (node two
+/// or more blocks behind) must be dropped quietly — `Ok(())` with no validate
+/// spawn — now that the defer/replay cache is gone. Nightly-only: the anchored
+/// lookup consults `DBCol::ChunkProducers` and fails with `MissingBlock` only
+/// when EarlyKickout is enabled.
+#[cfg(feature = "nightly")]
+#[test]
+fn init_emit_drops_v2_on_unprocessed_anchor_without_spawn() {
+    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+    let unknown_prev = CryptoHash::hash_bytes(b"unknown_prev_block");
+    let unknown_anchor = CryptoHash::hash_bytes(b"unknown_anchor_block");
+    let witness = build_v2_witness(
+        signer.as_ref(),
+        epoch_id,
+        unknown_prev,
+        unknown_anchor,
+        2,
+        ShardId::new(0),
+    );
+
+    let spawn_count = Arc::new(AtomicUsize::new(0));
+    let spawner = Arc::new(CountingSpawner { count: spawn_count.clone() });
+    let actor = build_test_actor(epoch_manager, runtime, signer, spawner);
+    actor.handle_partial_encoded_state_witness(witness).unwrap();
+
+    assert_eq!(
+        spawn_count.load(Ordering::SeqCst),
+        0,
+        "unresolvable anchor must drop before spawning validate+store",
+    );
+}
