@@ -785,7 +785,7 @@ fn test_cloud_archival_fully_skipped_batch() {
 
 /// Bootstrap a reader over a range whose start and end heights are both
 /// skipped slots, with one shard's chunks also dropped mid-range. Exercises
-/// the start/end clipping in `bootstrap_range` and the carried-over-chunk
+/// the missing-block handling in `bootstrap_range` and the carried-over-chunk
 /// path during state apply.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -842,8 +842,8 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     h.bootstrap_reader(start, target);
     h.assert_reader_writer_parity(start, target);
     // A correct balance proves bootstrap completed without panic, the trie
-    // was reconstructed up to the target's clipped height, and the
-    // carried-over chunk path was traversed during state apply.
+    // was reconstructed up to the last present block at or below the target,
+    // and the carried-over chunk path was traversed during state apply.
     h.assert_reader_account_balance(
         &CloudArchiveHarness::USER_ACCOUNT.parse().unwrap(),
         CloudArchiveHarness::USER_BALANCE,
