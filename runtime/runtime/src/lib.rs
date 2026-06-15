@@ -502,6 +502,8 @@ pub struct GasRefundResult {
     pub price_surplus: Balance,
     /// The penalty paid for left over gas
     pub refund_penalty: Balance,
+    /// Additional charge for creating a new account, subtracted from the refund
+    create_account_charge: Balance,
 }
 
 pub struct Runtime {}
@@ -823,6 +825,7 @@ impl Runtime {
         });
 
         let mut account = get_account(state_update, account_id)?;
+        let account_did_not_exist = account.is_none();
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionReceiptResult::new();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
@@ -897,6 +900,20 @@ impl Runtime {
             }
         }
 
+        // The price at which the gas attached to this receipt was purchased.
+        let gas_purchase_price = action_receipt.gas_price();
+
+        // The price at which gas was burnt while applying this receipt. Can be different from the price at
+        // which the gas was purchased.
+        let gas_burn_price =
+            if ProtocolFeature::AccountCostIncrease.enabled(apply_state.current_protocol_version) {
+                // should always be <= gas_purchase_price, otherwise receiver_reward might underflow
+                // or mint new tokens.
+                std::cmp::min(gas_purchase_price, apply_state.gas_price)
+            } else {
+                apply_state.gas_price
+            };
+
         let gas_refund_result = if receipt.predecessor_id().is_system() {
             // If the refund fails tokens are burned.
             if result.result.is_err() {
@@ -907,13 +924,19 @@ impl Runtime {
             }
             GasRefundResult::default()
         } else {
+            let created_new_account =
+                account_did_not_exist && account.is_some() && result.result.is_ok();
+
             // Calculating and generating refunds
             self.refund_unspent_gas_and_deposits(
-                apply_state.gas_price,
+                gas_burn_price,
+                gas_purchase_price,
                 receipt,
                 &action_receipt,
                 &mut result,
                 &apply_state.config,
+                created_new_account,
+                apply_state.current_protocol_version,
             )?
         };
         stats.balance.gas_deficit_amount =
@@ -936,12 +959,16 @@ impl Runtime {
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
             if receipt.predecessor_id().is_system() { Gas::ZERO } else { result.gas_burnt };
-        // `price_deficit` is strictly less than `gas_price * gas_burnt`.
-        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
+        // `price_deficit` is strictly less than `gas_burn_price * gas_burnt`.
+        let mut tx_burnt_amount = safe_gas_to_balance(gas_burn_price, gas_burnt)?
             .checked_sub(gas_refund_result.price_deficit)
             .unwrap();
-        tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
+        if !ProtocolFeature::AccountCostIncrease.enabled(apply_state.current_protocol_version) {
+            tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
+        }
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
+        tx_burnt_amount =
+            safe_add_balance(tx_burnt_amount, gas_refund_result.create_account_charge)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
@@ -956,10 +983,16 @@ impl Runtime {
             .unwrap();
         // The balance that the current account should receive as a reward for function call
         // execution.
-        // Post NEP-536: We are not refunding gas price differences, we just use the receipt
-        // gas price and call it the correct price.
-        // No deficits to try and recover. Use receipt gas price for reward calculation
-        let receiver_reward = safe_gas_to_balance(action_receipt.gas_price(), receiver_gas_reward)?;
+        let receiver_reward =
+            if ProtocolFeature::AccountCostIncrease.enabled(apply_state.current_protocol_version) {
+                safe_gas_to_balance(gas_burn_price, receiver_gas_reward)?
+            } else {
+                // Post NEP-536/pre AccountCostIncrease: We are not refunding gas price differences, we just use the receipt
+                // gas price and call it the correct price.
+                // No deficits to try and recover. Use receipt gas price for reward calculation
+                safe_gas_to_balance(gas_purchase_price, receiver_gas_reward)?
+            };
+
         if receiver_reward > Balance::ZERO {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -1120,11 +1153,14 @@ impl Runtime {
     /// Thus, we only create refunds for unspent gas and for deposits.
     fn refund_unspent_gas_and_deposits(
         &self,
-        current_gas_price: Balance,
+        gas_burn_price: Balance,
+        gas_purchase_price: Balance,
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
         result: &mut ActionReceiptResult,
         config: &RuntimeConfig,
+        created_account: bool,
+        protocol_version: ProtocolVersion,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
@@ -1151,33 +1187,87 @@ impl Runtime {
 
         // NEP-536 also adds a penalty to gas refund.
         let refund_penalty: Gas = config.fees.gas_penalty_for_gas_refund(gross_gas_refund);
-        let Some(net_gas_refund) = gross_gas_refund.checked_sub(refund_penalty) else {
-            // violation of gas_penalty_for_gas_refund post condition
-            panic!("returned larger penalty than input, {refund_penalty} > {gross_gas_refund}",);
+        let penalty_gas_price = if ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
+            gas_burn_price
+        } else {
+            gas_purchase_price
         };
+        let refund_penalty_amount = safe_gas_to_balance(penalty_gas_price, refund_penalty)?;
 
-        // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), net_gas_refund)?;
+        // Refund for the leftover gas that was not used by this receipt.
+        let unused_gas_balance_refund = safe_gas_to_balance(gas_purchase_price, gross_gas_refund)?
+            .saturating_sub(refund_penalty_amount);
 
         let mut gas_refund_result = GasRefundResult {
             price_deficit: Balance::ZERO,
             price_surplus: Balance::ZERO,
-            refund_penalty: safe_gas_to_balance(action_receipt.gas_price(), refund_penalty)?,
+            refund_penalty: refund_penalty_amount,
+            create_account_charge: Balance::ZERO,
         };
 
-        if current_gas_price > action_receipt.gas_price() {
+        if gas_burn_price > gas_purchase_price {
             // price increased, burning resulted in a deficit
             gas_refund_result.price_deficit = safe_gas_to_balance(
-                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap(),
+                gas_burn_price.checked_sub(gas_purchase_price).unwrap(),
                 result.gas_burnt,
             )?;
         } else {
             // price decreased, burning resulted in a surplus
             gas_refund_result.price_surplus = safe_gas_to_balance(
-                action_receipt.gas_price().checked_sub(current_gas_price).unwrap(),
+                gas_purchase_price.checked_sub(gas_burn_price).unwrap(),
                 result.gas_burnt,
             )?;
         };
+
+        // Refund for the price difference between gas_purchase_price and gas_burn_price of the gas burned in this receipt.
+        let mut burned_gas_refund =
+            if ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
+                gas_refund_result.price_surplus
+            } else {
+                Balance::ZERO
+            };
+
+        // If an account was created, charge more to cover its cost.
+        if created_account && ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
+            // This is how much creating an account should cost
+            let desired_cost = config.account_creation_charge;
+
+            let create_account_gas_cost =
+                config.fees.fee(ActionCosts::create_account).exec_fee().gas;
+            // The cost of the gas that was burned already
+            let burned_cost = safe_gas_to_balance(gas_burn_price, create_account_gas_cost)?;
+
+            // We would like to charge as much as needed to reach desired_cost
+            let amount_to_charge = desired_cost.saturating_sub(burned_cost);
+
+            // We can't charge more than `burned_gas_refund`.
+            // `burned_gas_refund < amount_to_charge` could happen for receipts where the gas was
+            // purchased in protocol versions before `ProtocolFeature::AccountCostIncrease`, at a lower
+            // gas price that isn't enough to cover the cost of creating an account.
+            let amount_actually_charged = std::cmp::min(amount_to_charge, burned_gas_refund);
+
+            // sanity check: purchasing gas at `min_gas_purchase_price` should be enough to cover
+            // the cost of creating an account.
+            debug_assert!(
+                safe_gas_to_balance(config.min_gas_purchase_price, create_account_gas_cost)
+                    .unwrap()
+                    >= desired_cost
+            );
+
+            // sanity check: as long as the purchase price is high enough, there should always be
+            // enough refund balance to cover the cost of creating an account.
+            if gas_purchase_price >= config.min_gas_purchase_price {
+                debug_assert!(burned_gas_refund >= amount_to_charge);
+            }
+
+            // Subtract `amount_actually_charged` from the refund.
+            gas_refund_result.create_account_charge = amount_actually_charged;
+            burned_gas_refund = burned_gas_refund
+                .checked_sub(amount_actually_charged)
+                .expect("burned_gas_refund >= amount_actually_charged checked above");
+        }
+
+        let gas_balance_refund = safe_add_balance(unused_gas_balance_refund, burned_gas_refund)?;
 
         if deposit_refund > Balance::ZERO {
             result.new_receipts.push(Receipt::new_balance_refund(

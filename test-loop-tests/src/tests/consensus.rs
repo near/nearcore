@@ -59,7 +59,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-        .add_user_accounts_simple(&accounts, stake)
+        .add_user_accounts_simple(&accounts, stake.checked_add(Balance::from_near(1)).unwrap())
         .shard_layout(ShardLayout::multi_shard(8, 3))
         .build();
 
