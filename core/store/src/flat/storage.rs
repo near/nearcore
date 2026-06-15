@@ -6,6 +6,7 @@ use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use crate::flat::BlockInfo;
 use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
+use crate::metrics::flat_state_metrics::FLAT_HEAD_HOLDS;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -502,7 +503,12 @@ pub struct FlatHeadHold(Arc<RwLock<FlatStorageInner>>);
 
 impl FlatHeadHold {
     fn new(inner: Arc<RwLock<FlatStorageInner>>) -> Self {
-        inner.write().move_head_hold_count += 1;
+        {
+            let mut guard = inner.write();
+            guard.move_head_hold_count += 1;
+            let shard_uid = guard.shard_uid.to_string();
+            FLAT_HEAD_HOLDS.with_label_values(&[&shard_uid]).inc();
+        }
         Self(inner)
     }
 }
@@ -515,6 +521,9 @@ impl Drop for FlatHeadHold {
             "FlatHeadHold dropped but hold count is already zero"
         );
         guard.move_head_hold_count -= 1;
+
+        let shard_uid = guard.shard_uid.to_string();
+        FLAT_HEAD_HOLDS.with_label_values(&[&shard_uid]).dec();
     }
 }
 

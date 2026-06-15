@@ -1,7 +1,12 @@
 use near_o11y::metrics::{
-    HistogramVec, IntGaugeVec, exponential_buckets, linear_buckets, try_create_histogram_vec,
+    HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets, linear_buckets,
+    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge,
     try_create_int_gauge_vec,
 };
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::trie_split::TrieSplit;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 pub(crate) static APPLY_CHUNK_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
@@ -116,3 +121,130 @@ pub(crate) static STATE_SYNC_APPLY_PART_DELAY: LazyLock<HistogramVec> = LazyLock
     )
     .unwrap()
 });
+
+pub(crate) static DYNAMIC_RESHARDING_SHARD_MEMORY_USAGE: LazyLock<IntGaugeVec> =
+    LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "near_dynamic_resharding_shard_memory_usage",
+            "Trie-cost memory usage of the shard's state, i.e. the value compared against \
+             the dynamic resharding memory usage threshold. This is an artificial value \
+             calculated according to TRIE_COSTS, not actual RAM usage.",
+            &["shard_uid"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_dynamic_resharding_memory_usage_threshold",
+            "Trie-cost memory usage over which a shard is proposed for a split, \
+             from the dynamic resharding config",
+        )
+        .unwrap()
+    });
+
+pub(crate) static DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_dynamic_resharding_min_child_memory_usage",
+            "Minimum trie-cost memory usage of a child shard for a split to be proposed, \
+             from the dynamic resharding config",
+        )
+        .unwrap()
+    });
+
+pub(crate) static DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_dynamic_resharding_max_number_of_shards",
+            "Maximum number of shards in the network, from the dynamic resharding config",
+        )
+        .unwrap()
+    });
+
+pub(crate) static DYNAMIC_RESHARDING_PROPOSED_SPLIT_LEFT_MEMORY: LazyLock<IntGaugeVec> =
+    LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "near_dynamic_resharding_proposed_split_left_memory",
+            "Trie-cost memory usage of the left child of the currently proposed shard split, \
+             or 0 if no split is proposed",
+            &["shard_uid"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static DYNAMIC_RESHARDING_PROPOSED_SPLIT_RIGHT_MEMORY: LazyLock<IntGaugeVec> =
+    LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "near_dynamic_resharding_proposed_split_right_memory",
+            "Trie-cost memory usage of the right child of the currently proposed shard split, \
+             or 0 if no split is proposed",
+            &["shard_uid"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static DYNAMIC_RESHARDING_PROPOSED_SPLIT_INFO: LazyLock<IntGaugeVec> =
+    LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "near_dynamic_resharding_proposed_split_info",
+            "Set to 1 while the boundary account in the label is the current proposed \
+             split for the shard",
+            &["shard_uid", "boundary_account"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_dynamic_resharding_find_split_errors_total",
+            "Number of failures to compute the trie split for a shard during chunk application.",
+            &["shard_uid"],
+        )
+        .unwrap()
+    });
+
+/// Tracks the `boundary_account` label of the currently exported
+/// `near_dynamic_resharding_proposed_split_info` series per shard, so that a stale
+/// series can be removed when the proposed boundary changes or the proposal disappears.
+static PROPOSED_SPLIT_BOUNDARIES: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(Default::default);
+
+/// Update the proposed-split gauges for a shard to mirror the `proposed_split` value
+/// stored in the latest `ChunkExtra`. `None` is encoded as zero memory gauges and
+/// no info series.
+pub(crate) fn set_proposed_split_metrics(shard_uid: ShardUId, split: Option<&TrieSplit>) {
+    let shard_uid_label = shard_uid.to_string();
+    let (left_memory, right_memory) =
+        split.map_or((0, 0), |split| (split.left_memory as i64, split.right_memory as i64));
+    DYNAMIC_RESHARDING_PROPOSED_SPLIT_LEFT_MEMORY
+        .with_label_values(&[&shard_uid_label])
+        .set(left_memory);
+    DYNAMIC_RESHARDING_PROPOSED_SPLIT_RIGHT_MEMORY
+        .with_label_values(&[&shard_uid_label])
+        .set(right_memory);
+
+    let new_boundary = split.map(|split| split.boundary_account.to_string());
+    let mut boundaries = PROPOSED_SPLIT_BOUNDARIES.lock();
+    let old_boundary = boundaries.get(&shard_uid_label);
+    if old_boundary == new_boundary.as_ref() {
+        return;
+    }
+    if let Some(old_boundary) = old_boundary {
+        let _ = DYNAMIC_RESHARDING_PROPOSED_SPLIT_INFO
+            .remove_label_values(&[&shard_uid_label, old_boundary]);
+    }
+    match new_boundary {
+        Some(boundary) => {
+            DYNAMIC_RESHARDING_PROPOSED_SPLIT_INFO
+                .with_label_values(&[&shard_uid_label, &boundary])
+                .set(1);
+            boundaries.insert(shard_uid_label, boundary);
+        }
+        None => {
+            boundaries.remove(&shard_uid_label);
+        }
+    }
+}
