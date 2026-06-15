@@ -392,6 +392,26 @@ fn check_release_build(chain: &str) {
     }
 }
 
+/// Panics when attempting to run a mainnet or testnet validator on an
+/// unsupported CPU architecture.
+///
+/// x86_64 is currently the only supported platform for mainnet or testnet
+/// validators. Running a validator on any other architecture (e.g. aarch64/ARM)
+/// risks diverging from the rest of the network, so we refuse to start rather
+/// than risk producing invalid blocks.
+fn check_validator_arch(chain: &str, is_validator: bool) {
+    if !cfg!(target_arch = "x86_64")
+        && is_validator
+        && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
+    {
+        panic!(
+            "running a {chain} validator on the {} architecture is not supported; \
+             validators must run on x86_64",
+            std::env::consts::ARCH
+        );
+    }
+}
+
 impl InitCmd {
     pub(super) fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
@@ -492,6 +512,10 @@ impl RunCmd {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
+        check_validator_arch(
+            &near_config.client_config.chain_id,
+            near_config.validator_signer.get().is_some(),
+        );
         check_kernel_params();
 
         // Set current version in client config.
