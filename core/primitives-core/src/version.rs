@@ -367,11 +367,13 @@ pub enum ProtocolFeature {
     UniqueChunkTransactions,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
-    InstantPromiseYield,
+    #[deprecated]
+    _DeprecatedInstantPromiseYield,
     /// Improve functionality of Yield/Resume. Keep the current status of yielded receipt in the
     /// trie state. Allows to call yield and resume in two actions within the same transaction.
     /// Keeping the status in the state could allow to query it from contracts.
-    YieldResumeImprovements,
+    #[deprecated]
+    _DeprecatedYieldResumeImprovements,
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
     IncludeDeployGlobalContractOutcomeBurntStorage,
@@ -386,7 +388,8 @@ pub enum ProtocolFeature {
     /// Process action receipts containing a single DeleteAccount action as
     /// instant receipts, executing them immediately after the receipt that
     /// produced them rather than sending them as outgoing receipts.
-    InstantDeleteAccount,
+    #[deprecated]
+    _DeprecatedInstantDeleteAccount,
     /// Opt-in strict nonce mode for transactions. When enabled, TransactionV1
     /// can carry `NonceMode::Strict` which requires `tx_nonce == ak_nonce + 1`
     /// (sequential ordering). Transactions with a nonce gap are held in the
@@ -537,10 +540,10 @@ impl ProtocolFeature {
             | ProtocolFeature::FixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
             | ProtocolFeature::GlobalContractDistributionNonce
-            | ProtocolFeature::InstantPromiseYield
-            | ProtocolFeature::YieldResumeImprovements
+            | ProtocolFeature::_DeprecatedInstantPromiseYield
+            | ProtocolFeature::_DeprecatedYieldResumeImprovements
             | ProtocolFeature::EthImplicitGlobalContract
-            | ProtocolFeature::InstantDeleteAccount => 83,
+            | ProtocolFeature::_DeprecatedInstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
