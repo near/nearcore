@@ -28,7 +28,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 // The height of the next block after environment setup is complete.
-const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;
+// Under AccountCostIncrease the deploy_contract receipt also produces a refund receipt
+// that is processed in an additional block, so we wait one more block during setup.
+fn next_block_height_after_setup() -> u64 {
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 4 } else { 3 }
+}
 
 fn get_outgoing_receipts_from_latest_executed_block(env: &TestLoopEnv) -> Vec<Receipt> {
     let node = env.validator();
@@ -114,8 +118,10 @@ fn prepare_env() -> TestLoopEnv {
     );
     env.validator().submit_tx(deploy_contract_tx.clone());
 
-    // Allow two blocks for the contract to be deployed
-    env.validator_runner().run_until_executed_height(2);
+    // Allow enough blocks for the contract to be deployed (and, under
+    // AccountCostIncrease, for the price_surplus refund receipt to be processed).
+    let setup_height = next_block_height_after_setup() - 1;
+    env.validator_runner().run_until_executed_height(setup_height);
     assert!(matches!(
         env.validator()
             .client()
@@ -127,7 +133,7 @@ fn prepare_env() -> TestLoopEnv {
     ));
 
     let last_block_height = env.validator().last_executed().height;
-    assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
+    assert_eq!(next_block_height_after_setup(), last_block_height + 1);
 
     env
 }
@@ -141,7 +147,7 @@ fn test_yield_then_resume_one_block_apart() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
     let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-    let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
+    let mut next_block_height = next_block_height_after_setup();
     let yield_payload = vec![6u8; 16];
 
     // Add a transaction invoking `yield_create`.
@@ -238,7 +244,7 @@ fn test_yield_then_resume_same_block() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
     let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-    let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
+    let mut next_block_height = next_block_height_after_setup();
     let yield_payload = vec![6u8; 16];
 
     // Add a transaction invoking `yield_create`.

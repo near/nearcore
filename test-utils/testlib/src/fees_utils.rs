@@ -70,6 +70,20 @@ impl FeeHelper {
             .unwrap()
             .gas;
         self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+            .checked_add(self.extra_account_creation_charge())
+            .unwrap()
+    }
+
+    /// Returns the extra balance charged for creating an account on top of the gas cost.
+    /// This is the `AccountCostIncrease` feature's `account_creation_charge` minus whatever
+    /// already-burned create_account gas would naturally cover at the current gas price.
+    /// Applies for both explicit `CreateAccount` actions and implicit creation via Transfer
+    /// to a non-existent address - the implicit path also charges create_account exec fee
+    /// gas (see `transfer_exec_fee`), so the receipt's gas pool always covers the full charge.
+    pub fn extra_account_creation_charge(&self) -> Balance {
+        let create_account_exec_gas = self.cfg().fee(ActionCosts::create_account).exec_fee().gas;
+        let burned_at_current_price = self.gas_to_balance(create_account_exec_gas);
+        self.rt_cfg.account_creation_charge.saturating_sub(burned_at_current_price)
     }
 
     pub fn create_account_transfer_full_key_fee(&self) -> Gas {
@@ -136,10 +150,14 @@ impl FeeHelper {
 
     pub fn create_account_transfer_full_key_cost(&self) -> Balance {
         self.gas_to_balance(self.create_account_transfer_full_key_fee())
+            .checked_add(self.extra_account_creation_charge())
+            .unwrap()
     }
 
     pub fn create_account_transfer_cost(&self) -> Balance {
         self.gas_to_balance(self.create_account_transfer_fee())
+            .checked_add(self.extra_account_creation_charge())
+            .unwrap()
     }
 
     pub fn create_account_transfer_full_key_cost_no_reward(&self) -> Balance {
@@ -174,7 +192,11 @@ impl FeeHelper {
             .checked_add(add_full_access_key_send_fee)
             .unwrap()
             .gas;
-        self.gas_to_balance(send_gas).checked_add(self.gas_to_balance_inflated(exec_gas)).unwrap()
+        self.gas_to_balance(send_gas)
+            .checked_add(self.gas_to_balance_inflated(exec_gas))
+            .unwrap()
+            .checked_add(self.extra_account_creation_charge())
+            .unwrap()
     }
 
     pub fn create_account_transfer_full_key_cost_fail_on_create_account(&self) -> Balance {

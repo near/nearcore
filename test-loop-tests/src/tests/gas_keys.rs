@@ -118,7 +118,7 @@ fn test_gas_key_transaction() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(100);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2, // nonce
@@ -332,7 +332,7 @@ fn test_gas_key_refund() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(101); // enough to pay for attached 100 TGas + tx cost
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2,
@@ -439,7 +439,7 @@ fn test_gas_key_deposit_failed() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(100);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2,
@@ -929,7 +929,7 @@ fn test_gas_key_add_then_fund_then_use() {
     ]));
 
     // Fund the gas key via TransferToGasKey transaction
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(100);
     setup.run_actions(vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
         public_key: gas_key_signer.public_key(),
         deposit: gas_key_fund_amount,

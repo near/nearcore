@@ -124,7 +124,7 @@ fn test_catchup_random_single_part_sync_common(
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-        .add_user_accounts_simple(&all_accounts, stake)
+        .add_user_accounts_simple(&all_accounts, stake.checked_add(Balance::from_near(1)).unwrap())
         .shard_layout(ShardLayout::multi_shard(num_shards, 3))
         .build();
 
@@ -306,7 +306,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-        .add_user_accounts_simple(&accounts, stake)
+        .add_user_accounts_simple(&accounts, stake.checked_add(Balance::from_near(1)).unwrap())
         .shard_layout(ShardLayout::multi_shard(num_shards, 3))
         .build();
 
@@ -401,7 +401,7 @@ fn slow_test_all_chunks_accepted() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-        .add_user_accounts_simple(&accounts, stake)
+        .add_user_accounts_simple(&accounts, stake.checked_add(Balance::from_near(1)).unwrap())
         .shard_layout(ShardLayout::multi_shard(num_shards, 3))
         .build();
 

@@ -97,13 +97,16 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     let mut genesis_builder = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(validator_spec)
-        .add_user_accounts_simple(&validator_accounts, stake)
+        .add_user_accounts_simple(
+            &validator_accounts,
+            stake.checked_add(Balance::from_near(1)).unwrap(),
+        )
         .shard_layout(shard_layout);
 
     let mut balances = vec![];
 
     for (i, account) in test_accounts.iter().enumerate() {
-        let amount = Balance::from_yoctonear((1000 + 100 * i).try_into().unwrap());
+        let amount = Balance::from_near((1000 + 100 * i).try_into().unwrap());
         genesis_builder = genesis_builder.add_user_account_simple(account.clone(), amount);
 
         balances.push(amount);

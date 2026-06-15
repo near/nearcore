@@ -62,6 +62,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
+    (130, include_config!("130.yaml")),
     (155, include_config!("155.yaml")),
 ];
 
@@ -108,6 +109,7 @@ impl RuntimeConfigStore {
                      Error: {err:?}"
                 )
             });
+            initial_config.account_creation_charge = Balance::ZERO;
             let fees = Arc::make_mut(&mut initial_config.fees);
             fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
             store.insert(0, Arc::new(initial_config));
@@ -144,6 +146,7 @@ impl RuntimeConfigStore {
                          version {protocol_version}. Error: {err:?}"
                     )
                 });
+                runtime_config.account_creation_charge = Balance::ZERO;
                 let fees = Arc::make_mut(&mut runtime_config.fees);
                 fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
                 store.insert(*protocol_version, Arc::new(runtime_config));
@@ -442,6 +445,7 @@ mod tests {
         let store = RuntimeConfigStore::new(None);
         for (_, config) in &store.store {
             assert!(config.storage_amount_per_byte().is_zero());
+            assert!(config.account_creation_charge.is_zero());
         }
     }
 
