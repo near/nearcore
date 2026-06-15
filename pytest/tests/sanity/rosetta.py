@@ -520,6 +520,9 @@ class RosettaTestCase(unittest.TestCase):
             result = RosettaExecResult(self.rosetta, block, receipt_id)
             related = result.related(0)
 
+        # Wait one block for the refund
+        self.node.wait_at_least_one_block()
+
         balances = self.rosetta.get_account_balances(
             account_id=implicit.account_id)
 
