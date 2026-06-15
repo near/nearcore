@@ -153,7 +153,7 @@ fn save_shard_range(
 }
 
 /// Writes one shard's columns from its cloud `ShardData` into `update`.
-pub fn save_shard_data(update: &mut StoreUpdate, shard_id: ShardId, shard_data: &ShardData) {
+fn save_shard_data(update: &mut StoreUpdate, shard_id: ShardId, shard_data: &ShardData) {
     // TODO(cloud_archival): reconstruct the remaining shard columns and apply
     // per-block state deltas.
     let block_shard_id = get_block_shard_id(shard_data.block_hash(), shard_id);
