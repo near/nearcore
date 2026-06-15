@@ -24,6 +24,14 @@ use near_primitives::utils::derive_near_deterministic_account_id;
 use std::collections::BTreeMap;
 use std::iter;
 
+/// Protocol `max_transaction_size` limit (1.5 MiB).
+const MAX_TRANSACTION_SIZE: u64 = 1_572_864;
+
+/// Borsh wire-size of a max-size deploy-contract transaction excluding its
+/// contract code and signature: account ids, public key, nonce, block hash,
+/// and action/enum tags.
+const MAX_DEPLOY_CONTRACT_TX_OVERHEAD: u64 = 182;
+
 const GAS_1_MICROSECOND: Gas = Gas::from_gigagas(1);
 const GAS_1_NANOSECOND: Gas = Gas::from_gas(1_000_000);
 const GAS_100_PICOSECONDS: Gas = Gas::from_gas(100_000);
@@ -938,7 +946,7 @@ impl ActionSize {
             ActionSize::Max => {
                 let signature_size = borsh::object_length(&Signature::empty(KeyType::ED25519))
                     .expect("borsh signature length") as u64;
-                1_572_864 - 182 - signature_size
+                MAX_TRANSACTION_SIZE - MAX_DEPLOY_CONTRACT_TX_OVERHEAD - signature_size
             }
         }
     }
@@ -946,7 +954,7 @@ impl ActionSize {
 
 #[cfg(test)]
 mod tests {
-    use super::{ActionSize, deploy_action};
+    use super::{ActionSize, MAX_TRANSACTION_SIZE, deploy_action};
     use genesis_populate::get_account_id;
     use near_primitives::version::PROTOCOL_VERSION;
 
@@ -954,7 +962,6 @@ mod tests {
     fn test_deploy_contract_tx_max_size() {
         // The size of a transaction constructed from this must be exactly at the limit.
         let deploy_action = deploy_action(ActionSize::Max);
-        let limit = 1_572_864;
 
         // We also need some account IDs constructed the same way as in the estimator.
         // Let's try multiple index sizes to ensure this does not affect the length.
@@ -967,10 +974,10 @@ mod tests {
         let mut tb = crate::TransactionBuilder::new(test_accounts);
 
         let tx_0 = tb.transaction_from_actions(sender_0, receiver_0, vec![deploy_action.clone()]);
-        assert_eq!(tx_0.size_for_limits(PROTOCOL_VERSION), limit, "TX size changed");
+        assert_eq!(tx_0.size_for_limits(PROTOCOL_VERSION), MAX_TRANSACTION_SIZE, "TX size changed");
 
         let tx_1 = tb.transaction_from_actions(sender_1, receiver_1, vec![deploy_action]);
-        assert_eq!(tx_1.size_for_limits(PROTOCOL_VERSION), limit, "TX size changed");
+        assert_eq!(tx_1.size_for_limits(PROTOCOL_VERSION), MAX_TRANSACTION_SIZE, "TX size changed");
     }
 }
 
