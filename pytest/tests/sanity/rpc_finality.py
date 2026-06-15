@@ -60,8 +60,17 @@ class TestRpcFinality(unittest.TestCase):
         # this transaction will be added to the block (probably around block 5)
         # and the receipts & transfers will happen in the next block (block 6).
         # This function should return as soon as block 6 arrives in node0.
-        logger.info(nodes[0].send_tx_and_wait(tx, timeout=10))
+        tx_result = nodes[0].send_tx_and_wait(tx, timeout=10)
+        logger.info(tx_result)
         logger.info("Done")
+
+        min_gas_purchase_price = int(
+            nodes[0].json_rpc("EXPERIMENTAL_protocol_config",
+                              {"finality": "final"})['result']['runtime_config']
+            ['min_gas_purchase_price'])
+        receipt_gas = tx_result['result']['receipts_outcome'][0]['outcome']['gas_burnt']
+        # How much was charged to send the transfer
+        upfront_charge = token_transfer + receipt_gas * min_gas_purchase_price
 
         # kill one validating node so that block cannot be finalized.
         nodes[2].kill()
@@ -75,8 +84,8 @@ class TestRpcFinality(unittest.TestCase):
         # Block 5 (doomslug) - has the transaction (so this is the moment when state is removed from test0)
         # Block 4 (final) - has no information about the transaction.
 
-        # So with optimistic finality: test0 = -10, test1 = +10
-        # with doomslug (state as of block 5): test0 = -10, test1 = 0
+        # So with optimistic finality: test0 = -upfront_charge, test1 = +10
+        # with doomslug (state as of block 5): test0 = -upfront_charge, test1 = 0
         # with final (state as of block 4): test0 = 0, test1 = 0
 
         for acc_id in ['test0', 'test1']:
@@ -88,9 +97,9 @@ class TestRpcFinality(unittest.TestCase):
             print(f"Account amounts: {acc_id}: {amounts}")
 
             if acc_id == 'test0':
-                self.assertEqual([-10, -10, 0], amounts)
+                self.assertEqual([-upfront_charge, -upfront_charge, 0], amounts)
             else:
-                self.assertEqual([10, 0, 0], amounts)
+                self.assertEqual([token_transfer, 0, 0], amounts)
 
 
 if __name__ == '__main__':
