@@ -1,11 +1,12 @@
 use crate::{
     ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
-    NonceKind, NonceLookupKey, NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
+    NonceKind, NonceLookupKey, NonceUpdater, SignedTransaction, TargetChainTx, TargetNonce,
+    TxBatch, TxRef,
 };
 use anyhow::Context;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActor;
-use near_crypto::{PublicKey, SecretKey};
+use near_crypto::PublicKey;
 use near_indexer::StreamerMessage;
 use near_indexer_primitives::{IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome};
 use near_primitives::hash::CryptoHash;
@@ -27,6 +28,7 @@ use std::time::{Duration, Instant};
 // makes it easy to print out human-friendly info later on when we find this
 // transaction on chain.
 struct TxSendInfo {
+    target_tx: SignedTransaction,
     sent_at: Instant,
     source_height: Option<BlockHeight>,
     provenance: MappedTxProvenance,
@@ -57,6 +59,7 @@ impl TxSendInfo {
             None
         };
         Self {
+            target_tx: tx.target_tx.clone(),
             source_height,
             provenance: tx.provenance,
             source_signer_id: tx.source_signer_id.clone(),
@@ -224,6 +227,27 @@ impl TxTracker {
         }
     }
 
+    // Transactions sent to the target chain but not yet seen in a target block.
+    pub(crate) fn sent_txs_remaining(&self) -> usize {
+        self.sent_txs.len()
+    }
+
+    // Sent txs not observed on chain within REFORWARD_AFTER_BLOCKS target blocks.
+    pub(crate) fn reforward_candidates(
+        &mut self,
+        target_height: BlockHeight,
+    ) -> Vec<SignedTransaction> {
+        const REFORWARD_AFTER_BLOCKS: BlockHeight = 10;
+        let mut txs = Vec::new();
+        for info in self.sent_txs.values_mut() {
+            if target_height.saturating_sub(info.sent_at_target_height) >= REFORWARD_AFTER_BLOCKS {
+                info.sent_at_target_height = target_height;
+                txs.push(info.target_tx.clone());
+            }
+        }
+        txs
+    }
+
     // Makes sure that there's something written in the DB for this access key.
     // This function is called before calling initialize_target_nonce(), which sets
     // in-memory data associated with this nonce. It would make sense to do this part at the same time,
@@ -236,8 +260,13 @@ impl TxTracker {
         db: &DB,
         nonce_key: &NonceLookupKey,
     ) -> anyhow::Result<()> {
-        if crate::read_target_nonce(db, nonce_key)?.is_some() {
-            return Ok(());
+        let existing = crate::read_target_nonce(db, nonce_key)?;
+        if let Some(t) = &existing {
+            if t.nonce.is_some() {
+                return Ok(());
+            }
+            // the run that stored this entry died before resolving the nonce, so
+            // query again; pending outcomes are kept for the resumed indexer
         }
         match &nonce_key.kind {
             NonceKind::AccessKey => {
@@ -247,7 +276,7 @@ impl TxTracker {
                     &nonce_key.public_key,
                 )
                 .await?;
-                let t = LatestTargetNonce { nonce, pending_outcomes: HashSet::new() };
+                let t = LatestTargetNonce::from_stored_and_queried(existing, nonce);
                 crate::put_target_nonce(db, nonce_key, &t)?;
             }
             NonceKind::GasKey(_) => {
@@ -267,13 +296,11 @@ impl TxTracker {
                             public_key: nonce_key.public_key.clone(),
                             kind: NonceKind::GasKey(i as NonceIndex),
                         };
-                        let t = LatestTargetNonce {
-                            nonce: Some(*nonce),
-                            pending_outcomes: HashSet::new(),
-                        };
+                        let stored = crate::read_target_nonce(db, &key)?;
+                        let t = LatestTargetNonce::from_stored_and_queried(stored, Some(*nonce));
                         crate::put_target_nonce(db, &key, &t)?;
                     }
-                } else {
+                } else if existing.is_none() {
                     // Gas key doesn't exist on target chain yet
                     let t = LatestTargetNonce { nonce: None, pending_outcomes: HashSet::new() };
                     crate::put_target_nonce(db, nonce_key, &t)?;
@@ -351,7 +378,6 @@ impl TxTracker {
         target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         db: &DB,
         nonce_key: &NonceLookupKey,
-        secret_key: &SecretKey,
     ) -> anyhow::Result<TargetNonce> {
         Self::store_target_nonce(target_view_client, db, nonce_key).await?;
         let mut me = lock.lock();
@@ -372,7 +398,7 @@ impl TxTracker {
                 if first_nonce.is_none() {
                     first_nonce = Some(tx.target_nonce());
                 }
-                tx.inc_target_nonce(secret_key)
+                tx.inc_target_nonce()
             }
         }
         match first_nonce {

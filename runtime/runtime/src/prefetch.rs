@@ -45,8 +45,9 @@ use crate::{SignedValidPeriodTransactions, metrics};
 use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
+use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
-use near_primitives::transaction::Action;
+use near_primitives::transaction::{Action, TransactionNonce};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
@@ -116,6 +117,29 @@ impl TriePrefetcher {
                                 &delegate_action.delegate_action.public_key,
                             );
                             self.prefetch_trie_key(trie_key)?;
+                        }
+                        Action::DelegateV2(signed_delegate_action) => {
+                            let delegate_action = VersionedDelegateActionRef::from(
+                                &signed_delegate_action.delegate_action,
+                            );
+                            let trie_key = TrieKey::access_key(
+                                delegate_action.sender_id().clone(),
+                                delegate_action.public_key(),
+                            );
+                            self.prefetch_trie_key(trie_key)?;
+                            // A gas key delegate action also reads the per-index
+                            // nonce row during validation; prefetch it too.
+                            match delegate_action.nonce() {
+                                TransactionNonce::GasKeyNonce { nonce_index, .. } => {
+                                    let trie_key = TrieKey::gas_key_nonce(
+                                        delegate_action.sender_id().clone(),
+                                        delegate_action.public_key(),
+                                        nonce_index,
+                                    );
+                                    self.prefetch_trie_key(trie_key)?;
+                                }
+                                TransactionNonce::Nonce { .. } => {}
+                            }
                         }
                         Action::AddKey(add_key_action) => {
                             let trie_key =
