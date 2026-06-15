@@ -2,7 +2,7 @@ use crate::config::total_prepaid_gas;
 use crate::verifier::ValidateReceiptMode;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
     GlobalContractIdentifier, UseGlobalContractAction,
@@ -102,7 +102,7 @@ pub(crate) fn validate_actions_with_mode(
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);
             }
         } else {
-            if let Action::Delegate(_) = action {
+            if let Action::Delegate(_) | Action::DelegateV2(_) = action {
                 if found_delegate_action {
                     return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
                 }
@@ -144,8 +144,26 @@ fn validate_action_with_mode(
         Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
-        Action::Delegate(a) => {
-            validate_delegate_action(limit_config, a, receiver, current_protocol_version, mode)
+        Action::Delegate(a) => validate_delegate_action(
+            limit_config,
+            (&a.delegate_action).into(),
+            receiver,
+            current_protocol_version,
+            mode,
+        ),
+        Action::DelegateV2(a) => {
+            require_protocol_feature(
+                ProtocolFeature::DelegateV2,
+                "DelegateV2",
+                current_protocol_version,
+            )?;
+            validate_delegate_action(
+                limit_config,
+                (&a.delegate_action).into(),
+                receiver,
+                current_protocol_version,
+                mode,
+            )
         }
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver)
@@ -161,16 +179,16 @@ fn validate_action_with_mode(
 
 fn validate_delegate_action(
     limit_config: &LimitConfig,
-    signed_delegate_action: &SignedDelegateAction,
+    delegate_action: VersionedDelegateActionRef<'_>,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
-    let actions = signed_delegate_action.delegate_action.get_actions();
+    let actions = delegate_action.get_actions();
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
             // This is the correct receiver id to use for the check.
-            &signed_delegate_action.delegate_action.receiver_id
+            delegate_action.receiver_id()
         } else {
             // This is a bug fixed with `FixDelegatedDeterministicStateInit` that
             // validated against the wrong id. This makes it impossible to
@@ -463,12 +481,15 @@ mod tests {
     use near_crypto::{KeyType, PublicKey, Signature};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::GlobalContractDeployMode;
-    use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::delegate::{
+        DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
+        VersionedSignedDelegateAction,
+    };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
     use near_primitives::transaction::{
-        AddKeyAction, CreateAccountAction, DeleteKeyAction, TransferAction,
+        AddKeyAction, CreateAccountAction, DeleteKeyAction, TransactionNonce, TransferAction,
     };
     use near_primitives::version::PROTOCOL_VERSION;
     use std::collections::BTreeMap;
@@ -959,6 +980,30 @@ mod tests {
             ),
             Err(ActionsValidationError::UnsupportedProtocolFeature {
                 protocol_feature: "GasKeys".to_owned(),
+                version: protocol_version,
+            })
+        );
+    }
+
+    #[test]
+    fn test_validate_action_invalid_delegate_v2_before_protocol_feature() {
+        let delegate_action = DelegateActionV2 {
+            sender_id: alice_account(),
+            receiver_id: "bob.near".parse().unwrap(),
+            actions: vec![],
+            nonce: TransactionNonce::from_nonce_and_index(1, 0),
+            max_block_height: 1000,
+            public_key: PublicKey::empty(KeyType::ED25519),
+        };
+        let action = Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+            delegate_action: delegate_action.into(),
+            signature: Signature::empty(KeyType::ED25519),
+        }));
+        let protocol_version = ProtocolFeature::DelegateV2.protocol_version() - 1;
+        assert_eq!(
+            validate_action(&test_limit_config(), &action, &alice_account(), protocol_version),
+            Err(ActionsValidationError::UnsupportedProtocolFeature {
+                protocol_feature: "DelegateV2".to_owned(),
                 version: protocol_version,
             })
         );

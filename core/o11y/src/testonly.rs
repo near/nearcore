@@ -28,10 +28,19 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
         .try_init();
 }
 
+const TEST_LOG_ENV_FILTER: &str = "cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,debug";
+
 pub fn init_test_logger() {
-    let env_filter = EnvFilter::new(
-        "cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,debug",
-    );
+    setup_subscriber_from_filter(EnvFilter::new(TEST_LOG_ENV_FILTER));
+}
+
+/// Like [`init_test_logger`] but layers extra comma-separated directives on top of the default
+/// filter, e.g. `"test_loop=warn"` to mute the expensive per-event visualizer trace in long tests.
+pub fn init_test_logger_with_directives(directives: &str) {
+    let mut env_filter = EnvFilter::new(TEST_LOG_ENV_FILTER);
+    for directive in directives.split(',').filter(|s| !s.is_empty()) {
+        env_filter = env_filter.add_directive(directive.parse().unwrap());
+    }
     setup_subscriber_from_filter(env_filter);
 }
 
