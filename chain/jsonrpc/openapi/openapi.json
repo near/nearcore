@@ -19246,6 +19246,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
+            "default": "0",
             "description": "How much creating an account should cost in NEAR. Taken into account when burning gas for\naccount creation."
           },
           "account_creation_config": {
@@ -19270,6 +19271,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
+            "default": "0",
             "description": "Minimum price at which the gas attached to a receipt is purchased. The price at which it is\nburned might be lower, in which case the difference is refunded after execution."
           },
           "storage_amount_per_byte": {
