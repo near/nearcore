@@ -106,7 +106,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     let mut balances = vec![];
 
     for (i, account) in test_accounts.iter().enumerate() {
-        let amount = Balance::from_yoctonear((1000 + 100 * i).try_into().unwrap());
+        let amount = Balance::from_near((1000 + 100 * i).try_into().unwrap());
         genesis_builder = genesis_builder.add_user_account_simple(account.clone(), amount);
 
         balances.push(amount);
