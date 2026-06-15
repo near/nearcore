@@ -140,7 +140,7 @@ impl FlatStorageResharder {
             FlatStorageReshardingTaskResult::Successful { .. } => {}
             // The task has been cancelled. Nothing else to do.
             FlatStorageReshardingTaskResult::Cancelled => {
-                set_resharding_status(&parent_shard, ReshardingStatus::Inactive);
+                set_resharding_status(&parent_shard, ReshardingStatus::Cancelled);
                 return;
             }
             FlatStorageReshardingTaskResult::Failed => {
@@ -162,7 +162,7 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingTaskResult::Cancelled => {
                 // The task has been cancelled. Nothing else to do.
-                set_resharding_status(&parent_shard, ReshardingStatus::Inactive);
+                set_resharding_status(&parent_shard, ReshardingStatus::Cancelled);
             }
         }
     }

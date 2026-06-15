@@ -319,7 +319,7 @@ Prometheus metrics covering the dynamic resharding pipeline, by stage.
 
 ### Execution (`chain/chain/src/resharding/`)
 
-- `near_resharding_status{shard_uid}` -- overall per-parent-shard state machine: -1 failed, 0 inactive/cancelled, 1 scheduled, 2 splitting flat storage, 3 flat storage catch-up, 4 resharding trie state, 5 done. Alert on -1 or on being stuck in 1-4. Only reflects reshardings executed by the running node: a resharding interrupted by a crash must be completed with the offline `resume-resharding` tool, during which the series is absent.
+- `near_resharding_status{shard_uid}` -- overall per-parent-shard state machine: -2 cancelled, -1 failed, 1 scheduled, 2 splitting flat storage, 3 flat storage catch-up, 4 resharding trie state, 5 done (no series until a resharding is scheduled for the shard). Alert on -1 or on being stuck in 1-4. Only reflects reshardings executed by the running node: a resharding interrupted by a crash must be completed with the offline `resume-resharding` tool, during which the series is absent.
 - `near_resharding_start_timestamp_seconds{shard_uid}` / `near_resharding_total_duration_seconds{shard_uid}` -- execution start (unix time) and total wall time on completion.
 - `near_resharding_memtrie_split_duration_seconds` -- histogram of the synchronous memtrie split at the boundary block (block-processing critical path).
 - Pre-existing per-component metrics: `near_flat_storage_resharding_status`, `near_flat_storage_resharding_split_shard_{processed_batches,batch_size,processed_bytes}`, `near_state_col_resharding_processed_batches`.

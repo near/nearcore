@@ -273,6 +273,13 @@ impl ReshardingActor {
             return;
         }
 
+        // The resharders return `Ok` on cancellation (e.g. on shutdown). Record the cancellation
+        // and stop here rather than proceeding to the next stage / reporting `Done`.
+        if self.resharding_handle.0.is_cancelled() {
+            set_resharding_status(&parent_shard_uid, ReshardingStatus::Cancelled);
+            return;
+        }
+
         tracing::info!(target: "resharding", "trie state resharder starting");
         if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "failed to start trie state resharding");
@@ -280,9 +287,8 @@ impl ReshardingActor {
             return;
         }
 
-        // The resharders return `Ok` on cancellation (and set `Inactive` themselves), so don't
-        // overwrite that with `Done` if resharding was cancelled mid-flight (e.g. on shutdown).
         if self.resharding_handle.0.is_cancelled() {
+            set_resharding_status(&parent_shard_uid, ReshardingStatus::Cancelled);
             return;
         }
         set_resharding_status(&parent_shard_uid, ReshardingStatus::Done);

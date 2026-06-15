@@ -328,10 +328,11 @@ pub(crate) static DYNAMIC_RESHARDING_VALIDATION_FAILURES: LazyLock<IntCounterVec
 /// Values of the `near_resharding_status` gauge.
 #[derive(Clone, Copy)]
 pub(crate) enum ReshardingStatus {
+    /// Resharding was cancelled before completing (e.g. node shutdown or the
+    /// children shards are no longer tracked).
+    Cancelled = -2,
     /// Resharding failed (at any stage).
     Failed = -1,
-    /// No resharding in progress (also set when a resharding is cancelled).
-    Inactive = 0,
     /// Resharding event received, waiting for the resharding block to become final.
     Scheduled = 1,
     /// Splitting the parent shard's flat storage.
@@ -347,9 +348,10 @@ pub(crate) enum ReshardingStatus {
 pub(crate) static RESHARDING_STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_resharding_status",
-        "Overall status of a resharding event for the parent shard: -1 - failed, \
-         0 - inactive/cancelled, 1 - scheduled, 2 - splitting flat storage, \
-         3 - flat storage catch-up, 4 - resharding trie state, 5 - done",
+        "Overall status of a resharding event for the parent shard: -2 - cancelled, \
+         -1 - failed, 1 - scheduled, 2 - splitting flat storage, \
+         3 - flat storage catch-up, 4 - resharding trie state, 5 - done. \
+         No series is exported while no resharding has been scheduled for the shard.",
         &["shard_uid"],
     )
     .unwrap()
