@@ -193,15 +193,11 @@ impl ChunkValidationActor {
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
         let key = witness.chunk_production_key();
-        // Resolve the producer the way production and witness verification do:
-        // via the grandparent anchor (EarlyKickout-aware). Under skipped slots
-        // the anchored producer differs from the canonical height-based sampler,
-        // and the canonical pick would address the ack to the wrong validator.
-        // The full witness only carries `prev_block_hash`, so the anchor is
-        // derived from the parent block. The parent may not be processed locally
-        // yet (a witness can race it); the anchored lookup is then unavailable,
-        // so fall back to the canonical sampler — the ack is a best-effort
-        // latency signal and must never abort witness processing.
+        // Resolve anchored like production/verify: under skipped slots the canonical
+        // height sampler diverges from the anchored producer and would ack the wrong
+        // validator. The anchor is derived from the parent, which may be absent locally
+        // (a witness can race it); fall back to canonical then, as the ack is a
+        // best-effort latency signal and must never abort witness processing.
         let chunk_producer = match self.epoch_manager.get_chunk_producer_info_from_prev_block(
             witness.chunk_header().prev_block_hash(),
             key.shard_id,

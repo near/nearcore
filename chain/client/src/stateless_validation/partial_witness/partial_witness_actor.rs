@@ -431,8 +431,6 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
-    // `pub(super)` so the actor tests can drive it directly, mirroring
-    // `handle_partial_encoded_state_witness_forward`.
     pub(super) fn handle_partial_encoded_state_witness(
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
@@ -472,10 +470,9 @@ impl PartialWitnessActor {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
 
-        // V1 resolves the producer via the epoch sampler; V2 via the signed grandparent
-        // anchor, which is reliably already processed even when the part races its
-        // parent block. An unprocessed anchor means this node is two or more blocks
-        // behind the chunk: drop, the part is irrelevant to us until we catch up.
+        // V1 resolves via the epoch sampler; V2 via the signed grandparent anchor, reliably
+        // processed even when the part races its parent. Unresolvable anchor (unprocessed, or
+        // missing DB row) => drop; an unprocessed anchor means the node is 2+ blocks behind.
         let chunk_producer_info = match &partial_witness {
             VersionedPartialEncodedStateWitness::V1(_) => {
                 self.epoch_manager.get_chunk_producer_info(&ChunkProductionKey {
@@ -556,9 +553,8 @@ impl PartialWitnessActor {
                         "received irrelevant partial encoded state witness",
                     );
                 }
-                // Producer or epoch data not yet available locally (node behind).
-                // No retransmit; the chunk recovers via the orphan-witness path
-                // or the chunk producer's endorsement quorum without us.
+                // Node behind: no retransmit. The chunk recovers via the orphan-witness
+                // path or the producer's endorsement quorum without us.
                 Err(Error::DBNotFoundErr(_)) => {
                     tracing::debug!(
                         target: "client",
@@ -652,9 +648,8 @@ impl PartialWitnessActor {
                             "dropping forwarded partial witness: chain data not yet available",
                         );
                     }
-                    // Assignments resolve from the signed `epoch_id` first, so a node lagging
-                    // on headers surfaces it as `EpochOutOfBounds` (the signed epoch cannot be
-                    // resolved yet). Indistinguishable from a forged epoch — drop either way.
+                    // A node lagging on headers cannot resolve the signed epoch, so this is
+                    // indistinguishable from a forged epoch: drop either way.
                     Err(Error::EpochOutOfBounds(_))
                         if partial_witness
                             .prev_block_hash()

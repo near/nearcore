@@ -13,8 +13,7 @@ use near_primitives::stateless_validation::partial_witness::{
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 
-/// Forged `height_created` on a V2 witness must be rejected by the cross-check (full rationale
-/// in `validate.rs`).
+/// A forged `height_created` on a V2 witness is rejected by the cross-check.
 #[test]
 fn v2_witness_with_height_mismatch_is_rejected() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
@@ -77,10 +76,8 @@ fn v2_witness_with_height_mismatch_is_rejected() {
     );
 }
 
-/// Loose cross-check (parent block absent): a signed `height_created` below the
-/// anchor-implied minimum (`anchor.height + 2`) must be rejected. Nightly-only:
-/// resolution must first succeed via the anchor's DB row, which only exists when
-/// EarlyKickout is enabled.
+/// Loose cross-check (parent absent) rejects a signed height below the anchor-implied
+/// minimum (`anchor.height + 2`).
 #[cfg(feature = "nightly")]
 #[test]
 fn v2_witness_with_height_below_anchor_minimum_is_rejected() {
@@ -144,12 +141,8 @@ fn v2_witness_with_height_below_anchor_minimum_is_rejected() {
     );
 }
 
-/// Loose cross-check accept path (parent block absent): a valid anchor with a
-/// signed height at the anchor-implied minimum (`anchor.height + 2`) must
-/// validate successfully. This is the headline 1-block-behind win — the witness
-/// resolves and signature-verifies before the parent is processed. Nightly-only:
-/// resolution reads the anchor's `DBCol::ChunkProducers` row, which only exists
-/// when EarlyKickout is enabled (the genesis row is seeded at chain init).
+/// Loose cross-check accepts a parent-absent witness at the anchor-implied minimum
+/// (`anchor.height + 2`): the 1-block-behind win, resolved before the parent is processed.
 #[cfg(feature = "nightly")]
 #[test]
 fn v2_witness_with_absent_parent_and_valid_anchor_is_accepted() {
@@ -211,16 +204,9 @@ fn v2_witness_with_absent_parent_and_valid_anchor_is_accepted() {
     );
 }
 
-/// Tight cross-check (parent block known): a forged grandparent anchor that
-/// does not match the parent's prev hash must be rejected, even with a correct
-/// height and epoch. Without this check an authenticated producer for one
-/// anchor could store/forward under a different anchor's key.
-///
-/// Runs on the canonical resolution path (EarlyKickout off): producer
-/// resolution ignores the anchor, so the tight cross-check is reached. Under
-/// EarlyKickout a forged non-default anchor is rejected earlier still — the
-/// anchored DB lookup fails with `MissingBlock` because the anchor is not a
-/// processed block.
+/// Tight cross-check (parent known) rejects a forged grandparent anchor mismatching the
+/// parent's prev hash. On the canonical path (EarlyKickout off); under EarlyKickout the
+/// anchored DB lookup rejects it earlier still.
 #[cfg(not(feature = "nightly"))]
 #[test]
 fn v2_witness_with_anchor_mismatch_is_rejected() {

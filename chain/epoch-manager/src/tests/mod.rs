@@ -3692,9 +3692,7 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
     );
 }
 
-/// Aggregator must attribute chunk production to the producer resolved via the
-/// grandparent anchor's ChunkProducers DB row (same-epoch), not the canonical
-/// sampler, mirroring consensus resolution.
+/// Aggregator attributes chunk production via the anchor's DB row, not the canonical sampler.
 #[cfg(feature = "nightly")]
 #[test]
 fn test_aggregator_anchored_chunk_producers() {
@@ -3717,8 +3715,6 @@ fn test_aggregator_anchored_chunk_producers() {
     );
     let h = hash_range(4);
 
-    // Record blocks at heights 0..=3 with a full chunk mask so the shard
-    // tracker accumulates chunk stats.
     let mut prev = CryptoHash::default();
     for (height, hash) in h.iter().enumerate() {
         let epoch_id =
@@ -3782,8 +3778,6 @@ fn test_aggregator_anchored_chunk_producers() {
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
     let stats = &aggregator.shard_tracker[&shard_id];
 
-    // Heights 1 and 2 resolve via the legacy sampler (genesis-adjacent anchors);
-    // height 3 must be attributed to the anchored DB row's validator.
     let mut expected: HashMap<ValidatorId, u64> = HashMap::new();
     for height in 1..=2 {
         let id = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();

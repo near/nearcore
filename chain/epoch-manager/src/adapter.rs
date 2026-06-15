@@ -587,10 +587,8 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        // Read the parent `BlockInfo` once and derive both the chunk height and
-        // the grandparent anchor from it (the standalone `grandparent_anchor`
-        // would re-read the same block). This is a hot path: chunk-header
-        // signature verification and chunk-request target selection.
+        // Read the parent `BlockInfo` once for both height and anchor (the standalone
+        // `grandparent_anchor` would re-read it); this is a hot signature-verification path.
         let prev_block_info = self.get_block_info(prev_block_hash)?;
         let height_created = prev_block_info.height() + 1;
         // Mirrors `grandparent_anchor`: no real grandparent for a genesis chunk

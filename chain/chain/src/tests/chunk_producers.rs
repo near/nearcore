@@ -57,8 +57,6 @@ mod tests {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
-        // The chunk producer anchored at the block (chunk at block_height + 2)
-        // should be stored under (block_hash, shard_id).
         for shard_id in shard_layout.shard_ids() {
             let key = get_block_shard_id(&block_hash, shard_id);
             let value: Option<ValidatorStake> =
@@ -70,8 +68,7 @@ mod tests {
         }
     }
 
-    /// Verify that saved chunk producers match what epoch_info.sample_chunk_producer
-    /// returns at the anchored height (anchor height + 2).
+    /// Saved chunk producers match the sampler at the anchored height (anchor + 2).
     #[test]
     fn test_chunk_producers_match_sampling() {
         init_test_logger();
@@ -89,8 +86,6 @@ mod tests {
             chain.process_block_test(block).unwrap();
         }
 
-        // For an anchor block, verify saved chunk producers match deterministic
-        // sampling at anchor height + 2.
         let head = chain.head().unwrap();
         let block = chain.get_block(&head.last_block_hash).unwrap();
         let anchor_hash = block.header().prev_hash();
@@ -120,8 +115,7 @@ mod tests {
         }
     }
 
-    /// Verify that the ChunkProducers column is populated after header sync
-    /// (a different code path from block processing).
+    /// ChunkProducers is populated after header sync (a path distinct from block processing).
     #[test]
     fn test_chunk_producers_populated_after_header_sync() {
         init_test_logger();
@@ -169,9 +163,7 @@ mod tests {
         }
     }
 
-    /// Verify that get_chunk_producer_info_from_prev_block resolves through the
-    /// grandparent anchor's DB row, not the parent's: overwrite the anchor row
-    /// with a sentinel validator and observe it returned.
+    /// Resolution reads the grandparent anchor's DB row, not the parent's.
     #[test]
     fn test_resolution_reads_anchor_db_row() {
         init_test_logger();
@@ -179,7 +171,6 @@ mod tests {
         clock.advance(Duration::milliseconds(3444));
         let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
 
-        // Build two blocks: b1 (anchor), b2 (parent of the resolved chunk).
         let mut hashes = Vec::new();
         for _ in 0..2 {
             let prev_hash = *chain.head_header().unwrap().hash();
@@ -196,13 +187,12 @@ mod tests {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
 
-        // Overwrite the anchor row with a sentinel validator.
         let sentinel = ValidatorStake::new(
             "sentinel".parse().unwrap(),
             PublicKey::empty(KeyType::ED25519),
             Balance::from_yoctonear(1),
         );
-        // ChunkProducers is insert-only: delete the row, then insert the sentinel.
+        // ChunkProducers is insert-only: delete then insert.
         let mut update = chain.chain_store().store().store_update();
         update.delete(DBCol::ChunkProducers, &get_block_shard_id(&anchor_hash, shard_id));
         update.commit();
@@ -231,9 +221,7 @@ mod tests {
         assert_ne!(parent_row.unwrap().account_id().as_str(), "sentinel");
     }
 
-    /// A chunk whose grandparent anchor belongs to the previous epoch (first <=2
-    /// blocks of an epoch) must resolve via the canonical sampler, ignoring the
-    /// anchor's DB row.
+    /// A cross-epoch grandparent anchor resolves via the canonical sampler, ignoring its DB row.
     #[test]
     // TestBlockBuilder does not maintain spice's prev_last_certified_block_epoch_id
     // across epoch boundaries, so header validation rejects the boundary block.
@@ -336,7 +324,6 @@ mod tests {
             "genesis parent implies no grandparent anchor"
         );
         for shard_id in shard_layout.shard_ids() {
-            // No grandparent: must not error, must match the canonical sampler.
             let resolved = epoch_manager
                 .get_chunk_producer_info_from_prev_block(&genesis_hash, shard_id)
                 .unwrap();
@@ -362,8 +349,7 @@ mod tests {
         }
     }
 
-    /// Verify that resolution errors on a missing anchor DB row when EarlyKickout
-    /// is enabled (strict read).
+    /// Resolution errors on a missing anchor DB row under EarlyKickout (strict read).
     #[test]
     fn test_resolution_errors_on_anchor_db_miss() {
         init_test_logger();
@@ -371,7 +357,6 @@ mod tests {
         clock.advance(Duration::milliseconds(3444));
         let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
 
-        // Build two blocks; chunks on top of the second anchor at the first.
         let mut hashes = Vec::new();
         for _ in 0..2 {
             let prev_hash = *chain.head_header().unwrap().hash();
@@ -387,7 +372,6 @@ mod tests {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&parent_hash).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
-        // Succeeds while the anchor rows are present.
         for shard_id in shard_layout.shard_ids() {
             assert!(
                 epoch_manager
@@ -397,7 +381,6 @@ mod tests {
             );
         }
 
-        // Delete the anchor rows to simulate a miss.
         {
             let mut store_update = chain.chain_store().store().store_update();
             for shard_id in shard_layout.shard_ids() {
@@ -419,8 +402,7 @@ mod tests {
         }
     }
 
-    /// An unprocessed anchor surfaces as MissingBlock (node two or more blocks
-    /// behind the chunk).
+    /// An unprocessed anchor surfaces as MissingBlock (node two or more blocks behind).
     #[test]
     fn test_resolution_errors_on_unprocessed_anchor() {
         init_test_logger();
@@ -443,8 +425,7 @@ mod tests {
     }
 }
 
-/// With EarlyKickout disabled (stable build), resolution must be byte-identical
-/// to the legacy CPK computation.
+/// With EarlyKickout disabled (stable), resolution must match the legacy CPK computation.
 #[cfg(not(feature = "nightly"))]
 mod stable_tests {
     use crate::test_utils::setup;

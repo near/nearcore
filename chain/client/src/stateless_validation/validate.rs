@@ -33,7 +33,7 @@ pub enum ChunkRelevance {
     /// Chunk is irrelevant because it's height is less or equal to the current final head.
     TooLate,
     /// Chunk is irrelevant because it's height is more than `MAX_HEIGHTS_AHEAD`
-    /// from the current final head.
+    /// from the current head.
     TooEarly,
     /// Chunk is irrelevant because it's impossible to establish the ID of the epoch
     /// to which it should belong.
@@ -146,17 +146,14 @@ pub fn validate_partial_encoded_state_witness(
                 .with_label_values(&[shard_id_label.as_str(), label])
                 .inc();
             let info = result?;
-            // Cross-check the signed chunk key against the signed anchor. The producer
-            // signature authenticates (epoch_id, shard_id, height_created, prev_block_hash,
-            // prev_prev_block_hash); without this check an authenticated producer could sign
-            // a witness with any (epoch_id, height_created) and we would store/forward under
-            // a forged key.
+            // Cross-check the signed chunk key against the signed anchor: without it an
+            // authenticated producer could sign under any (epoch_id, height_created) and we
+            // would store/forward under a forged key.
             //
             // Tight check when the parent block is locally known: the signed anchor, height
             // and epoch must match exactly what the parent implies. Loose check when the
-            // parent is absent (witness raced it — the 1-block-behind win): the signed height
-            // must be consistent with the anchor's height; the upper bound comes from the
-            // `MAX_HEIGHTS_AHEAD` relevance gate above.
+            // parent is absent (witness raced it): the signed height must be consistent with
+            // the anchor's height; the upper bound comes from the `MAX_HEIGHTS_AHEAD` gate above.
             match epoch_manager.get_block_info(v2.prev_block_hash()) {
                 Ok(parent_info) => {
                     let expected_epoch_id =
@@ -327,9 +324,9 @@ fn ensure_chunk_validator(
 /// - height_created is in (last_final_height..chain_head_height + MAX_HEIGHTS_AHEAD] range
 /// - epoch_id is within epoch_manager's possible_epochs_of_height_around_tip
 /// Returns:
-/// - Ok(true) if ChunkProductionKey is valid and we should process it.
-/// - Ok(false) if ChunkProductionKey is potentially valid, but at this point we should not
-///   process it. One example of that is if the witness is too old.
+/// - `Ok(ChunkRelevance::Relevant)` if ChunkProductionKey is valid and we should process it.
+/// - `Ok(ChunkRelevance::*)` (a non-relevant variant) if ChunkProductionKey is potentially valid,
+///   but at this point we should not process it. One example of that is if the witness is too old.
 /// - Err if ChunkProductionKey is invalid which most probably indicates malicious behavior.
 fn validate_chunk_relevant(
     epoch_manager: &dyn EpochManagerAdapter,

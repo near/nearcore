@@ -1,13 +1,6 @@
-//! Integration smoke test for immediate V2 partial witness resolution via the
-//! grandparent anchor. A witness part for the chunk at height H naturally races
-//! the parent block H-1 (the producer emits parts right after chunk production),
-//! so on every height the receiving validator resolves the producer from the
-//! signed `prev_prev_block_hash` (H-2, already processed) and signature-verifies
-//! the part immediately — there is no defer/replay machinery anymore. If the
-//! resolution failed (anchor row missing or wrongly dropped parts), the chunk
-//! could never be endorsed — witness parts are not retransmitted — and its mask
-//! bit would stay false. Nightly-gated: the V2 wire path needs
-//! `ProtocolFeature::EarlyKickout`.
+//! Smoke test: every chunk gets endorsed when V2 witnesses resolve via the grandparent
+//! anchor. Witness parts are not retransmitted, so a false chunk-mask bit is the oracle
+//! for a dropped part or failed producer resolution. Nightly-gated (`EarlyKickout`).
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -18,8 +11,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance};
 
-/// Two clients: account0 produces blocks/chunks, account1 is the chunk
-/// validator that receives V2 witnesses.
+/// account0 produces blocks/chunks; account1 is the chunk validator receiving V2 witnesses.
 const PRODUCER: &str = "account0";
 const RECEIVER: &str = "account1";
 
@@ -69,9 +61,8 @@ fn test_v2_witness_immediate_resolution() {
         Duration::seconds(30),
     );
 
-    // Every produced block past the first must carry its chunk: a single missed
-    // mask bit means the receiver failed to endorse, i.e. the witness part was
-    // dropped or its producer resolution failed.
+    // A false mask bit means the receiver failed to endorse: part dropped or
+    // producer resolution failed.
     let chain = &env.test_loop.data.get(&producer_client_handle).client.chain;
     let mut hash = chain.head().unwrap().last_block_hash;
     loop {

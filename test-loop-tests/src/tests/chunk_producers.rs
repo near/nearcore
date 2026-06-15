@@ -1,10 +1,5 @@
-/// Tests for the ChunkProducers DB column across resharding boundaries.
-///
-/// Verifies that `get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id)` returns
-/// the correct chunk producer even when the shard layout changes between epochs
-/// (i.e. a shard that didn't exist in epoch E1 can be looked up using the hash
-/// of the last block in E1, because the write side saves using the next epoch's
-/// shard layout at the boundary).
+/// ChunkProducers resolution works across a resharding boundary: every shard in the new
+/// epoch's layout resolves correctly when looked up via the old epoch's last block.
 #[cfg(feature = "nightly")]
 mod tests {
     use crate::setup::builder::TestLoopBuilder;
@@ -25,8 +20,7 @@ mod tests {
     fn test_chunk_producers_resharding_boundary() {
         init_test_logger();
 
-        // Start with 3 shards, epoch_length=5, one protocol version behind
-        // so that the protocol upgrade triggers resharding.
+        // One protocol version behind so the upgrade triggers resharding.
         let version = 3;
         let base_shard_layout = ShardLayout::multi_shard(3, version);
         let epoch_length = 5;
@@ -59,7 +53,6 @@ mod tests {
 
         let epoch_manager = env.validator().client().epoch_manager.clone();
 
-        // Wait until the new shard layout is active (resharding completed).
         env.validator_runner().run_until(
             |node| {
                 let epoch_id = node.head().epoch_id;
@@ -68,9 +61,7 @@ mod tests {
             Duration::seconds((3 * epoch_length) as i64),
         );
 
-        // Walk backwards from head to find the last block of the old epoch.
-        // That's the block B where is_next_block_epoch_start(B.hash()) == true
-        // and the next block started the new-shard-layout epoch.
+        // Walk back to the last block of the old epoch.
         let head_block = env.validator().head_block();
         let mut block = head_block;
         loop {
@@ -79,8 +70,7 @@ mod tests {
             let prev_epoch_id = epoch_manager.get_epoch_id(prev_block.hash()).unwrap();
             let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
             if prev_shard_layout == base_shard_layout {
-                // prev_block is in the old epoch. The boundary block is prev_block
-                // (the last block before the epoch with the new layout).
+                // prev_block is the last block of the old epoch.
                 block = prev_block;
                 break;
             }
@@ -91,23 +81,18 @@ mod tests {
         let boundary_epoch_id = epoch_manager.get_epoch_id(boundary_block_hash).unwrap();
         let boundary_shard_layout = epoch_manager.get_shard_layout(&boundary_epoch_id).unwrap();
 
-        // Verify we found a block in the old epoch.
         assert_eq!(boundary_shard_layout, base_shard_layout);
-        // And that the next block starts the new epoch.
         assert!(
             epoch_manager.is_next_block_epoch_start(boundary_block_hash).unwrap(),
             "boundary block should be the last block of the old epoch"
         );
 
-        // The new shard layout has more shards than the old one (resharding split).
         assert!(
             new_shard_layout.shard_ids().count() > base_shard_layout.shard_ids().count(),
             "new layout should have more shards than old layout"
         );
 
-        // For every shard in the NEW layout (including shards that didn't exist
-        // in the old layout), verify that get_chunk_producer_info_from_prev_block returns a
-        // valid result using the last block hash of the OLD epoch.
+        // Every shard in the new layout resolves via the old epoch's last block hash.
         let next_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(boundary_block_hash).unwrap();
         let next_height = block.header().height() + 1;
@@ -122,7 +107,7 @@ mod tests {
                 db_result.err()
             );
 
-            // Cross-check: the DB result should match the CPK-based computation.
+            // Cross-check resolution against the canonical CPK computation.
             let cpk_result = epoch_manager
                 .get_chunk_producer_info(&ChunkProductionKey {
                     epoch_id: next_epoch_id,

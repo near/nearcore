@@ -68,7 +68,7 @@
 //! Before `process_partial_encoded_chunk` returns HaveAllPartsAndReceipts, it will perform
 //! the validation steps and return error if validation fails.
 //! 1) validate the chunk header is signed by the correct chunk producer and the chunk producer
-//!    is not slashed (see `validate_chunk_header`)
+//!    is not slashed (see `validate_chunk_header_preliminary` and `validate_chunk_header_full`)
 //! 2) validate the merkle proofs of the parts and receipts with regarding to the parts root and
 //!    receipts root in the chunk header (see the beginning of `process_partial_encoded_chunk`)
 //! 3) after the full chunk is reconstructed, validate chunk's proofs in the header matches the body
@@ -493,12 +493,9 @@ impl ShardsManagerActor {
         {
             Ok(info) => Some(info.take_account_id()),
             Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
-                // prev_block not processed (orphan) or invalid shard selection.
-                // Downstream target selection falls through to a random shard
-                // tracker anyway — for orphans, old_block = true forces
-                // request_own_parts_from_others = true, which bypasses
-                // chunk_producer_account_id at the shard_representative_target
-                // match below.
+                // Orphan (prev_block unprocessed) or invalid shard selection. Target
+                // selection falls through to a random shard tracker; for orphans
+                // old_block = true forces request_own_parts_from_others, bypassing this.
                 None
             }
             Err(err) => return Err(err.into()),
@@ -3435,16 +3432,10 @@ mod test {
 
     #[test]
     fn test_orphan_chunk_request_graceful_degradation() {
-        // When requesting chunks for orphans, prev_block_hash (from the chunk header) is unknown
-        // to the epoch manager because the parent block hasn't been processed yet. Verify the
-        // orphan path executes without panics and still emits network requests:
-        // - request_partial_encoded_chunk: get_chunk_producer_info_from_prev_block returns MissingBlock, so
-        //   chunk_producer_account_id is None. Target selection bypasses it anyway because
-        //   old_block = true forces request_own_parts_from_others = true, picking a random
-        //   shard tracker.
-        // - should_wait_for_chunk_forwarding: uses CPK-based lookup at height_created + 1 and
-        //   returns Ok(false) because `me` isn't the next chunk producer.
-        // - resend_chunk_requests: re-exercises the same path with the stored prev_block_hash.
+        // Orphan request path: prev_block_hash is unknown to the epoch manager (parent
+        // unprocessed). Verify it executes without panic and still emits network requests
+        // across request_partial_encoded_chunk, should_wait_for_chunk_forwarding and
+        // resend_chunk_requests.
         let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
@@ -3672,17 +3663,11 @@ mod test {
         );
     }
 
-    /// Test that when the chunk's prev block is unprocessed (orphan), the
-    /// anchored producer lookup fails with MissingBlock and the chunk forward is
-    /// cached (not rejected) via the DBNotFoundErr path. This exercises the
-    /// MissingBlock → DBNotFoundErr error mapping that replaced the broad
-    /// ValidatorError catch.
+    /// An orphan chunk forward (unprocessed prev block) is cached, not rejected,
+    /// via the MissingBlock -> DBNotFoundErr mapping.
     #[cfg(feature = "nightly")]
     #[test]
     fn test_forward_cached_on_unprocessed_prev_block() {
-        // Orphan fixture: prev_block_hash is unknown to the epoch manager, so the
-        // anchored producer lookup fails with MissingBlock (-> DBNotFoundErr) and
-        // the forward is cached for later validation.
         let fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
         let mut shards_manager = make_shards_manager(&fixture);
 

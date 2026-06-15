@@ -61,9 +61,7 @@ fn anchor_hashes_absent_for_v1_present_for_v2() {
     assert_eq!(v2.prev_prev_block_hash(), Some(&CryptoHash::hash_bytes(b"prev_prev_block")));
 }
 
-// Kickout gate symmetry tests. Pure function: security boundary (which
-// witness variants drop at which kickout state) directly testable without
-// standing up an actor.
+// Kickout gate is a pure function: test the drop boundary without standing up an actor.
 
 fn v1_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
     make_witness(signer, CryptoHash::hash_bytes(b"v1_block"), pre_kickout_version())
@@ -87,8 +85,7 @@ fn witness_kicked_out_post_kickout_drops_v1_proceeds_v2() {
     assert!(!witness_kicked_out(Some(post_kickout_version()), &v2_witness(&signer)));
 }
 
-/// Unknown epoch (header-sync lag) must NOT drop either variant; dropping V2 would discard
-/// legitimate post-kickout traffic that never retransmits.
+/// Unknown epoch (header-sync lag) must not drop either variant: V2 traffic never retransmits.
 #[test]
 fn witness_kicked_out_unknown_epoch_proceeds_both_variants() {
     let signer = create_test_signer("test_account");
@@ -220,9 +217,7 @@ impl AsyncComputationSpawner for InlineSpawner {
     }
 }
 
-/// P2-7 regression: a forwarded V2 part for an unsynced epoch surfaces as
-/// `EpochOutOfBounds` (not `DBNotFoundErr`). With the defer cache gone it must be
-/// dropped quietly — no error bubbles out of the handler.
+/// P2-7 regression: a forwarded V2 part for an unsynced epoch (`EpochOutOfBounds`) is dropped quietly.
 #[test]
 fn forward_drops_v2_on_unknown_epoch_unsynced_prev() {
     let (_chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -242,11 +237,7 @@ fn forward_drops_v2_on_unknown_epoch_unsynced_prev() {
     actor.handle_partial_encoded_state_witness_forward(witness).unwrap();
 }
 
-/// Init-emit path: a V2 part whose grandparent anchor is unprocessed (node two
-/// or more blocks behind) must be dropped quietly — `Ok(())` with no validate
-/// spawn — now that the defer/replay cache is gone. Nightly-only: the anchored
-/// lookup consults `DBCol::ChunkProducers` and fails with `MissingBlock` only
-/// when EarlyKickout is enabled.
+/// A V2 part with an unprocessed grandparent anchor (node 2+ blocks behind) drops quietly, no spawn.
 #[cfg(feature = "nightly")]
 #[test]
 fn init_emit_drops_v2_on_unprocessed_anchor_without_spawn() {
