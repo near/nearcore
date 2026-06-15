@@ -8,7 +8,6 @@ use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_chain::BlockHeader;
-use near_chain::ChainStoreAccess;
 use near_chain::PendingShardJobs;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::get_receipts_shuffle_salt;
@@ -24,7 +23,8 @@ use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
-    Block, Chain, ChainGenesis, ChainStore, Error, collect_receipts, get_chunk_clone_from_header,
+    Block, Chain, ChainGenesis, Error, collect_receipts, compute_transaction_validity,
+    get_chunk_clone_from_header,
 };
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
@@ -47,6 +47,7 @@ use near_primitives::types::BlockExecutionResults;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::ChunkExecutionResultHash;
+use near_primitives::types::NumBlocks;
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId};
@@ -62,6 +63,7 @@ use near_store::StoreUpdate;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -74,8 +76,87 @@ struct ChunkExecutionData {
     pub code_accesses: HashSet<CodeHash>,
 }
 
+/// Construction-only dependencies shared with every per-shard executor. Bundled
+/// so `PerShardChunkExecutor::new` takes one argument instead of eight; the
+/// coordinator keeps its own clones (the apply path stays coordinator-side for now).
+#[derive(Clone)]
+pub(crate) struct PerShardDeps {
+    pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub(crate) epoch_manager: Arc<dyn EpochManagerAdapter>,
+    pub(crate) network_adapter: PeerManagerAdapter,
+    pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
+    pub(crate) data_distributor_adapter: SpiceDataDistributorAdapter,
+    pub(crate) config: ChunkPersistenceConfig,
+    pub(crate) validator_signer: MutableValidatorSigner,
+    pub(crate) core_reader: SpiceCoreReader,
+}
+
+/// Per-tracked-shard executor. This change lands the chassis and lifecycle; the
+/// apply path, sinks, and receipt tracker migrate here in follow-up changes, which
+/// wire in these fields and drop the suppression.
+#[allow(dead_code)]
+pub(crate) struct PerShardChunkExecutor {
+    shard_uid: ShardUId,
+    chain_store: ChainStoreAdapter,
+    transaction_validity_period: NumBlocks,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
+    core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
+    data_distributor_adapter: SpiceDataDistributorAdapter,
+    config: ChunkPersistenceConfig,
+    validator_signer: MutableValidatorSigner,
+    core_reader: SpiceCoreReader,
+    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    apply_done_sender: Sender<ExecutorApplyChunksDone>,
+    blocks_in_execution: HashSet<CryptoHash>,
+    parked_blocks: BTreeSet<(BlockHeight, CryptoHash)>,
+    unverified_receipts: HashMap<CryptoHash, Vec<ReceiptProof>>,
+}
+
+impl PerShardChunkExecutor {
+    fn new(
+        shard_uid: ShardUId,
+        chain_store: ChainStoreAdapter,
+        deps: PerShardDeps,
+        transaction_validity_period: NumBlocks,
+        apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+        apply_done_sender: Sender<ExecutorApplyChunksDone>,
+    ) -> Self {
+        let PerShardDeps {
+            runtime_adapter,
+            epoch_manager,
+            network_adapter,
+            core_writer_sender,
+            data_distributor_adapter,
+            config,
+            validator_signer,
+            core_reader,
+        } = deps;
+        Self {
+            shard_uid,
+            chain_store,
+            transaction_validity_period,
+            runtime_adapter,
+            epoch_manager,
+            network_adapter,
+            core_writer_sender,
+            data_distributor_adapter,
+            config,
+            validator_signer,
+            core_reader,
+            apply_chunks_spawner,
+            apply_done_sender,
+            blocks_in_execution: HashSet::new(),
+            parked_blocks: BTreeSet::new(),
+            unverified_receipts: HashMap::new(),
+        }
+    }
+}
+
 pub struct ChunkExecutorActor {
-    pub(crate) chain_store: ChainStore,
+    pub(crate) chain_store: ChainStoreAdapter,
+    transaction_validity_period: NumBlocks,
     pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub(crate) epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub(crate) shard_tracker: ShardTracker,
@@ -85,6 +166,10 @@ pub struct ChunkExecutorActor {
     pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
     config: ChunkPersistenceConfig,
+
+    /// One executor per tracked shard, reconciled on every block. Keyed by
+    /// `ShardUId` so per-shard state can't be conflated across shard layouts.
+    per_shard_executors: HashMap<ShardUId, PerShardChunkExecutor>,
 
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
@@ -110,19 +195,20 @@ impl ChunkExecutorActor {
     ) -> Self {
         let core_reader =
             SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
-        let chain_store =
-            ChainStore::new(store, config.save_trie_changes, genesis.transaction_validity_period)
-                .with_save_tx_outcomes(config.save_tx_outcomes)
-                .with_save_receipt_to_tx(config.save_receipt_to_tx)
-                .with_save_state_changes(config.save_state_changes);
+        // Spice reads/writes only through adapters; the `with_save_*` flags on
+        // `ChainStore` gate its own write methods, which spice never calls
+        // (writes go through `apply_chunk_postprocessing` with `ChunkPersistenceConfig`).
+        let chain_store = store.chain_store();
         Self {
             chain_store,
+            transaction_validity_period: genesis.transaction_validity_period,
             runtime_adapter,
             epoch_manager,
             shard_tracker,
             network_adapter,
             apply_chunks_spawner,
             myself_sender,
+            per_shard_executors: HashMap::new(),
             blocks_in_execution: HashSet::new(),
             validator_signer,
             core_reader,
@@ -383,6 +469,55 @@ struct ChunkApplicationContext<'a> {
 }
 
 impl ChunkExecutorActor {
+    /// Snapshot of the construction-only deps shared with each per-shard executor.
+    fn per_shard_deps(&self) -> PerShardDeps {
+        PerShardDeps {
+            runtime_adapter: self.runtime_adapter.clone(),
+            epoch_manager: self.epoch_manager.clone(),
+            network_adapter: self.network_adapter.clone(),
+            core_writer_sender: self.core_writer_sender.clone(),
+            data_distributor_adapter: self.data_distributor_adapter.clone(),
+            config: self.config.clone(),
+            validator_signer: self.validator_signer.clone(),
+            core_reader: self.core_reader.clone(),
+        }
+    }
+
+    /// Lazily construct the executor for `shard_uid`, cloning a `ChainStoreAdapter`
+    /// and the shared deps from the coordinator only when the executor is absent
+    /// (the hot reconcile path hits the already-present branch and clones nothing).
+    fn get_or_create_per_shard_executor(
+        &mut self,
+        shard_uid: ShardUId,
+    ) -> &mut PerShardChunkExecutor {
+        if !self.per_shard_executors.contains_key(&shard_uid) {
+            let executor = PerShardChunkExecutor::new(
+                shard_uid,
+                self.chain_store.clone(),
+                self.per_shard_deps(),
+                self.transaction_validity_period,
+                self.apply_chunks_spawner.clone(),
+                self.myself_sender.clone(),
+            );
+            self.per_shard_executors.insert(shard_uid, executor);
+        }
+        self.per_shard_executors.get_mut(&shard_uid).expect("inserted above when absent")
+    }
+
+    /// Spawn executors for newly-tracked shards and evict ones no longer tracked.
+    /// Eviction is immediate; the apply-done handler's graceful-drop guard (added
+    /// when the apply path migrates) covers any in-flight apply that lands after
+    /// eviction.
+    fn reconcile_tracked_shards(&mut self, prev_hash: &CryptoHash) -> Result<(), Error> {
+        let tracked = self.shard_tracker.tracked_shard_uids(prev_hash)?;
+        for shard_uid in &tracked {
+            self.get_or_create_per_shard_executor(*shard_uid);
+        }
+        let tracked_set: HashSet<ShardUId> = tracked.iter().copied().collect();
+        self.per_shard_executors.retain(|shard_uid, _| tracked_set.contains(shard_uid));
+        Ok(())
+    }
+
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     fn try_apply_chunks(
         &mut self,
@@ -405,6 +540,10 @@ impl ChunkExecutorActor {
         let block_chunk_headers = block.chunks();
         let header = block.header();
         let prev_block_hash = header.prev_hash();
+        // Keep the per-shard executor set in sync with tracked shards. Dispatch is
+        // still coordinator-side, so spawn/evict here only maintains the registry.
+        // TODO(spice): route chunk applies through these per-shard executors.
+        self.reconcile_tracked_shards(prev_block_hash)?;
         let prev_block = self.chain_store.get_block(&prev_block_hash)?;
         let store = self.chain_store.store();
 
@@ -824,6 +963,7 @@ impl ChunkExecutorActor {
                     let proof = if chunk_header.is_new_chunk(block.header().height()) {
                         // Chunk is new but invalid (malicious producer): include proof.
                         self.chain_store
+                            .chunk_store()
                             .is_invalid_chunk(chunk_header.chunk_hash())
                             .map(|enc| Box::new(enc.content().clone()))
                     } else {
@@ -888,10 +1028,11 @@ impl ChunkExecutorActor {
         if !chunk_header.is_new_chunk(height) {
             return Ok(None);
         }
-        match get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header) {
+        let chunk_store = self.chain_store.chunk_store();
+        match get_chunk_clone_from_header(&chunk_store, chunk_header) {
             Ok(chunk) => Ok(Some(chunk)),
             Err(Error::ChunkMissing(_))
-                if self.chain_store.is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
+                if chunk_store.is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
             {
                 Ok(None)
             }
@@ -922,8 +1063,12 @@ impl ChunkExecutorActor {
         {
             Some(chunk) => {
                 let chunk_hash = chunk.chunk_hash().clone();
-                let tx_valid_list =
-                    self.chain_store.compute_transaction_validity(prev_block_header, &chunk);
+                let tx_valid_list = compute_transaction_validity(
+                    &self.chain_store,
+                    self.transaction_validity_period,
+                    prev_block_header,
+                    &chunk,
+                );
                 (
                     SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list),
                     Some(chunk_hash),
@@ -975,7 +1120,7 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Option<Arc<ChunkExtra>>, Error> {
-        match self.chain_store.get_chunk_extra(block_hash, shard_uid) {
+        match self.chain_store.chunk_store().get_chunk_extra(block_hash, shard_uid) {
             Ok(chunk_extra) => Ok(Some(chunk_extra)),
             Err(Error::DBNotFoundErr(_)) => Ok(None),
             Err(err) => Err(err),

@@ -368,7 +368,7 @@ fn produce_block(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
     let chunks =
         get_fake_next_block_chunk_headers(&prev_block, actors[0].actor.epoch_manager.as_ref());
     for actor in actors.iter_mut() {
-        let mut store_update = actor.actor.chain_store.store_update();
+        let mut store_update = actor.chain.chain_store.store_update();
         for chunk_header in &chunks {
             store_update.save_chunk(ShardChunk::new(chunk_header.clone(), vec![], vec![]));
         }
@@ -1048,7 +1048,7 @@ fn test_witness_is_valid() {
             &prev_block,
             &prev_block_execution_results,
             actor.actor.epoch_manager.as_ref(),
-            &actor.actor.chain_store,
+            &actor.chain.chain_store,
             prev_validator_proposals,
         )
         .unwrap();

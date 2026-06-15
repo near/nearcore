@@ -341,6 +341,8 @@ pub enum ProtocolFeature {
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
+    /// Meta transactions with gas key support via `Action::DelegateV2`.
+    DelegateV2,
     /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
     /// Previously, the allowance was decremented in-place before later checks
     /// (storage stake, function call permission) that could return an error,
@@ -423,6 +425,12 @@ pub enum ProtocolFeature {
     /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
     /// state when validating received block headers.
     ValidateBlockOrdinalAndEpochSyncDataHash,
+    /// Authenticate `ContractCodeResponse` messages with a chunk-producer
+    /// signature, matching the signed-message pattern already used by
+    /// `ChunkContractAccesses` and `ContractCodeRequest`. Senders emit
+    /// `ContractCodeResponseV2` (with a signed inner payload); receivers
+    /// require a verifiable signature before processing the response.
+    SignedContractCodeResponse,
 }
 
 impl ProtocolFeature {
@@ -544,7 +552,9 @@ impl ProtocolFeature {
             | ProtocolFeature::UniqueChunkTransactions
             | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
             | ProtocolFeature::YieldWithId
-            | ProtocolFeature::ExecutionMetadataV4 => 85,
+            | ProtocolFeature::ExecutionMetadataV4
+            | ProtocolFeature::SignedContractCodeResponse
+            | ProtocolFeature::DelegateV2 => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
