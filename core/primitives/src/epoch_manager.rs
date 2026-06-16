@@ -665,10 +665,12 @@ mod tests {
         }
     }
 
-    /// There must be enough chunk producer seats to assign at least
-    /// `minimum_validators_per_shard` producers to every shard, even after the
-    /// shard count grows to its maximum (via dynamic resharding). Otherwise, some
-    /// shard could end up without the required number of chunk producers.
+    /// There must be enough chunk producer seats to assign
+    /// `minimum_validators_per_shard` producers to every shard without repeats,
+    /// even after the shard count grows to its maximum (via dynamic resharding).
+    /// Otherwise validator selection falls back to an assignment strategy that is
+    /// unsuitable for production: it is not sticky as validators join and leave,
+    /// and it may assign the same chunk producer to more than one shard.
     #[test]
     fn test_enough_chunk_producer_seats() {
         for chain_id in ["mainnet", "testnet"] {
