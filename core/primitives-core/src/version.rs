@@ -444,6 +444,10 @@ pub enum ProtocolFeature {
     /// require a verifiable signature before processing the response.
     SignedContractCodeResponse,
     ClampOutgoingGasAdmission,
+    /// Charge the contract-loading fee (and finalize as a gas-bearing abort
+    /// rather than a zero-gas nop) when a compiled module fails to load at
+    /// `Module::deserialize`.
+    FixContractLoadingError,
 }
 
 impl ProtocolFeature {
@@ -571,6 +575,8 @@ impl ProtocolFeature {
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
 
+            ProtocolFeature::FixContractLoadingError => 86,
+
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -621,7 +627,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 86;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 155;

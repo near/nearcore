@@ -204,6 +204,12 @@ pub struct Config {
     /// Enable the `FixContractLoadingCost` protocol feature.
     pub fix_contract_loading_cost: bool,
 
+    /// Enable the `FixContractLoadingError` protocol feature: charge the
+    /// contract-loading fee and finalize as a gas-bearing abort (instead of a
+    /// zero-gas nop) when a compiled module fails to load at
+    /// `Module::deserialize`.
+    pub fix_contract_loading_error: bool,
+
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
 

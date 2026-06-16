@@ -318,6 +318,7 @@ impl From<VMConfigView> for crate::vm::Config {
             limit_config: view.limit_config,
             storage_get_mode: view.storage_get_mode,
             fix_contract_loading_cost: view.fix_contract_loading_cost,
+            fix_contract_loading_error: true,
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
             eth_implicit_global_contract: view.eth_implicit_global_contract,

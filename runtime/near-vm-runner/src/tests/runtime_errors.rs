@@ -1,8 +1,9 @@
 use super::test_builder::test_builder;
-use crate::logic::errors::VMRunnerError;
+use crate::logic::errors::{FunctionCallError, VMRunnerError};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::VMKindExt;
 use expect_test::expect;
+use near_parameters::ExtCosts;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
 use near_primitives_core::code::ContractCode;
@@ -14,39 +15,75 @@ use std::sync::Arc;
 ///
 /// Each global produces 8 bytes of instance data, so globals alone add 800kB.
 /// In total, that breaches the (default) limit of 1MiB for
-/// `max_core_instance_size` for the Wasmtime pooling allocator.
+/// `max_core_instance_size` for the Wasmtime pooling allocator, so loading the
+/// module at `Module::deserialize` fails.
 ///
-/// This must return `VMRunnerError::LoadingError` and not panic / crash the node.
-///
-/// Other VM backends don't use a pooling allocator with this limit, so they should
-/// run the contract successfully.
+/// Pre-`FixContractLoadingError` this surfaces as `VMRunnerError::LoadingError`,
+/// which the runtime maps to a zero-gas nop — the contract-loading work is left
+/// uncharged. Post-feature the same failure finalizes as a gas-bearing abort
+/// that charges the contract-loading fee. Either way it must not panic / crash
+/// the node.
 #[test]
 fn test_max_core_instance_size_breached() {
     let wasm = near_test_contracts::contract_with_num_globals(100_000);
 
     super::with_vm_variants(|vm_kind| {
-        let code = ContractCode::new(wasm.clone(), None);
-        let config = Arc::new(super::test_vm_config(Some(vm_kind)));
-        let fees = Arc::new(RuntimeFeesConfig::test());
-        let mut ext = MockedExternal::with_code(code.clone_for_tests());
-        let context = super::create_context(vec![]);
-        let gas_counter = context.make_gas_counter(&config);
+        let run = |config: near_parameters::vm::Config| {
+            let code = ContractCode::new(wasm.clone(), None);
+            let config = Arc::new(config);
+            let fees = Arc::new(RuntimeFeesConfig::test());
+            let mut ext = MockedExternal::with_code(code.clone_for_tests());
+            let context = super::create_context(vec![]);
+            let gas_counter = context.make_gas_counter(&config);
+            vm_kind
+                .runtime(config)
+                .unwrap()
+                .prepare(&ext, None, gas_counter, "main")
+                .run(&mut ext, &context, fees)
+        };
 
-        let result = vm_kind
-            .runtime(config)
-            .unwrap()
-            .prepare(&ext, None, gas_counter, "main")
-            .run(&mut ext, &context, fees);
+        let base_config = super::test_vm_config(Some(vm_kind));
 
         match vm_kind {
-            VMKind::Wasmtime => assert!(
-                matches!(result, Err(VMRunnerError::LoadingError(_))),
-                "Wasmtime: expected LoadingError for oversized instance, got: {result:?}",
-            ),
-            _ => assert!(
-                result.as_ref().is_ok_and(|outcome| outcome.aborted.is_none()),
-                "{vm_kind:?}: expected clean success for many-globals contract, got: {result:?}",
-            ),
+            VMKind::Wasmtime => {
+                // Pre-fix: zero-gas nop, loading work uncharged.
+                let before = near_parameters::vm::Config {
+                    fix_contract_loading_error: false,
+                    ..base_config.clone()
+                };
+                let result = run(before);
+                assert!(
+                    matches!(result, Err(VMRunnerError::LoadingError(_))),
+                    "pre-fix: expected LoadingError for oversized instance, got: {result:?}",
+                );
+
+                // Post-fix: gas-bearing abort that charges the loading fee.
+                let after =
+                    near_parameters::vm::Config { fix_contract_loading_error: true, ..base_config };
+                let loading_base = after.ext_costs.gas_cost(ExtCosts::contract_loading_base);
+                let loading_byte = after.ext_costs.gas_cost(ExtCosts::contract_loading_bytes);
+                let expected_gas = loading_base
+                    .checked_add(loading_byte.checked_mul(wasm.len() as u64).unwrap())
+                    .unwrap();
+                let outcome = run(after).expect("post-fix run should finalize as an Ok abort");
+                assert!(
+                    matches!(outcome.aborted, Some(FunctionCallError::LoadingError { .. })),
+                    "post-fix: expected LoadingError abort, got: {:?}",
+                    outcome.aborted,
+                );
+                assert_eq!(
+                    outcome.used_gas, expected_gas,
+                    "post-fix: contract-loading fee should be charged",
+                );
+                assert!(expected_gas.as_gas() > 0, "loading fee should be non-zero");
+            }
+            _ => {
+                let result = run(base_config);
+                assert!(
+                    result.as_ref().is_ok_and(|outcome| outcome.aborted.is_none()),
+                    "{vm_kind:?}: expected clean success for many-globals contract, got: {result:?}",
+                );
+            }
         }
     });
 }

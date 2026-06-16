@@ -61,6 +61,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (83, include_config!("83.yaml")),
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
+    (86, include_config!("86.yaml")),
     (129, include_config!("129.yaml")),
     (155, include_config!("155.yaml")),
 ];
