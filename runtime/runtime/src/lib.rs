@@ -1089,7 +1089,7 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV2(_)
                 );
 
-                if new_receipt.is_instant_receipt(apply_state.current_protocol_version) {
+                if new_receipt.is_instant_receipt() {
                     // Instant receipts are not sent as outgoing receipts, they will be processed immediately.
                     instant_receipts.push_back(new_receipt);
                 } else {
@@ -1422,10 +1422,7 @@ impl Runtime {
                 set_promise_yield_receipt(state_update, receipt);
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
-                if data_receipt.data.is_none()
-                    && ProtocolFeature::YieldResumeImprovements
-                        .enabled(apply_state.current_protocol_version)
-                {
+                if data_receipt.data.is_none() {
                     // This is a timeout resume. Check the status to see if the receipt has been resumed.
                     let status =
                         get_promise_yield_status(state_update, account_id, data_receipt.data_id)?;
@@ -1444,12 +1441,8 @@ impl Runtime {
                     // Remove the receipt from the state
                     remove_promise_yield_receipt(state_update, account_id, data_receipt.data_id);
 
-                    if ProtocolFeature::YieldResumeImprovements
-                        .enabled(apply_state.current_protocol_version)
-                    {
-                        // Clear the PromiseYield status
-                        remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
-                    }
+                    // Clear the PromiseYield status
+                    remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
 
                     // Clean up yield_id <-> data_id mappings if this was created by yield_create_with_id
                     if ProtocolFeature::YieldWithId.enabled(apply_state.current_protocol_version) {
