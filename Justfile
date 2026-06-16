@@ -118,17 +118,14 @@ python-style-checks:
     python3 scripts/check_pytests.py
     ./scripts/formatting --check
 
-# Pinned to avoid floating-nightly breakage (e.g. builtin `splat` attr vs finite-wasm 0.5.0).
-udeps_nightly := "nightly-2026-06-09"
-
 install-rustc-nightly:
-    rustup toolchain install {{udeps_nightly}}
-    rustup target add wasm32-unknown-unknown --toolchain {{udeps_nightly}}
-    rustup component add rust-src --toolchain {{udeps_nightly}}
+    rustup toolchain install nightly
+    rustup target add wasm32-unknown-unknown --toolchain nightly
+    rustup component add rust-src --toolchain nightly
 
 # verify there is no unused dependency specified in a Cargo.toml
 check-cargo-udeps: install-rustc-nightly
-    env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +{{udeps_nightly}} udeps
+    env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +nightly udeps
 
 check-cargo-machete:
     cargo machete
