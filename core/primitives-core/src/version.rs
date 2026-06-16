@@ -436,6 +436,7 @@ pub enum ProtocolFeature {
     /// `ContractCodeResponseV2` (with a signed inner payload); receivers
     /// require a verifiable signature before processing the response.
     SignedContractCodeResponse,
+    ClampOutgoingGasAdmission,
 }
 
 impl ProtocolFeature {
@@ -559,6 +560,7 @@ impl ProtocolFeature {
             | ProtocolFeature::YieldWithId
             | ProtocolFeature::ExecutionMetadataV4
             | ProtocolFeature::SignedContractCodeResponse
+            | ProtocolFeature::ClampOutgoingGasAdmission
             | ProtocolFeature::DelegateV2 => 85,
 
             // Nightly features:
