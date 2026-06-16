@@ -15,7 +15,6 @@ use near_primitives::transaction::{
     Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
@@ -265,18 +264,15 @@ fn check_and_compute_new_allowance(
 /// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
 /// Callers should apply state changes via `VerificationResult::apply` on success.
 ///
-/// Legacy: for pre-`FixAccessKeyAllowanceCharging` protocol versions, the allowance is
-/// mutated on `access_key` before later checks, preserving the historical bug where
-/// failed txs still decrement the allowance. This is the only mutation this function
-/// performs; all other state changes are returned in the `VerificationResult`.
+/// This function performs no mutation; all state changes are returned in the
+/// `VerificationResult`.
 pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
     account: &Account,
-    access_key: &mut AccessKey,
+    access_key: &AccessKey,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
-    protocol_version: ProtocolVersion,
     pending: &PendingConstraints,
 ) -> TxVerdict {
     // It's the caller's responsibility to NOT call this function for transactions with
@@ -332,15 +328,6 @@ pub fn verify_and_charge_tx_ephemeral(
         Ok(a) => a,
         Err(e) => return TxVerdict::Failed(e),
     };
-    // Legacy bug: pre-FixAccessKeyAllowanceCharging protocol versions mutate the allowance
-    // before subsequent checks, causing incorrect allowance decrement on failed txs.
-    // TODO: remove this mutation when the legacy behavior is no longer needed.
-    let fix_allowance = ProtocolFeature::FixAccessKeyAllowanceCharging.enabled(protocol_version);
-    if !fix_allowance {
-        if let Some(new) = new_allowance {
-            access_key.permission.function_call_permission_mut().unwrap().allowance = Some(new);
-        }
-    }
 
     match check_storage_stake(account, new_amount, config) {
         Ok(()) => {}
@@ -900,7 +887,7 @@ mod tests {
             }
         };
 
-        let (signer, mut access_key) = match get_signer_and_access_key(state_update, &validated_tx)
+        let (signer, access_key) = match get_signer_and_access_key(state_update, &validated_tx)
         {
             Ok((signer, access_key)) => (signer, access_key),
             Err(err) => {
@@ -912,11 +899,10 @@ mod tests {
         let TxVerdict::Failed(err) = verify_and_charge_tx_ephemeral(
             config,
             &signer,
-            &mut access_key,
+            &access_key,
             validated_tx.to_tx(),
             &cost,
             None,
-            current_protocol_version,
             &PendingConstraints::default(),
         ) else {
             panic!("expected Failed verdict");
@@ -959,11 +945,10 @@ mod tests {
             verify_and_charge_tx_ephemeral(
                 config,
                 &signer,
-                &mut access_key,
+                &access_key,
                 tx,
                 &transaction_cost,
                 block_height,
-                current_protocol_version,
                 &PendingConstraints::default(),
             )
         };

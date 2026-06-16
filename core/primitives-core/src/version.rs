@@ -338,7 +338,8 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     #[deprecated]
     _DeprecatedDeterministicAccountIds,
-    InvalidTxGenerateOutcomes,
+    #[deprecated]
+    _DeprecatedInvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
     /// Meta transactions with gas key support via `Action::DelegateV2`.
@@ -347,7 +348,8 @@ pub enum ProtocolFeature {
     /// Previously, the allowance was decremented in-place before later checks
     /// (storage stake, function call permission) that could return an error,
     /// violating the documented contract of no mutation on error.
-    FixAccessKeyAllowanceCharging,
+    #[deprecated]
+    _DeprecatedFixAccessKeyAllowanceCharging,
     /// Fix missing early return on DepositWithFunctionCall error path in
     /// validate_delegate_action_key. Previously the error could be
     /// overwritten by a subsequent receiver_id or method_name check.
@@ -535,9 +537,9 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedIncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::_DeprecatedStatePartsCompression
             | ProtocolFeature::_DeprecatedDeterministicAccountIds => 82,
-            ProtocolFeature::InvalidTxGenerateOutcomes
+            ProtocolFeature::_DeprecatedInvalidTxGenerateOutcomes
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
-            | ProtocolFeature::FixAccessKeyAllowanceCharging
+            | ProtocolFeature::_DeprecatedFixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
             | ProtocolFeature::GlobalContractDistributionNonce
             | ProtocolFeature::_DeprecatedInstantPromiseYield
