@@ -1,6 +1,7 @@
 use crate::setup::env::TestLoopEnv;
 use borsh::BorshDeserialize;
 use itertools::Itertools;
+use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
@@ -14,6 +15,7 @@ use near_client::sync::external::{
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{
@@ -43,6 +45,53 @@ pub(crate) struct WriterConfig {
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     env.runner_for_account(account_id).run_until_head_height(target_height);
+}
+
+/// Runs until the head epoch has shard layout `new_layout` and its sync hash is
+/// recorded, then returns the resharding block height (the last block of the
+/// epoch before the split).
+pub fn run_until_resharding_sync_hash_recorded(
+    env: &mut TestLoopEnv,
+    archival_id: &AccountId,
+    new_layout: &ShardLayout,
+    timeout: Duration,
+) -> BlockHeight {
+    env.runner_for_account(archival_id).run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
+            let layout = node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            if layout != *new_layout {
+                return false;
+            }
+            let chain_store = node.client().chain.chain_store().store().chain_store();
+            chain_store.get_current_epoch_sync_hash(&epoch_id).is_some()
+        },
+        timeout,
+    );
+    let node = env.node_for_account(archival_id);
+    let epoch_manager = &node.client().epoch_manager;
+    let head = node.head().last_block_hash;
+    let epoch_first = *epoch_manager.get_block_info(&head).unwrap().epoch_first_block();
+    let resharding_block = *epoch_manager.get_block_info(&epoch_first).unwrap().prev_hash();
+    epoch_manager.get_block_info(&resharding_block).unwrap().height()
+}
+
+/// Runs until the writer's `CLOUD_MIN_HEAD` exceeds `min_height`.
+pub fn run_until_cloud_head_above(
+    env: &mut TestLoopEnv,
+    archival_id: &AccountId,
+    min_height: BlockHeight,
+    timeout: Duration,
+) {
+    env.runner_for_account(archival_id).run_until(
+        move |node| {
+            let store = node.client().chain.chain_store().store();
+            let cloud_head: BlockHeight =
+                store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap_or(0);
+            cloud_head > min_height
+        },
+        timeout,
+    );
 }
 
 fn execute_future<F: Future>(fut: F) -> F::Output {
