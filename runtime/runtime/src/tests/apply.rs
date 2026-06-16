@@ -15,7 +15,9 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{
+    AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
+};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
 use near_primitives::apply::ApplyChunkReason;
@@ -34,9 +36,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
-    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction,
-    ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    TransactionNonce, TransferAction,
+    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ExecutionMetadata,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction,
+    SignedTransaction, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -3043,6 +3045,13 @@ fn test_deploy_and_call_local_receipt() {
     );
 }
 
+fn execution_outcome_contracts(outcome: &ExecutionOutcome) -> Vec<AccountContract> {
+    match &outcome.metadata {
+        ExecutionMetadata::V4(v4) => v4.contracts.clone(),
+        other => panic!("expected V4 metadata, got {other:?}"),
+    }
+}
+
 #[test]
 fn test_deploy_and_call_local_receipts() {
     let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -3114,6 +3123,97 @@ fn test_deploy_and_call_local_receipts() {
     assert_matches!(
         action_error.kind,
         ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
+    );
+
+    // V4 metadata: one `contracts` entry per receipt action, recording the
+    // contract on the receiver account before that action ran (in receipt
+    // order). o1's receipt is a single DeployContract on a fresh alice → the
+    // pre-action contract is `None`. o2's receipt is
+    // [FunctionCall, DeployContract, FunctionCall]: the first FunctionCall
+    // sees rs_contract just deployed by tx1; the DeployContract action also
+    // sees rs_contract (it then replaces it with trivial_contract); the
+    // trailing FunctionCall sees trivial_contract and records it even though
+    // it fails at method-resolve — the contract is captured before the call
+    // is dispatched.
+    let rs_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
+    let trivial_hash = CryptoHash::hash_bytes(near_test_contracts::trivial_contract());
+    assert_eq!(execution_outcome_contracts(o1), vec![AccountContract::None]);
+    assert_eq!(
+        execution_outcome_contracts(o2),
+        vec![
+            AccountContract::Local(rs_hash),
+            AccountContract::Local(rs_hash),
+            AccountContract::Local(trivial_hash),
+        ],
+    );
+}
+
+/// When a non-final action errors, the action loop breaks before later
+/// actions run. The V4 `contracts` vector is then resized to match the
+/// receipt's action count with `AccountContract::None`, so consumers can
+/// still index by action position. Here the receipt is
+/// [DeployContract, DeleteKey(missing), FunctionCall]: action 0 deploys
+/// rs_contract (pre-action contract: `None`), action 1 then fails (pre-action
+/// contract: `Local(rs_hash)` — the deploy from action 0 took effect even
+/// though the receipt as a whole fails), and the trailing FunctionCall never
+/// runs — its slot must land on `None` via the resize pad, not via a real
+/// contract resolution. The `Local(rs_hash)` entry in the middle is what
+/// distinguishes a real per-action capture from the pad.
+#[test]
+fn test_apply_v4_metadata_pads_unexecuted_actions() {
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    let nonexistent_pk =
+        InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "nonexistent").public_key();
+    let receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            }),
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: nonexistent_pk })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_string(),
+                args: vec![],
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                deposit: Balance::ZERO,
+            })),
+        ],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = assert_matches!(
+        &apply_result.outcomes[..],
+        [ExecutionOutcomeWithId { id: _, outcome }] => outcome
+    );
+    let action_error = assert_matches!(
+        &outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
+    );
+    assert_eq!(action_error.index, Some(1));
+    assert_matches!(action_error.kind, ActionErrorKind::DeleteKeyDoesNotExist { .. });
+
+    let rs_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
+    assert_eq!(
+        execution_outcome_contracts(outcome),
+        vec![AccountContract::None, AccountContract::Local(rs_hash), AccountContract::None]
     );
 }
 
@@ -3544,6 +3644,105 @@ fn test_expired_transaction() {
             "should have not produced any outcomes for the expired tx"
         );
     }
+}
+
+#[test]
+fn test_duplicate_transaction_in_chunk_skipped() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let send_money = |nonce| {
+        SignedTransaction::send_money(
+            nonce,
+            alice_account(),
+            bob_account(),
+            &alice_signer,
+            Balance::from_near(1),
+            CryptoHash::default(),
+        )
+    };
+    let tx = send_money(1);
+    // A distinct transaction (different nonce, different hash) that must not be skipped.
+    let other = send_money(2);
+    let (tx_hash, other_hash) = (tx.get_hash(), other.get_hash());
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    assert!(ProtocolFeature::UniqueChunkTransactions.enabled(PROTOCOL_VERSION));
+
+    // [T, U, T]: the repeat of T is non-adjacent to the original.
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), other, tx], vec![true; 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // The repeat of T is skipped, leaving a single success outcome under its
+    // hash rather than a success and a conflicting InvalidNonce failure, while
+    // the distinct transaction U is processed normally.
+    let tx_outcomes = |id| apply_result.outcomes.iter().filter(|o| o.id == id).collect::<Vec<_>>();
+    let (tx_outcomes, other_outcomes) = (tx_outcomes(tx_hash), tx_outcomes(other_hash));
+    assert_eq!(tx_outcomes.len(), 1, "duplicate transaction must be skipped");
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_eq!(other_outcomes.len(), 1, "distinct transaction must not be skipped");
+    assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_duplicate_transaction_in_chunk_prior_behavior() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let tx = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &alice_signer,
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let tx_hash = tx.get_hash();
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::UniqueChunkTransactions.protocol_version() - 1;
+
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), tx], vec![true, true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // Without the feature both copies are processed: the second records a
+    // conflicting InvalidNonce failure under the same id as the success.
+    let tx_outcomes: Vec<_> = apply_result.outcomes.iter().filter(|o| o.id == tx_hash).collect();
+    assert_eq!(tx_outcomes.len(), 2);
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(
+        tx_outcomes[1].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidNonce { .. }
+        ))
+    );
 }
 
 #[test]

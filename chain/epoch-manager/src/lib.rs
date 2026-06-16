@@ -1,4 +1,4 @@
-pub use crate::adapter::EpochManagerAdapter;
+pub use crate::adapter::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
@@ -443,6 +443,7 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+        spice_endorsement_tracker: &HashMap<ValidatorId, ValidatorStats>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
@@ -470,6 +471,13 @@ impl EpochManager {
                     chunk_stats.endorsement_stats_mut().expected +=
                         stat.endorsement_stats().expected;
                 }
+            }
+            // On spice epochs endorsements are not embedded per-shard, so the
+            // per-shard tracker above is empty; the endorsement stats come from
+            // the epoch's last block header instead.
+            if let Some(stat) = spice_endorsement_tracker.get(&(i as u64)) {
+                chunk_stats.endorsement_stats_mut().produced += stat.produced;
+                chunk_stats.endorsement_stats_mut().expected += stat.expected;
             }
             total_stake = total_stake.checked_add(v.stake()).unwrap();
             let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
@@ -678,6 +686,24 @@ impl EpochManager {
             *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
+        // On spice epochs, chunk endorsements are accumulated per-validator on
+        // the epoch's last block header rather than embedded per-shard.
+        let spice_endorsement_tracker: HashMap<ValidatorId, ValidatorStats> = last_block_info
+            .spice_chunk_endorsement_stats()
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .map(|(validator_id, stats)| {
+                (
+                    validator_id as ValidatorId,
+                    ValidatorStats {
+                        produced: u64::from(stats.produced),
+                        expected: u64::from(stats.expected),
+                    },
+                )
+            })
+            .collect();
+
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
         let (validator_block_chunk_stats, kickout) = Self::compute_validators_to_reward_and_kickout(
@@ -685,6 +711,7 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
+            &spice_endorsement_tracker,
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);

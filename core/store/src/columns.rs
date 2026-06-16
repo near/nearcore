@@ -381,6 +381,17 @@ pub enum DBCol {
     /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
     #[cfg(feature = "protocol_feature_spice")]
     UncertifiedChunks,
+    /// For spice, the running per-epoch accumulated chunk endorsement stats as
+    /// of this block, indexed by the current epoch's validator id. Reset at
+    /// each epoch boundary. The epoch's last block snapshots this into its
+    /// header for reward and kickout.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: Vec<[near_primitives::types::SpiceChunkEndorsementStats]>
+    // TODO(spice): each block's value is derived from its parent's, so this must
+    // be seeded at the state-sync boundary block (same as UncertifiedChunks) once
+    // spice state sync exists, otherwise the first post-sync block can't compute it.
+    #[cfg(feature = "protocol_feature_spice")]
+    SpiceEndorsementStats,
     /// Stores contract accesses (code hashes) per SPICE chunk.
     /// Used to validate the contract code requests and accompany the witness in the catch-up
     /// dataflow. Written atomically together with the witness.
@@ -388,10 +399,11 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
-    /// Pre-computed chunk producer for the chunk at height `prev_block.height+1` on the given shard.
-    /// Populated during header sync and block processing, gated behind `EarlyKickout` protocol feature.
-    /// Authoritative source for historical chunk producer lookups.
-    /// - *Rows*: BlockHash || ShardId (prev_block_hash, shard_id) — 40 bytes
+    /// Pre-computed chunk producer for the chunk anchored at the given block (its
+    /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
+    /// Populated during header sync and block processing, gated behind `EarlyKickout`
+    /// protocol feature. Authoritative source for historical chunk producer lookups.
+    /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
     // TODO(early-kickout): bump DB_VERSION before moving to stable so that
     // older databases get a proper migration and read-only opens don't fail on the
@@ -481,7 +493,8 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
-            | DBCol::UncertifiedExecutionResults => true,
+            | DBCol::UncertifiedExecutionResults
+            | DBCol::SpiceEndorsementStats => true,
             DBCol::ChunkProducers => true,
             _ => false,
         }
@@ -582,6 +595,8 @@ impl DBCol {
             | DBCol::UncertifiedExecutionResults => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::UncertifiedChunks => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::SpiceEndorsementStats => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ContractAccesses => false,
             // TODO
@@ -696,6 +711,7 @@ impl DBCol {
             | DBCol::Endorsements
             | DBCol::ExecutionResults
             | DBCol::ReceiptProofs
+            | DBCol::SpiceEndorsementStats
             | DBCol::UncertifiedChunks
             | DBCol::UncertifiedExecutionResults
             | DBCol::Witnesses => GcPolicy::Delete,
@@ -844,6 +860,8 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
+            DBCol::SpiceEndorsementStats => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
@@ -894,6 +912,13 @@ impl DBCol {
     pub fn uncertified_chunks() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::UncertifiedChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn spice_endorsement_stats() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::SpiceEndorsementStats;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

@@ -1845,7 +1845,10 @@ mod tests {
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
         );
-        let transaction_size = signed_tx.get_size();
+        // The size gate uses the full wire size (signature included) once
+        // `PostQuantumSignatures` is enabled, and the body-only size before
+        // that. Mirror that here so the test holds on both stable and nightly.
+        let transaction_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
@@ -2486,7 +2489,7 @@ mod tests {
     mod strict_nonce_tests {
         use super::*;
 
-        /// The nightly protocol version where StrictNonce is enabled.
+        /// The protocol version where StrictNonce is enabled.
         const STRICT_NONCE_PROTOCOL_VERSION: ProtocolVersion =
             ProtocolFeature::StrictNonce.protocol_version();
 
@@ -2634,7 +2637,7 @@ mod tests {
         }
 
         #[test]
-        fn test_strict_nonce_rejected_when_feature_disabled() {
+        fn test_strict_nonce_v1_rejected_before_feature() {
             let config = RuntimeConfig::test();
             let (signer, _state_update, _gas_price) =
                 setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
@@ -2648,16 +2651,9 @@ mod tests {
                 CryptoHash::default(),
             );
 
-            // Use a protocol version where StrictNonce is NOT enabled.
-            // GasKeys must be enabled for V1 to be accepted at all.
-            let protocol_version = ProtocolFeature::GasKeys.protocol_version();
-            assert!(
-                !ProtocolFeature::StrictNonce.enabled(protocol_version),
-                "StrictNonce should not be enabled at GasKeys protocol version"
-            );
-
+            let protocol_version = STRICT_NONCE_PROTOCOL_VERSION - 1;
             let err = validate_transaction(&config, signed_tx, protocol_version)
-                .expect_err("strict nonce should be rejected when feature disabled");
+                .expect_err("strict nonce V1 tx should be rejected before the feature");
             assert_eq!(err.0, InvalidTxError::InvalidTransactionVersion);
         }
 

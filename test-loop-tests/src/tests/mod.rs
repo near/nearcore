@@ -11,6 +11,7 @@ mod chunk_validator_failover;
 mod chunk_validator_kickout;
 mod chunks_management;
 mod cloud_archival;
+mod combined_transactions_size_limit;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;
@@ -63,7 +64,7 @@ mod stake_nodes;
 mod sync;
 mod tx_inclusion_with_missed_chunks;
 #[cfg(feature = "nightly")]
-mod v2_partial_witness_replay;
+mod v2_partial_witness_resolution;
 mod validator_key_check;
 mod view_requests;
 mod view_requests_to_archival_node;

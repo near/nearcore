@@ -371,8 +371,6 @@ fn test_simple_yield_timeout() {
 /// In this test, we introduce congestion and verify that the timeout execution is
 /// delayed as expected, but ultimately succeeds without error.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_timeout_under_congestion() {
     let (mut env, yield_tx_hash, _) = prepare_env_with_yield(vec![], Some(10_000_000_000_000));
     assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);
@@ -476,8 +474,6 @@ fn test_yield_resume_just_before_timeout() {
 /// In this test we introduce congestion to delay the yield timeout so that we can invoke
 /// yield resume after the timeout height has passed.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_resume_after_timeout_height() {
     let yield_payload = vec![6u8; 16];
     let (mut env, yield_tx_hash, data_id) =
