@@ -887,8 +887,7 @@ mod tests {
             }
         };
 
-        let (signer, access_key) = match get_signer_and_access_key(state_update, &validated_tx)
-        {
+        let (signer, access_key) = match get_signer_and_access_key(state_update, &validated_tx) {
             Ok((signer, access_key)) => (signer, access_key),
             Err(err) => {
                 assert_eq!(err, expected_err);

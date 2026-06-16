@@ -682,9 +682,9 @@ pub fn test_transaction_invalid_signature(node: impl Node) {
 
     assert_matches!(
         result,
-        Err(CommitError::Server(ServerError::TxExecutionError(
-            TxExecutionError::InvalidTxError(InvalidTxError::InvalidSignature)
-        ))) | Ok(FinalExecutionOutcomeView {
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidSignature
+        )))) | Ok(FinalExecutionOutcomeView {
             status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
                 InvalidTxError::InvalidSignature
             )),
@@ -700,9 +700,9 @@ pub fn test_send_money_over_balance(node: impl Node) {
     let result0 = node_user.send_money(account_id.clone(), bob_account(), money_used);
     assert_matches!(
         result0,
-        Err(CommitError::Server(ServerError::TxExecutionError(
-            TxExecutionError::InvalidTxError(InvalidTxError::NotEnoughBalance { .. })
-        ))) | Ok(FinalExecutionOutcomeView {
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::NotEnoughBalance { .. }
+        )))) | Ok(FinalExecutionOutcomeView {
             status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
                 InvalidTxError::NotEnoughBalance { .. }
             )),
@@ -1432,15 +1432,11 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
 
     assert_matches!(
         transaction_result,
-        Err(CommitError::Server(ServerError::TxExecutionError(
-            TxExecutionError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::MethodNameMismatch { .. }
-            ))
-        ))) | Ok(FinalExecutionOutcomeView {
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch { .. })
+        )))) | Ok(FinalExecutionOutcomeView {
             status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::RequiresFullAccess
-                )
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
             )),
             ..
         })

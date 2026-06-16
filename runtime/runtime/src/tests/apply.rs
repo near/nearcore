@@ -3517,7 +3517,7 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
         gas_limit: Some(Gas::from_teragas(1000)),
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
-        config: config.clone(),
+        config,
         next_wasm_config: None,
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
