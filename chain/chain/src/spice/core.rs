@@ -13,6 +13,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
 };
+use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -73,6 +74,33 @@ impl SpiceCoreReader {
         self.chain_store
             .store()
             .get_ser(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
+    }
+
+    /// Whether the union of `endorsers` and the validators whose stored endorsement attests
+    /// `result_hash` certifies the chunk under `assignment`. `endorsers` seeds the set with the
+    /// endorsers already in hand (e.g. from the block); the rest are read from the store.
+    pub(crate) fn reaches_endorsement_threshold(
+        &self,
+        chunk_id: &SpiceChunkId,
+        result_hash: &ChunkExecutionResultHash,
+        assignment: &ChunkValidatorAssignments,
+        mut endorsers: HashSet<AccountId>,
+    ) -> bool {
+        for (account_id, _) in assignment.assignments() {
+            if endorsers.contains(account_id) {
+                continue;
+            }
+            let Some(stored) =
+                self.get_endorsement(&chunk_id.block_hash, chunk_id.shard_id, account_id)
+            else {
+                continue;
+            };
+            if stored.execution_result_hash != *result_hash {
+                continue;
+            }
+            endorsers.insert(account_id.clone());
+        }
+        assignment.is_endorsed(&endorsers)
     }
 
     fn get_execution_result(

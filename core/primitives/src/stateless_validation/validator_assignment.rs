@@ -90,4 +90,19 @@ impl ChunkValidatorAssignments {
             signatures,
         }
     }
+
+    /// Whether `endorsers` hold at least 2/3 of the assignment's total stake. Like
+    /// `compute_endorsement_state(..).is_endorsed`, but without materializing the full state when
+    /// only the verdict is needed.
+    pub fn is_endorsed(&self, endorsers: &HashSet<AccountId>) -> bool {
+        let mut total_stake = Balance::ZERO;
+        let mut endorsed_stake = Balance::ZERO;
+        for (account_id, stake) in &self.assignments {
+            total_stake = total_stake.checked_add(*stake).unwrap();
+            if endorsers.contains(account_id) {
+                endorsed_stake = endorsed_stake.checked_add(*stake).unwrap();
+            }
+        }
+        has_enough_stake(total_stake, endorsed_stake)
+    }
 }
