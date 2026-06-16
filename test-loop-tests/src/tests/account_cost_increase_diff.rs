@@ -117,7 +117,7 @@ impl SubmitMethod {
 }
 
 /// The account whose key authorizes the inner actions (the receipt predecessor). Depending on
-/// the method, the gas is paid from its main balance, its function call key allowance.
+/// the method, the gas is paid from its main balance or its function call key allowance.
 fn actor() -> AccountId {
     create_account_id("actor")
 }
@@ -213,7 +213,7 @@ fn provision_env(env: &mut TestLoopEnv) {
         let node = env.rpc_node();
 
         // A function-call permission limited to the contract account. A regular function call
-        // key carries a finite allowance;
+        // key carries a finite allowance.
         let fc_permission = |allowance: Option<Balance>| FunctionCallPermission {
             allowance,
             receiver_id: contract().to_string(),
