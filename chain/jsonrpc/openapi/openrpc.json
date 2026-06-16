@@ -1188,6 +1188,38 @@
             ],
             "title": "GasKeyBalanceTooHigh",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "DelegateAction nonce index is outside the gas key's nonce range",
+            "properties": {
+              "DelegateActionInvalidNonceIndex": {
+                "properties": {
+                  "nonce_index": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "num_nonces": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce_index",
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DelegateActionInvalidNonceIndex"
+            ],
+            "title": "DelegateActionInvalidNonceIndex",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -1391,6 +1423,31 @@
               "Delegate"
             ],
             "title": "Delegate",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DelegateV2": {
+                "properties": {
+                  "delegate_action": {
+                    "$ref": "#/components/schemas/VersionedDelegateActionPayload"
+                  },
+                  "signature": {
+                    "$ref": "#/components/schemas/Signature"
+                  }
+                },
+                "required": [
+                  "delegate_action",
+                  "signature"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DelegateV2"
+            ],
+            "title": "DelegateV2",
             "type": "object"
           },
           {
@@ -3227,6 +3284,66 @@
           "public_key"
         ],
         "title": "DelegateAction",
+        "type": "object"
+      },
+      "DelegateActionV2": {
+        "description": "Delegate action with gas key support: `nonce` selects either the access\nkey's nonce or one of a gas key's parallel nonces by index, mirroring\n`TransactionV1`.",
+        "properties": {
+          "actions": {
+            "description": "List of actions to be executed.",
+            "items": {
+              "$ref": "#/components/schemas/NonDelegateAction"
+            },
+            "type": "array"
+          },
+          "max_block_height": {
+            "description": "The maximal height of the block in the blockchain below which the given DelegateActionV2 is valid.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TransactionNonce"
+              }
+            ],
+            "description": "Nonce of the signing key, advanced when this action is processed. For\na gas key it also selects which of the parallel nonces to advance."
+          },
+          "public_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "Public key used to sign this delegated action."
+          },
+          "receiver_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "Receiver of the delegated actions."
+          },
+          "sender_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "Signer of the delegated actions"
+          }
+        },
+        "required": [
+          "sender_id",
+          "receiver_id",
+          "actions",
+          "nonce",
+          "max_block_height",
+          "public_key"
+        ],
+        "title": "DelegateActionV2",
         "type": "object"
       },
       "DeleteAccountAction": {
@@ -5956,7 +6073,12 @@
           },
           {
             "const": "DelegateActionRequiresNonGasKey",
-            "description": "Gas keys track nonces per index in dedicated storage, which the delegate\naction path does not support, so a gas key can't sign a delegate action.",
+            "description": "Gas keys track nonces per index in dedicated storage, which a plain\naccess key nonce does not select, so a gas key must sign a `DelegateV2`\nwith a gas key nonce instead.",
+            "type": "string"
+          },
+          {
+            "const": "DelegateActionRequiresGasKey",
+            "description": "A delegate action with a gas key nonce must be signed by a gas key.",
             "type": "string"
           }
         ],
@@ -10355,6 +10477,15 @@
       "RuntimeConfigView": {
         "description": "View that preserves JSON format of the runtime config.",
         "properties": {
+          "account_creation_charge": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "How much creating an account should cost in NEAR. Taken into account when burning gas for\naccount creation."
+          },
           "account_creation_config": {
             "allOf": [
               {
@@ -10370,6 +10501,15 @@
               }
             ],
             "description": "The configuration for congestion control."
+          },
+          "min_gas_purchase_price": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "Minimum price at which the gas attached to a receipt is purchased. The price at which it is\nburned might be lower, in which case the difference is refunded after execution."
           },
           "storage_amount_per_byte": {
             "allOf": [
@@ -12004,6 +12144,66 @@
         ],
         "title": "TrackedShardsConfig"
       },
+      "TransactionNonce": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Simple nonce without index, used by ordinary access keys",
+            "properties": {
+              "Nonce": {
+                "properties": {
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Nonce"
+            ],
+            "title": "Nonce",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Nonce with index, used by gas keys",
+            "properties": {
+              "GasKeyNonce": {
+                "properties": {
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "nonce_index": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce",
+                  "nonce_index"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyNonce"
+            ],
+            "title": "GasKeyNonce",
+            "type": "object"
+          }
+        ],
+        "title": "TransactionNonce"
+      },
       "TransferAction": {
         "properties": {
           "deposit": {
@@ -12564,6 +12764,41 @@
           "commit"
         ],
         "title": "Version",
+        "type": "object"
+      },
+      "VersionedDelegateActionPayload": {
+        "description": "Versions of the delegate action carried by `Action::DelegateV2`. New\nversions add a variant here rather than a new `Action` variant. The variant\nis part of the signed payload, so a signature can't be ambiguous across\nversions.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V2": {
+                "$ref": "#/components/schemas/DelegateActionV2"
+              }
+            },
+            "required": [
+              "V2"
+            ],
+            "title": "V2",
+            "type": "object"
+          }
+        ],
+        "title": "VersionedDelegateActionPayload"
+      },
+      "VersionedSignedDelegateAction": {
+        "properties": {
+          "delegate_action": {
+            "$ref": "#/components/schemas/VersionedDelegateActionPayload"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        },
+        "required": [
+          "delegate_action",
+          "signature"
+        ],
+        "title": "VersionedSignedDelegateAction",
         "type": "object"
       },
       "WasmTrap": {

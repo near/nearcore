@@ -1,5 +1,8 @@
 pub use crate::adapter::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
-use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
+use crate::metrics::{
+    DYNAMIC_RESHARDING_SCHEDULED_EPOCH_HEIGHT, PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES,
+    RESHARDING_ASSIGNMENT_STRATEGY,
+};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
 use epoch_info_aggregator::EpochInfoAggregator;
@@ -14,7 +17,7 @@ use near_primitives::epoch_manager::{
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::trie_split::TrieSplit;
@@ -705,9 +708,10 @@ impl EpochManager {
         };
 
         // Skip the split if the shard no longer exists in the next layout
-        // (e.g. it was already split in a previous epoch).
+        // (e.g. it was already split in a previous epoch). This should never happen
+        // given the resharding cooldown invariant.
         if !next_shard_layout.shard_ids().any(|id| id == *shard_id) {
-            tracing::info!(
+            tracing::warn!(
                 target: "epoch_manager",
                 ?shard_id,
                 %boundary_account,
@@ -722,6 +726,15 @@ impl EpochManager {
             %boundary_account,
             "dynamic resharding: shard selected for split, deriving new layout"
         );
+        // The layout being derived takes effect two epochs after the one being finalized.
+        // Best-effort: a metrics-only lookup must not fail the layout derivation.
+        if let Ok(epoch_info) = self.get_epoch_info(block_info.epoch_id()) {
+            let scheduled_epoch_height = epoch_info.epoch_height() + 2;
+            let shard_uid = ShardUId::from_shard_id_and_layout(*shard_id, next_shard_layout);
+            DYNAMIC_RESHARDING_SCHEDULED_EPOCH_HEIGHT
+                .with_label_values(&[shard_uid.to_string().as_str(), boundary_account.as_str()])
+                .set(scheduled_epoch_height as i64);
+        }
         let new_layout = next_shard_layout
             .derive_v3(boundary_account.clone(), || {
                 self.get_shard_layout_history(current_protocol_version, None)
@@ -864,6 +877,7 @@ impl EpochManager {
             &next_shard_layout,
             &next_next_shard_layout,
         );
+        RESHARDING_ASSIGNMENT_STRATEGY.with_label_values(&[strategy.metrics_label()]).inc();
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,

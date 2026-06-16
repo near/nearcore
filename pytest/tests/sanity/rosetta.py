@@ -520,6 +520,9 @@ class RosettaTestCase(unittest.TestCase):
             result = RosettaExecResult(self.rosetta, block, receipt_id)
             related = result.related(0)
 
+        # Wait one block for the refund
+        self.node.wait_at_least_one_block()
+
         balances = self.rosetta.get_account_balances(
             account_id=implicit.account_id)
 
@@ -781,6 +784,19 @@ class RosettaTestCase(unittest.TestCase):
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
 
+        # The AccountCostIncrease feature purchases the gas attached to a receipt at
+        # `min_gas_purchase_price` (gas price was 0 before the feature was enabled) and refunds the
+        # difference to the lower burn price. When active this adds a gas-refund receipt to each
+        # gas-burning receipt and changes the gas amounts asserted below. The feature is
+        # nightly-only for now, so detect it to assert the right shape on both stable and nightly
+        # builds.
+        min_gas_purchase_price = int(
+            self.node.json_rpc(
+                'EXPERIMENTAL_protocol_config',
+                {'finality': 'final'
+                })['result']['runtime_config']['min_gas_purchase_price'])
+        account_cost_increase_enabled = min_gas_purchase_price > 0
+
         # 1. Create implicit account.
         logger.info(f'Creating implicit account: {implicit.account_id}')
         result = self.rosetta.transfer(src=validator,
@@ -862,40 +878,89 @@ class RosettaTestCase(unittest.TestCase):
 
         # Fetch the receipt through Rosetta RPC.
         result = RosettaExecResult(self.rosetta, block, receipt_id)
-        # Expect no gas refund
         related = result.related(0)
-        self.assertTrue(related is None)
 
-        self.assertEqual(
-            {
-                'transaction_identifier': result.identifier,
-                'operations': [{
-                    'operation_identifier': {
-                        'index': 0
-                    },
-                    'type': 'TRANSFER',
-                    'status': 'SUCCESS',
-                    'metadata': {
-                        'predecessor_id': {
-                            'address': 'test0'
-                        }
-                    },
-                    'account': {
-                        'address': implicit.account_id,
-                    },
-                    'amount': {
-                        'value': '10000000000000000000000',
-                        'currency': {
-                            'symbol': 'NEAR',
-                            'decimals': 24
-                        }
-                    }
-                }],
+        expected_receipt = {
+            'transaction_identifier': result.identifier,
+            'operations': [{
+                'operation_identifier': {
+                    'index': 0
+                },
+                'type': 'TRANSFER',
+                'status': 'SUCCESS',
                 'metadata': {
-                    'execution_status': 'SUCCESS',
-                    'type': 'TRANSACTION'
+                    'predecessor_id': {
+                        'address': 'test0'
+                    }
+                },
+                'account': {
+                    'address': implicit.account_id,
+                },
+                'amount': {
+                    'value': '10000000000000000000000',
+                    'currency': {
+                        'symbol': 'NEAR',
+                        'decimals': 24
+                    }
                 }
-            }, result.transaction())
+            }],
+            'metadata': {
+                'execution_status': 'SUCCESS',
+                'type': 'TRANSACTION'
+            }
+        }
+        if account_cost_increase_enabled:
+            # The gas attached to the receipt was purchased above the burn price, so the surplus
+            # is refunded to the signer in a single new forward receipt.
+            gas_refund_ids = json_res['receipts_outcome'][0]['outcome'][
+                'receipt_ids']
+            self.assertEqual(1, len(gas_refund_ids))
+            gas_refund_id = {'hash': 'receipt:' + gas_refund_ids[0]}
+            self.assertEqual(gas_refund_id, related.identifier)
+            self.assertIsNone(result.related(1))
+            expected_receipt['related_transactions'] = [{
+                'direction': 'forward',
+                'transaction_identifier': gas_refund_id,
+            }]
+        else:
+            # No purchase/burn price difference, so no gas refund.
+            self.assertIsNone(related)
+
+        self.assertEqual(expected_receipt, result.transaction())
+
+        if account_cost_increase_enabled:
+            # The gas-price surplus is refunded to the signer.
+            self.assertEqual(
+                {
+                    'transaction_identifier': gas_refund_id,
+                    'operations': [{
+                        'operation_identifier': {
+                            'index': 0
+                        },
+                        'type': 'TRANSFER',
+                        'status': 'SUCCESS',
+                        'metadata': {
+                            'predecessor_id': {
+                                'address': 'system'
+                            },
+                            'transfer_fee_type': 'GAS_REFUND'
+                        },
+                        'account': {
+                            'address': 'test0',
+                        },
+                        'amount': {
+                            'value': '492452918750000000000',
+                            'currency': {
+                                'symbol': 'NEAR',
+                                'decimals': 24
+                            }
+                        }
+                    }],
+                    'metadata': {
+                        'execution_status': 'SUCCESS',
+                        'type': 'TRANSACTION'
+                    }
+                }, related.transaction())
 
         # 2. Delete the account.
         logger.info(f'Deleting implicit account: {implicit.account_id}')
@@ -914,8 +979,30 @@ class RosettaTestCase(unittest.TestCase):
         receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
 
         receipt_ids = json_res['receipts_outcome'][0]['outcome']['receipt_ids']
-        self.assertEqual(1, len(receipt_ids))
         receipt_id_2 = {'hash': 'receipt:' + receipt_ids[0]}
+
+        # The delete-account receipt refunds the remaining balance to the beneficiary. With the
+        # feature it also emits a gas-price surplus refund; that one is sent to the (now deleted)
+        # account, so it has no balance-changing operation and is only referenced, not fetched.
+        # Gas burns at the same price as before, so the gas amounts differ between the two modes.
+        delete_receipt_related = [{
+            'direction': 'forward',
+            'transaction_identifier': receipt_id_2
+        }]
+        if account_cost_increase_enabled:
+            self.assertEqual(2, len(receipt_ids))
+            delete_receipt_related.append({
+                'direction': 'forward',
+                'transaction_identifier': {
+                    'hash': 'receipt:' + receipt_ids[1]
+                }
+            })
+            gas_prepayment = '-281103350000000000000'
+            balance_refund = '9718896650000000000000'
+        else:
+            self.assertEqual(1, len(receipt_ids))
+            gas_prepayment = '-51109700000000000000'
+            balance_refund = '9948890300000000000000'
 
         self.assertEqual(
             {
@@ -932,7 +1019,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-51109700000000000000'
+                        'value': gas_prepayment
                     },
                     'operation_identifier': {
                         'index': 0
@@ -970,7 +1057,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-9948890300000000000000'
+                        'value': '-' + balance_refund
                     },
                     'operation_identifier': {
                         'index': 0
@@ -978,14 +1065,11 @@ class RosettaTestCase(unittest.TestCase):
                     'status': 'SUCCESS',
                     'type': 'TRANSFER'
                 }],
-                'related_transactions': [{
-                    'direction': 'forward',
-                    'transaction_identifier': receipt_id_2
-                }],
+                'related_transactions': delete_receipt_related,
                 'transaction_identifier': receipt_id
             }, result.transaction())
 
-        # Fetch receipt’s receipt
+        # Fetch receipt’s receipt (the balance refund to the beneficiary).
         result = RosettaExecResult(self.rosetta, block, receipt_id_2)
         self.assertEqual(
             {
@@ -1002,7 +1086,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '9948890300000000000000'
+                        'value': balance_refund
                     },
                     'operation_identifier': {
                         'index': 0

@@ -1,4 +1,9 @@
 use crate::Error;
+use crate::runtime::metrics::{
+    DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS, DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS,
+    DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD, DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE,
+    DYNAMIC_RESHARDING_SHARD_MEMORY_USAGE, set_proposed_split_metrics,
+};
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, HasContract,
@@ -285,6 +290,11 @@ impl NightshadeRuntime {
             block_height,
             prev_block_hash,
         )?;
+        if apply_reason == ApplyChunkReason::UpdateTrackedShard
+            && ProtocolFeature::DynamicResharding.enabled(current_protocol_version)
+        {
+            set_proposed_split_metrics(shard_uid, proposed_split.as_ref());
+        }
 
         tracing::debug!(
             target: "runtime",
@@ -595,9 +605,13 @@ impl NightshadeRuntime {
         }
 
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         match check_dynamic_resharding(shard_trie, shard_id, shard_layout, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
+                DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS
+                    .with_label_values(&[&shard_uid.to_string()])
+                    .inc();
                 tracing::error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed");
                 Ok(None)
             }
@@ -1725,6 +1739,16 @@ fn check_dynamic_resharding(
     shard_layout: ShardLayout,
     config: &DynamicReshardingConfig,
 ) -> Result<Option<TrieSplit>, FindSplitError> {
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let mem_usage = total_mem_usage(shard_trie)?;
+
+    DYNAMIC_RESHARDING_SHARD_MEMORY_USAGE
+        .with_label_values(&[&shard_uid.to_string()])
+        .set(mem_usage as i64);
+    DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD.set(config.memory_usage_threshold as i64);
+    DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE.set(config.min_child_memory_usage as i64);
+    DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS.set(config.max_number_of_shards as i64);
+
     if shard_layout.num_shards() >= config.max_number_of_shards {
         return Ok(None);
     }
@@ -1736,7 +1760,7 @@ fn check_dynamic_resharding(
         return Ok(None);
     }
 
-    if total_mem_usage(shard_trie)? < config.memory_usage_threshold {
+    if mem_usage < config.memory_usage_threshold {
         return Ok(None);
     }
     let trie_split = find_trie_split(shard_trie)?;

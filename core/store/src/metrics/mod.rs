@@ -442,6 +442,15 @@ pub mod flat_state_metrics {
         .unwrap()
     });
 
+    pub static FLAT_HEAD_HOLDS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "near_flat_head_holds",
+            "Number of active holds preventing the flat storage head from advancing",
+            &["shard_uid"],
+        )
+        .unwrap()
+    });
+
     pub mod inlining_migration {
         use near_o11y::metrics::{
             Histogram, IntCounter, try_create_histogram, try_create_int_counter,

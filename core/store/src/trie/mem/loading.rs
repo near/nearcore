@@ -141,7 +141,8 @@ pub fn load_trie_from_flat_state_and_delta(
     let mut memtries =
         load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)?;
 
-    let max_height = apply_deltas_to_memtries(store, shard_uid, &mut memtries, flat_head.height)?;
+    let (max_height, _) =
+        apply_deltas_to_memtries(store, shard_uid, &mut memtries, flat_head.height)?;
 
     tracing::debug!(target: "memtrie", %shard_uid, "done loading memtries for shard");
     Ok((memtries, max_height))
@@ -153,13 +154,14 @@ pub fn load_trie_from_flat_state_and_delta(
 ///
 /// `base_height` is the height up to which deltas have already been applied.
 /// Deltas at or below this height are skipped. Returns the height of the
-/// highest delta that was applied (or `base_height` if no deltas were applied).
+/// highest delta that was applied (or `base_height` if no deltas were applied)
+/// and the number of deltas applied.
 pub fn apply_deltas_to_memtries(
     store: &Store,
     shard_uid: ShardUId,
     memtries: &mut MemTries,
     base_height: BlockHeight,
-) -> Result<BlockHeight, StorageError> {
+) -> Result<(BlockHeight, usize), StorageError> {
     let flat_store = store.flat_store();
 
     tracing::debug!(target: "memtrie", %shard_uid, %base_height, "loading flat state deltas");
@@ -174,6 +176,7 @@ pub fn apply_deltas_to_memtries(
         .collect();
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
+    let num_deltas = sorted_deltas.len();
     let max_height = sorted_deltas.last().map(|(height, _, _)| *height).unwrap_or(base_height);
     for (height, hash, prev_hash) in sorted_deltas {
         let Some(changes) = flat_store.get_delta(shard_uid, hash) else { continue };
@@ -197,7 +200,7 @@ pub fn apply_deltas_to_memtries(
         tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
     }
 
-    Ok(max_height)
+    Ok((max_height, num_deltas))
 }
 
 #[cfg(test)]

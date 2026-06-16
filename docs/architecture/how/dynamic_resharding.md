@@ -288,3 +288,38 @@ The parent shard's memtrie must be loaded when resharding executes (checked at `
 ### Spice-Resharding Integration
 
 13. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.
+
+---
+
+## 8. Monitoring
+
+Prometheus metrics covering the dynamic resharding pipeline, by stage.
+
+### Split proposal (chunk application, `chain/chain/src/runtime/`)
+
+- `near_dynamic_resharding_shard_memory_usage{shard_uid}` -- trie-cost memory usage of the shard, i.e. the value compared against the split threshold. The main leading indicator of an upcoming split. Exported from `check_dynamic_resharding`, so it updates only near epoch ends (and not during the resharding cooldown); between updates it holds the last epoch-end snapshot.
+- `near_dynamic_resharding_memory_usage_threshold`, `near_dynamic_resharding_min_child_memory_usage`, `near_dynamic_resharding_max_number_of_shards` -- the active `DynamicReshardingConfig` thresholds, so dashboards can compute `usage / threshold` without hardcoding values. Same update cadence as above.
+- `near_dynamic_resharding_proposed_split_{left,right}_memory{shard_uid}` -- balance of the currently proposed split, both 0 when no split is proposed. Mirrors `ChunkExtra.proposed_split`; exported on every tracked chunk apply.
+- `near_dynamic_resharding_proposed_split_info{shard_uid, boundary_account}` -- info-style metric (value 1) carrying the proposed boundary account; join on `shard_uid`.
+- `near_dynamic_resharding_find_split_errors_total{shard_uid}` -- failures to compute the trie split for a shard during chunk application. **Alert on > 0**: the shard won't be proposed for resharding and the failure warrants investigation.
+
+### Selection and consensus (`chain/epoch-manager/`, `chain/chain/src/validate.rs`)
+
+- `near_dynamic_resharding_validation_failures_total{kind}` -- `kind` is `chunk_header` (`InvalidChunkHeaderShardSplit`) or `block_header` (`InvalidBlockHeaderShardSplit`). **Alert on > 0**: a malicious peer or, worse, non-determinism in the split computation.
+- `near_dynamic_resharding_scheduled_epoch_height{shard_uid, boundary_account}` -- set in `next_next_shard_layout()` when a split is selected; the value is the epoch height at which the new layout takes effect.
+- `near_resharding_assignment_strategy_total{strategy}` -- chunk producer assignment strategy chosen at each epoch finalization (`carry_over` / `sticky_resharding` / `fresh`). Alert on `fresh` increments when sticky assignment is enabled.
+
+### Preparation in epoch N+1 (memtrie preload, `core/store/`)
+
+- `near_memtrie_background_load_status{shard_uid}` -- 0 none, 1 loading, 2 awaiting finalization, 3 applying delta catch-up, 4 done. Alert on being stuck at 1 (load should take ~30s) or 3.
+- `near_memtrie_background_load_retries_total{shard_uid}` -- failed load attempts; the node panics after the max retries, so alert on the first one.
+- `near_memtrie_background_load_duration_seconds{shard_uid, stage}` -- histogram, `stage` is `load` or `catchup`; catch-up runs synchronously in block postprocessing.
+- `near_memtrie_catchup_deltas{shard_uid}` -- number of deltas applied during catch-up after the last background memtrie load.
+- `near_flat_head_holds{shard_uid}` -- active holds preventing the flat head from advancing. A leaked hold causes unbounded delta growth (symptom: rising `near_flat_storage_distance_to_head`).
+
+### Execution (`chain/chain/src/resharding/`)
+
+- `near_resharding_status{shard_uid}` -- overall per-parent-shard state machine: -2 cancelled, -1 failed, 1 scheduled, 2 splitting flat storage, 3 flat storage catch-up, 4 resharding trie state, 5 done (no series until a resharding is scheduled for the shard). Alert on -1 or on being stuck in 1-4. Only reflects reshardings executed by the running node: a resharding interrupted by a crash must be completed with the offline `resume-resharding` tool, during which the series is absent.
+- `near_resharding_start_timestamp_seconds{shard_uid}` / `near_resharding_total_duration_seconds{shard_uid}` -- execution start (unix time) and total wall time on completion.
+- `near_resharding_memtrie_split_duration_seconds` -- histogram of the synchronous memtrie split at the boundary block (block-processing critical path).
+- Pre-existing per-component metrics: `near_flat_storage_resharding_status`, `near_flat_storage_resharding_split_shard_{processed_batches,batch_size,processed_bytes}`, `near_state_col_resharding_processed_batches`.

@@ -8,6 +8,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{Balance, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
@@ -35,7 +36,9 @@ pub(crate) fn transaction_cost(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0);
+    let block_latency = extra_refund_block_latency();
+    let (gas_cost, _ext_costs) =
+        transaction_cost_ext(ctx, block_size, make_transaction, block_latency);
     gas_cost
 }
 
@@ -95,6 +98,12 @@ pub(crate) fn overhead_per_measured_block(
     measurement_overhead
 }
 
+/// Extra block of latency added by the `AccountCostIncrease` feature: every measured receipt
+/// also produces a price_surplus gas-refund receipt that lands one block later.
+pub(crate) fn extra_refund_block_latency() -> usize {
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+}
+
 #[track_caller]
 pub(crate) fn fn_cost(
     ctx: &mut EstimatorContext,
@@ -102,9 +111,7 @@ pub(crate) fn fn_cost(
     ext_cost: ExtCosts,
     count: u64,
 ) -> GasCost {
-    // Most functions finish execution in a single block. Other measurements
-    // should use `fn_cost_count`.
-    let block_latency = 0;
+    let block_latency = extra_refund_block_latency();
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
     assert_eq!(
         measured_count, count,
@@ -171,6 +178,15 @@ pub(crate) fn fn_cost_with_setup(
     count: u64,
     block_latency: BlockLatency,
 ) -> GasCost {
+    // Under `AccountCostIncrease` every block's receipts also produce price_surplus gas-refund
+    // receipts that land one block later, delaying both the setup and the measured blocks.
+    let extra = extra_refund_block_latency();
+    let block_latency = match block_latency {
+        BlockLatency::Uniform(latency) => BlockLatency::Uniform(latency + extra),
+        BlockLatency::SetupAndMeasured { setup, measured } => {
+            BlockLatency::SetupAndMeasured { setup: setup + extra, measured: measured + extra }
+        }
+    };
     let (total_cost, measured_count) = {
         let overhead = overhead_per_measured_block(ctx, block_latency.measured());
         let block_size = 2usize;

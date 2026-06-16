@@ -341,6 +341,8 @@ pub enum ProtocolFeature {
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
+    /// Meta transactions with gas key support via `Action::DelegateV2`.
+    DelegateV2,
     /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
     /// Previously, the allowance was decremented in-place before later checks
     /// (storage stake, function call permission) that could return an error,
@@ -420,6 +422,8 @@ pub enum ProtocolFeature {
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
     YieldWithId,
+    /// Increase account creation cost
+    AccountCostIncrease,
     /// Recompute `block_ordinal` and `epoch_sync_data_hash` against local chain
     /// state when validating received block headers.
     ValidateBlockOrdinalAndEpochSyncDataHash,
@@ -551,10 +555,12 @@ impl ProtocolFeature {
             | ProtocolFeature::ValidateBlockOrdinalAndEpochSyncDataHash
             | ProtocolFeature::YieldWithId
             | ProtocolFeature::ExecutionMetadataV4
-            | ProtocolFeature::SignedContractCodeResponse => 85,
+            | ProtocolFeature::SignedContractCodeResponse
+            | ProtocolFeature::DelegateV2 => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
+            ProtocolFeature::AccountCostIncrease => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
