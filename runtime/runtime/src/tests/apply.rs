@@ -3443,11 +3443,8 @@ fn test_transaction_multiple_access_keys_with_apply() {
 /// the access key allowance. Scenario: two function call transactions using the
 /// same access key. Tx1 targets the wrong receiver (fails at
 /// verify_function_call_permission, which runs after the allowance check). Tx2
-/// targets the correct receiver.
-///
-/// Tx1 does not touch the allowance, so tx2 still sees the full allowance and
-/// succeeds. (Before this was fixed, tx1 incorrectly decremented the allowance,
-/// causing tx2 to fail with NotEnoughAllowance.)
+/// targets the correct receiver. Since tx1 does not touch the allowance, tx2
+/// still sees the full allowance and succeeds.
 #[test]
 fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
     let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
