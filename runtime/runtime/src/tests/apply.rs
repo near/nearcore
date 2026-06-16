@@ -3446,7 +3446,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
 /// targets the correct receiver. Since tx1 does not touch the allowance, tx2
 /// still sees the full allowance and succeeds.
 #[test]
-fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
+fn test_access_key_allowance_not_mutated_on_failed_tx() {
     let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
 
     let config = Arc::new(RuntimeConfig::test());
