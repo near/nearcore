@@ -821,7 +821,15 @@ fn test_sharded_contract_peer_check() {
     );
     outcome.assert_success();
 
-    assert_eq!(3, outcome.receipts_outcome.len());
+    // AccountCostIncrease adds a refund for the purchase/burn price difference.
+    let extra_refund_outcome = if near_primitives::version::ProtocolFeature::AccountCostIncrease
+        .enabled(near_primitives::version::PROTOCOL_VERSION)
+    {
+        1
+    } else {
+        0
+    };
+    assert_eq!(3 + extra_refund_outcome, outcome.receipts_outcome.len());
     let ping_call_result = &outcome.receipts_outcome[1];
     assert_eq!(sharded_account2, ping_call_result.outcome.executor_id);
     assert_eq!(vec!["peer ok".to_owned()], ping_call_result.outcome.logs);

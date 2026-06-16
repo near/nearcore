@@ -54,7 +54,11 @@ fn test_indexer_local_receipt() {
     let ExecutionStatusView::SuccessReceiptId(receipt_id) = tx_outcome_status else {
         panic!("failed to convert transaction to receipt {tx_outcome_status:?}");
     };
-    assert_eq!(outcome.receipts_outcome.len(), 1);
+    // Under AccountCostIncrease the function-call receipt also produces a price_surplus
+    // gas-refund receipt addressed to the signer, which shows up as an extra outcome.
+    let extra_refund_outcomes =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
+    assert_eq!(outcome.receipts_outcome.len(), 1 + extra_refund_outcomes);
     let receipt_outcome = &outcome.receipts_outcome[0];
 
     let tx_included_height = submit_tx_height + 3;
@@ -117,8 +121,17 @@ fn test_indexer_instant_receipt() {
     // Wait for local receipt to execute (this also processes the instant receipt).
     let local_outcome =
         env.rpc_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
-    let [yield_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
-        panic!("expected single child receipt (the PromiseYield instant receipt)")
+    // Under AccountCostIncrease the function-call receipt also emits a price_surplus gas
+    // refund receipt; the yield receipt itself is still the first child.
+    let yield_receipt_id = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        let receipt_ids = &local_outcome.outcome_with_id.outcome.receipt_ids;
+        assert_eq!(receipt_ids.len(), 2, "expected PromiseYield + gas refund");
+        receipt_ids[0]
+    } else {
+        let [yield_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+            panic!("expected single child receipt (the PromiseYield instant receipt)")
+        };
+        yield_receipt_id
     };
 
     // Step 2: Call yield_resume — provides data for the PromiseYield, causing
@@ -214,8 +227,18 @@ fn test_indexer_delayed_local_receipt() {
         start_indexer(&env, SyncModeEnum::BlockHeight(last_tx_receipt_executed_height));
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     let shard_outcomes = &msg.shards[0].receipt_execution_outcomes;
-    assert_eq!(shard_outcomes.len(), 1);
-    let delayed_receipt_outcome = &shard_outcomes[0];
+    // Under AccountCostIncrease each prior action receipt also produces a price_surplus
+    // gas-refund receipt; those refunds end up processed in the same chunk as the last
+    // delayed receipt, so we filter them out before asserting on the delayed one.
+    let action_outcomes: Vec<_> = shard_outcomes
+        .iter()
+        .filter(|o| {
+            !o.receipt.predecessor_id.is_system()
+                || !ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION)
+        })
+        .collect();
+    assert_eq!(action_outcomes.len(), 1);
+    let delayed_receipt_outcome = action_outcomes[0];
     assert_eq!(delayed_receipt_outcome.execution_outcome, last_tx_receipt_outcome.into());
     assert_eq!(delayed_receipt_outcome.receipt.receipt_id, last_tx_receipt_id);
 }
@@ -265,7 +288,12 @@ fn test_indexer_deploy_contract_local_tx() {
     init_test_logger();
     let mut env = setup();
     deploy_test_contract(&mut env);
-    let deploy_contract_height = env.validator().head().height;
+    // Under AccountCostIncrease the deploy_contract receipt also produces a price_surplus
+    // refund receipt processed one block later, so `head` ends up one block past the block
+    // that actually contains the tx; back off by that amount to land on the tx block.
+    let extra_refund_block =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
+    let deploy_contract_height = env.validator().head().height - extra_refund_block;
 
     let mut indexer_receiver =
         start_indexer(&env, SyncModeEnum::BlockHeight(deploy_contract_height));

@@ -106,7 +106,7 @@ assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 tx_hash = result['result']
 
-_ = utils.wait_for_blocks(nodes[3], count=3)
+_ = utils.wait_for_blocks(nodes[3], count=4)
 
 result = nodes[3].get_tx(tx_hash, 'test1', timeout=10)
 assert 'result' in result and 'error' not in result, (

@@ -1,3 +1,4 @@
+use crate::metrics::{ReshardingStatus, set_resharding_status};
 use crate::resharding::event_type::ReshardingSplitShardParams;
 use crate::types::RuntimeAdapter;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -331,6 +332,7 @@ impl TrieStateResharder {
 
         tracing::info!(target: "resharding", ?status, ?event, "start_resharding_blocking");
 
+        set_resharding_status(&event.parent_shard, ReshardingStatus::ReshardingTrieState);
         let mut status = status.with_metrics();
         self.resharding_blocking_impl(&mut status)
     }

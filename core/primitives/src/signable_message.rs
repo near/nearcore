@@ -22,6 +22,7 @@ const MAX_OFF_CHAIN_DISCRIMINANT: u32 = u32::MAX;
 
 // NEPs currently included in the scheme
 const NEP_366_META_TRANSACTIONS: u32 = 366;
+const NEP_611_GAS_KEYS: u32 = 611;
 
 /// Used to distinguish message types that are sign by account keys, to avoid an
 /// abuse of signed messages as something else.
@@ -68,6 +69,9 @@ pub struct SignableMessage<'a, T> {
 pub enum SignableMessageType {
     /// A delegate action, intended for a relayer to included it in an action list of a transaction.
     DelegateAction,
+    /// A delegate action with gas key support, intended for a relayer to include it in an action
+    /// list of a transaction.
+    DelegateActionV2,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -199,6 +203,7 @@ impl TryFrom<MessageDiscriminant> for SignableMessageType {
         } else if let Some(nep) = discriminant.on_chain_nep() {
             match nep {
                 NEP_366_META_TRANSACTIONS => Ok(Self::DelegateAction),
+                NEP_611_GAS_KEYS => Ok(Self::DelegateActionV2),
                 _ => Err(Self::Error::UnknownOnChainNep(nep)),
             }
         } else if let Some(nep) = discriminant.off_chain_nep() {
@@ -215,6 +220,9 @@ impl From<SignableMessageType> for MessageDiscriminant {
         match ty {
             SignableMessageType::DelegateAction => {
                 MessageDiscriminant::new_on_chain(NEP_366_META_TRANSACTIONS).unwrap()
+            }
+            SignableMessageType::DelegateActionV2 => {
+                MessageDiscriminant::new_on_chain(NEP_611_GAS_KEYS).unwrap()
             }
         }
     }

@@ -2,6 +2,7 @@
 //!
 //! See [FlatStorageResharder] for more details about how the resharding takes place.
 
+use crate::metrics::{ReshardingStatus, set_resharding_status};
 use crate::resharding::event_type::ReshardingSplitShardParams;
 use crate::types::RuntimeAdapter;
 use itertools::Itertools;
@@ -133,22 +134,27 @@ impl FlatStorageResharder {
     ) {
         let left_child_shard = split_params.left_child_shard;
         let right_child_shard = split_params.right_child_shard;
+        set_resharding_status(&parent_shard, ReshardingStatus::SplittingFlatStorage);
         match self.split_shard_task_blocking(parent_shard, split_params) {
             // All good.
             FlatStorageReshardingTaskResult::Successful { .. } => {}
             // The task has been cancelled. Nothing else to do.
             FlatStorageReshardingTaskResult::Cancelled => {
+                set_resharding_status(&parent_shard, ReshardingStatus::Cancelled);
                 return;
             }
             FlatStorageReshardingTaskResult::Failed => {
+                set_resharding_status(&parent_shard, ReshardingStatus::Failed);
                 tracing::error!(target: "resharding", "impossible to recover from a flat storage shard split failure");
                 panic!("impossible to recover from a flat storage split shard failure!")
             }
         }
 
         // Process both children in an interleaved manner
+        set_resharding_status(&parent_shard, ReshardingStatus::CatchingUp);
         match self.shard_catchup_task_interleaved(&[left_child_shard, right_child_shard]) {
             FlatStorageReshardingTaskResult::Failed => {
+                set_resharding_status(&parent_shard, ReshardingStatus::Failed);
                 panic!("impossible to recover from a flat storage shard catchup failure!")
             }
             FlatStorageReshardingTaskResult::Successful { .. } => {
@@ -156,6 +162,7 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingTaskResult::Cancelled => {
                 // The task has been cancelled. Nothing else to do.
+                set_resharding_status(&parent_shard, ReshardingStatus::Cancelled);
             }
         }
     }
@@ -214,6 +221,9 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingStatus::CatchingUp(_) => {
                 tracing::info!(target: "resharding", ?shard_uid, ?resharding_status, "resuming flat storage shard catchup");
+                // No `near_resharding_status` updates here: `shard_uid` is a child shard while
+                // the metric is keyed by parent, and this path only runs in the offline
+                // `resume-resharding` tool, which is not scraped.
                 match self.shard_catchup_task_interleaved(&[shard_uid]) {
                     // All good.
                     FlatStorageReshardingTaskResult::Successful { .. } => {}
