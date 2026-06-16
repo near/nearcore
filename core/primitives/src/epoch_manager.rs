@@ -188,6 +188,15 @@ impl EpochConfig {
         self.shard_layout_config = ShardLayoutConfig::Static { shard_layout };
         self
     }
+
+    pub fn max_num_shards(&self) -> NumShards {
+        match &self.shard_layout_config {
+            ShardLayoutConfig::Static { shard_layout } => shard_layout.num_shards(),
+            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => {
+                dynamic_resharding_config.max_number_of_shards
+            }
+        }
+    }
 }
 
 impl EpochConfigBuilder {
@@ -653,6 +662,30 @@ mod tests {
             let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
             let epoch_config = epoch_configs.get_config(81);
             assert_eq!(epoch_config.max_inflation_rate, Rational32::new(1, 40));
+        }
+    }
+
+    /// There must be enough chunk producer seats to assign at least
+    /// `minimum_validators_per_shard` producers to every shard, even after the
+    /// shard count grows to its maximum (via dynamic resharding). Otherwise, some
+    /// shard could end up without the required number of chunk producers.
+    #[test]
+    fn test_enough_chunk_producer_seats() {
+        for chain_id in ["mainnet", "testnet"] {
+            let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
+            for (protocol_version, epoch_config) in epoch_configs.iter() {
+                let max_num_shards = epoch_config.max_num_shards();
+                let required = epoch_config.minimum_validators_per_shard * max_num_shards;
+                assert!(
+                    required <= epoch_config.num_chunk_producer_seats,
+                    "{chain_id} v{protocol_version}: minimum_validators_per_shard ({}) * \
+                     max_num_shards ({}) = {} exceeds num_chunk_producer_seats ({})",
+                    epoch_config.minimum_validators_per_shard,
+                    max_num_shards,
+                    required,
+                    epoch_config.num_chunk_producer_seats,
+                );
+            }
         }
     }
 
