@@ -176,6 +176,16 @@ pub async fn build_streamer_message(
         for outcome in outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let Some(receipt) = receipt else {
+                // Transaction outcomes do not have a receipt; other outcomes missing a receipt are unexpected.
+                if !matches!(
+                    execution_outcome.outcome.status,
+                    near_primitives::views::ExecutionStatusView::SuccessReceiptId(_)
+                ) {
+                    return Err(FailedToFetchData::String(format!(
+                        "missing receipt for execution outcome {} in block {} (leftover shard {})",
+                        execution_outcome.id, block.header.hash, shard_id,
+                    )));
+                }
                 continue;
             };
             indexer_shards[shard_index]
@@ -322,8 +332,11 @@ pub async fn start(
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
             let Ok(streamer_message) = streamer_message else {
-                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, skipping");
-                continue;
+                // `break`, not `continue`: the error may be transient (#15867), so
+                // retry this height on the next outer iteration instead of advancing
+                // `last_synced_block_height` past it and dropping the block.
+                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, retrying the same height");
+                break;
             };
 
             tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");

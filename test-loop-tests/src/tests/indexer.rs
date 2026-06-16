@@ -104,7 +104,13 @@ fn test_indexer_local_receipt_orphaned_into_leftover_loop() {
     else {
         panic!("failed to convert transaction to receipt");
     };
-    assert_eq!(outcome.receipts_outcome.len(), 1);
+    // Under AccountCostIncrease the function-call receipt also produces a price_surplus
+    // gas-refund receipt addressed to the signer, which shows up as an extra outcome.
+    // It executes in a later block, so it does not affect the single
+    // receipt_execution_outcome the indexer emits at `tx_included_height` below.
+    let extra_refund_outcomes =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
+    assert_eq!(outcome.receipts_outcome.len(), 1 + extra_refund_outcomes);
     let receipt_outcome = &outcome.receipts_outcome[0];
 
     // NoShards tracker => `cares_about_shard` is always false => the local
