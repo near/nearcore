@@ -2,6 +2,7 @@ use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment, fallbac
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
+use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -46,6 +47,7 @@ pub struct SpiceCoreWriterActor {
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    validator_signer: MutableValidatorSigner,
     chunk_executor_sender: Sender<ExecutionResultEndorsed>,
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     // Endorsements that arrived before the relevant block, so cannot be fully validated yet.
@@ -74,6 +76,7 @@ impl SpiceCoreWriterActor {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        validator_signer: MutableValidatorSigner,
         core_reader: SpiceCoreReader,
         chunk_executor_sender: Sender<ExecutionResultEndorsed>,
         spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
@@ -83,6 +86,7 @@ impl SpiceCoreWriterActor {
             core_reader,
             chain_store,
             epoch_manager,
+            validator_signer,
             chunk_executor_sender,
             spice_chunk_validator_sender,
             pending_endorsements: SyncLruCache::new(PENDING_ENDORSEMENT_CACHE_SIZE.into()),
@@ -271,6 +275,16 @@ impl SpiceCoreWriterActor {
         )?;
 
         if chunk_validator_assignments.contains(endorsement.account_id()) {
+            return Ok(());
+        }
+
+        // Our own endorsement is trustworthy by construction (we executed the chunk). Keep it even
+        // before eligibility so the fallback can broadcast it once overdue; inert in the tally until.
+        if self
+            .validator_signer
+            .get()
+            .is_some_and(|signer| signer.validator_id() == endorsement.account_id())
+        {
             return Ok(());
         }
 
