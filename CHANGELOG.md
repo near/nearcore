@@ -1,6 +1,6 @@
 # Changelog
 
-## [unreleased]
+## [2.13.0]
 
 ### Protocol Changes
 * Opt-in strict nonce mode for transactions. A transaction may opt in to require its nonce be exactly the previous nonce for that access key plus one; such transactions are rejected when the nonce repeats or skips a value. Transactions that do not opt in keep the existing monotonic nonce behavior. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
