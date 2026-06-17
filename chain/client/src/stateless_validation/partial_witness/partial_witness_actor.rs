@@ -306,7 +306,13 @@ impl PartialWitnessActor {
         });
 
         if !contract_deploys.is_empty() {
-            self.send_chunk_contract_deploys_parts(key, contract_deploys)?;
+            self.send_chunk_contract_deploys_parts(
+                key,
+                contract_deploys,
+                prev_block_hash,
+                prev_prev_block_hash,
+                protocol_version,
+            )?;
         }
         Ok(())
     }
@@ -343,6 +349,9 @@ impl PartialWitnessActor {
         &mut self,
         key: &ChunkProductionKey,
         deploys: ChunkContractDeploys,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
     ) -> Result<Vec<(AccountId, PartialEncodedContractDeploys)>, Error> {
         let part_owners = self.ordered_contract_deploys_part_owners(key)?;
         // Note that target validators do not include the chunk producers, and thus in some case
@@ -367,7 +376,10 @@ impl PartialWitnessActor {
                         data: part.unwrap(),
                         encoded_length,
                     },
+                    prev_block_hash,
+                    prev_prev_block_hash,
                     &signer,
+                    protocol_version,
                 );
                 (validator, partial_deploys)
             })
@@ -694,19 +706,48 @@ impl PartialWitnessActor {
     /// and encoded into parts using Reed Solomon encoding and each part is sent to one of the validators (part owner).
     /// See `send_chunk_contract_deploys_parts` for the code implementing this. In the second step each validator (part-owner)
     /// forwards the part it receives to other validators.
-    fn handle_partial_encoded_contract_deploys(
+    pub(super) fn handle_partial_encoded_contract_deploys(
         &mut self,
         partial_deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_deploys, "received partial encoded contract deploys");
-        if !validate_partial_encoded_contract_deploys(
+        // Drop messages whose version is wrong for the epoch: a V2 message before
+        // EarlyKickout is active, or a V1 message at or after it. Same as the witness
+        // and contract-accesses paths.
+        let version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&partial_deploys.chunk_production_key().epoch_id)
+            .ok();
+        if version_mismatch(
+            version,
+            matches!(partial_deploys, PartialEncodedContractDeploys::V2(_)),
+        ) {
+            tracing::debug!(
+                target: "client",
+                key = ?partial_deploys.chunk_production_key(),
+                "dropping partial encoded contract deploys: kickout gate",
+            );
+            return Ok(());
+        }
+        match validate_partial_encoded_contract_deploys(
             self.epoch_manager.as_ref(),
             &partial_deploys,
             self.runtime.store(),
-        )?
-        .is_relevant()
-        {
-            return Ok(());
+        ) {
+            Ok(relevance) if relevance.is_relevant() => {}
+            Ok(_) => return Ok(()),
+            // The anchor is not processed yet (V2), which means this node is two or
+            // more blocks behind. Drop it quietly, the same as the witness path; the
+            // chunk recovers without our help.
+            Err(Error::DBNotFoundErr(_)) => {
+                tracing::debug!(
+                    target: "client",
+                    key = ?partial_deploys.chunk_production_key(),
+                    "dropping partial encoded contract deploys: chain data not yet available",
+                );
+                return Ok(());
+            }
+            Err(err) => return Err(err),
         }
         if self.partial_deploys_tracker.already_processed(&partial_deploys) {
             return Ok(());
@@ -931,10 +972,19 @@ impl PartialWitnessActor {
         &mut self,
         key: ChunkProductionKey,
         contract_codes: Vec<ContractCode>,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         let contracts = contract_codes.into_iter().map(|contract| contract.into()).collect();
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contracts)?;
-        let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
+        let validator_parts = self.generate_contract_deploys_parts(
+            &key,
+            compressed_deploys,
+            prev_block_hash,
+            prev_prev_block_hash,
+            protocol_version,
+        )?;
         for (part_owner, deploys_part) in validator_parts {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedContractDeploys(vec![part_owner], deploys_part),
