@@ -344,10 +344,6 @@ pub enum ProtocolFeature {
     GasKeys,
     /// Meta transactions with gas key support via `Action::DelegateV2`.
     DelegateV2,
-    /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
-    /// Previously, the allowance was decremented in-place before later checks
-    /// (storage stake, function call permission) that could return an error,
-    /// violating the documented contract of no mutation on error.
     #[deprecated]
     _DeprecatedFixAccessKeyAllowanceCharging,
     /// Fix missing early return on DepositWithFunctionCall error path in

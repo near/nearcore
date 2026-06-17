@@ -1100,7 +1100,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
                         account,
-                        &mut key_entry.access_key,
+                        &key_entry.access_key,
                         current_nonce,
                         validated_tx.to_tx(),
                         &cost,
