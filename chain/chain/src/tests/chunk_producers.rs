@@ -221,6 +221,88 @@ mod tests {
         assert_ne!(parent_row.unwrap().account_id().as_str(), "sentinel");
     }
 
+    /// A skipped slot between grandparent and parent does not change resolution. The chunk's
+    /// height_created exceeds anchor.height + 2, yet both self-select and witness resolution read
+    /// DB[anchor] (keyed by hash, height-independent) and return the same producer.
+    #[test]
+    fn test_resolution_consistent_across_skipped_slot() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Grandparent anchor G, built consecutively on genesis.
+        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let anchor =
+            TestBlockBuilder::from_prev_block(clock.clock(), &genesis, signer.clone()).build();
+        let anchor_hash = *anchor.hash();
+        let anchor_height = anchor.header().height();
+        chain.process_block_test(anchor).unwrap();
+
+        // Parent P at G.height + 2: slot G.height + 1 is skipped (no block there).
+        let anchor_block = chain.get_block(&anchor_hash).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let parent = TestBlockBuilder::from_prev_block(clock.clock(), &anchor_block, signer)
+            .height(anchor_height + 2)
+            .build();
+        let parent_hash = *parent.hash();
+        let parent_height = parent.header().height();
+        chain.process_block_test(parent).unwrap();
+
+        // Chunk built on P: height_created = P.height + 1 = G.height + 3 > anchor.height + 2.
+        let height_created = parent_height + 1;
+        assert_eq!(height_created, anchor_height + 3, "skipped slot G.height + 1");
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&parent_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        // Poison DB[anchor] with a sentinel the sampler would never produce. Both
+        // self-select and witness resolution must return it, proving each reads
+        // DB[anchor] keyed by hash and ignores height_created — which the skipped slot
+        // pushed to anchor.height + 3, two slots past the anchor's own sampled height.
+        // A single-validator setup makes sampler-based guards vacuous; the sentinel does
+        // not, so it is the decisive check that resolution is DB-keyed, not height-resampled.
+        let sentinel = ValidatorStake::new(
+            "sentinel".parse().unwrap(),
+            PublicKey::empty(KeyType::ED25519),
+            Balance::from_yoctonear(1),
+        );
+        // ChunkProducers is insert-only: delete then insert.
+        let mut update = chain.chain_store().store().store_update();
+        update.delete(DBCol::ChunkProducers, &get_block_shard_id(&anchor_hash, shard_id));
+        update.commit();
+        let mut update = chain.chain_store().store().store_update();
+        update.insert_ser(
+            DBCol::ChunkProducers,
+            &get_block_shard_id(&anchor_hash, shard_id),
+            &sentinel,
+        );
+        update.commit();
+
+        let self_select =
+            epoch_manager.get_chunk_producer_info_from_prev_block(&parent_hash, shard_id).unwrap();
+        let witness = epoch_manager
+            .get_chunk_producer_info_anchored(
+                Some(&anchor_hash),
+                &epoch_id,
+                height_created,
+                shard_id,
+            )
+            .unwrap();
+        assert_eq!(
+            self_select.account_id().as_str(),
+            "sentinel",
+            "self-select must read DB[anchor] across a skipped slot, not resample by height",
+        );
+        assert_eq!(
+            witness.account_id().as_str(),
+            "sentinel",
+            "witness resolution must read DB[anchor] across a skipped slot, not resample by height",
+        );
+    }
+
     /// A cross-epoch grandparent anchor resolves via the canonical sampler, ignoring its DB row.
     #[test]
     // TestBlockBuilder does not maintain spice's prev_last_certified_block_epoch_id
@@ -425,7 +507,7 @@ mod tests {
     }
 }
 
-/// With EarlyKickout disabled (stable), resolution must match the legacy CPK computation.
+/// With EarlyKickout disabled (stable), resolution must match the legacy ChunkProductionKey computation.
 #[cfg(not(feature = "nightly"))]
 mod stable_tests {
     use crate::test_utils::setup;
