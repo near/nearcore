@@ -26,6 +26,12 @@ mod utils;
 
 const INTERVAL: Duration = Duration::milliseconds(250);
 
+/// How many consecutive times we retry building a streamer message for the same
+/// height *while the node is fully synced* before terminating. Failures while the
+/// node is still syncing are expected (e.g. epoch data not yet available after a
+/// restart, see #15867) and do not count against this budget.
+const MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS: u32 = 10;
+
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
@@ -176,7 +182,11 @@ pub async fn build_streamer_message(
         for outcome in outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let Some(receipt) = receipt else {
-                // Transaction outcomes do not have a receipt; other outcomes missing a receipt are unexpected.
+                // No receipt: either a transaction outcome (never has one), or a receipt outcome
+                // whose receipt is missing from the store (re-indexing pre-#14981 blocks, or corruption).
+                // TODO: SuccessReceiptId is not tx-specific (cross-contract calls have it too);
+                // classify by matching execution_outcome.id against the shard chunk's tx hashes to avoid
+                // silently dropping the latter.
                 if !matches!(
                     execution_outcome.outcome.status,
                     near_primitives::views::ExecutionStatusView::SuccessReceiptId(_)
@@ -250,6 +260,19 @@ async fn fetch_instant_receipts(
     instant_receipts
 }
 
+/// Whether the node reports it is still syncing. A failed status fetch is treated
+/// as "syncing" so we don't prematurely give up while the node is not in a steady
+/// state.
+async fn node_is_syncing(client: &IndexerClientFetcher) -> bool {
+    match client.fetch_status().await {
+        Ok(status) => status.sync_info.syncing,
+        Err(err) => {
+            tracing::warn!(target: INDEXER, ?err, "failed to fetch node status, assuming the node is syncing");
+            true
+        }
+    }
+}
+
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
 /// compares to already fetched block height and in case it differs fetches new block of given height.
 pub async fn start(
@@ -273,6 +296,9 @@ pub async fn start(
     };
 
     let mut last_synced_block_height: Option<BlockHeight> = None;
+    // Consecutive failed attempts to build a streamer message while the node is
+    // fully synced; reset on success or while the node is syncing.
+    let mut build_streamer_message_attempts: u32 = 0;
 
     'main: loop {
         clock.sleep(INTERVAL).await;
@@ -331,12 +357,35 @@ pub async fn start(
 
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
-            let Ok(streamer_message) = streamer_message else {
-                // `break`, not `continue`: the error may be transient (#15867), so
-                // retry this height on the next outer iteration instead of advancing
-                // `last_synced_block_height` past it and dropping the block.
-                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, retrying the same height");
-                break;
+            let streamer_message = match streamer_message {
+                Ok(streamer_message) => {
+                    build_streamer_message_attempts = 0;
+                    streamer_message
+                }
+                Err(err) => {
+                    // `break`, not `continue`: retry this same height on the next
+                    // outer iteration instead of advancing `last_synced_block_height`
+                    // past it and dropping the block.
+                    //
+                    // While the node is still syncing the error is expected (e.g. an
+                    // epoch lookup not yet available after a restart, see #15867), so
+                    // we retry indefinitely. Once the node is fully synced a
+                    // persistent failure is a real inconsistency: terminate after a
+                    // bounded number of attempts rather than stalling silently.
+                    if node_is_syncing(&client).await {
+                        build_streamer_message_attempts = 0;
+                        tracing::warn!(target: INDEXER, ?block_height, ?err, "failed to build streamer message while the node is syncing, retrying the same height");
+                    } else {
+                        build_streamer_message_attempts += 1;
+                        tracing::error!(target: INDEXER, ?block_height, ?err, attempts = build_streamer_message_attempts, "failed to build streamer message, retrying the same height");
+                        if build_streamer_message_attempts >= MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS {
+                            panic!(
+                                "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
+                            );
+                        }
+                    }
+                    break;
+                }
             };
 
             tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");
