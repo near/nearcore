@@ -4,8 +4,7 @@ use super::rpc::{FaultyRpcTransport, RpcFaultHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
-    archival_account_id, create_validators_spec, validators_spec_clients,
-    validators_spec_clients_with_rpc,
+    archival_account_id, create_validators_spec, rpc_account_id, validators_spec_clients,
 };
 use itertools::Itertools;
 use near_async::test_loop::TestLoopV2;
@@ -61,6 +60,9 @@ pub(crate) struct TestLoopBuilder {
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
     load_memtries_for_tracked_shards: bool,
+    /// Whether to add a non-validator RPC node (tracks all shards). Honored by both the auto and
+    /// manual setup APIs.
+    enable_rpc: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     /// If not explicitly set, the chain_id from genesis determines the schedule.
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
@@ -96,6 +98,7 @@ impl TestLoopBuilder {
             warmup_mode: WarmupMode::Auto,
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
+            enable_rpc: false,
             upgrade_schedule: None,
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
@@ -175,9 +178,8 @@ impl TestLoopBuilder {
     }
 
     pub(crate) fn enable_rpc(mut self) -> Self {
-        let auto = self.setup_config.ensure_auto();
-        assert!(!auto.enable_rpc, "enable_rpc is already set");
-        auto.enable_rpc = true;
+        assert!(!self.enable_rpc, "enable_rpc is already set");
+        self.enable_rpc = true;
         self
     }
 
@@ -427,7 +429,16 @@ impl TestLoopBuilder {
 
     fn resolve_setup_config(&mut self) -> (Genesis, Vec<ClientSpec>) {
         let setup_config = std::mem::replace(&mut self.setup_config, SetupConfig::Undecided);
-        setup_config.resolve()
+        let (genesis, mut clients) = setup_config.resolve();
+        if self.enable_rpc {
+            let account_id = rpc_account_id();
+            assert!(
+                !clients.iter().any(|client| client.account_id == account_id),
+                "enable_rpc but rpc client already present",
+            );
+            clients.push(ClientSpec { account_id, client_type: ClientType::Regular });
+        }
+        (genesis, clients)
     }
 
     fn ensure_epoch_config_store(&mut self, genesis: &Genesis) {
@@ -705,7 +716,6 @@ enum SetupConfig {
 /// Data for auto-derived setup (new API).
 struct AutoSetupConfig {
     validators_spec: Option<ValidatorsSpec>,
-    enable_rpc: bool,
     archival_node: Option<ArchivalKind>,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
@@ -768,7 +778,6 @@ impl AutoSetupConfig {
     fn new() -> Self {
         Self {
             validators_spec: None,
-            enable_rpc: false,
             archival_node: None,
             shard_layout: None,
             user_accounts: vec![],
@@ -820,12 +829,7 @@ impl AutoSetupConfig {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);
         }
         let genesis = genesis_builder.build();
-        let account_ids = if self.enable_rpc {
-            validators_spec_clients_with_rpc(&validators_spec)
-        } else {
-            validators_spec_clients(&validators_spec)
-        };
-        let mut clients: Vec<ClientSpec> = account_ids
+        let mut clients: Vec<ClientSpec> = validators_spec_clients(&validators_spec)
             .into_iter()
             .map(|account_id| ClientSpec { account_id, client_type: ClientType::Regular })
             .collect();
