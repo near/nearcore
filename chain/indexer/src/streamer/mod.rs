@@ -90,9 +90,7 @@ pub async fn build_streamer_message(
             .into_iter()
             .filter_map(|transaction| {
                 let outcome = outcomes.remove(&transaction.hash);
-                if outcome.is_none()
-                    && ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version)
-                {
+                if outcome.is_none() {
                     tracing::error!(
                         target: INDEXER,
                         tx_hash = %transaction.hash,

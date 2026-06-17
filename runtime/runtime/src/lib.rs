@@ -1839,20 +1839,6 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// insert the outcome into the processing state depending on whether the protocol feature
-    /// `InvalidTxOutcome` is enabled or not
-    fn register_outcome(
-        protocol_version: ProtocolVersion,
-        outcomes: &mut Vec<ExecutionOutcomeWithId>,
-        outcome: ExecutionOutcomeWithId,
-    ) {
-        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
-            outcomes.push(outcome);
-        } else if let ExecutionStatus::SuccessReceiptId(_) = outcome.outcome.status {
-            outcomes.push(outcome);
-        }
-    }
-
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1982,11 +1968,7 @@ impl Runtime {
             if let Some(err) = maybe_validation_error {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 let outcome = ExecutionOutcomeWithId::failed(tx, err);
-                Self::register_outcome(
-                    processing_state.protocol_version,
-                    &mut processing_state.outcomes,
-                    outcome,
-                );
+                processing_state.outcomes.push(outcome);
                 continue;
             }
             let signer_id = tx.transaction.signer_id();
@@ -2006,11 +1988,7 @@ impl Runtime {
                         let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
                         let error = &error as &dyn std::error::Error;
                         tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
+                        processing_state.outcomes.push(outcome);
                         continue;
                     }
                 };
@@ -2025,11 +2003,7 @@ impl Runtime {
                         tx,
                         InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
                     );
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
+                    processing_state.outcomes.push(outcome);
                     continue;
                 }
                 Some(Err(e)) => return Err(e.clone().into()),
@@ -2051,11 +2025,7 @@ impl Runtime {
                         ),
                     );
 
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
+                    processing_state.outcomes.push(outcome);
                     continue;
                 }
                 Some(Err(e)) => return Err(e.clone().into()),
@@ -2079,11 +2049,7 @@ impl Runtime {
                                 num_nonces,
                             },
                         );
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
+                        processing_state.outcomes.push(outcome);
                         continue;
                     }
                     Some(Err(e)) => return Err(e.clone().into()),
@@ -2108,7 +2074,6 @@ impl Runtime {
                     &tx.transaction,
                     &cost,
                     Some(block_height),
-                    processing_state.protocol_version,
                     &PendingConstraints::default(),
                 )
             };
@@ -2188,11 +2153,7 @@ impl Runtime {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                     let outcome = ExecutionOutcomeWithId::failed(tx, error);
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
+                    processing_state.outcomes.push(outcome);
                     continue;
                 }
             };
@@ -2253,11 +2214,9 @@ impl Runtime {
                 .commit(StateChangeCause::TransactionProcessing { tx_hash: tx.get_hash() });
         }
 
-        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
-            debug_assert!(
-                processing_state.outcomes.len() == num_transactions - num_skipped_duplicate_txs
-            );
-        }
+        debug_assert!(
+            processing_state.outcomes.len() == num_transactions - num_skipped_duplicate_txs
+        );
 
         processing_state
             .metrics
