@@ -1,5 +1,6 @@
 use crate::stateless_validation::validate::{
-    ChunkRelevance, validate_chunk_contract_accesses, validate_partial_encoded_state_witness,
+    ChunkRelevance, validate_chunk_contract_accesses, validate_partial_encoded_contract_deploys,
+    validate_partial_encoded_state_witness,
 };
 use near_async::time::Clock;
 #[cfg(feature = "nightly")]
@@ -15,7 +16,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, MainTransitionKey,
+    ChunkContractAccesses, MainTransitionKey, PartialEncodedContractDeploys,
+    PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
@@ -427,9 +429,9 @@ fn v2_witness_with_anchor_mismatch_is_rejected() {
     let shard_id = ShardId::new(0);
     let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
 
-    // Parent = genesis (known); its prev hash is the default sentinel. Forge a
-    // non-default anchor while keeping height/epoch correct, so only the anchor
-    // mismatch trips the cross-check.
+    // The parent is genesis and is known locally; its prev hash is the default value.
+    // Use a non-default anchor but keep the height and epoch correct, so only the wrong
+    // anchor causes the rejection.
     let forged_anchor = CryptoHash::hash_bytes(b"forged_anchor_block");
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         genesis_hash,
@@ -873,5 +875,320 @@ fn v2_accesses_resolves_anchored_db_row() {
             Err(Error::Other(_))
         ),
         "accesses signed by the non-anchored canonical producer must be rejected"
+    );
+}
+
+fn make_deploys(
+    key: ChunkProductionKey,
+    prev_block_hash: CryptoHash,
+    prev_prev_block_hash: CryptoHash,
+    signer: &ValidatorSigner,
+    protocol_version: ProtocolVersion,
+) -> PartialEncodedContractDeploys {
+    PartialEncodedContractDeploys::new(
+        key,
+        PartialEncodedContractDeploysPart {
+            part_ord: 0,
+            data: vec![1u8].into_boxed_slice(),
+            encoded_length: 1,
+        },
+        prev_block_hash,
+        prev_prev_block_hash,
+        signer,
+        protocol_version,
+    )
+}
+
+/// A V1 contract-deploys message signed by the canonical producer is accepted.
+#[test]
+fn v1_deploys_from_canonical_producer_is_accepted() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 1 };
+    let deploys = make_deploys(
+        key,
+        genesis_hash,
+        CryptoHash::default(),
+        signer.as_ref(),
+        pre_kickout_version(),
+    );
+    assert!(matches!(deploys, PartialEncodedContractDeploys::V1(_)));
+
+    let store = chain.chain_store().store();
+    let result =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store);
+    assert!(
+        matches!(result, Ok(ChunkRelevance::Relevant)),
+        "V1 deploys must be accepted; got {result:?}"
+    );
+}
+
+/// A V2 deploys message with a forged height is rejected by the shared cross-check.
+#[test]
+fn v2_deploys_with_height_mismatch_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 2 };
+    let deploys = make_deploys(
+        key,
+        genesis_hash,
+        CryptoHash::default(),
+        signer.as_ref(),
+        early_kickout_version(),
+    );
+    assert!(matches!(deploys, PartialEncodedContractDeploys::V2(_)));
+
+    let store = chain.chain_store().store();
+    let err =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store)
+            .err()
+            .expect("validation must reject mismatched chunk key");
+    let Error::InvalidPartialChunkStateWitness(msg) = err else {
+        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    };
+    assert!(msg.contains("contract deploys chunk key mismatch"), "got: {msg}");
+}
+
+/// When the parent block is known, the cross-check rejects a forged anchor. This only
+/// matters off nightly; under nightly the anchored lookup rejects the forged anchor first.
+#[cfg(not(feature = "nightly"))]
+#[test]
+fn v2_deploys_with_anchor_mismatch_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    let forged_anchor = CryptoHash::hash_bytes(b"forged_anchor_block");
+    let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 1 };
+    let deploys =
+        make_deploys(key, genesis_hash, forged_anchor, signer.as_ref(), early_kickout_version());
+
+    let store = chain.chain_store().store();
+    let err =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store)
+            .err()
+            .expect("validation must reject a forged anchor");
+    let Error::InvalidPartialChunkStateWitness(msg) = err else {
+        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    };
+    assert!(msg.contains("contract deploys chunk key mismatch"), "got: {msg}");
+}
+
+/// V2 deploys with a correct chunk key but signed by a non-producer are rejected
+/// at the signature check (the cross-check passes first).
+#[test]
+fn v2_deploys_with_wrong_signer_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+    let _ = signer;
+
+    let wrong_signer = create_test_signer("not_the_producer");
+    let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 1 };
+    let deploys = make_deploys(
+        key,
+        genesis_hash,
+        CryptoHash::default(),
+        &wrong_signer,
+        early_kickout_version(),
+    );
+
+    let store = chain.chain_store().store();
+    let result =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store);
+    assert!(
+        matches!(result, Err(Error::Other(ref m)) if m.contains("Invalid contract deploys signature")),
+        "wrong-signer V2 deploys must be rejected at the signature check; got {result:?}"
+    );
+}
+
+/// A valid V2 deploys message at genesis + 1 is accepted (the happy path). Parent =
+/// genesis (known), so the tight path runs and the key matches the parent exactly; the
+/// default anchor routes the producer lookup through the canonical sampler. Acceptance
+/// here does not isolate the known-parent branch (an unknown parent at this height with
+/// a default anchor is also accepted); the anchored DB-row branch has its own test.
+#[test]
+fn v2_deploys_with_known_parent_is_accepted() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 1 };
+    let deploys = make_deploys(
+        key,
+        genesis_hash,
+        CryptoHash::default(),
+        signer.as_ref(),
+        early_kickout_version(),
+    );
+    assert!(matches!(deploys, PartialEncodedContractDeploys::V2(_)));
+
+    let store = chain.chain_store().store();
+    let result =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store);
+    assert!(
+        matches!(result, Ok(ChunkRelevance::Relevant)),
+        "V2 deploys with a known parent and correct key must be accepted; got {result:?}"
+    );
+}
+
+/// A V2 deploys message with a real anchor, a missing parent, and a height above
+/// anchor + 2 is rejected on the loose path. Mirrors the witness twin
+/// `v2_witness_with_height_above_anchor_height_is_rejected`. Nightly-only: off nightly the
+/// anchored lookup ignores the real anchor and falls back to canonical sampling.
+#[cfg(feature = "nightly")]
+#[test]
+fn v2_deploys_with_height_above_anchor_height_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    // Anchor = genesis (real, known), parent not stored locally, height anchor + 3.
+    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
+    let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 3 };
+    let deploys =
+        make_deploys(key, unknown_parent, genesis_hash, signer.as_ref(), early_kickout_version());
+    assert!(matches!(deploys, PartialEncodedContractDeploys::V2(_)));
+
+    let store = chain.chain_store().store();
+    let err =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store)
+            .err()
+            .expect("validation must reject above-height deploys");
+    let Error::InvalidPartialChunkStateWitness(msg) = err else {
+        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    };
+    assert!(
+        msg.contains("contract deploys") && msg.contains("does not match anchor-implied height"),
+        "error must reference the deploys loose cross-check; got: {msg}"
+    );
+}
+
+/// A default anchor on V2 deploys only happens at genesis or genesis + 1. A message that
+/// pairs a default anchor with an unknown parent at a higher height is rejected by the
+/// shared `verify_anchored_chunk_key` guard, not accepted through the sampler. Mirrors the
+/// witness and accesses default-anchor tests.
+#[test]
+fn v2_deploys_with_default_anchor_above_genesis_plus_one_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
+    let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 3 };
+    let deploys = make_deploys(
+        key,
+        unknown_parent,
+        CryptoHash::default(),
+        signer.as_ref(),
+        early_kickout_version(),
+    );
+    assert!(matches!(deploys, PartialEncodedContractDeploys::V2(_)));
+
+    let store = chain.chain_store().store();
+    let err =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store)
+            .err()
+            .expect("validation must reject a default anchor above genesis + 1");
+    let Error::InvalidPartialChunkStateWitness(msg) = err else {
+        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    };
+    assert!(
+        msg.contains("default anchor") && msg.contains("above genesis + 1"),
+        "error message must reference the default-anchor guard; got: {msg}"
+    );
+}
+
+/// Regression test: under `EarlyKickout` the V2 deploys verifier must look up the
+/// producer from the anchor's `DBCol::ChunkProducers` row, not from the sampler. Same
+/// check as the accesses regression test.
+#[cfg(feature = "nightly")]
+#[test]
+fn v2_deploys_resolves_anchored_db_row() {
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    let anchored = create_test_signer("anchored_producer");
+    let anchored_stake = ValidatorStake::new(
+        "anchored_producer".parse().unwrap(),
+        anchored.public_key(),
+        Balance::from_yoctonear(1),
+    );
+    let key_bytes = get_block_shard_id(&genesis_hash, shard_id);
+    let mut update = chain.chain_store().store().store_update();
+    update.delete(DBCol::ChunkProducers, &key_bytes);
+    update.commit();
+    let mut update = chain.chain_store().store().store_update();
+    update.insert_ser(DBCol::ChunkProducers, &key_bytes, &anchored_stake);
+    update.commit();
+
+    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
+    let height_created = genesis_height + 2;
+    let store = chain.chain_store().store();
+
+    let accepted = make_deploys(
+        ChunkProductionKey { shard_id, epoch_id, height_created },
+        unknown_parent,
+        genesis_hash,
+        &anchored,
+        early_kickout_version(),
+    );
+    assert!(
+        matches!(
+            validate_partial_encoded_contract_deploys(
+                chain.epoch_manager.as_ref(),
+                &accepted,
+                &store
+            ),
+            Ok(ChunkRelevance::Relevant)
+        ),
+        "deploys signed by the anchored DB-row producer must validate"
+    );
+
+    // Control case: a message signed by the normal sampled producer (the harness signer)
+    // must be rejected, because the anchored row now points at `anchored_producer`. This
+    // shows the producer really comes from the anchored row, not just any valid producer.
+    let rejected = make_deploys(
+        ChunkProductionKey { shard_id, epoch_id, height_created },
+        unknown_parent,
+        genesis_hash,
+        signer.as_ref(),
+        early_kickout_version(),
+    );
+    assert!(
+        matches!(
+            validate_partial_encoded_contract_deploys(
+                chain.epoch_manager.as_ref(),
+                &rejected,
+                &store
+            ),
+            Err(Error::Other(_))
+        ),
+        "deploys signed by the non-anchored canonical producer must be rejected"
     );
 }
