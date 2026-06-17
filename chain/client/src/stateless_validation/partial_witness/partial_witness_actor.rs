@@ -64,19 +64,24 @@ use std::sync::Arc;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
-/// True iff the witness wire version is wrong for the epoch's protocol version (on the
-/// wrong side of the EarlyKickout boundary), in which case the witness is dropped.
-/// `version = None` (unresolved, e.g. header-sync lag) returns false: must not poison V2 traffic.
+/// Returns true if a message's version is wrong for its epoch and should be dropped:
+/// a V2 message before EarlyKickout is active, or a V1 message at or after it. If we
+/// cannot resolve the version (for example during header sync), returns false: this gate
+/// only rejects a known-wrong version, so an unknown one is left for downstream validation
+/// to accept or drop. This matters for V2, whose parts are never retransmitted.
+pub(super) fn version_mismatch(version: Option<ProtocolVersion>, is_v2: bool) -> bool {
+    let Some(version) = version else {
+        return false;
+    };
+    is_v2 != ProtocolFeature::EarlyKickout.enabled(version)
+}
+
+/// Same check as [`version_mismatch`], for a partial state witness.
 pub(super) fn witness_version_mismatch(
     version: Option<ProtocolVersion>,
     witness: &VersionedPartialEncodedStateWitness,
 ) -> bool {
-    let Some(version) = version else {
-        return false;
-    };
-    let expect_v2 = ProtocolFeature::EarlyKickout.enabled(version);
-    let is_v2 = matches!(witness, VersionedPartialEncodedStateWitness::V2(_));
-    is_v2 != expect_v2
+    version_mismatch(version, matches!(witness, VersionedPartialEncodedStateWitness::V2(_)))
 }
 
 pub struct PartialWitnessActor {
@@ -254,6 +259,15 @@ impl PartialWitnessActor {
             .expect("Chunk validators must be defined")
             .ordered_chunk_validators();
 
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+        // Parent and grandparent anchor for V2 messages. The producer has already
+        // processed the parent, since it built this chunk on top of it, so the anchor
+        // lookup will not miss. We compute them once here and share them with both the
+        // contract-accesses message below and the witness parts spawned below.
+        let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
+        let prev_prev_block_hash =
+            self.epoch_manager.grandparent_anchor(&prev_block_hash)?.unwrap_or_default();
+
         if !contract_accesses.is_empty() {
             self.send_contract_accesses_to_chunk_validators(
                 key.clone(),
@@ -262,7 +276,10 @@ impl PartialWitnessActor {
                     block_hash: state_witness.main_state_transition().block_hash,
                     shard_id: main_transition_shard_id,
                 },
+                prev_block_hash,
+                prev_prev_block_hash,
                 &chunk_validators,
+                protocol_version,
                 &signer,
             );
         }
@@ -272,13 +289,6 @@ impl PartialWitnessActor {
         let encoder = self.witness_encoders.entry(chunk_validators.len());
         let network_adapter = self.network_adapter.clone();
         let state_witness_tracker = self.state_witness_tracker.clone();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
-        // Grandparent anchor for V2 parts. The producer has processed the parent
-        // (it produced the chunk on top of it), so the lookup cannot miss.
-        let prev_prev_block_hash = self
-            .epoch_manager
-            .grandparent_anchor(state_witness.chunk_header().prev_block_hash())?
-            .unwrap_or_default();
 
         self.witness_creation_spawner.spawn("compress_and_distribute_witness", move || {
             if let Err(err) = Self::compress_and_distribute_witness(
@@ -788,17 +798,48 @@ impl PartialWitnessActor {
     /// Handles contract code accesses message from chunk producer.
     /// This is sent in parallel to a chunk state witness and contains the hashes
     /// of the contract code accessed when applying the previous chunk of the witness.
-    fn handle_chunk_contract_accesses(&self, accesses: ChunkContractAccesses) -> Result<(), Error> {
+    pub(super) fn handle_chunk_contract_accesses(
+        &self,
+        accesses: ChunkContractAccesses,
+    ) -> Result<(), Error> {
+        // Drop messages whose version is wrong for the epoch: a V2 message before
+        // EarlyKickout is active, or a V1 message at or after it. We check it here
+        // because when the feature is off the resolver ignores the anchor, so we have
+        // to gate acceptance by protocol version, the same as the witness path does.
+        let version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&accesses.chunk_production_key().epoch_id)
+            .ok();
+        if version_mismatch(version, matches!(accesses, ChunkContractAccesses::V2(_))) {
+            tracing::debug!(
+                target: "client",
+                key = ?accesses.chunk_production_key(),
+                "dropping chunk contract accesses: kickout gate",
+            );
+            return Ok(());
+        }
+
         let signer = self.my_validator_signer()?;
-        if !validate_chunk_contract_accesses(
+        match validate_chunk_contract_accesses(
             self.epoch_manager.as_ref(),
             &accesses,
             &signer,
             self.runtime.store(),
-        )?
-        .is_relevant()
-        {
-            return Ok(());
+        ) {
+            Ok(relevance) if relevance.is_relevant() => {}
+            Ok(_) => return Ok(()),
+            // The anchor is not processed yet (V2), which means this node is two or
+            // more blocks behind. Drop it quietly, the same as the witness path; the
+            // chunk recovers without our help.
+            Err(Error::DBNotFoundErr(_)) => {
+                tracing::debug!(
+                    target: "client",
+                    key = ?accesses.chunk_production_key(),
+                    "dropping chunk contract accesses: chain data not yet available",
+                );
+                return Ok(());
+            }
+            Err(err) => return Err(err),
         }
         let key = accesses.chunk_production_key();
         let contracts_cache = self.runtime.compiled_contract_cache();
@@ -845,7 +886,10 @@ impl PartialWitnessActor {
         key: ChunkProductionKey,
         contract_accesses: HashSet<CodeHash>,
         main_transition: MainTransitionKey,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
         chunk_validators: &[AccountId],
+        protocol_version: ProtocolVersion,
         my_signer: &ValidatorSigner,
     ) {
         let chunk_producers: HashSet<AccountId> = self
@@ -864,7 +908,15 @@ impl PartialWitnessActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(key, contract_accesses, main_transition, my_signer),
+                ChunkContractAccesses::new(
+                    key,
+                    contract_accesses,
+                    main_transition,
+                    prev_block_hash,
+                    prev_prev_block_hash,
+                    my_signer,
+                    protocol_version,
+                ),
             ),
         ));
     }
