@@ -26,7 +26,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
-use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig, ShardLayoutConfig};
+use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
@@ -709,14 +709,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_shard_limit(&self, protocol_version: ProtocolVersion) -> NumShards {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_config = epoch_manager.get_epoch_config(protocol_version);
-        match epoch_config.shard_layout_config {
-            ShardLayoutConfig::Static { shard_layout } => shard_layout.num_shards(),
-            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => {
-                dynamic_resharding_config.max_number_of_shards
-            }
-        }
+        self.epoch_manager.read().get_epoch_config(protocol_version).max_num_shards()
     }
 
     fn validate_tx(

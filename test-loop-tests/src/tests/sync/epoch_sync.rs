@@ -3,6 +3,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
+use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
@@ -14,6 +15,7 @@ use near_epoch_manager::epoch_sync::{
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -396,6 +398,43 @@ fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id_middle_epoch() {
     match &err {
         Error::InvalidEpochSyncProof(msg) => {
             assert!(msg.contains("epoch_id mismatch"), "unexpected message: {msg}");
+        }
+        _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
+    }
+}
+
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_epoch_sync_proof_rejects_max_size_partial_merkle_tree() {
+    init_test_logger();
+    let env = setup_initial_blockchain(20);
+
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
+    let epoch_sync = &client.sync_handler.epoch_sync;
+    let epoch_manager = client.epoch_manager.as_ref();
+
+    let proof = env.derive_epoch_sync_proof(0).into_v1();
+    epoch_sync.verify_proof(&proof, epoch_manager).unwrap();
+
+    // Regression test: a partial merkle tree whose size is u64::MAX must be rejected gracefully,
+    // not crash the node via an arithmetic overflow on `size() + 1` during verification.
+    let mut tampered = proof;
+    let path = tampered.current_epoch.partial_merkle_tree_for_first_block.get_path().to_vec();
+    // `PartialMerkleTree` is borsh-encoded as `(path, size)` and the `size` field has no public
+    // setter, so rebuild it via a borsh round-trip with `size` set to u64::MAX.
+    let bytes = borsh::to_vec(&(path, u64::MAX)).unwrap();
+    tampered.current_epoch.partial_merkle_tree_for_first_block =
+        PartialMerkleTree::try_from_slice(&bytes).unwrap();
+
+    let err = epoch_sync.verify_proof(&tampered, epoch_manager).unwrap_err();
+    match &err {
+        Error::InvalidEpochSyncProof(msg) => {
+            assert!(
+                msg.contains("invalid size in partial_merkle_tree_for_first_block"),
+                "unexpected message: {msg}"
+            );
         }
         _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
     }

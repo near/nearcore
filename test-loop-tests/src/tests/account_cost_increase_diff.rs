@@ -6,22 +6,21 @@
 //! scenario that creates accounts must cost `account_creation_charge` more per account. See
 //! [`expected_cost_diff`] for the precise expectation.
 //!
-//! The cost is measured as the net balance decrease across the payer's accounts, the gas key
-//! the gas is drawn from (if any), and any accounts a deposit is transferred to (so deposits
-//! net out). That equals the tokens the transaction reports burnt, which is cross-checked
-//! against the transaction outcome. A function call key's allowance is checked separately (it
-//! must change by exactly the amount the account was debited), since counting it in the balance
-//! would double-count the gas - it is paid from the account, not the allowance.
+//! The cost is measured as the net balance decrease across the payer's accounts and any accounts a
+//! deposit is transferred to (so deposits net out). That equals the tokens the transaction reports
+//! burnt, which is cross-checked against the transaction outcome. A function call key's allowance
+//! is checked separately (it must change by exactly the amount the account was debited), since
+//! counting it in the balance would double-count the gas - it is paid from the account, not the
+//! allowance.
 //!
-//! Each scenario runs through a list of [`SubmitMethod`]s, covering every way the gas can be
-//! paid for: signed directly with a full access key, a function call access key, or a gas key
-//! (full access / function call); and relayed as a meta transaction paid by the relayer's full
-//! access key or full-access gas key. All methods share one set of accounts ([`actor`],
-//! [`relayer`], [`contract`], [`receiver`]) in an environment provisioned up front so that
-//! every method can run every scenario (see [`build_env`]): scenarios only differ in the
+//! Each scenario runs through a list of [`SubmitMethod`]s, covering every way the gas can be paid
+//! for: signed directly with a full access key, a function call access key or relayed as a meta
+//! transaction paid by the relayer's full access key. All methods share one set of accounts
+//! ([`actor`], [`relayer`], [`contract`], [`receiver`]) in an environment provisioned up front so
+//! that every method can run every scenario (see [`build_env`]): scenarios only differ in the
 //! transaction they build, methods only in how it is signed and paid for. Accounts a scenario
-//! *creates* get names derived from the method's index, since an account can only be created
-//! once per environment.
+//! *creates* get names derived from the method's index, since an account can only be created once
+//! per environment.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -36,22 +35,20 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermi
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{
     AddKeyAction, CreateAccountAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{
-    Action, FunctionCallAction, SignedTransaction, TransactionNonce, TransferAction,
-};
-use near_primitives::types::{AccountId, Balance, Gas, Nonce, NonceIndex, ProtocolVersion};
+use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction, TransferAction};
+use near_primitives::types::{AccountId, Balance, Gas, Nonce, ProtocolVersion};
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_test_contracts::rs_contract;
+use near_test_contracts::backwards_compatible_rs_contract;
 use node_runtime::config::total_send_fees;
 use std::collections::BTreeMap;
 use testlib::fees_utils::FeeHelper;
@@ -63,11 +60,6 @@ use testlib::fees_utils::FeeHelper;
 const GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 /// Initial balance of every genesis account used by the tests.
 const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
-/// How much to fund a gas key with. Plenty to cover the inflated gas purchase price plus the
-/// account creation charge, the bulk of which is refunded.
-const GAS_KEY_FUND: Balance = Balance::from_near(1);
-/// Number of nonces to allocate for a gas key.
-const NUM_NONCES: NonceIndex = 3;
 /// Allowance granted to a (non-gas) function call access key. Generous enough to cover the gas
 /// purchased at the inflated price; it is decremented on charge and restored by the gas refund.
 const FUNCTION_CALL_KEY_ALLOWANCE: Balance = Balance::from_near(1);
@@ -91,39 +83,29 @@ enum SubmitMethod {
     FullAccessKey,
     /// Signed directly with a function call access key (carrying a finite allowance).
     FunctionCallKey,
-    /// Signed with a full-access gas key (gas paid from the gas key balance).
-    GasKeyFullAccess,
-    /// Signed with a function-call gas key.
-    GasKeyFunctionCall,
     /// Relayed as a meta transaction; the relayer signs (and pays for) the outer transaction
     /// with a full access key.
     DelegateFullAccessKey,
-    /// Relayed as a meta transaction; the relayer signs (and pays for) the outer transaction
-    /// with a full-access gas key.
-    DelegateGasKeyFullAccess,
 }
 
 use SubmitMethod::*;
 
-const ALL_METHODS: &[SubmitMethod] = &[
-    FullAccessKey,
-    FunctionCallKey,
-    GasKeyFullAccess,
-    GasKeyFunctionCall,
-    DelegateFullAccessKey,
-    DelegateGasKeyFullAccess,
-];
+const ALL_METHODS: &[SubmitMethod] = &[FullAccessKey, FunctionCallKey, DelegateFullAccessKey];
 
 /// Methods able to submit arbitrary actions (everything a function-call-restricted key can't
 /// do, such as creating an account).
-const FULL_ACCESS_METHODS: &[SubmitMethod] =
-    &[FullAccessKey, GasKeyFullAccess, DelegateFullAccessKey, DelegateGasKeyFullAccess];
+const FULL_ACCESS_METHODS: &[SubmitMethod] = &[FullAccessKey, DelegateFullAccessKey];
+
+/// Methods used by the deterministic-state-init scenarios. Delegated `DeterministicStateInit`
+/// is only valid from `FixDelegatedDeterministicStateInit`, which stabilizes together with
+/// `AccountCostIncrease`, so the before env rejects it as an invalid transaction.
+const DETERMINISTIC_STATE_INIT_METHODS: &[SubmitMethod] = &[FullAccessKey];
 
 impl SubmitMethod {
     fn is_delegate(self) -> bool {
         match self {
-            DelegateFullAccessKey | DelegateGasKeyFullAccess => true,
-            FullAccessKey | FunctionCallKey | GasKeyFullAccess | GasKeyFunctionCall => false,
+            DelegateFullAccessKey => true,
+            FullAccessKey | FunctionCallKey => false,
         }
     }
 
@@ -132,24 +114,10 @@ impl SubmitMethod {
     fn index(self) -> usize {
         ALL_METHODS.iter().position(|method| *method == self).unwrap()
     }
-
-    /// The gas key that pays for this method's transaction, if any. Its balance is a separate
-    /// pool of tokens that must be tracked when measuring cost. For the direct gas-key methods
-    /// it is on the actor; for [`DelegateGasKeyFullAccess`] it is on the relayer (which signs
-    /// the outer transaction with it).
-    fn gas_key(self) -> Option<(AccountId, Signer)> {
-        match self {
-            GasKeyFullAccess => Some((actor(), gas_key_signer(&actor()))),
-            GasKeyFunctionCall => Some((actor(), function_call_gas_key_signer(&actor()))),
-            DelegateGasKeyFullAccess => Some((relayer(), gas_key_signer(&relayer()))),
-            FullAccessKey | FunctionCallKey | DelegateFullAccessKey => None,
-        }
-    }
 }
 
 /// The account whose key authorizes the inner actions (the receipt predecessor). Depending on
-/// the method, the gas is paid from its main balance, its function call key allowance, or one
-/// of its gas keys.
+/// the method, the gas is paid from its main balance or its function call key allowance.
 fn actor() -> AccountId {
     create_account_id("actor")
 }
@@ -222,20 +190,9 @@ fn function_call_signer(account: &AccountId) -> Signer {
     InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "fc_key").into()
 }
 
-/// A full-access gas key, seeded deterministically per account.
-fn gas_key_signer(account: &AccountId) -> Signer {
-    InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "gas_key").into()
-}
-
-/// A function-call gas key, seeded deterministically per account.
-fn function_call_gas_key_signer(account: &AccountId) -> Signer {
-    InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "fc_gas_key").into()
-}
-
 /// Build an environment at the given protocol version, provisioned so that every submission
 /// method can run every scenario: the test contract is deployed (directly and as a global
-/// contract), the actor gets a function call key, a full-access gas key and a function-call gas
-/// key, and the relayer gets a full-access gas key.
+/// contract), the actor gets a function call key.
 fn build_env(protocol_version: ProtocolVersion) -> TestLoopEnv {
     let accounts = [actor(), relayer(), contract(), receiver()];
     let mut env = TestLoopBuilder::new()
@@ -256,7 +213,7 @@ fn provision_env(env: &mut TestLoopEnv) {
         let node = env.rpc_node();
 
         // A function-call permission limited to the contract account. A regular function call
-        // key carries a finite allowance; gas keys require an unlimited (None) one.
+        // key carries a finite allowance.
         let fc_permission = |allowance: Option<Balance>| FunctionCallPermission {
             allowance,
             receiver_id: contract().to_string(),
@@ -268,48 +225,28 @@ fn provision_env(env: &mut TestLoopEnv) {
                 FUNCTION_CALL_KEY_ALLOWANCE,
             ))),
         };
-        let mut actor_actions = vec![Action::AddKey(Box::new(AddKeyAction {
+        let actor_actions = vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: function_call_signer(&actor()).public_key(),
             access_key: fc_key,
         }))];
-        actor_actions.extend(add_funded_gas_key_actions(
-            gas_key_signer(&actor()).public_key(),
-            AccessKey::gas_key_full_access(NUM_NONCES),
-        ));
-        actor_actions.extend(add_funded_gas_key_actions(
-            function_call_gas_key_signer(&actor()).public_key(),
-            AccessKey::gas_key_function_call(NUM_NONCES, fc_permission(None)),
-        ));
-        let relayer_actions = add_funded_gas_key_actions(
-            gas_key_signer(&relayer()).public_key(),
-            AccessKey::gas_key_full_access(NUM_NONCES),
-        );
 
+        // The before env runs at `AccountCostIncrease.protocol_version() - 1`, where the latest
+        // test contract's newest host-function imports don't exist yet and fail to link. Both
+        // envs must run the same code for a fair cost comparison, so they both get the
+        // backwards-compatible build.
         vec![
-            node.tx_deploy_test_contract(&contract()),
+            node.tx_deploy_contract(&contract(), backwards_compatible_rs_contract().to_vec()),
             node.tx_deploy_global_contract(
                 &contract(),
-                rs_contract().to_vec(),
+                backwards_compatible_rs_contract().to_vec(),
                 GlobalContractDeployMode::AccountId,
             ),
             node.tx_from_actions(&actor(), &actor(), actor_actions),
-            node.tx_from_actions(&relayer(), &relayer(), relayer_actions.to_vec()),
         ]
     };
     run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
     // Run one extra block to make the state final, some functions can't read data from the latest block.
     env.rpc_runner().run_for_number_of_blocks(1);
-}
-
-/// Actions that add a gas key and fund it with [`GAS_KEY_FUND`].
-fn add_funded_gas_key_actions(public_key: PublicKey, access_key: AccessKey) -> [Action; 2] {
-    [
-        Action::AddKey(Box::new(AddKeyAction { public_key: public_key.clone(), access_key })),
-        Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
-            public_key,
-            deposit: GAS_KEY_FUND,
-        })),
-    ]
 }
 
 /// Assert that the chain is currently running with the expected `AccountCostIncrease` state.
@@ -333,16 +270,6 @@ fn balance_or_zero(env: &TestLoopEnv, account: &AccountId) -> Balance {
     }
 }
 
-/// Balance held by a gas key (a real, separate pool of tokens the gas is paid from).
-fn gas_key_balance(env: &TestLoopEnv, account: &AccountId, public_key: &PublicKey) -> Balance {
-    let view = env.rpc_node().view_access_key_query(account, public_key).unwrap();
-    match view.permission {
-        AccessKeyPermissionView::GasKeyFullAccess { balance, .. }
-        | AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => balance,
-        other => panic!("expected gas key, got {other:?}"),
-    }
-}
-
 /// Remaining allowance of a function call access key. The allowance is a spending budget that is
 /// decremented when gas is charged and restored by the gas refund, so its net change equals the
 /// gas actually spent. Unlike a gas key balance it is *not* a separate pool of tokens (the gas
@@ -362,19 +289,11 @@ fn function_call_key_allowance(
     }
 }
 
-/// Sum of the balances the user controls: the main balance of every tracked account, plus the
-/// balance of every tracked gas key.
-fn total_user_balance(
-    env: &TestLoopEnv,
-    accounts: &[AccountId],
-    gas_keys: &[(AccountId, PublicKey)],
-) -> Balance {
+/// Sum of the balances the user controls: the main balance of every tracked account.
+fn total_user_balance(env: &TestLoopEnv, accounts: &[AccountId]) -> Balance {
     let mut sum = Balance::ZERO;
     for account in accounts {
         sum = sum.checked_add(balance_or_zero(env, account)).unwrap();
-    }
-    for (account, public_key) in gas_keys {
-        sum = sum.checked_add(gas_key_balance(env, account, public_key)).unwrap();
     }
     sum
 }
@@ -434,26 +353,6 @@ fn run_setup_tx(
     env.rpc_runner().run_for_number_of_blocks(1);
 }
 
-/// Build a transaction signed by the given gas key of `signer_account` (nonce index 0).
-fn gas_key_tx(
-    env: &TestLoopEnv,
-    signer_account: &AccountId,
-    signer: &Signer,
-    receiver: &AccountId,
-    actions: Vec<Action>,
-) -> SignedTransaction {
-    let nonces =
-        env.rpc_node().view_gas_key_nonces_query(signer_account, &signer.public_key()).unwrap();
-    SignedTransaction::from_actions_v1(
-        TransactionNonce::from_nonce_and_index(nonces[0] + 1, 0),
-        signer_account.clone(),
-        receiver.clone(),
-        signer,
-        actions,
-        env.rpc_node().head().last_block_hash,
-    )
-}
-
 /// Wrap `actions` into a delegate action signed by the actor's full access key. The result is
 /// submitted by the relayer in an outer transaction addressed to the actor.
 fn signed_delegate_action(env: &TestLoopEnv, receiver: &AccountId, actions: Vec<Action>) -> Action {
@@ -495,19 +394,10 @@ fn build_tx(
                 env.rpc_node().head().last_block_hash,
             )
         }
-        GasKeyFullAccess | GasKeyFunctionCall => {
-            let (account, signer) = method.gas_key().unwrap();
-            gas_key_tx(env, &account, &signer, receiver, actions)
-        }
-        DelegateFullAccessKey | DelegateGasKeyFullAccess => {
+        DelegateFullAccessKey => {
             let outer_actions = vec![signed_delegate_action(env, receiver, actions)];
             // The outer transaction goes from the relayer to the actor.
-            match method.gas_key() {
-                Some((relayer, gas_key)) => {
-                    gas_key_tx(env, &relayer, &gas_key, &actor, outer_actions)
-                }
-                None => env.rpc_node().tx_from_actions(&relayer(), &actor, outer_actions),
-            }
+            env.rpc_node().tx_from_actions(&relayer(), &actor, outer_actions)
         }
     }
 }
@@ -545,7 +435,7 @@ fn submit_scenario(
 
 /// Balances captured before and after the scenario runs.
 struct BalanceSnapshot {
-    /// Sum across all tracked accounts and gas keys.
+    /// Sum across all tracked accounts.
     total: Balance,
     /// The actor's own balance.
     actor: Balance,
@@ -578,12 +468,6 @@ fn measure_cost(env: &mut TestLoopEnv, method: SubmitMethod, scenario: &Scenario
     tracked.sort();
     tracked.dedup();
 
-    let gas_keys: Vec<_> = method
-        .gas_key()
-        .map(|(account, signer)| (account, signer.public_key()))
-        .into_iter()
-        .collect();
-
     // A function call access key's allowance is decremented by the gas charged to the account
     // and restored by the gas refund, so it changes by exactly the account's net debit. Track it
     // separately (counting it in the balance would double-count the gas).
@@ -591,7 +475,7 @@ fn measure_cost(env: &mut TestLoopEnv, method: SubmitMethod, scenario: &Scenario
         (method == FunctionCallKey).then(|| (actor(), function_call_signer(&actor()).public_key()));
 
     let snapshot = |env: &TestLoopEnv| BalanceSnapshot {
-        total: total_user_balance(env, &tracked, &gas_keys),
+        total: total_user_balance(env, &tracked),
         actor: balance_or_zero(env, &actor()),
         fc_allowance: fc_key
             .as_ref()
@@ -900,7 +784,7 @@ fn test_deterministic_state_init_creating_account() {
                 ScenarioTx::new(account, vec![action])
             },
         },
-        FULL_ACCESS_METHODS,
+        DETERMINISTIC_STATE_INIT_METHODS,
     );
 }
 
@@ -920,6 +804,6 @@ fn test_deterministic_state_init_to_existing_account() {
                 }
             },
         },
-        FULL_ACCESS_METHODS,
+        DETERMINISTIC_STATE_INIT_METHODS,
     );
 }

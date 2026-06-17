@@ -849,28 +849,27 @@ fn test_spice_chain_with_missing_chunks() {
     let (sent_txs, balance_changes) =
         schedule_send_money_txs(&[node_data], &accounts, &env.test_loop);
 
-    let mut observed_txs = HashSet::new();
+    // A final result requires the whole receipt tree to resolve, including the gas-refund
+    // receipt, so balances have fully settled once every transaction reaches one.
+    let mut finalized_txs = HashSet::new();
     env.rpc_runner().run_until(
         |node| {
-            let head = node.head();
+            let sent_txs = sent_txs.lock();
+            if sent_txs.len() < accounts.len() {
+                return false;
+            }
             let client = node.client();
-            let block = client.chain.get_block(&head.last_block_hash).unwrap();
-            for chunk in block.chunks().iter() {
-                let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) else {
-                    continue;
-                };
-                for tx in chunk.to_transactions() {
-                    observed_txs.insert(tx.get_hash());
+            for tx_hash in sent_txs.iter() {
+                if !finalized_txs.contains(tx_hash)
+                    && client.chain.get_final_transaction_result(tx_hash).is_ok()
+                {
+                    finalized_txs.insert(*tx_hash);
                 }
             }
-            observed_txs.len() == sent_txs.lock().len()
+            finalized_txs.len() == sent_txs.len()
         },
         Duration::seconds(200),
     );
-
-    // A few more blocks to make sure everything is executed.
-    let head_height = env.rpc_node().head().height;
-    env.rpc_runner().run_until_head_height(head_height + 3);
 
     {
         let node = env.rpc_node();
