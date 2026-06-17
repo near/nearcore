@@ -422,8 +422,10 @@ impl EpochSync {
         // needs to be valid and have the correct root.
         //
         // Note that the block_ordinal in the header is 1-based, so we need to add 1 to the size.
-        if current_epoch.partial_merkle_tree_for_first_block.size() + 1
-            != first_block_header.block_ordinal()
+        // Use checked_add so an attacker-controlled size of u64::MAX cannot trigger an arithmetic
+        // overflow panic (which would crash a bootstrapping node) before the is_well_formed check.
+        if current_epoch.partial_merkle_tree_for_first_block.size().checked_add(1)
+            != Some(first_block_header.block_ordinal())
         {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid size in partial_merkle_tree_for_first_block".to_string(),
@@ -514,10 +516,16 @@ impl EpochSync {
             )));
         }
 
-        let message_to_sign = Approval::get_data_for_sig(
-            &ApprovalInner::Endorsement(prev_block_hash),
-            block_height + 1,
-        );
+        // `block_height` comes from an attacker-controlled header in the proof and is not bounded
+        // before this point, so use checked_add to avoid an arithmetic overflow panic (which would
+        // crash a bootstrapping node) when the height is u64::MAX.
+        let Some(target_height) = block_height.checked_add(1) else {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "block height {block_height} too large in epoch sync proof"
+            )));
+        };
+        let message_to_sign =
+            Approval::get_data_for_sig(&ApprovalInner::Endorsement(prev_block_hash), target_height);
 
         let mut total_stake = Balance::ZERO;
         let mut endorsed_stake = Balance::ZERO;
@@ -525,7 +533,7 @@ impl EpochSync {
         for (validator, may_be_signature) in block_producers.iter().zip(endorsements.iter()) {
             if let Some(signature) = may_be_signature {
                 if !signature.verify(&message_to_sign, validator.public_key()) {
-                    return Err(near_chain::Error::InvalidEpochSyncProof(format!(
+                    return Err(Error::InvalidEpochSyncProof(format!(
                         "Invalid signature for block {} from validator {:?}",
                         block_height,
                         validator.account_id()
@@ -656,6 +664,28 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             self.client.epoch_manager.as_ref(),
         ) {
             tracing::error!(target: "sync", ?err, "failed to apply epoch sync proof");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EpochSync;
+    use near_chain::Error;
+    use near_primitives::hash::CryptoHash;
+
+    /// Regression test: an attacker-supplied epoch sync proof may carry a block header whose height
+    /// is u64::MAX. `verify_block_endorsements` computes `block_height + 1`, which would overflow
+    /// and crash a bootstrapping node. It must instead be rejected as an invalid proof.
+    #[test]
+    fn verify_block_endorsements_rejects_max_height() {
+        let err = EpochSync::verify_block_endorsements(CryptoHash::default(), u64::MAX, &[], &[])
+            .unwrap_err();
+        match &err {
+            Error::InvalidEpochSyncProof(msg) => {
+                assert!(msg.contains("too large"), "unexpected message: {msg}");
+            }
+            _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
         }
     }
 }
