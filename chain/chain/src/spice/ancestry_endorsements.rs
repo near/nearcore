@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 /// against which a block's core statements are validated. Borrows `prev_uncertified_chunks`.
 pub(crate) struct AncestryEndorsements<'a> {
     pending_designated: HashSet<(&'a SpiceChunkId, &'a AccountId)>,
+    uncertified_chunks: HashSet<&'a SpiceChunkId>,
     on_chain: HashMap<&'a SpiceChunkId, HashMap<&'a AccountId, &'a SpiceStoredVerifiedEndorsement>>,
 }
 
@@ -24,6 +25,7 @@ impl<'a> AncestryEndorsements<'a> {
                     info.missing_endorsements.iter().map(|account_id| (&info.chunk_id, account_id))
                 })
                 .collect(),
+            uncertified_chunks: prev_uncertified_chunks.iter().map(|info| &info.chunk_id).collect(),
             on_chain,
         }
     }
@@ -35,6 +37,16 @@ impl<'a> AncestryEndorsements<'a> {
         account_id: &'a AccountId,
     ) -> bool {
         self.pending_designated.contains(&(chunk_id, account_id))
+    }
+
+    /// Whether `chunk_id` is still uncertified as of the previous block.
+    pub(crate) fn is_uncertified(&self, chunk_id: &SpiceChunkId) -> bool {
+        self.uncertified_chunks.contains(chunk_id)
+    }
+
+    /// Whether `(chunk_id, account_id)`'s endorsement is already on chain in the ancestry.
+    pub(crate) fn is_on_chain(&self, chunk_id: &SpiceChunkId, account_id: &AccountId) -> bool {
+        self.on_chain.get(chunk_id).is_some_and(|endorsers| endorsers.contains_key(account_id))
     }
 
     /// Chunks awaiting a designated endorsement on chain (with repeats per missing validator).
