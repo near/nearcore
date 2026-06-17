@@ -252,7 +252,30 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
+    // V1 resolves via the canonical sampler; V2 via the signed grandparent anchor
+    // (mirrors the witness V2 path), cross-checking the signed key against the
+    // anchor before trusting the resolution. An unresolvable anchor surfaces as
+    // `DBNotFoundErr` and is treated as a quiet drop by the caller (node behind).
+    let chunk_producer = match partial_deploys {
+        PartialEncodedContractDeploys::V1(_) => epoch_manager.get_chunk_producer_info(key)?,
+        PartialEncodedContractDeploys::V2(v2) => {
+            let producer = resolve_anchored_producer(
+                epoch_manager,
+                v2.prev_prev_block_hash(),
+                &key.epoch_id,
+                key.height_created,
+                key.shard_id,
+            )?;
+            verify_anchored_chunk_key(
+                epoch_manager,
+                &key.epoch_id,
+                key.height_created,
+                v2.prev_block_hash(),
+                v2.prev_prev_block_hash(),
+            )?;
+            producer
+        }
+    };
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }

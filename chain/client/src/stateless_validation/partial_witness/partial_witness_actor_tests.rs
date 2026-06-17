@@ -14,7 +14,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, MainTransitionKey,
+    ChunkContractAccesses, MainTransitionKey, PartialEncodedContractDeploys,
+    PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
@@ -379,4 +380,101 @@ fn accesses_v2_unprocessed_anchor_soft_drops() {
 
     let actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
     actor.handle_chunk_contract_accesses(accesses).unwrap();
+}
+
+fn build_deploys(
+    signer: &ValidatorSigner,
+    epoch_id: EpochId,
+    prev_block_hash: CryptoHash,
+    prev_prev_block_hash: CryptoHash,
+    height_created: BlockHeight,
+    shard_id: ShardId,
+    protocol_version: ProtocolVersion,
+) -> PartialEncodedContractDeploys {
+    PartialEncodedContractDeploys::new(
+        ChunkProductionKey { shard_id, epoch_id, height_created },
+        PartialEncodedContractDeploysPart {
+            part_ord: 0,
+            data: vec![1u8].into_boxed_slice(),
+            encoded_length: 1,
+        },
+        prev_block_hash,
+        prev_prev_block_hash,
+        signer,
+        protocol_version,
+    )
+}
+
+/// Receiver gate: a V2 deploys message before EarlyKickout activation is dropped
+/// before validation. Signed by a non-producer so that, without the gate, the
+/// invalid signature would surface as `Err` instead of the quiet `Ok` drop.
+#[cfg(not(feature = "nightly"))]
+#[test]
+fn deploys_receiver_gate_drops_v2_pre_kickout() {
+    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+    let wrong = create_test_signer("not_the_producer");
+    let deploys = build_deploys(
+        &wrong,
+        epoch_id,
+        genesis_hash,
+        CryptoHash::default(),
+        chain.genesis().height() + 1,
+        ShardId::new(0),
+        post_kickout_version(),
+    );
+    assert!(matches!(deploys, PartialEncodedContractDeploys::V2(_)));
+
+    let mut actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
+    actor.handle_partial_encoded_contract_deploys(deploys).unwrap();
+}
+
+/// Receiver gate: a V1 deploys message at/after EarlyKickout activation is dropped
+/// before validation (symmetric to the V2-pre-activation case).
+#[cfg(feature = "nightly")]
+#[test]
+fn deploys_receiver_gate_drops_v1_post_kickout() {
+    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+    let wrong = create_test_signer("not_the_producer");
+    let deploys = build_deploys(
+        &wrong,
+        epoch_id,
+        genesis_hash,
+        CryptoHash::default(),
+        chain.genesis().height() + 1,
+        ShardId::new(0),
+        pre_kickout_version(),
+    );
+    assert!(matches!(deploys, PartialEncodedContractDeploys::V1(_)));
+
+    let mut actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
+    actor.handle_partial_encoded_contract_deploys(deploys).unwrap();
+}
+
+/// A V2 deploys message whose grandparent anchor is unprocessed (node 2+ blocks
+/// behind) is soft-dropped: the `DBNotFoundErr` from the anchored lookup maps to a
+/// quiet `Ok`, not an error out of the handler.
+#[cfg(feature = "nightly")]
+#[test]
+fn deploys_v2_unprocessed_anchor_soft_drops() {
+    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
+    let genesis_hash = *chain.genesis().hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
+    let unknown_anchor = CryptoHash::hash_bytes(b"unknown_anchor_block");
+    let deploys = build_deploys(
+        signer.as_ref(),
+        epoch_id,
+        unknown_parent,
+        unknown_anchor,
+        chain.genesis().height() + 2,
+        ShardId::new(0),
+        post_kickout_version(),
+    );
+
+    let mut actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
+    actor.handle_partial_encoded_contract_deploys(deploys).unwrap();
 }
