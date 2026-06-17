@@ -1724,6 +1724,7 @@ fn uncertified_chunk_info(block_hash: CryptoHash, shard_id: ShardId) -> SpiceUnc
         chunk_id: SpiceChunkId { block_hash, shard_id },
         missing_endorsements: vec![],
         present_endorsements: vec![],
+        present_fallback_endorsements: vec![],
     }
 }
 
