@@ -44,7 +44,9 @@ use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
 use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
-use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
+use near_vm_runner::{
+    ContractRuntimeCache, FilesystemContractRuntimeCache, NoContractRuntimeCache,
+};
 use nearcore::state_sync::StateSyncDumper;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -71,6 +73,7 @@ pub fn setup_client(
         chunks_storage,
         drop_conditions,
         load_memtries_for_tracked_shards,
+        disable_compiled_contract_cache,
         task_delay_fn,
         ..
     } = shared_state;
@@ -107,7 +110,11 @@ pub fn setup_client(
         epoch_config_store.clone(),
     );
 
-    let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
+    let contract_cache: Box<dyn ContractRuntimeCache> = if *disable_compiled_contract_cache {
+        Box::new(NoContractRuntimeCache)
+    } else {
+        Box::new(FilesystemContractRuntimeCache::test().expect("filesystem contract cache"))
+    };
     let snapshot_every_n_epochs = client_config
         .cloud_archival_writer
         .as_ref()
