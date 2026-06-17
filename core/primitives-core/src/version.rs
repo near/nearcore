@@ -415,11 +415,17 @@ pub enum ProtocolFeature {
     FixDelegatedDeterministicStateInit,
     /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
     /// per-action `Vec<AccountContract>`: one entry per action in the
-    /// receipt, set to the contract that was executed for `FunctionCall`
-    /// actions and to `AccountContract::None` for everything else (matching
-    /// the receipt's action order). This is relevant when the receiver
-    /// account and the contract source diverge — e.g. global contracts.
-    /// Wire format changes (new borsh discriminant), so the cutover must be
+    /// receipt, recording the contract attached to the receiver account
+    /// immediately before that action ran. Captured unconditionally for
+    /// every action kind (not just `FunctionCall`), so consumers can see
+    /// what code an account had even on receipts that did not invoke a
+    /// contract. `AccountContract::None` is emitted only when the account
+    /// did not yet exist (e.g. the `CreateAccount` slot that materialized
+    /// it) or for unexecuted trailing slots padded after a mid-receipt
+    /// failure. Order matches the receipt's `actions` vector. This is
+    /// relevant when the receiver account and the contract source diverge
+    /// — e.g. global contracts and `UseGlobalContract` flows. Wire format
+    /// changes (new borsh discriminant), so the cutover must be
     /// coordinated across the network.
     ExecutionMetadataV4,
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
