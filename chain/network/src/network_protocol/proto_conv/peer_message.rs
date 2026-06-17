@@ -10,15 +10,22 @@ use crate::network_protocol::{
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
 use borsh::BorshDeserialize as _;
+use bytesize::MIB;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
 use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
+
+/// Upper bound on the Borsh-encoded size of a peer-supplied transaction body,
+/// enforced before the body is deserialized to mitigate maliciously inflated
+/// transactions exhausting node memory at decode time. Set comfortably above
+/// the largest valid transaction (`max_transaction_size`, historically 4 MiB)
+/// and far below the 512 MiB peer-frame cap.
+const MAX_TRANSACTION_SIZE_BYTES: usize = 16 * MIB as usize;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRoutingTableUpdateError {
@@ -447,7 +454,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 PeerMessage::OptimisticBlock(ob.try_into().map_err(Self::Error::OptimisticBlock)?)
             }
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
-                SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
+                // Bound the decode-time allocation: see `MAX_TRANSACTION_SIZE_BYTES`.
+                try_from_slice_with_limit(&t.borsh, MAX_TRANSACTION_SIZE_BYTES)
+                    .map_err(Self::Error::Transaction)?,
             ),
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
@@ -564,5 +573,39 @@ impl TryFrom<&proto::RoutedMessageV3> for RoutedMessageV3 {
             created_at: x.created_at,
             num_hops: x.num_hops,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network_protocol::testonly as data;
+    use crate::testonly::make_rng;
+
+    /// A normally-sized transaction passes the network size gate and round-trips
+    /// through the proto conversion; an oversized body is rejected before it is
+    /// Borsh-decoded, so the inflated nested-action `Vec` is never materialized
+    /// at decode time (NEAP-621).
+    #[test]
+    fn transaction_size_gate() {
+        let mut rng = make_rng(89028037453);
+        let msg = PeerMessage::Transaction(data::make_signed_transaction(&mut rng));
+        let proto: proto::PeerMessage = (&msg).into();
+        assert_eq!(PeerMessage::try_from(&proto).unwrap(), msg);
+
+        let proto = proto::PeerMessage {
+            message_type: Some(ProtoMT::Transaction(proto::SignedTransaction {
+                borsh: vec![0u8; MAX_TRANSACTION_SIZE_BYTES + 1],
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let err =
+            PeerMessage::try_from(&proto).expect_err("oversized transaction must be rejected");
+        assert!(
+            matches!(err, ParsePeerMessageError::Transaction(_)),
+            "unexpected error variant: {err:?}"
+        );
+        assert!(err.to_string().contains("exceeds"), "unexpected error: {err}");
     }
 }
