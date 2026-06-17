@@ -60,6 +60,9 @@ pub(crate) struct TestLoopBuilder {
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
     load_memtries_for_tracked_shards: bool,
+    /// Whether to give every node a no-op compiled contract cache, forcing
+    /// validators to request contract code rather than reuse a precompiled copy.
+    disable_compiled_contract_cache: bool,
     /// Whether to add a non-validator RPC node (tracks all shards). Honored by both the auto and
     /// manual setup APIs.
     enable_rpc: bool,
@@ -98,6 +101,7 @@ impl TestLoopBuilder {
             warmup_mode: WarmupMode::Auto,
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
+            disable_compiled_contract_cache: false,
             enable_rpc: false,
             upgrade_schedule: None,
             rpc_pool: None,
@@ -408,6 +412,11 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn disable_compiled_contract_cache(mut self) -> Self {
+        self.disable_compiled_contract_cache = true;
+        self
+    }
+
     pub fn protocol_upgrade_schedule(mut self, schedule: ProtocolUpgradeVotingSchedule) -> Self {
         self.upgrade_schedule = Some(schedule);
         self
@@ -543,6 +552,7 @@ impl TestLoopBuilder {
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
+            disable_compiled_contract_cache: self.disable_compiled_contract_cache,
             warmup_pending,
             bucket_config: self.bucket_config.clone(),
             task_delay_fn: self.task_delay_fn.clone(),
