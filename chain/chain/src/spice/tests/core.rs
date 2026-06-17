@@ -1511,7 +1511,7 @@ fn block_execution_results(block: &Block) -> BlockExecutionResults {
     BlockExecutionResults(results)
 }
 
-fn block_certification_core_statements(block: &Block) -> Vec<SpiceCoreStatement> {
+pub(super) fn block_certification_core_statements(block: &Block) -> Vec<SpiceCoreStatement> {
     let validators = test_validators();
     let mut core_statements = Vec::new();
 
@@ -1568,7 +1568,7 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
 }
 
-fn build_block(
+pub(super) fn build_block(
     chain: &Chain,
     prev_block: &Block,
     spice_core_statements: Vec<SpiceCoreStatement>,
@@ -1576,7 +1576,7 @@ fn build_block(
     block_builder(chain, prev_block).spice_core_statements(spice_core_statements).build()
 }
 
-fn process_block(chain: &mut Chain, block: Arc<Block>) {
+pub(super) fn process_block(chain: &mut Chain, block: Arc<Block>) {
     process_block_sync(
         chain,
         block.into(),
@@ -1586,15 +1586,15 @@ fn process_block(chain: &mut Chain, block: Arc<Block>) {
     .unwrap();
 }
 
-fn test_validators() -> Vec<String> {
+pub(super) fn test_validators() -> Vec<String> {
     (0..4).map(|i| format!("test{i}")).collect()
 }
 
-fn setup() -> (Chain, SpiceCoreReader) {
+pub(super) fn setup() -> (Chain, SpiceCoreReader) {
     setup_with_validators(&test_validators())
 }
 
-fn setup_with_validators(validators: &[String]) -> (Chain, SpiceCoreReader) {
+pub(super) fn setup_with_validators(validators: &[String]) -> (Chain, SpiceCoreReader) {
     init_test_logger();
 
     let num_shards = 3;
@@ -1633,7 +1633,9 @@ fn core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
     )
 }
 
-fn test_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
+pub(super) fn test_execution_result_for_chunk(
+    chunk_header: &ShardChunkHeader,
+) -> ChunkExecutionResult {
     ChunkExecutionResult {
         // Using chunk_hash makes sure that each chunk has a different execution result.
         chunk_extra: ChunkExtra::new_with_only_state_root(&chunk_header.chunk_hash().0),
@@ -1648,7 +1650,7 @@ fn invalid_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkE
     execution_result
 }
 
-fn test_chunk_endorsement(
+pub(super) fn test_chunk_endorsement(
     validator: &str,
     block: &Block,
     chunk_header: &ShardChunkHeader,
@@ -1667,7 +1669,9 @@ fn endorsement_into_verified(endorsement: SpiceChunkEndorsement) -> SpiceVerifie
     endorsement.into_verified(&signer.public_key()).unwrap()
 }
 
-fn endorsement_into_core_statement(endorsement: SpiceChunkEndorsement) -> SpiceCoreStatement {
+pub(super) fn endorsement_into_core_statement(
+    endorsement: SpiceChunkEndorsement,
+) -> SpiceCoreStatement {
     let verified = endorsement_into_verified(endorsement);
     verified
         .to_stored()

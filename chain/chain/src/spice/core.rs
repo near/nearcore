@@ -6,7 +6,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::errors::InvalidSpiceCoreStatementsError;
+use near_primitives::errors::{EpochError, InvalidSpiceCoreStatementsError};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
@@ -22,12 +22,19 @@ use near_primitives::types::{
     EpochId, ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
     ValidatorId,
 };
-use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
+use near_primitives::utils::{
+    get_endorsements_key, get_execution_results_key, get_uncertified_execution_results_key,
+};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::Arc;
+
+/// Blocks a chunk must stay certifiable-but-uncertified before the all-stake fallback opens for it.
+/// Well below epoch length (to rescue liveness before the one-epoch lag guard stalls consensus).
+pub const SPICE_FALLBACK_CERTIFICATION_DELAY: BlockHeight = 5;
 
 #[derive(Clone)]
 pub struct SpiceCoreReader {
@@ -66,7 +73,7 @@ impl SpiceCoreReader {
             .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
     }
 
-    fn get_endorsement(
+    pub fn get_endorsement(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
@@ -75,6 +82,14 @@ impl SpiceCoreReader {
         self.chain_store
             .store()
             .get_ser(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
+    }
+
+    pub fn get_uncertified_execution_result(
+        &self,
+        execution_result_hash: &ChunkExecutionResultHash,
+    ) -> Option<Arc<ChunkExecutionResult>> {
+        let key = get_uncertified_execution_results_key(execution_result_hash);
+        self.chain_store.store().caching_get_ser(DBCol::uncertified_execution_results(), &key)
     }
 
     /// Whether the union of `endorsers` and the validators whose stored endorsement attests
@@ -341,6 +356,35 @@ impl SpiceCoreReader {
         }
     }
 
+    /// Includes not-yet-on-chain non-designated (fallback-set) endorsements over successive blocks,
+    /// so they accumulate toward the 2/3-total-stake threshold rather than one fat certifying block.
+    fn push_fallback_endorsements(
+        &self,
+        chunk_info: &SpiceUncertifiedChunkInfo,
+        core_statements: &mut Vec<SpiceCoreStatement>,
+    ) -> Result<(), Error> {
+        let chunk_id = &chunk_info.chunk_id;
+        let chunk_block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
+        let epoch_id = chunk_block_header.epoch_id();
+        let designated = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_id.shard_id,
+            chunk_block_header.height(),
+        )?;
+        let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;
+        let on_chain: HashSet<&AccountId> = chunk_info
+            .present_fallback_endorsements
+            .iter()
+            .map(|(account_id, _)| account_id)
+            .collect();
+        let fallback_accounts =
+            all_validators.assignments().iter().map(|(account_id, _)| account_id).filter(
+                |account_id| !designated.contains(account_id) && !on_chain.contains(*account_id),
+            );
+        self.push_stored_endorsements(chunk_id, fallback_accounts, core_statements);
+        Ok(())
+    }
+
     pub fn core_statements_for_next_block(
         &self,
         block_header: &BlockHeader,
@@ -354,16 +398,30 @@ impl SpiceCoreReader {
 
         let mut core_statements = Vec::new();
         for chunk_info in uncertified_chunks {
+            let chunk_id = &chunk_info.chunk_id;
+            // Designated endorsements the producer holds that aren't on chain yet.
             self.push_stored_endorsements(
-                &chunk_info.chunk_id,
+                chunk_id,
                 &chunk_info.missing_endorsements,
                 &mut core_statements,
             );
 
+            // Once uncertified past the fallback window, also include the non-designated endorsements.
+            // height() + 1 underestimates the next block's height, but eligibility is monotone in it
+            // so anything eligible here stays eligible at the height validation checks against.
+            if fallback_eligible(
+                &self.chain_store,
+                block_header.height() + 1,
+                block_hash,
+                chunk_id,
+            )? {
+                self.push_fallback_endorsements(&chunk_info, &mut core_statements)?;
+            }
+
             let Some(execution_result) = get_execution_result_from_store(
                 &self.chain_store,
-                &chunk_info.chunk_id.block_hash,
-                chunk_info.chunk_id.shard_id,
+                &chunk_id.block_hash,
+                chunk_id.shard_id,
             ) else {
                 continue;
             };
@@ -458,6 +516,28 @@ impl SpiceCoreReader {
         Ok(())
     }
 
+    /// `fallback_eligible` for `chunk_id` as of `block`, mapping the `near_chain` error into the
+    /// validation error type (the block's ancestry is present, so an error is internal).
+    // TODO(spice-perf): called per non-designated endorsement in the admission loop and again per
+    // chunk in the certification loop, but the verdict only depends on (block, chunk_id). Memoize
+    // it per chunk_id for the duration of validate_core_statements_in_block, and hoist the
+    // chunk-independent ancestor walk + certified-frontier lookup out of the per-chunk path.
+    fn fallback_eligible_in_block(
+        &self,
+        block: &Block,
+        chunk_id: &SpiceChunkId,
+    ) -> Result<bool, InvalidSpiceCoreStatementsError> {
+        fallback_eligible(
+            &self.chain_store,
+            block.header().height(),
+            block.header().prev_hash(),
+            chunk_id,
+        )
+        .map_err(|error| InvalidSpiceCoreStatementsError::IoError {
+            error: io::Error::other(error.to_string()),
+        })
+    }
+
     /// Verifies `endorsement`'s signature against its signer's key in `epoch_id`, returning the
     /// signed data and signature. The error is a reason string for `InvalidCoreStatement`.
     fn verify_endorsement_signature<'e>(
@@ -511,13 +591,24 @@ impl SpiceCoreReader {
                     // regardless of result hash. The dup check below is per result hash and
                     // `pending_designated` is not updated mid-loop, so a validator can
                     // equivocate (endorse two results for one chunk) and count toward both.
-                    if !ancestry_endorsements.is_pending_designated(chunk_id, account_id) {
+                    // Re-inclusion of an endorsement already carried in the ancestry is invalid.
+                    if ancestry_endorsements.is_on_chain(chunk_id, account_id) {
                         return Err(InvalidCoreStatement {
                             index,
-                            // It can either be already included in the ancestry or be for a block
-                            // outside of ancestry.
                             reason: "endorsement is irrelevant",
                         });
+                    }
+                    // Non-designated endorsements are admissible only once the chunk is
+                    // fallback-eligible and still uncertified.
+                    if !ancestry_endorsements.is_pending_designated(chunk_id, account_id) {
+                        let eligible_fallback = ancestry_endorsements.is_uncertified(chunk_id)
+                            && self.fallback_eligible_in_block(block, chunk_id)?;
+                        if !eligible_fallback {
+                            return Err(InvalidCoreStatement {
+                                index,
+                                reason: "endorsement is irrelevant",
+                            });
+                        }
                     }
 
                     let endorsement_block =
@@ -584,28 +675,42 @@ impl SpiceCoreReader {
         }
 
         for (chunk_id, mut on_chain_endorsements) in in_block_endorsements {
-            let block = get_block(self.chain_store.store_ref(), &chunk_id.block_hash)?;
+            let chunk_block = get_block(self.chain_store.store_ref(), &chunk_id.block_hash)?;
             let chunk_validator_assignments = self
                 .epoch_manager
                 .get_chunk_validator_assignments(
-                    &block.header().epoch_id(),
+                    &chunk_block.header().epoch_id(),
                     chunk_id.shard_id,
-                    block.header().height(),
+                    chunk_block.header().height(),
                 )
                 .expect(
                     "since we are waiting for endorsement we should know it's validator assignments",
                 );
-            // Add the on-chain ancestry endorsements to the in-block ones, grouped by attested result.
+            // Add the on-chain ancestry endorsements (designated and non-designated) to the in-block
+            // ones, grouped by attested result; the designated tally ignores non-designated accounts.
             for (account_id, endorsement) in ancestry_endorsements.on_chain_for(chunk_id) {
                 on_chain_endorsements
                     .entry(endorsement.execution_result_hash.clone())
                     .or_default()
                     .insert(account_id, endorsement.signature.clone());
             }
+            // Once fallback-eligible, the chunk may also certify via 2/3 of total epoch stake.
+            let fallback_assignment =
+                self.fallback_eligible_in_block(block, chunk_id)?.then(|| {
+                    all_stake_fallback_assignment(
+                        self.epoch_manager.as_ref(),
+                        chunk_block.header().epoch_id(),
+                    )
+                    .expect("epoch of an uncertified chunk's block is known")
+                });
             for (execution_result_hash, validator_signatures) in on_chain_endorsements {
-                let endorsement_state =
-                    chunk_validator_assignments.compute_endorsement_state(validator_signatures);
-                if !endorsement_state.is_endorsed {
+                let endorsed = chunk_validator_assignments
+                    .compute_endorsement_state(validator_signatures.clone())
+                    .is_endorsed
+                    || fallback_assignment.as_ref().is_some_and(|all| {
+                        all.compute_endorsement_state(validator_signatures).is_endorsed
+                    });
+                if !endorsed {
                     continue;
                 }
 
@@ -777,14 +882,18 @@ pub fn record_uncertified_chunks_for_block(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<(), Error> {
-    let block_endorsements: HashMap<(&SpiceChunkId, &AccountId), &SpiceEndorsementCoreStatement> =
-        block
-            .spice_core_statements()
-            .iter_endorsements()
-            .map(|e| ((e.chunk_id(), e.account_id()), e))
-            .collect();
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
+    let mut block_endorsements: HashMap<
+        &SpiceChunkId,
+        HashMap<&AccountId, &SpiceEndorsementCoreStatement>,
+    > = HashMap::new();
+    for endorsement in block.spice_core_statements().iter_endorsements() {
+        block_endorsements
+            .entry(endorsement.chunk_id())
+            .or_default()
+            .insert(endorsement.account_id(), endorsement);
+    }
 
     let prev_hash = block.header().prev_hash();
     let mut uncertified_chunks =
@@ -792,24 +901,41 @@ pub fn record_uncertified_chunks_for_block(
     uncertified_chunks
         .retain(|chunk_info| !block_execution_results.contains_key(&chunk_info.chunk_id));
     for chunk_info in &mut uncertified_chunks {
+        let chunk_endorsements = block_endorsements.get(&chunk_info.chunk_id);
         for account_id in &chunk_info.missing_endorsements {
-            let Some(endorsement_core_statement) =
-                block_endorsements.get(&(&chunk_info.chunk_id, account_id))
-            else {
+            let Some(endorsement) = chunk_endorsements.and_then(|e| e.get(account_id)) else {
                 continue;
             };
             // By the time of recording block is already validated.
-            let endorsement = endorsement_core_statement.unchecked_to_stored();
-            chunk_info.present_endorsements.push((account_id.clone(), endorsement));
+            chunk_info
+                .present_endorsements
+                .push((account_id.clone(), endorsement.unchecked_to_stored()));
         }
-
-        chunk_info.missing_endorsements.retain(|account_id| {
-            !block_endorsements.contains_key(&(&chunk_info.chunk_id, account_id))
-        });
+        chunk_info
+            .missing_endorsements
+            .retain(|account_id| !chunk_endorsements.is_some_and(|e| e.contains_key(account_id)));
         assert!(
             !chunk_info.missing_endorsements.is_empty(),
             "when there are no missing endorsements execution result should be present"
         );
+
+        // Record non-designated endorsements (not in the designated assignment, so not tracked
+        // above) for the all-stake fallback.
+        let Some(chunk_endorsements) = chunk_endorsements else {
+            continue;
+        };
+        let on_chain: HashSet<AccountId> = chunk_info
+            .all_present_endorsements()
+            .map(|(account_id, _)| account_id.clone())
+            .collect();
+        for (account_id, endorsement) in chunk_endorsements {
+            if on_chain.contains(*account_id) {
+                continue;
+            }
+            chunk_info
+                .present_fallback_endorsements
+                .push(((*account_id).clone(), endorsement.unchecked_to_stored()));
+        }
     }
 
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
@@ -1092,4 +1218,47 @@ pub fn get_last_certified_block_header(
         );
         Ok(header)
     }
+}
+
+/// Whether `chunk_id` may certify via the all-stake fallback as of a carrying block at
+/// `carrying_height`/`carrying_prev_hash`: true once its parent certified at least
+/// `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks ago.
+pub fn fallback_eligible(
+    chain_store: &ChainStoreAdapter,
+    carrying_height: BlockHeight,
+    carrying_prev_hash: &CryptoHash,
+    chunk_id: &SpiceChunkId,
+) -> Result<bool, Error> {
+    if carrying_height < SPICE_FALLBACK_CERTIFICATION_DELAY {
+        return Ok(false);
+    }
+    let target_height = carrying_height - SPICE_FALLBACK_CERTIFICATION_DELAY;
+
+    // Youngest ancestor of the carrying block with height <= target_height, reached by walking
+    // back over any skipped heights.
+    let mut ancestor = chain_store.get_block_header(carrying_prev_hash)?;
+    while ancestor.height() > target_height && !ancestor.is_genesis() {
+        ancestor = chain_store.get_block_header(ancestor.prev_hash())?;
+    }
+
+    // prev(chunk block) is certified as of the ancestor iff the ancestor's certified frontier reaches
+    // its height. `>=` also rejects prev(chunk block) in the ancestor's future, so no extra guard.
+    let chunk_block = chain_store.get_block_header(&chunk_id.block_hash)?;
+    let prev_chunk_block = chain_store.get_block_header(chunk_block.prev_hash())?;
+    let frontier = get_last_certified_block_header(chain_store, ancestor.hash())?;
+    Ok(frontier.height() >= prev_chunk_block.height())
+}
+
+/// The epoch's full validator set as a shard-independent assignment weighted by real stake. The
+/// all-stake fallback certifies via 2/3 of this total when the designated assignment didn't in time.
+// TODO(spice-perf): the result is epoch-invariant but rebuilt (with per-validator AccountId clones)
+// on every call, and this is called per fallback-eligible chunk from validation, the producer, and
+// the writer. Cache it per EpochId, like get_chunk_validator_assignments.
+pub fn all_stake_fallback_assignment(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+) -> Result<ChunkValidatorAssignments, EpochError> {
+    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+    let assignments = epoch_info.validators_iter().map(|validator| validator.account_and_stake());
+    Ok(ChunkValidatorAssignments::new(assignments.collect()))
 }
