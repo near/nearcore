@@ -303,21 +303,6 @@ impl SpiceCoreReader {
             .map(|(state_root, _)| state_root))
     }
 
-    /// Leaf of the certified-block merkle tree for `block_header`: the hash of its
-    /// reconstructed certified lite view. `None` if its results are unavailable.
-    pub fn certified_block_lite_hash(
-        &self,
-        context_hash: &CryptoHash,
-        block_header: &BlockHeader,
-    ) -> Result<Option<CryptoHash>, Error> {
-        let Some((state_root, outcome_root)) =
-            self.certified_block_roots(context_hash, block_header)?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(reconstruct_certified_lite_view(block_header, state_root, outcome_root).hash()))
-    }
-
     /// The certified-block tree as of `prev_hash` (empty for genesis).
     fn prev_certified_block_merkle_tree(
         &self,
@@ -1194,8 +1179,12 @@ fn build_certified_block_merkle_tree(
     }
     headers.sort_by_key(|header| header.height());
 
-    let mut tree = prev_tree;
-    let mut leaves = Vec::with_capacity(headers.len());
+    // Gather each newly-certified block's per-shard results from the committed
+    // `execution_results` column plus this block's overlay (precedence:
+    // overlay > column > ancestry-fallback below).
+    let mut results_per_block: Vec<HashMap<ShardId, Arc<ChunkExecutionResult>>> =
+        Vec::with_capacity(headers.len());
+    let mut needs_ancestry = false;
     for header in &headers {
         let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
         let mut results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
@@ -1207,29 +1196,40 @@ fn build_certified_block_merkle_tree(
             {
                 results.insert(shard_id, result);
             }
-        }
-        if shard_layout.shard_ids().any(|shard_id| !results.contains_key(&shard_id)) {
-            let relevant_blocks = HashSet::from([*header.hash()]);
-            let mut results_by_block = HashMap::new();
-            collect_certified_execution_results_from_ancestry(
-                chain_store,
-                prev_hash,
-                header,
-                &relevant_blocks,
-                &mut results_by_block,
-            )?;
-            for (shard_id, result) in results_by_block.remove(header.hash()).unwrap_or_default() {
-                results.entry(shard_id).or_insert(result);
-            }
-        }
-        for shard_id in shard_layout.shard_ids() {
             let chunk_id = SpiceChunkId { block_hash: *header.hash(), shard_id };
             if let Some(result) = overlay.get(&chunk_id) {
                 results.insert(shard_id, Arc::new((*result).clone()));
             }
         }
+        needs_ancestry |= shard_layout.shard_ids().any(|shard_id| !results.contains_key(&shard_id));
+        results_per_block.push(results);
+    }
+
+    // When the async writer is behind, recover the still-missing shards from the
+    // ancestry's block bodies. One walk (stopping at the oldest, height-sorted
+    // first) covers every newly-certified block at once.
+    if needs_ancestry {
+        let relevant_blocks: HashSet<CryptoHash> = headers.iter().map(|h| *h.hash()).collect();
+        let mut results_by_block = HashMap::new();
+        collect_certified_execution_results_from_ancestry(
+            chain_store,
+            prev_hash,
+            &headers[0],
+            &relevant_blocks,
+            &mut results_by_block,
+        )?;
+        for (header, results) in headers.iter().zip(results_per_block.iter_mut()) {
+            for (shard_id, result) in results_by_block.remove(header.hash()).unwrap_or_default() {
+                results.entry(shard_id).or_insert(result);
+            }
+        }
+    }
+
+    let mut tree = prev_tree;
+    let mut leaves = Vec::with_capacity(headers.len());
+    for (header, results) in headers.iter().zip(results_per_block.iter()) {
         let (state_root, outcome_root) =
-            certified_roots_from_results(epoch_manager, header, &results)?.ok_or_else(|| {
+            certified_roots_from_results(epoch_manager, header, results)?.ok_or_else(|| {
                 Error::Other(format!("certified block {} missing execution results", header.hash()))
             })?;
         let leaf = reconstruct_certified_lite_view(header, state_root, outcome_root).hash();
