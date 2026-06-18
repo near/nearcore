@@ -223,51 +223,68 @@ impl SpiceCoreReader {
         Ok(Some(BlockExecutionResults(results)))
     }
 
-    /// State root certified as of `block_hash`: the merkle root over per-shard
-    /// state roots of the last fully certified block. Mirrors the non-spice
-    /// `Chunks::compute_state_root`. Returns `None` when the certified block's
-    /// execution results are not all available yet.
-    pub fn last_certified_state_root(
+    /// Certified state and outcome roots for `block_header` (a fully certified
+    /// block): merkle roots over its per-shard state/outcome roots, like the
+    /// non-spice `Chunks::compute_state_root` / `compute_outcome_root`.
+    /// `context_hash` is a descendant whose ancestry carries the certifying core
+    /// statements (used to recover results the async writer has not stored yet).
+    /// Returns `None` when any shard's execution result is unavailable.
+    pub fn certified_block_roots(
         &self,
-        block_hash: &CryptoHash,
-    ) -> Result<Option<CryptoHash>, Error> {
-        let last_certified = get_last_certified_block_header(&self.chain_store, block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(last_certified.epoch_id())?;
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
 
         // Fast path: `DBCol::execution_results`, written asynchronously by
         // `SpiceCoreWriterActor`. By the time a block is fully certified the writer has
         // almost always recorded its results, so this usually returns everything.
-        let mut results = self.get_execution_results_by_shard_id(&last_certified)?;
+        let mut results = self.get_execution_results_by_shard_id(block_header)?;
 
         // Slow path: when the writer has not caught up yet some shards are missing. Recover
         // them from the ancestry's block bodies, which is also the only source for shards
         // this node does not track. Genesis carries no certifying statements, so its results
         // only ever come from the fast path above.
         let all_present = shard_layout.shard_ids().all(|shard_id| results.contains_key(&shard_id));
-        if !all_present && !last_certified.is_genesis() {
-            let relevant_blocks = HashSet::from([*last_certified.hash()]);
+        if !all_present && !block_header.is_genesis() {
+            let relevant_blocks = HashSet::from([*block_header.hash()]);
             let mut results_by_block = HashMap::new();
             self.collect_certified_execution_results_from_ancestry(
-                block_hash,
-                &last_certified,
+                context_hash,
+                block_header,
                 &relevant_blocks,
                 &mut results_by_block,
             )?;
             for (shard_id, result) in
-                results_by_block.remove(last_certified.hash()).unwrap_or_default()
+                results_by_block.remove(block_header.hash()).unwrap_or_default()
             {
                 results.entry(shard_id).or_insert(result);
             }
         }
 
         let mut state_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
+        let mut outcome_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
         for shard_id in shard_layout.shard_ids() {
             let Some(result) = results.get(&shard_id) else {
                 return Ok(None);
             };
             state_roots.push(*result.chunk_extra.state_root());
+            outcome_roots.push(*result.chunk_extra.outcome_root());
         }
-        Ok(Some(merklize(&state_roots).0))
+        Ok(Some((merklize(&state_roots).0, merklize(&outcome_roots).0)))
+    }
+
+    /// State root certified as of `block_hash`: the merkle root over per-shard
+    /// state roots of the last fully certified block. Returns `None` when the
+    /// certified block's execution results are not all available yet.
+    pub fn last_certified_state_root(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let last_certified = get_last_certified_block_header(&self.chain_store, block_hash)?;
+        Ok(self
+            .certified_block_roots(block_hash, &last_certified)?
+            .map(|(state_root, _)| state_root))
     }
 
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
