@@ -1161,13 +1161,25 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                     outcome_proof.block_hash = h;
                     // Here we assume the number of shards is small so this reconstruction
                     // should be fast
-                    let outcome_roots = self
-                        .chain
-                        .get_block(&h)?
-                        .chunks()
-                        .iter()
-                        .map(|header| *header.prev_outcome_root())
-                        .collect::<Vec<_>>();
+                    let h_header = self.chain.get_block_header(&h)?;
+                    let outcome_roots = if h_header.certified_block_merkle_root().is_some() {
+                        // Spice: outcomes are certified asynchronously, so the chunk
+                        // headers carry placeholders; use the certified per-shard roots.
+                        let context = self.chain.head()?.last_block_hash;
+                        self.chain
+                            .spice_core_reader
+                            .certified_block_shard_outcome_roots(&context, &h_header)?
+                            .ok_or(GetExecutionOutcomeError::NotConfirmed {
+                                transaction_or_receipt_id: id,
+                            })?
+                    } else {
+                        self.chain
+                            .get_block(&h)?
+                            .chunks()
+                            .iter()
+                            .map(|header| *header.prev_outcome_root())
+                            .collect::<Vec<_>>()
+                    };
                     if target_shard_index >= outcome_roots.len() {
                         return Err(GetExecutionOutcomeError::InconsistentState {
                             number_or_shards: outcome_roots.len(),
@@ -1617,11 +1629,17 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> f
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
         let head_block_header = BlockHeader::clone(&head_block_header);
         self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
-        let block_header_lite = block_header.into();
-        let proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
-            &msg.block_hash,
-            &msg.head_block_hash,
-        )?;
+        let (block_header_lite, proof) = if block_header.certified_block_merkle_root().is_some() {
+            // Spice: reconstruct with certified roots and anchor to the certified accumulator.
+            self.chain.spice_block_header_lite_and_proof(&msg.block_hash, &msg.head_block_hash)?
+        } else {
+            let block_header_lite = block_header.into();
+            let proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
+                &msg.block_hash,
+                &msg.head_block_hash,
+            )?;
+            (block_header_lite, proof)
+        };
         Ok(GetBlockProofResponse { block_header_lite, proof })
     }
 }

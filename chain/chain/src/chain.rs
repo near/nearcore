@@ -6,7 +6,7 @@ use crate::block_processing_utils::{
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
 use crate::crypto_hash_timer::CryptoHashTimer;
-use crate::lightclient::get_epoch_block_producers_view;
+use crate::lightclient::{get_epoch_block_producers_view, reconstruct_certified_lite_view};
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::pending::PendingBlocksPool;
@@ -18,7 +18,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice::core::SpiceCoreReader;
+use crate::spice::core::{SpiceCoreReader, compute_certified_block_proof};
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -64,7 +64,7 @@ use near_primitives::challenge::ChunkProofs;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::merkle::{PartialMerkleTree, merklize};
+use near_primitives::merkle::{MerklePath, PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
 };
@@ -702,6 +702,27 @@ impl Chain {
             get_epoch_block_producers_view(final_block_header.next_epoch_id(), epoch_manager)?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
+    }
+
+    /// Spice: the light-client `block_header_lite` (reconstructed with certified
+    /// roots) and the inclusion proof of `block_hash`'s certified leaf, anchored
+    /// to `head_block_hash`'s `certified_block_merkle_root`.
+    pub fn spice_block_header_lite_and_proof(
+        &self,
+        block_hash: &CryptoHash,
+        head_block_hash: &CryptoHash,
+    ) -> Result<(near_primitives::views::LightClientBlockLiteView, MerklePath), Error> {
+        let block_header = self.get_block_header(block_hash)?;
+        let (state_root, outcome_root) = self
+            .spice_core_reader
+            .certified_block_roots(head_block_hash, &block_header)?
+            .ok_or_else(|| Error::Other(format!("block {block_hash} is not certified")))?;
+        let block_header_lite =
+            reconstruct_certified_lite_view(&block_header, state_root, outcome_root);
+        let leaf_ordinal = self.chain_store().get_certified_block_leaf_ordinal(block_hash)?;
+        let tree_size = self.chain_store().get_certified_block_merkle_tree(head_block_hash)?.size();
+        let proof = compute_certified_block_proof(self.chain_store(), leaf_ordinal, tree_size)?;
+        Ok((block_header_lite, proof))
     }
 
     pub fn save_block(&mut self, block: MaybeValidated<Arc<Block>>) -> Result<(), Error> {

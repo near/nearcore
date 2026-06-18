@@ -269,6 +269,27 @@ impl SpiceCoreReader {
         certified_roots_from_results(self.epoch_manager.as_ref(), block_header, &results)
     }
 
+    /// Per-shard certified outcome roots for `block_header`, in shard order.
+    /// `merklize`d, these give the block's certified `outcome_root` and the
+    /// per-shard inclusion path used by light-client proofs. `None` when any
+    /// shard's result is unavailable.
+    pub fn certified_block_shard_outcome_roots(
+        &self,
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+    ) -> Result<Option<Vec<CryptoHash>>, Error> {
+        let results = self.gather_certified_results(context_hash, block_header)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
+        let mut outcome_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
+        for shard_id in shard_layout.shard_ids() {
+            let Some(result) = results.get(&shard_id) else {
+                return Ok(None);
+            };
+            outcome_roots.push(*result.chunk_extra.outcome_root());
+        }
+        Ok(Some(outcome_roots))
+    }
+
     /// State root certified as of `block_hash`: the merkle root over per-shard
     /// state roots of the last fully certified block. Returns `None` when the
     /// certified block's execution results are not all available yet.
