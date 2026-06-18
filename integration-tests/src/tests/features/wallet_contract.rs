@@ -117,7 +117,7 @@ fn test_eth_implicit_account_creation() {
 
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
-    let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id.clone() };
+    let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id };
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
             assert!(view.amount.is_zero());
