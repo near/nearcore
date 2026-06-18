@@ -1,3 +1,4 @@
+use crate::lightclient::reconstruct_certified_lite_view;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -8,7 +9,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -285,6 +286,47 @@ impl SpiceCoreReader {
         Ok(self
             .certified_block_roots(block_hash, &last_certified)?
             .map(|(state_root, _)| state_root))
+    }
+
+    /// Leaf of the certified-block merkle tree for `block_header`: the hash of its
+    /// reconstructed certified lite view. `None` if its results are unavailable.
+    pub fn certified_block_lite_hash(
+        &self,
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let Some((state_root, outcome_root)) =
+            self.certified_block_roots(context_hash, block_header)?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(reconstruct_certified_lite_view(block_header, state_root, outcome_root).hash()))
+    }
+
+    /// Extends `prev_certified_tree` (the tree as of the previous block) with one
+    /// leaf per newly-certified block, appended in ascending height order.
+    /// `context_hash` identifies the block whose ancestry carries the certifying
+    /// core statements.
+    pub fn extend_certified_block_merkle_tree(
+        &self,
+        context_hash: &CryptoHash,
+        prev_certified_tree: &PartialMerkleTree,
+        newly_certified: &[CryptoHash],
+    ) -> Result<PartialMerkleTree, Error> {
+        let mut headers = Vec::with_capacity(newly_certified.len());
+        for block_hash in newly_certified {
+            headers.push(self.chain_store.get_block_header(block_hash)?);
+        }
+        headers.sort_by_key(|header| header.height());
+
+        let mut tree = prev_certified_tree.clone();
+        for header in &headers {
+            let leaf = self.certified_block_lite_hash(context_hash, header)?.ok_or_else(|| {
+                Error::Other(format!("certified block {} missing execution results", header.hash()))
+            })?;
+            tree.insert(leaf);
+        }
+        Ok(tree)
     }
 
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
