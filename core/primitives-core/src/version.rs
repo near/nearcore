@@ -399,11 +399,13 @@ pub enum ProtocolFeature {
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
-    /// Make chunk-producer-to-shard assignment sticky across epoch boundaries:
-    /// preserve assignment by `ShardId` (rather than `ShardIndex`) and, when a
-    /// shard splits, distribute the parent's chunk producers across its child
-    /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
-    /// sync after resharding.
+    /// Extend the existing sticky chunk-producer-to-shard assignment to
+    /// resharding boundaries. Previously stickiness was keyed by
+    /// `ShardIndex`, which is unstable across a shard layout change; switch
+    /// to keying by `ShardId`, and when a shard splits distribute the
+    /// parent's chunk producers across its child shards using greedy
+    /// stake-balanced bin-packing. Reduces unnecessary state sync after
+    /// resharding.
     StickyReshardingValidatorAssignment,
     /// Add FIPS 204 ML-DSA-65 (post-quantum) as a third transaction signature
     /// scheme alongside ed25519 and secp256k1. Pre-feature blocks reject any
@@ -415,12 +417,19 @@ pub enum ProtocolFeature {
     FixDelegatedDeterministicStateInit,
     /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
     /// per-action `Vec<AccountContract>`: one entry per action in the
-    /// receipt, set to the contract that was executed for `FunctionCall`
-    /// actions and to `AccountContract::None` for everything else (matching
-    /// the receipt's action order). This is relevant when the receiver
-    /// account and the contract source diverge — e.g. global contracts.
-    /// Wire format changes (new borsh discriminant), so the cutover must be
-    /// coordinated across the network.
+    /// receipt, recording the contract attached to the receiver account
+    /// immediately before that action ran. Captured unconditionally for
+    /// every action kind (not just `FunctionCall`), so consumers can see
+    /// what code an account had even on receipts that did not invoke a
+    /// contract. `AccountContract::None` is emitted when the account has
+    /// no contract deployed, when it did not yet exist (e.g. the
+    /// `CreateAccount` slot that materialized it), or for unexecuted
+    /// trailing slots padded after a mid-receipt failure. Order matches
+    /// the receipt's `actions` vector. This is relevant when the receiver
+    /// account and the contract source diverge — e.g. global contracts
+    /// and `UseGlobalContract` flows. Wire format changes (new borsh
+    /// discriminant), so the cutover must be coordinated across the
+    /// network.
     ExecutionMetadataV4,
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
