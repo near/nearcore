@@ -744,9 +744,8 @@ impl WasmtimeVM {
                 let module = match unsafe { Module::deserialize(&self.engine, &module) } {
                     Ok(module) => module,
                     Err(err) => {
-                        //  Propagate failed contract loading as a
-                        // cached `FunctionCallError`, mirroring the memory-export
-                        // check below, so it flows through the fee-charge points
+                        // Propagate failed contract loading as a cached `FunctionCallError`, mirroring
+                        // the memory-export check below, so it flows through the fee-charge points
                         // and finalizes as a gas-bearing abort.
                         if self.config.fix_contract_loading_error {
                             let err = FunctionCallError::LoadingError { msg: err.to_string() };
