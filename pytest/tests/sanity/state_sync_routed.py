@@ -108,7 +108,11 @@ node4 = spin_up_node(config,
 node4.stop_checking_store()
 
 metrics4 = utils.MetricsTracker(node4)
-time.sleep(3)
+
+# Wait for the freshly-started node's RPC to come up before polling it. Under
+# load it can take well over the few seconds a fixed sleep would allow, and an
+# unready RPC makes the poll below fail with a connection-refused error.
+node4.wait_for_rpc(timeout=30)
 
 for block_height, _ in utils.poll_blocks(node4, timeout=TIMEOUT):
     assert time.time() - started < TIMEOUT, "Waiting for node 4 to catch up"
