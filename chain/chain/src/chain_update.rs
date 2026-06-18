@@ -5,6 +5,7 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
     record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
+    update_and_save_certified_block_merkle_tree,
 };
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
@@ -310,6 +311,11 @@ impl<'a> ChainUpdate<'a> {
                 &block,
             )?;
             record_spice_endorsement_stats_for_block(
+                &mut self.chain_store_update,
+                self.epoch_manager.as_ref(),
+                &block,
+            )?;
+            update_and_save_certified_block_merkle_tree(
                 &mut self.chain_store_update,
                 self.epoch_manager.as_ref(),
                 &block,

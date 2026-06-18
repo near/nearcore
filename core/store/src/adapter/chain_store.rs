@@ -456,18 +456,6 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree);
     }
 
-    pub fn set_certified_block_merkle_tree(
-        &mut self,
-        block_hash: &CryptoHash,
-        certified_block_merkle_tree: &PartialMerkleTree,
-    ) {
-        self.store_update.set_ser(
-            DBCol::certified_block_merkle_tree(),
-            block_hash.as_ref(),
-            certified_block_merkle_tree,
-        );
-    }
-
     pub fn set_block_ordinal(&mut self, block_ordinal: NumBlocks, block_hash: &CryptoHash) {
         self.store_update.set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), block_hash);
     }

@@ -1050,6 +1050,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
+    certified_block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
@@ -1600,6 +1601,16 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert(block_hash, Arc::new(block_merkle_tree));
     }
 
+    pub fn save_certified_block_merkle_tree(
+        &mut self,
+        block_hash: CryptoHash,
+        certified_block_merkle_tree: PartialMerkleTree,
+    ) {
+        self.chain_store_cache_update
+            .certified_block_merkle_tree
+            .insert(block_hash, Arc::new(certified_block_merkle_tree));
+    }
+
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
         if header.is_genesis() {
             self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
@@ -2146,6 +2157,15 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (block_hash, block_merkle_tree) in &self.chain_store_cache_update.block_merkle_tree {
             store_update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree);
+        }
+        for (block_hash, certified_block_merkle_tree) in
+            &self.chain_store_cache_update.certified_block_merkle_tree
+        {
+            store_update.set_ser(
+                DBCol::certified_block_merkle_tree(),
+                block_hash.as_ref(),
+                certified_block_merkle_tree,
+            );
         }
         for (block_ordinal, block_hash) in &self.chain_store_cache_update.block_ordinal_to_hash {
             store_update.set_ser(DBCol::BlockOrdinal, &index_to_bytes(*block_ordinal), block_hash);

@@ -1159,10 +1159,10 @@ impl Client {
                 .chain
                 .spice_core_reader
                 .spice_chunk_endorsement_stats_for_next_block(prev_header, height)?;
-            // TODO(spice): populate from the certified-block merkle tree once the
-            // save path (with the in-memory core-statement overlay) is wired.
-            let certified_block_merkle_root = CryptoHash::default();
-            let last_certified_block = CryptoHash::default();
+            let certified_block_merkle_root =
+                self.chain.spice_core_reader.certified_block_merkle_root(prev_header.hash())?;
+            let last_certified_block =
+                self.chain.spice_core_reader.last_certified_block(prev_header.hash())?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,
