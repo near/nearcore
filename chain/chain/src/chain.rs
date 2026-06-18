@@ -720,7 +720,11 @@ impl Chain {
         let block_header_lite =
             reconstruct_certified_lite_view(&block_header, state_root, outcome_root);
         let leaf_ordinal = self.chain_store().get_certified_block_leaf_ordinal(block_hash)?;
-        let tree_size = self.chain_store().get_certified_block_merkle_tree(head_block_hash)?.size();
+        // `head_block_hash`'s header commits the certified accumulator as of its
+        // predecessor (mirroring `prev_last_certified_block_epoch_id`), so the
+        // proof anchors to the tree as of `head`'s prev.
+        let head_prev = *self.get_block_header(head_block_hash)?.prev_hash();
+        let tree_size = self.chain_store().get_certified_block_merkle_tree(&head_prev)?.size();
         let proof = compute_certified_block_proof(self.chain_store(), leaf_ordinal, tree_size)?;
         Ok((block_header_lite, proof))
     }

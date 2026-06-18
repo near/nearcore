@@ -1153,6 +1153,32 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                     .get_shard_index(target_shard_id)
                     .map_err(Into::into)
                     .into_chain_error()?;
+                // Spice: the certified outcome roots belong to the block where the
+                // chunk executed (the outcome's own block), not the next block that
+                // carries `prev_outcome_root` in the classic model. So resolve the
+                // proof against that block directly without advancing.
+                let outcome_block_header =
+                    self.chain.get_block_header(&outcome_proof.block_hash)?;
+                if outcome_block_header.certified_block_merkle_root().is_some() {
+                    let context = self.chain.head()?.last_block_hash;
+                    let outcome_roots = self
+                        .chain
+                        .spice_core_reader
+                        .certified_block_shard_outcome_roots(&context, &outcome_block_header)?
+                        .ok_or(GetExecutionOutcomeError::NotConfirmed {
+                            transaction_or_receipt_id: id,
+                        })?;
+                    if target_shard_index >= outcome_roots.len() {
+                        return Err(GetExecutionOutcomeError::InconsistentState {
+                            number_or_shards: outcome_roots.len(),
+                            execution_outcome_shard_id: target_shard_id,
+                        });
+                    }
+                    return Ok(GetExecutionOutcomeResponse {
+                        outcome_proof: outcome_proof.into(),
+                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_index].clone(),
+                    });
+                }
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
@@ -1161,25 +1187,13 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                     outcome_proof.block_hash = h;
                     // Here we assume the number of shards is small so this reconstruction
                     // should be fast
-                    let h_header = self.chain.get_block_header(&h)?;
-                    let outcome_roots = if h_header.certified_block_merkle_root().is_some() {
-                        // Spice: outcomes are certified asynchronously, so the chunk
-                        // headers carry placeholders; use the certified per-shard roots.
-                        let context = self.chain.head()?.last_block_hash;
-                        self.chain
-                            .spice_core_reader
-                            .certified_block_shard_outcome_roots(&context, &h_header)?
-                            .ok_or(GetExecutionOutcomeError::NotConfirmed {
-                                transaction_or_receipt_id: id,
-                            })?
-                    } else {
-                        self.chain
-                            .get_block(&h)?
-                            .chunks()
-                            .iter()
-                            .map(|header| *header.prev_outcome_root())
-                            .collect::<Vec<_>>()
-                    };
+                    let outcome_roots = self
+                        .chain
+                        .get_block(&h)?
+                        .chunks()
+                        .iter()
+                        .map(|header| *header.prev_outcome_root())
+                        .collect::<Vec<_>>();
                     if target_shard_index >= outcome_roots.len() {
                         return Err(GetExecutionOutcomeError::InconsistentState {
                             number_or_shards: outcome_roots.len(),
