@@ -2,10 +2,10 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::spice::certified_accumulator::update_and_save_certified_block_merkle_tree;
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
     record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
-    update_and_save_certified_block_merkle_tree,
 };
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};

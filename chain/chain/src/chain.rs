@@ -18,7 +18,8 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice::core::{SpiceCoreReader, compute_certified_block_proof};
+use crate::spice::certified_accumulator::compute_certified_block_proof;
+use crate::spice::core::SpiceCoreReader;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
