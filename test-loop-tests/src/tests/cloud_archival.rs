@@ -1372,11 +1372,9 @@ fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
 /// A shard the resharding removes ends its batch at the resharding block and the
 /// new child shard starts the next, while the shards and blocks that survive the
 /// resharding span it in one batch, so a `BatchId` never names two batches.
-// TODO(cloud_archival): un-ignore once the writer archives across a resharding
-// boundary. Today a batch that spans the boundary is archived under the
-// pre-split layout and aborts on a shard missing from the other layout.
-#[ignore = "needs the resharding-boundary writer fix"]
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_writer_resharding_batch_boundary() {
     let boundary_account: AccountId = "boundary".parse().unwrap();
     let mut h = CloudArchiveHarness::builder().with_resharding(boundary_account.clone()).build();
