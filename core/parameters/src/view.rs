@@ -268,8 +268,6 @@ pub struct VMConfigView {
     pub implicit_account_creation: bool,
     /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).
-    pub eth_implicit_global_contract: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -293,7 +291,6 @@ impl From<crate::vm::Config> for VMConfigView {
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
-            eth_implicit_global_contract: config.eth_implicit_global_contract,
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             gas_key_host_fns: config.gas_key_host_fns,

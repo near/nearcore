@@ -348,7 +348,7 @@ fn record_contract_call(
     }
 
     let (code_hash, trie_key) = match contract_id {
-        RuntimeContractIdentifier::None | RuntimeContractIdentifier::LegacyEthWallet(_) => {
+        RuntimeContractIdentifier::None => {
             return Ok(());
         }
         RuntimeContractIdentifier::AccountLocal { code_hash, account_id } => {

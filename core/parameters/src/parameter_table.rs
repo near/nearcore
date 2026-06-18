@@ -463,7 +463,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     false => StorageGetMode::Trie,
                 },
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
-                eth_implicit_global_contract: params.get(Parameter::EthImplicitGlobalContract)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,

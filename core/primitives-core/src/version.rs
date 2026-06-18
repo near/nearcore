@@ -295,9 +295,8 @@ pub enum ProtocolFeature {
         note = "Was used for protocol versions where we checked balances which is not supported anymore."
     )]
     _DeprecatedRemoveCheckBalance,
-    /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
-    /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
-    ExcludeExistingCodeFromWitnessForCodeLen,
+    #[deprecated]
+    _DeprecatedExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
     #[deprecated]
     _DeprecatedBlockHeightForReceiptId,
@@ -372,17 +371,12 @@ pub enum ProtocolFeature {
     /// Keeping the status in the state could allow to query it from contracts.
     #[deprecated]
     _DeprecatedYieldResumeImprovements,
-    /// Includes tokens burnt as part of global contract deploys into corresponding
-    /// execution outcome's `tokens_burnt`.
-    IncludeDeployGlobalContractOutcomeBurntStorage,
-    /// Nonce-based idempotency for global contract distribution receipts. Each
-    /// distribution carries an auto-incremented nonce. Any distribution receipt
-    /// with a nonce less than the one already stored will be dropped. This
-    /// prevents race conditions in the case of multiple distribution attempts
-    /// for the same contract.
-    GlobalContractDistributionNonce,
-    /// Use global contract for ETH implicit accounts instead of embedded WASM.
-    EthImplicitGlobalContract,
+    #[deprecated]
+    _DeprecatedIncludeDeployGlobalContractOutcomeBurntStorage,
+    #[deprecated]
+    _DeprecatedGlobalContractDistributionNonce,
+    #[deprecated]
+    _DeprecatedEthImplicitGlobalContract,
     /// Process action receipts containing a single DeleteAccount action as
     /// instant receipts, executing them immediately after the receipt that
     /// produced them rather than sending them as outgoing receipts.
@@ -548,13 +542,13 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedStatePartsCompression
             | ProtocolFeature::_DeprecatedDeterministicAccountIds => 82,
             ProtocolFeature::_DeprecatedInvalidTxGenerateOutcomes
-            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
+            | ProtocolFeature::_DeprecatedExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::_DeprecatedFixAccessKeyAllowanceCharging
-            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-            | ProtocolFeature::GlobalContractDistributionNonce
+            | ProtocolFeature::_DeprecatedIncludeDeployGlobalContractOutcomeBurntStorage
+            | ProtocolFeature::_DeprecatedGlobalContractDistributionNonce
             | ProtocolFeature::_DeprecatedInstantPromiseYield
             | ProtocolFeature::_DeprecatedYieldResumeImprovements
-            | ProtocolFeature::EthImplicitGlobalContract
+            | ProtocolFeature::_DeprecatedEthImplicitGlobalContract
             | ProtocolFeature::_DeprecatedInstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError

@@ -217,7 +217,6 @@ snapshot_kind: text
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
-    "eth_implicit_global_contract": true,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
       "max_stack_height": 262144,
