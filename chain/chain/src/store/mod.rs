@@ -1051,6 +1051,8 @@ pub(crate) struct ChainStoreCacheUpdate {
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     certified_block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
+    certified_accumulator_by_ordinal: HashMap<u64, (PartialMerkleTree, CryptoHash)>,
+    certified_block_leaf_ordinal: HashMap<CryptoHash, u64>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
@@ -1611,6 +1613,21 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert(block_hash, Arc::new(certified_block_merkle_tree));
     }
 
+    pub fn save_certified_accumulator_entry(
+        &mut self,
+        ordinal: u64,
+        frontier: PartialMerkleTree,
+        leaf: CryptoHash,
+    ) {
+        self.chain_store_cache_update
+            .certified_accumulator_by_ordinal
+            .insert(ordinal, (frontier, leaf));
+    }
+
+    pub fn save_certified_block_leaf_ordinal(&mut self, block_hash: CryptoHash, ordinal: u64) {
+        self.chain_store_cache_update.certified_block_leaf_ordinal.insert(block_hash, ordinal);
+    }
+
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
         if header.is_genesis() {
             self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
@@ -2165,6 +2182,20 @@ impl<'a> ChainStoreUpdate<'a> {
                 DBCol::certified_block_merkle_tree(),
                 block_hash.as_ref(),
                 certified_block_merkle_tree,
+            );
+        }
+        for (ordinal, entry) in &self.chain_store_cache_update.certified_accumulator_by_ordinal {
+            store_update.set_ser(
+                DBCol::certified_accumulator_by_ordinal(),
+                &index_to_bytes(*ordinal),
+                entry,
+            );
+        }
+        for (block_hash, ordinal) in &self.chain_store_cache_update.certified_block_leaf_ordinal {
+            store_update.set_ser(
+                DBCol::certified_block_leaf_ordinal(),
+                block_hash.as_ref(),
+                ordinal,
             );
         }
         for (block_ordinal, block_hash) in &self.chain_store_cache_update.block_ordinal_to_hash {

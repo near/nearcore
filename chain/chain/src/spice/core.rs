@@ -9,7 +9,9 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{PartialMerkleTree, merklize};
+use near_primitives::merkle::{
+    Direction, MerklePath, MerklePathItem, PartialMerkleTree, combine_hash, merklize,
+};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -1126,19 +1128,26 @@ pub fn update_and_save_certified_block_merkle_tree(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<(), Error> {
-    let tree =
+    let (tree, leaves) =
         build_certified_block_merkle_tree(chain_store_update.chain_store(), epoch_manager, block)?;
     chain_store_update.save_certified_block_merkle_tree(*block.header().hash(), tree);
+    // Per-leaf-ordinal index for light-client inclusion proofs.
+    for (ordinal, frontier, leaf, block_hash) in leaves {
+        chain_store_update.save_certified_accumulator_entry(ordinal, frontier, leaf);
+        chain_store_update.save_certified_block_leaf_ordinal(block_hash, ordinal);
+    }
     Ok(())
 }
 
+/// Returns the accumulator frontier as of `block`, plus one entry per
+/// newly-certified leaf: `(ordinal, frontier-before-leaf, leaf, block_hash)`.
 fn build_certified_block_merkle_tree(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
-) -> Result<PartialMerkleTree, Error> {
+) -> Result<(PartialMerkleTree, Vec<(u64, PartialMerkleTree, CryptoHash, CryptoHash)>), Error> {
     if block.header().is_genesis() {
-        return Ok(PartialMerkleTree::default());
+        return Ok((PartialMerkleTree::default(), vec![]));
     }
     let prev_hash = block.header().prev_hash();
     let prev_tree = if chain_store.get_block_header(prev_hash)?.is_genesis() {
@@ -1165,6 +1174,7 @@ fn build_certified_block_merkle_tree(
     headers.sort_by_key(|header| header.height());
 
     let mut tree = prev_tree;
+    let mut leaves = Vec::with_capacity(headers.len());
     for header in &headers {
         let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
         let mut results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
@@ -1201,9 +1211,78 @@ fn build_certified_block_merkle_tree(
             certified_roots_from_results(epoch_manager, header, &results)?.ok_or_else(|| {
                 Error::Other(format!("certified block {} missing execution results", header.hash()))
             })?;
-        tree.insert(reconstruct_certified_lite_view(header, state_root, outcome_root).hash());
+        let leaf = reconstruct_certified_lite_view(header, state_root, outcome_root).hash();
+        let ordinal = tree.size();
+        leaves.push((ordinal, tree.clone(), leaf, *header.hash()));
+        tree.insert(leaf);
     }
-    Ok(tree)
+    Ok((tree, leaves))
+}
+
+/// Inclusion proof of the certified leaf at `leaf_ordinal` within the certified
+/// accumulator of size `tree_size`. Mirrors
+/// `MerkleProofAccess::compute_past_block_proof_in_merkle_tree_of_later_block`,
+/// reading the per-ordinal frontier+leaf from `CertifiedAccumulatorByOrdinal`.
+pub fn compute_certified_block_proof(
+    chain_store: &ChainStoreAdapter,
+    leaf_ordinal: u64,
+    tree_size: u64,
+) -> Result<MerklePath, Error> {
+    if leaf_ordinal >= tree_size {
+        return Err(Error::Other(format!(
+            "certified leaf ordinal {leaf_ordinal} is ahead of accumulator size {tree_size}"
+        )));
+    }
+
+    let mut path = vec![];
+    let mut level: u64 = 0;
+    let mut index = leaf_ordinal;
+    let mut remaining_size = tree_size;
+
+    while remaining_size > 1 {
+        // Walk left.
+        {
+            let cur_index = index;
+            let cur_level = level;
+            while remaining_size > 1 && index % 2 == 1 {
+                index /= 2;
+                remaining_size = (remaining_size + 1) / 2;
+                level += 1;
+            }
+            if level > cur_level {
+                let ordinal = ((cur_index + 1) * (1 << cur_level) - 1).min(tree_size - 1);
+                let (frontier, _) = chain_store.get_certified_accumulator_by_ordinal(ordinal)?;
+                frontier.iter_path_from_bottom(|hash, l| {
+                    if l >= cur_level && l < level {
+                        path.push(MerklePathItem { hash, direction: Direction::Left });
+                    }
+                });
+            }
+        }
+        // Walk right.
+        if remaining_size > 1 {
+            let right_sibling_index = index + 1;
+            let ordinal = ((right_sibling_index + 1) * (1 << level) - 1).min(tree_size - 1);
+            if ordinal >= right_sibling_index * (1 << level) {
+                let (frontier, leaf_hash) =
+                    chain_store.get_certified_accumulator_by_ordinal(ordinal)?;
+                let mut subtree_root_hash = leaf_hash;
+                if level > 0 {
+                    frontier.iter_path_from_bottom(|hash, l| {
+                        if l < level {
+                            subtree_root_hash = combine_hash(&hash, &subtree_root_hash);
+                        }
+                    });
+                }
+                path.push(MerklePathItem { hash: subtree_root_hash, direction: Direction::Right });
+            }
+
+            index = (index + 1) / 2;
+            remaining_size = (remaining_size + 1) / 2;
+            level += 1;
+        }
+    }
+    Ok(path)
 }
 
 pub fn find_newly_certified_block_hashes(
