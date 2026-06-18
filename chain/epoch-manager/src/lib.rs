@@ -1895,6 +1895,7 @@ impl EpochManager {
                 &epoch_info,
                 &shard_layout,
                 &prev_hash,
+                prev_height + 1,
             );
             let block_info = self.get_block_info(&cur_hash)?;
             aggregator.update_tail(
@@ -1916,24 +1917,22 @@ impl EpochManager {
         }))
     }
 
-    /// Resolve per-shard chunk producers for the block built on `prev_hash` via
-    /// the grandparent anchor, mirroring `get_chunk_producer_info_anchored` so
-    /// kickout stats track the producers that consensus actually resolved.
+    /// Resolve per-shard chunk producers at `height` (the chunk height of the
+    /// block built on `prev_hash`) via the grandparent anchor, mirroring
+    /// `get_chunk_producer_info_anchored` so kickout stats track the producers
+    /// that consensus actually resolved.
     ///
     /// Returns `None` when the legacy sampler applies: EarlyKickout off for the
     /// epoch, no real grandparent (genesis), anchor `BlockInfo` missing (epoch
     /// sync tail), or anchor in a previous epoch (cross-epoch arm — the
     /// canonical sampler is exact there since the blacklist is provably empty).
-    /// A returned `Some(map)` (EarlyKickout on, same-epoch) contains only the
-    /// shards whose anchor row resolved; a shard with a missing row is omitted,
-    /// since consensus errors on that miss and `update_tail` skips it rather
-    /// than mis-attribute by height. The map may therefore be empty.
     fn anchored_chunk_producers_for_aggregator(
         &self,
         epoch_id: &EpochId,
         epoch_info: &EpochInfo,
         shard_layout: &ShardLayout,
         prev_hash: &CryptoHash,
+        height: BlockHeight,
     ) -> Option<HashMap<ShardId, ValidatorId>> {
         // `DBCol::ChunkProducers` only exists under nightly (as does an enabled
         // EarlyKickout); stable always uses the legacy sampler.
@@ -1959,24 +1958,24 @@ impl EpochManager {
             let mut chunk_producers = HashMap::new();
             for shard_id in shard_layout.shard_ids() {
                 let key = get_block_shard_id(&anchor, shard_id);
-                let Some(validator_id) = self
+                let validator_id = match self
                     .store
                     .store_ref()
                     .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
                     .and_then(|stake| epoch_info.get_validator_id(stake.account_id()).copied())
-                else {
-                    // Row absent (consensus errors here too) or the stored account is
-                    // not in this epoch (a corrupt/cross-epoch row consensus would not
-                    // produce). Either way omit the shard rather than mis-attribute by
-                    // height; `update_tail` treats an absent shard as no stats this
-                    // block. Both imply a writer bug, hence a debug log.
-                    tracing::debug!(
-                        target: "epoch_tracker",
-                        ?anchor,
-                        %shard_id,
-                        "chunk producer missing in DB during aggregation, skipping shard",
-                    );
-                    continue;
+                {
+                    Some(validator_id) => validator_id,
+                    None => {
+                        // Row absent (writer bug) or account not in the epoch;
+                        // keep aggregation alive with the canonical sample.
+                        tracing::debug!(
+                            target: "epoch_tracker",
+                            ?anchor,
+                            %shard_id,
+                            "chunk producer missing in DB during aggregation, sampling canonically",
+                        );
+                        epoch_info.sample_chunk_producer(shard_layout, shard_id, height)?
+                    }
                 };
                 chunk_producers.insert(shard_id, validator_id);
             }
@@ -1984,7 +1983,7 @@ impl EpochManager {
         }
         #[cfg(not(feature = "nightly"))]
         {
-            let _ = (epoch_id, epoch_info, shard_layout, prev_hash);
+            let _ = (epoch_id, epoch_info, shard_layout, prev_hash, height);
             None
         }
     }

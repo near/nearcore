@@ -62,9 +62,7 @@ impl EpochInfoAggregator {
     /// method) and then [merge][`Self::merge`] it into `self`.
     /// `chunk_producers` carries the per-shard producers resolved via the
     /// grandparent anchor (EarlyKickout); `None` falls back to the legacy
-    /// height-based sampler. A `Some(map)` missing a shard means consensus
-    /// could not resolve it (anchor row absent) — that shard is skipped, not
-    /// height-sampled, to avoid mis-attributing stats.
+    /// height-based sampler.
     pub fn update_tail(
         &mut self,
         block_info: &BlockInfo,
@@ -107,16 +105,8 @@ impl EpochInfoAggregator {
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let chunk_producer_id = match chunk_producers {
-                Some(cp) => match cp.get(&shard_id) {
-                    Some(chunk_producer_id) => *chunk_producer_id,
-                    // EarlyKickout on but the anchor row is unavailable: consensus errors
-                    // here, so skip the shard rather than mis-attribute by height. This
-                    // skips the shard's endorsement stats for this block too, acceptable
-                    // on the writer-bug/anomaly path.
-                    None => continue,
-                },
-                // Feature off / cross-epoch / epoch-sync tail: legacy height sampler.
+            let chunk_producer_id = match chunk_producers.and_then(|cp| cp.get(&shard_id)) {
+                Some(chunk_producer_id) => *chunk_producer_id,
                 None => epoch_info
                     .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
                     .unwrap(),

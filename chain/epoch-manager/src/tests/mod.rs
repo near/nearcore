@@ -3692,15 +3692,10 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
     );
 }
 
-/// Build a 4-block single-shard chain (heights 0..=3) via `record_block_info`,
-/// the shared fixture for the anchored-aggregator tests. Each block's anchor row
-/// is seeded as production does (`save_chunk_producers_for_header` seeds block
-/// `B` at `B.height + 2`, the chunk whose grandparent is `B`); `record_block_info`
-/// does not, and the aggregator is built incrementally as blocks are recorded, so
-/// the row must exist before later blocks aggregate. Seeding inside the loop
-/// guarantees `DB[anchor]` is present when the dependent chunk is aggregated.
+/// Aggregator attributes chunk production via the anchor's DB row, not the canonical sampler.
 #[cfg(feature = "nightly")]
-fn setup_anchored_aggregator_chain() -> (EpochManager, Vec<CryptoHash>) {
+#[test]
+fn test_aggregator_anchored_chunk_producers() {
     use near_primitives::utils::get_block_shard_id;
     use near_store::DBCol;
 
@@ -3757,39 +3752,8 @@ fn setup_anchored_aggregator_chain() -> (EpochManager, Vec<CryptoHash>) {
         )
         .unwrap()
         .commit();
-
-        // Mirror save_chunk_producers_for_header: seed DB[block] = sample at
-        // block.height + 2, keyed by the block hash.
-        let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
-        let mut update = em.store.store_ref().store_update();
-        for shard_id in shard_layout.shard_ids() {
-            if let Some(id) =
-                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height as u64 + 2)
-            {
-                let stake = epoch_info.get_validator(id);
-                update.insert_ser(
-                    DBCol::ChunkProducers,
-                    &get_block_shard_id(hash, shard_id),
-                    &stake,
-                );
-            }
-        }
-        update.commit();
-
         prev = *hash;
     }
-
-    (em, h)
-}
-
-/// Aggregator attributes chunk production via the anchor's DB row, not the canonical sampler.
-#[cfg(feature = "nightly")]
-#[test]
-fn test_aggregator_anchored_chunk_producers() {
-    use near_primitives::utils::get_block_shard_id;
-    use near_store::DBCol;
-
-    let (em, h) = setup_anchored_aggregator_chain();
 
     let epoch_id = em.get_epoch_id(&h[3]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
@@ -3826,57 +3790,6 @@ fn test_aggregator_anchored_chunk_producers() {
         assert_eq!(
             actual_count, expected_count,
             "chunk production attribution mismatch for validator {validator_id}"
-        );
-    }
-}
-
-/// A missing anchor DB row makes the aggregator skip that shard's chunk rather
-/// than height-sampling, so kickout stats never mis-attribute vs consensus
-/// (which errors on the same miss).
-#[cfg(feature = "nightly")]
-#[test]
-fn test_aggregator_skips_shard_on_missing_anchor_row() {
-    use near_primitives::utils::get_block_shard_id;
-    use near_store::DBCol;
-
-    let (em, h) = setup_anchored_aggregator_chain();
-
-    let epoch_id = em.get_epoch_id(&h[3]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
-    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-    let shard_id = shard_layout.shard_ids().next().unwrap();
-
-    // The chunk at height 3 anchors at h[1] (same epoch). Leave its row absent:
-    // record_block_info never seeds it, so this exercises the missing-row path.
-    {
-        let key = get_block_shard_id(&h[1], shard_id);
-        let mut update = em.store.store_ref().store_update();
-        update.delete(DBCol::ChunkProducers, &key);
-        update.commit();
-    }
-
-    let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
-    let stats = &aggregator.shard_tracker[&shard_id];
-
-    // Only the height-1 and height-2 chunks (genesis anchors → canonical sampler)
-    // are attributed; the height-3 chunk is skipped, not height-sampled.
-    let mut expected: HashMap<ValidatorId, u64> = HashMap::new();
-    for height in 1..=2 {
-        let id = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
-        *expected.entry(id).or_default() += 1;
-    }
-    let total_expected: u64 = expected.values().sum();
-    let total_actual: u64 = stats.values().map(|s| s.expected()).sum();
-    assert_eq!(
-        total_actual, total_expected,
-        "missing anchor row must skip the height-3 chunk, not attribute it"
-    );
-    for validator_id in [0, 1] {
-        let expected_count = expected.get(&validator_id).copied().unwrap_or(0);
-        let actual_count = stats.get(&validator_id).map(|s| s.expected()).unwrap_or(0);
-        assert_eq!(
-            actual_count, expected_count,
-            "attribution mismatch for validator {validator_id}"
         );
     }
 }
