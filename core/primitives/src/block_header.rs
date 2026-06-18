@@ -46,6 +46,35 @@ pub struct BlockHeaderInnerLite {
     pub block_merkle_root: CryptoHash,
 }
 
+/// V1 -> V2: spice commits certified execution roots so light clients can
+/// verify them from the headers alone.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
+)]
+pub struct BlockHeaderInnerLiteV2 {
+    pub height: BlockHeight,
+    pub epoch_id: EpochId,
+    pub next_epoch_id: EpochId,
+    pub prev_state_root: MerkleHash,
+    pub prev_outcome_root: MerkleHash,
+    pub timestamp: u64,
+    pub next_bp_hash: CryptoHash,
+    pub block_merkle_root: CryptoHash,
+    /// Merkle root over the reconstructed light-client lite views of every
+    /// block whose spice execution results are certified.
+    pub certified_block_merkle_root: CryptoHash,
+    /// Most recently certified block.
+    pub last_certified_block: CryptoHash,
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
 )]
@@ -680,7 +709,7 @@ pub struct BlockHeaderV7 {
     /// Inner part of the block header that gets hashed.
     /// It's split into two parts: one that is sent to light clients,
     /// and the other which contains the rest of information.
-    pub inner_lite: BlockHeaderInnerLite,
+    pub inner_lite: BlockHeaderInnerLiteV2,
     pub inner_rest: BlockHeaderInnerRestV7,
 
     /// Signature of the block producer.
@@ -993,6 +1022,19 @@ impl BlockHeader {
             let spice_chunk_endorsement_stats = spice_chunk_endorsement_stats.expect(
                 "BlockHeaderV7 requires spice_chunk_endorsement_stats when Spice is enabled",
             );
+            let inner_lite = BlockHeaderInnerLiteV2 {
+                height,
+                epoch_id,
+                next_epoch_id,
+                prev_state_root,
+                prev_outcome_root: outcome_root,
+                timestamp,
+                next_bp_hash,
+                block_merkle_root,
+                // TODO(spice): populate from the certified-block merkle tree.
+                certified_block_merkle_root: CryptoHash::default(),
+                last_certified_block: CryptoHash::default(),
+            };
             let inner_rest = BlockHeaderInnerRestV7 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -1093,13 +1135,14 @@ impl BlockHeader {
     /// Exactly one of the `signer` and `signature` must be provided.
     /// If `signer` is given signs the header with given `prev_hash`, `inner_lite`, and `inner_rest` and returns the hash and signature of the header.
     /// If `signature` is given, uses the signature as is and only computes the hash.
-    fn compute_hash_and_sign<T>(
+    fn compute_hash_and_sign<L, T>(
         signature_source: SignatureSource,
         prev_hash: CryptoHash,
-        inner_lite: &BlockHeaderInnerLite,
+        inner_lite: &L,
         inner_rest: &T,
     ) -> (CryptoHash, Signature)
     where
+        L: BorshSerialize + ?Sized,
         T: BorshSerialize + ?Sized,
     {
         let hash = BlockHeader::compute_hash(
@@ -1677,15 +1720,20 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn inner_lite(&self) -> &BlockHeaderInnerLite {
+    pub fn certified_block_merkle_root(&self) -> Option<&CryptoHash> {
         match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV6(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV7(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV7(header) => {
+                Some(&header.inner_lite.certified_block_merkle_root)
+            }
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn last_certified_block(&self) -> Option<&CryptoHash> {
+        match self {
+            BlockHeader::BlockHeaderV7(header) => Some(&header.inner_lite.last_certified_block),
+            _ => None,
         }
     }
 

@@ -46,6 +46,8 @@ pub fn create_light_client_block_view(
         timestamp_nanosec: block_header.raw_timestamp(),
         next_bp_hash: *block_header.next_bp_hash(),
         block_merkle_root: *block_header.block_merkle_root(),
+        certified_block_merkle_root: block_header.certified_block_merkle_root().copied(),
+        last_certified_block: block_header.last_certified_block().copied(),
     };
     let inner_rest_hash = hash(&block_header.inner_rest_bytes());
 
