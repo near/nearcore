@@ -175,6 +175,12 @@ pub async fn build_streamer_message(
     // was not streamed), or for the post-resharding edge case where a stale
     // shard id is no longer part of the new layout. We surface the receipt
     // execution outcomes for such shards.
+    //
+    // TODO: eliminate leftovers entirely. This requires addressing both cases
+    // above: (a) aligning the indexer's `ShardTracker` with the set of shards
+    // the node actually tracked so no tracked-shard outcomes are missed, and
+    // (b) handling the post-resharding stale-shard-id case in the per-chunk
+    // loop instead of here.
     for (shard_id, outcomes) in shards_outcomes {
         let Ok(shard_index) = protocol_config_view.shard_layout.get_shard_index(shard_id) else {
             continue;
@@ -260,17 +266,55 @@ async fn fetch_instant_receipts(
     instant_receipts
 }
 
-/// Whether the node reports it is still syncing. A failed status fetch is treated
-/// as "syncing" so we don't prematurely give up while the node is not in a steady
-/// state.
-async fn node_is_syncing(client: &IndexerClientFetcher) -> bool {
+/// Whether the node reports it is fully synced and in a steady state. A failed
+/// status fetch is treated as "not ready" so we don't prematurely give up while
+/// the node is not in a steady state.
+async fn node_is_ready(client: &IndexerClientFetcher) -> bool {
     match client.fetch_status().await {
-        Ok(status) => status.sync_info.syncing,
+        Ok(status) => !status.sync_info.syncing,
         Err(err) => {
-            tracing::warn!(target: INDEXER, ?err, "failed to fetch node status, assuming the node is syncing");
-            true
+            tracing::warn!(target: INDEXER, ?err, "failed to fetch node status, assuming the node is not ready");
+            false
         }
     }
+}
+
+/// Validates the result of [`build_streamer_message`], returning `Some` on success.
+///
+/// On error returns `None`, signalling the caller to retry the same height (rather
+/// than advancing past it and dropping the block). While the node is still syncing
+/// the error is expected (e.g. an epoch lookup not yet available after a restart,
+/// see #15867), so the attempt counter is reset and we retry indefinitely. Once the
+/// node is fully synced a persistent failure is a real inconsistency: it is counted
+/// and, past `MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS`, we panic rather than stall silently.
+async fn sanitize_streamer_message(
+    client: &IndexerClientFetcher,
+    block_height: BlockHeight,
+    streamer_message: Result<StreamerMessage, FailedToFetchData>,
+    attempts: &mut u32,
+) -> Option<StreamerMessage> {
+    let err = match streamer_message {
+        Ok(streamer_message) => {
+            *attempts = 0;
+            return Some(streamer_message);
+        }
+        Err(err) => err,
+    };
+
+    if !node_is_ready(client).await {
+        *attempts = 0;
+        tracing::warn!(target: INDEXER, ?block_height, ?err, "failed to build streamer message while the node is syncing, retrying the same height");
+        return None;
+    }
+
+    *attempts += 1;
+    tracing::error!(target: INDEXER, ?block_height, ?err, attempts = *attempts, "failed to build streamer message, retrying the same height");
+    if *attempts >= MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS {
+        panic!(
+            "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
+        );
+    }
+    None
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
@@ -357,35 +401,17 @@ pub async fn start(
 
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
-            let streamer_message = match streamer_message {
-                Ok(streamer_message) => {
-                    build_streamer_message_attempts = 0;
-                    streamer_message
-                }
-                Err(err) => {
-                    // `break`, not `continue`: retry this same height on the next
-                    // outer iteration instead of advancing `last_synced_block_height`
-                    // past it and dropping the block.
-                    //
-                    // While the node is still syncing the error is expected (e.g. an
-                    // epoch lookup not yet available after a restart, see #15867), so
-                    // we retry indefinitely. Once the node is fully synced a
-                    // persistent failure is a real inconsistency: terminate after a
-                    // bounded number of attempts rather than stalling silently.
-                    if node_is_syncing(&client).await {
-                        build_streamer_message_attempts = 0;
-                        tracing::warn!(target: INDEXER, ?block_height, ?err, "failed to build streamer message while the node is syncing, retrying the same height");
-                    } else {
-                        build_streamer_message_attempts += 1;
-                        tracing::error!(target: INDEXER, ?block_height, ?err, attempts = build_streamer_message_attempts, "failed to build streamer message, retrying the same height");
-                        if build_streamer_message_attempts >= MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS {
-                            panic!(
-                                "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
-                            );
-                        }
-                    }
-                    break;
-                }
+            let streamer_message = sanitize_streamer_message(
+                &client,
+                block_height,
+                streamer_message,
+                &mut build_streamer_message_attempts,
+            )
+            .await;
+            let Some(streamer_message) = streamer_message else {
+                // The error path retries the same height on the next outer
+                // iteration instead of advancing `last_synced_block_height`.
+                break;
             };
 
             tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");
