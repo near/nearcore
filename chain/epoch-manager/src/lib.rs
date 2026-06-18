@@ -2034,7 +2034,18 @@ impl EpochManager {
 
             let block_info =
                 self.get_block_info(block_hash).expect("block must be recorded before seeding");
-            // Matches `save_chunk_producers_for_header`'s `get_epoch_id_from_prev_block`.
+            // Gate on the anchor's own epoch, mirroring production's
+            // `get_epoch_protocol_version(header.epoch_id())`: a row exists iff the
+            // anchor's epoch has EarlyKickout, which is exactly when the aggregator's
+            // same-epoch read path applies. Gating on the epoch *after* the anchor
+            // would seed dead rows for last-of-epoch anchors across an activation edge.
+            let own_epoch_info =
+                self.get_epoch_info(block_info.epoch_id()).expect("anchor epoch info");
+            if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
+                return;
+            }
+            // Sample from the epoch *after* the anchor, matching
+            // `save_chunk_producers_for_header`'s `get_epoch_id_from_prev_block`.
             let epoch_id = if self
                 .is_next_block_epoch_start(block_hash)
                 .expect("block must be recorded before seeding")
@@ -2044,9 +2055,6 @@ impl EpochManager {
                 self.get_epoch_id(block_hash).expect("epoch id")
             };
             let epoch_info = self.get_epoch_info(&epoch_id).expect("epoch info");
-            if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
-                return;
-            }
             let shard_layout = self.get_shard_layout(&epoch_id).expect("shard layout");
             let height = block_info.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
             let mut store_update = self.store.store_ref().store_update();
