@@ -519,18 +519,21 @@ fn test_validator_reward_one_validator() {
             rng_seed,
         )
         .unwrap();
+    epoch_manager.seed_chunk_producers_for_test(&h[0]);
     epoch_manager
         .record_block_info(
             block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
+    epoch_manager.seed_chunk_producers_for_test(&h[1]);
     epoch_manager
         .record_block_info(
             block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
+    epoch_manager.seed_chunk_producers_for_test(&h[2]);
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
@@ -931,6 +934,7 @@ fn test_expected_chunks() {
             )
             .unwrap()
             .commit();
+        epoch_manager.read().seed_chunk_producers_for_test(curr_block);
         prev_block = *curr_block;
 
         if epoch_id != initial_epoch_id {
@@ -1015,6 +1019,7 @@ fn test_expected_chunks_prev_block_not_produced() {
                 )
                 .unwrap()
                 .commit();
+            epoch_manager.read().seed_chunk_producers_for_test(curr_block);
             prev_block = *curr_block;
         }
         if epoch_id != initial_epoch_id {
@@ -1561,6 +1566,8 @@ fn test_chunk_producer_kickout() {
                 rng_seed,
             )
             .unwrap();
+        // Uncommitted record, but inline aggregation still reads the anchor row.
+        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -1636,6 +1643,8 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 rng_seed,
             )
             .unwrap();
+        // Uncommitted record, but inline aggregation still reads the anchor row.
+        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -1747,6 +1756,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 rng_seed,
             )
             .unwrap();
+        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -2347,6 +2357,7 @@ fn test_final_block_consistency() {
         )
         .unwrap()
         .commit();
+    epoch_manager.seed_chunk_producers_for_test(&h[5]);
     let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
 }
@@ -3447,6 +3458,7 @@ fn test_possible_epochs_of_height_around_tip() {
             num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.read().seed_chunk_producers_for_test(&h[i]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3511,6 +3523,7 @@ fn test_possible_epochs_of_height_around_tip() {
             num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.read().seed_chunk_producers_for_test(&h[i]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3692,6 +3705,66 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
     );
 }
 
+/// Records one block (`prev == default` for genesis) and seeds its anchor row.
+///
+/// Endorsements are built at the chunk height (`prev.height + 1`), which differs
+/// from the block height only when the block skips heights above its parent.
+#[cfg(feature = "nightly")]
+fn record_seeded_block(
+    em: &mut EpochManager,
+    hash: CryptoHash,
+    height: BlockHeight,
+    prev: CryptoHash,
+) {
+    let genesis = prev == CryptoHash::default();
+    let epoch_id = if genesis { EpochId::default() } else { em.get_epoch_id(&prev).unwrap() };
+    let chunk_height =
+        if genesis { height } else { em.get_block_info(&prev).unwrap().height() + 1 };
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    let num_shards = shard_layout.shard_ids().count();
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .map(|shard_id| {
+                let assignments =
+                    em.get_chunk_validator_assignments(&epoch_id, shard_id, chunk_height).unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
+    em.record_block_info(
+        BlockInfo::new(
+            hash,
+            height,
+            height.saturating_sub(2),
+            prev,
+            prev,
+            vec![],
+            vec![true; num_shards],
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            height * NUM_NS_IN_SECOND,
+            chunk_endorsements,
+            None,
+        ),
+        [0; 32],
+    )
+    .unwrap()
+    .commit();
+    em.seed_chunk_producers_for_test(&hash);
+}
+
+/// Records the consecutive chain `h` (`h[0]` genesis) and seeds each anchor row.
+#[cfg(feature = "nightly")]
+fn record_seeded_anchored_chain(em: &mut EpochManager, h: &[CryptoHash]) {
+    let mut prev = CryptoHash::default();
+    for (height, hash) in h.iter().enumerate() {
+        record_seeded_block(em, *hash, height as u64, prev);
+        prev = *hash;
+    }
+}
+
 /// Aggregator attributes chunk production via the anchor's DB row, not the canonical sampler.
 #[cfg(feature = "nightly")]
 #[test]
@@ -3714,46 +3787,7 @@ fn test_aggregator_anchored_chunk_producers() {
         Rational32::new(0, 1),
     );
     let h = hash_range(4);
-
-    let mut prev = CryptoHash::default();
-    for (height, hash) in h.iter().enumerate() {
-        let epoch_id =
-            if height == 0 { EpochId::default() } else { em.get_epoch_id(&prev).unwrap() };
-        let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-        let num_shards = shard_layout.shard_ids().count();
-        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
-            shard_layout
-                .shard_ids()
-                .map(|shard_id| {
-                    let assignments = em
-                        .get_chunk_validator_assignments(&epoch_id, shard_id, height as u64)
-                        .unwrap();
-                    vec![true; assignments.assignments().iter().len()]
-                })
-                .collect(),
-        );
-        em.record_block_info(
-            BlockInfo::new(
-                *hash,
-                height as u64,
-                (height as u64).saturating_sub(2),
-                prev,
-                prev,
-                vec![],
-                vec![true; num_shards],
-                DEFAULT_TOTAL_SUPPLY,
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                height as u64 * NUM_NS_IN_SECOND,
-                chunk_endorsements,
-                None,
-            ),
-            [0; 32],
-        )
-        .unwrap()
-        .commit();
-        prev = *hash;
-    }
+    record_seeded_anchored_chain(&mut em, &h);
 
     let epoch_id = em.get_epoch_id(&h[3]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
@@ -3791,5 +3825,147 @@ fn test_aggregator_anchored_chunk_producers() {
             actual_count, expected_count,
             "chunk production attribution mismatch for validator {validator_id}"
         );
+    }
+}
+
+/// Missing anchor row at the epoch's first block (the epoch-sync case) must fall
+/// back to the sampler without tripping the missing-row `debug_assert`.
+#[cfg(feature = "nightly")]
+#[test]
+fn test_aggregator_missing_epoch_first_block_row_falls_back() {
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let validators =
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let mut em = setup_epoch_manager(
+        validators,
+        10,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
+    let h = hash_range(4);
+    record_seeded_anchored_chain(&mut em, &h);
+
+    let epoch_id = em.get_epoch_id(&h[3]).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+
+    // `h[1]` is the epoch's first real block (genesis `h[0]` is pre-genesis);
+    // the height-3 chunk anchors at it. Drop its row to mimic epoch-sync.
+    assert_eq!(&h[1], em.get_block_info(&h[1]).unwrap().epoch_first_block());
+    {
+        let mut update = em.store.store_ref().store_update();
+        for shard_id in shard_layout.shard_ids() {
+            update.delete(DBCol::ChunkProducers, &get_block_shard_id(&h[1], shard_id));
+        }
+        update.commit();
+    }
+
+    // Must not panic despite the missing first-block row.
+    let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
+
+    // All heights resolve to the plain sampler (height 3 via the first-block miss).
+    for shard_id in shard_layout.shard_ids() {
+        let stats = &aggregator.shard_tracker[&shard_id];
+        let mut expected: HashMap<ValidatorId, u64> = HashMap::new();
+        for height in 1..=3 {
+            let id = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
+            *expected.entry(id).or_default() += 1;
+        }
+        for validator_id in [0, 1] {
+            let expected_count = expected.get(&validator_id).copied().unwrap_or(0);
+            let actual_count = stats.get(&validator_id).map(|s| s.expected()).unwrap_or(0);
+            assert_eq!(
+                actual_count, expected_count,
+                "chunk production attribution mismatch for validator {validator_id} on shard {shard_id}"
+            );
+        }
+    }
+}
+
+/// Under a skip, the missing-row fallback must sample at `anchor.height + 2`, not
+/// the chunk height. With `prev` skipping above the grandparent anchor (the
+/// post-epoch-sync shape), those differ, so the producer is anchor-determined.
+#[cfg(feature = "nightly")]
+#[test]
+fn test_aggregator_skip_anchor_uses_anchor_height() {
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let validators =
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let mut em = setup_epoch_manager(
+        validators,
+        10,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
+    let h = hash_range(5);
+    // Deliberate skip: `h[3]` builds on `h[1]`, skipping height 2.
+    record_seeded_block(&mut em, h[0], 0, CryptoHash::default());
+    record_seeded_block(&mut em, h[1], 1, h[0]);
+    record_seeded_block(&mut em, h[3], 3, h[1]);
+    record_seeded_block(&mut em, h[4], 4, h[3]);
+
+    let epoch_id = em.get_epoch_id(&h[4]).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+
+    // `h[4]`'s anchor is `h[3].prev == h[1]` (height 1), but its chunk height is
+    // `h[3].height + 1 == 4`. Dropping `h[1]`'s row forces the fallback: the fix
+    // samples at `anchor.height + 2 == 3`; the old code sampled at chunk height 4.
+    assert_eq!(&h[1], em.get_block_info(&h[1]).unwrap().epoch_first_block());
+    {
+        let mut update = em.store.store_ref().store_update();
+        for shard_id in shard_layout.shard_ids() {
+            update.delete(DBCol::ChunkProducers, &get_block_shard_id(&h[1], shard_id));
+        }
+        update.commit();
+    }
+
+    // The test only discriminates the fix where `sample(3) != sample(4)`.
+    let discriminating = shard_layout.shard_ids().any(|shard_id| {
+        epoch_info.sample_chunk_producer(&shard_layout, shard_id, 3)
+            != epoch_info.sample_chunk_producer(&shard_layout, shard_id, 4)
+    });
+    assert!(
+        discriminating,
+        "config does not exercise the skip divergence (sample(3) == sample(4) on every shard)"
+    );
+
+    // Must not panic: anchor `h[1]` is `epoch_first_block`, so the assert holds.
+    let aggregator = em.get_epoch_info_aggregator_upto_last(&h[4]).unwrap();
+
+    // Counted blocks resolve to: h[1] -> sample(1) (genesis-parent None arm),
+    // h[3] -> sample(2) (anchor h[0] seeded), h[4] -> sample(3) (anchor h[1]
+    // absent -> fallback at anchor.height + 2). The old code gave h[4] sample(4).
+    for shard_id in shard_layout.shard_ids() {
+        let stats = &aggregator.shard_tracker[&shard_id];
+        let mut expected: HashMap<ValidatorId, u64> = HashMap::new();
+        for height in [1, 2, 3] {
+            let id = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
+            *expected.entry(id).or_default() += 1;
+        }
+        for validator_id in [0, 1] {
+            let expected_count = expected.get(&validator_id).copied().unwrap_or(0);
+            let actual_count = stats.get(&validator_id).map(|s| s.expected()).unwrap_or(0);
+            assert_eq!(
+                actual_count, expected_count,
+                "chunk production attribution mismatch for validator {validator_id} on shard {shard_id}"
+            );
+        }
     }
 }

@@ -1895,7 +1895,6 @@ impl EpochManager {
                 &epoch_info,
                 &shard_layout,
                 &prev_hash,
-                prev_height + 1,
             );
             let block_info = self.get_block_info(&cur_hash)?;
             aggregator.update_tail(
@@ -1932,7 +1931,6 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         shard_layout: &ShardLayout,
         prev_hash: &CryptoHash,
-        height: BlockHeight,
     ) -> Option<HashMap<ShardId, ValidatorId>> {
         // `DBCol::ChunkProducers` only exists under nightly (as does an enabled
         // EarlyKickout); stable always uses the legacy sampler.
@@ -1955,6 +1953,11 @@ impl EpochManager {
             if anchor_block_info.epoch_id() != epoch_id {
                 return None;
             }
+            // Reproduce what the writer stored at the anchor: a sample at
+            // `anchor.height + 2`, not the chunk height. They differ only when
+            // `prev` skipped heights above `anchor` (e.g. post epoch-sync).
+            let anchor_sample_height =
+                anchor_block_info.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
             let mut chunk_producers = HashMap::new();
             for shard_id in shard_layout.shard_ids() {
                 let key = get_block_shard_id(&anchor, shard_id);
@@ -1962,20 +1965,49 @@ impl EpochManager {
                     .store
                     .store_ref()
                     .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-                    .and_then(|stake| epoch_info.get_validator_id(stake.account_id()).copied())
                 {
-                    Some(validator_id) => validator_id,
                     None => {
-                        // Row absent (writer bug) or account not in the epoch;
-                        // keep aggregation alive with the canonical sample.
+                        // Only legitimate same-epoch miss: the epoch-sync first
+                        // block, installed without seeding (client/src/sync/epoch.rs).
+                        debug_assert!(
+                            anchor == *anchor_block_info.epoch_first_block(),
+                            "unexpected missing ChunkProducers row for non-first-block anchor {anchor} (writer bug?)"
+                        );
                         tracing::debug!(
                             target: "epoch_tracker",
                             ?anchor,
                             %shard_id,
-                            "chunk producer missing in DB during aggregation, sampling canonically",
+                            "chunk producer row absent during aggregation, sampling canonically",
                         );
-                        epoch_info.sample_chunk_producer(shard_layout, shard_id, height)?
+                        epoch_info.sample_chunk_producer(
+                            shard_layout,
+                            shard_id,
+                            anchor_sample_height,
+                        )?
                     }
+                    Some(stake) => match epoch_info.get_validator_id(stake.account_id()).copied() {
+                        Some(validator_id) => validator_id,
+                        None => {
+                            // Unreachable in correct operation: the same-epoch
+                            // writer sampled this stake from this `epoch_info`.
+                            debug_assert!(
+                                false,
+                                "account {} from ChunkProducers row not in epoch {epoch_id:?}",
+                                stake.account_id()
+                            );
+                            tracing::debug!(
+                                target: "epoch_tracker",
+                                ?anchor,
+                                %shard_id,
+                                "chunk producer not in epoch during aggregation, sampling canonically",
+                            );
+                            epoch_info.sample_chunk_producer(
+                                shard_layout,
+                                shard_id,
+                                anchor_sample_height,
+                            )?
+                        }
+                    },
                 };
                 chunk_producers.insert(shard_id, validator_id);
             }
@@ -1983,9 +2015,57 @@ impl EpochManager {
         }
         #[cfg(not(feature = "nightly"))]
         {
-            let _ = (epoch_id, epoch_info, shard_layout, prev_hash, height);
+            let _ = (epoch_id, epoch_info, shard_layout, prev_hash);
             None
         }
+    }
+
+    /// Test-only: seed `DBCol::ChunkProducers` for an already-recorded block,
+    /// mirroring `ChainStoreUpdate::save_chunk_producers_for_header` so nightly
+    /// tests exercise the DB-anchored path the harnesses otherwise never seed.
+    ///
+    /// Must run after the block's `record_block_info` commit (reads the recorded
+    /// `BlockInfo`). Idempotent; EarlyKickout-gated (no-op on stable).
+    pub fn seed_chunk_producers_for_test(&self, block_hash: &CryptoHash) {
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_store::DBCol;
+
+            let block_info =
+                self.get_block_info(block_hash).expect("block must be recorded before seeding");
+            // Matches `save_chunk_producers_for_header`'s `get_epoch_id_from_prev_block`.
+            let epoch_id = if self
+                .is_next_block_epoch_start(block_hash)
+                .expect("block must be recorded before seeding")
+            {
+                self.get_next_epoch_id(block_hash).expect("next epoch id")
+            } else {
+                self.get_epoch_id(block_hash).expect("epoch id")
+            };
+            let epoch_info = self.get_epoch_info(&epoch_id).expect("epoch info");
+            if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
+                return;
+            }
+            let shard_layout = self.get_shard_layout(&epoch_id).expect("shard layout");
+            let height = block_info.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+            let mut store_update = self.store.store_ref().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                if let Some(validator_id) =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+                {
+                    let validator_stake = epoch_info.get_validator(validator_id);
+                    store_update.insert_ser(
+                        DBCol::ChunkProducers,
+                        &get_block_shard_id(block_hash, shard_id),
+                        &validator_stake,
+                    );
+                }
+            }
+            store_update.commit();
+        }
+        #[cfg(not(feature = "nightly"))]
+        let _ = block_hash;
     }
 
     /// Get the shard split to include in the block header, if any.
