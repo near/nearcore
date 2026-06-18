@@ -852,6 +852,8 @@ impl BlockHeader {
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
         spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        certified_block_merkle_root: Option<CryptoHash>,
+        last_certified_block: Option<CryptoHash>,
     ) -> Self {
         Self::new_impl(
             current_protocol_version,
@@ -885,6 +887,8 @@ impl BlockHeader {
             shard_split,
             prev_last_certified_block_epoch_id,
             spice_chunk_endorsement_stats,
+            certified_block_merkle_root,
+            last_certified_block,
         )
     }
 
@@ -921,6 +925,8 @@ impl BlockHeader {
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
         spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        certified_block_merkle_root: Option<CryptoHash>,
+        last_certified_block: Option<CryptoHash>,
     ) -> Self {
         let header = Self::new_impl(
             epoch_protocol_version,
@@ -954,6 +960,8 @@ impl BlockHeader {
             shard_split,
             prev_last_certified_block_epoch_id,
             spice_chunk_endorsement_stats,
+            certified_block_merkle_root,
+            last_certified_block,
         );
         // Note: We do not panic but only log if the hash of the created header does not match the expected hash (From the view)
         // because there are tests that check if we can downgrade a BlockHeader's view a previous version, in which case the hash
@@ -997,6 +1005,8 @@ impl BlockHeader {
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
         spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        certified_block_merkle_root: Option<CryptoHash>,
+        last_certified_block: Option<CryptoHash>,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -1022,6 +1032,10 @@ impl BlockHeader {
             let spice_chunk_endorsement_stats = spice_chunk_endorsement_stats.expect(
                 "BlockHeaderV7 requires spice_chunk_endorsement_stats when Spice is enabled",
             );
+            let certified_block_merkle_root = certified_block_merkle_root
+                .expect("BlockHeaderV7 requires certified_block_merkle_root when Spice is enabled");
+            let last_certified_block = last_certified_block
+                .expect("BlockHeaderV7 requires last_certified_block when Spice is enabled");
             let inner_lite = BlockHeaderInnerLiteV2 {
                 height,
                 epoch_id,
@@ -1031,9 +1045,8 @@ impl BlockHeader {
                 timestamp,
                 next_bp_hash,
                 block_merkle_root,
-                // TODO(spice): populate from the certified-block merkle tree.
-                certified_block_merkle_root: CryptoHash::default(),
-                last_certified_block: CryptoHash::default(),
+                certified_block_merkle_root,
+                last_certified_block,
             };
             let inner_rest = BlockHeaderInnerRestV7 {
                 block_body_hash,
@@ -1183,6 +1196,10 @@ impl BlockHeader {
             } else {
                 None
             };
+        let genesis_certified_block_merkle_root =
+            ProtocolFeature::Spice.enabled(genesis_protocol_version).then(CryptoHash::default);
+        let genesis_last_certified_block =
+            ProtocolFeature::Spice.enabled(genesis_protocol_version).then(CryptoHash::default);
         Self::new_impl(
             genesis_protocol_version,
             genesis_protocol_version,
@@ -1215,6 +1232,8 @@ impl BlockHeader {
             None, // shard_split
             genesis_prev_last_certified_block_epoch_id,
             genesis_spice_chunk_endorsement_stats,
+            genesis_certified_block_merkle_root,
+            genesis_last_certified_block,
         )
     }
 

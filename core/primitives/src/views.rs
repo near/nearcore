@@ -931,6 +931,10 @@ pub struct BlockHeaderView {
     pub prev_last_certified_block_epoch_id: Option<EpochId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certified_block_merkle_root: Option<CryptoHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_certified_block: Option<CryptoHash>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -981,6 +985,8 @@ impl From<&BlockHeader> for BlockHeaderView {
             spice_chunk_endorsement_stats: header
                 .spice_chunk_endorsement_stats()
                 .map(<[SpiceChunkEndorsementStats]>::to_vec),
+            certified_block_merkle_root: header.certified_block_merkle_root().copied(),
+            last_certified_block: header.last_certified_block().copied(),
         }
     }
 }
@@ -1019,6 +1025,8 @@ impl From<BlockHeaderView> for BlockHeader {
             view.shard_split,
             view.prev_last_certified_block_epoch_id,
             view.spice_chunk_endorsement_stats,
+            view.certified_block_merkle_root,
+            view.last_certified_block,
         )
     }
 }

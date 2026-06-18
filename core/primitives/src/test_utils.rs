@@ -1146,6 +1146,8 @@ impl TestBlockBuilder {
                         .prev_last_certified_block_epoch_id
                         .expect("prev_last_certified_block_epoch_id not set for spice block"),
                     spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
+                    certified_block_merkle_root: CryptoHash::default(),
+                    last_certified_block: CryptoHash::default(),
                 }
             }),
         );

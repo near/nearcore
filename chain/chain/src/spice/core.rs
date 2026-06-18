@@ -329,6 +329,72 @@ impl SpiceCoreReader {
         Ok(tree)
     }
 
+    /// The certified-block tree as of `prev_hash` (empty for genesis).
+    fn prev_certified_block_merkle_tree(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<PartialMerkleTree, Error> {
+        if self.chain_store.get_block_header(prev_hash)?.is_genesis() {
+            return Ok(PartialMerkleTree::default());
+        }
+        self.chain_store.get_certified_block_merkle_tree(prev_hash)
+    }
+
+    /// Certified-block merkle root committed in the header of a block built on
+    /// `prev_hash` (the tree as of `prev_hash`). Produced and validated like
+    /// `prev_last_certified_block_epoch_id`.
+    pub fn certified_block_merkle_root(&self, prev_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(self.prev_certified_block_merkle_tree(prev_hash)?.root())
+    }
+
+    /// Hash of the last fully certified block as of `prev_hash`.
+    pub fn last_certified_block(&self, prev_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(*get_last_certified_block_header(&self.chain_store, prev_hash)?.hash())
+    }
+
+    /// Certified-block tree as of `block`: the tree as of its prev extended by
+    /// the blocks `block` newly certifies. Saved during processing keyed by
+    /// `block`'s hash, so the next block's header commits its root.
+    pub fn build_certified_block_merkle_tree(
+        &self,
+        block: &Block,
+    ) -> Result<PartialMerkleTree, Error> {
+        if block.header().is_genesis() {
+            return Ok(PartialMerkleTree::default());
+        }
+        let prev_hash = block.header().prev_hash();
+        let prev_tree = self.prev_certified_block_merkle_tree(prev_hash)?;
+        let prev_uncertified = self.get_uncertified_chunks(prev_hash)?;
+        let newly_certified =
+            find_newly_certified_block_hashes(&prev_uncertified, block.spice_core_statements());
+        self.extend_certified_block_merkle_tree(block.hash(), &prev_tree, &newly_certified)
+    }
+
+    pub fn validate_certified_block_header_info(&self, header: &BlockHeader) -> Result<(), Error> {
+        let prev_hash = header.prev_hash();
+
+        let actual_root = header.certified_block_merkle_root().ok_or_else(|| {
+            Error::Other("missing certified_block_merkle_root on spice block header".to_string())
+        })?;
+        let expected_root = self.certified_block_merkle_root(prev_hash)?;
+        if &expected_root != actual_root {
+            return Err(Error::Other(format!(
+                "invalid certified_block_merkle_root: expected {expected_root:?}, got {actual_root:?}"
+            )));
+        }
+
+        let actual_last = header.last_certified_block().ok_or_else(|| {
+            Error::Other("missing last_certified_block on spice block header".to_string())
+        })?;
+        let expected_last = self.last_certified_block(prev_hash)?;
+        if &expected_last != actual_last {
+            return Err(Error::Other(format!(
+                "invalid last_certified_block: expected {expected_last:?}, got {actual_last:?}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
     /// `stop_header`, collecting `ChunkExecutionResult` core statements whose certified
     /// chunk belongs to a block in `relevant_blocks`, grouped by block hash and shard.

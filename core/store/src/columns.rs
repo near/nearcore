@@ -890,6 +890,13 @@ impl DBCol {
         panic!("Expected protocol_feature_spice to be enabled")
     }
 
+    pub fn certified_block_merkle_tree() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::CertifiedBlockMerkleTree;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
     pub fn receipt_proofs() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::ReceiptProofs;

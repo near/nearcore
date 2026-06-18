@@ -306,13 +306,12 @@ impl ChainStoreAdapter {
         )
     }
 
-    #[cfg(feature = "protocol_feature_spice")]
     pub fn get_certified_block_merkle_tree(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<PartialMerkleTree, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::CertifiedBlockMerkleTree, block_hash.as_ref()),
+            self.store.get_ser(DBCol::certified_block_merkle_tree(), block_hash.as_ref()),
             format_args!("CERTIFIED BLOCK MERKLE TREE: {}", block_hash),
         )
     }
@@ -457,14 +456,13 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree);
     }
 
-    #[cfg(feature = "protocol_feature_spice")]
     pub fn set_certified_block_merkle_tree(
         &mut self,
         block_hash: &CryptoHash,
         certified_block_merkle_tree: &PartialMerkleTree,
     ) {
         self.store_update.set_ser(
-            DBCol::CertifiedBlockMerkleTree,
+            DBCol::certified_block_merkle_tree(),
             block_hash.as_ref(),
             certified_block_merkle_tree,
         );

@@ -265,6 +265,9 @@ impl Block {
             spice_info.as_ref().map(|info| info.prev_last_certified_block_epoch_id);
         let spice_chunk_endorsement_stats =
             spice_info.as_ref().map(|info| info.spice_chunk_endorsement_stats.clone());
+        let certified_block_merkle_root =
+            spice_info.as_ref().map(|info| info.certified_block_merkle_root);
+        let last_certified_block = spice_info.as_ref().map(|info| info.last_certified_block);
         let body = if let Some(spice_info) = spice_info {
             BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, spice_info.core_statements)
         } else {
@@ -303,6 +306,8 @@ impl Block {
             shard_split,
             prev_last_certified_block_epoch_id,
             spice_chunk_endorsement_stats,
+            certified_block_merkle_root,
+            last_certified_block,
         );
 
         Self::new_block(header, body)
@@ -652,6 +657,10 @@ pub struct SpiceNewBlockProductionInfo {
     /// Accumulated per-validator endorsement stats for the epoch; non-empty
     /// only on the last block of an epoch.
     pub spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
+    /// Certified-block merkle root committed in the header (as of prev block).
+    pub certified_block_merkle_root: CryptoHash,
+    /// Most recently certified block (as of prev block).
+    pub last_certified_block: CryptoHash,
 }
 
 /// Distinguishes between new and old chunks.
