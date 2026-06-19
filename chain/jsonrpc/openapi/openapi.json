@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.11"
+    "version": "1.2.12"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -17877,6 +17877,17 @@
           },
           {
             "properties": {
+              "info": {
+                "properties": {
+                  "reason": {
+                    "$ref": "#/components/schemas/TimeoutErrorReason"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              },
               "name": {
                 "enum": [
                   "TIMEOUT_ERROR"
@@ -17885,7 +17896,8 @@
               }
             },
             "required": [
-              "name"
+              "name",
+              "info"
             ],
             "type": "object"
           }
@@ -20798,6 +20810,60 @@
           "peer_id"
         ],
         "type": "object"
+      },
+      "TimeoutErrorReason": {
+        "description": "Explains why a transaction-status request returned a `RpcTransactionError::TimeoutError`:\nit did not reach the requested `wait_until` finality within the node's polling timeout.",
+        "oneOf": [
+          {
+            "description": "The node never observed the transaction on chain.",
+            "enum": [
+              "not_observed"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The transaction was observed but is still pending the requested finality. The\nlast-known status is included so the caller can re-poll for a higher finality.\nBoxed to keep `RpcTransactionError` small (it is the `Err` type of many RPC results).",
+            "properties": {
+              "pending": {
+                "properties": {
+                  "status": {
+                    "$ref": "#/components/schemas/RpcTransactionResponse"
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "pending"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The node could not produce a usable transaction status before the timeout (for\nexample a repeated internal error, or no response at all).",
+            "properties": {
+              "error": {
+                "properties": {
+                  "debug_info": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "debug_info"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "TrackedShardsConfig": {
         "description": "Describes the expected behavior of the node regarding shard tracking.\nIf the node is an active validator, it will also track the shards it is responsible for as a validator.",
