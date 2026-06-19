@@ -459,10 +459,10 @@ impl CloudArchivalWriter {
             epoch_ending_block_hash,
         )?;
         let mut advanced_shards = Vec::new();
-        for (shard_uid, shard_layout, batch_range) in shard_batches {
+        for (shard_uid, shard_batch_layout, shard_batch_range) in shard_batches {
             let shard_id = shard_uid.shard_id();
             let lagging = match self.get_local_shard_head(shard_id)? {
-                Some(head) => head < batch_range.end(),
+                Some(head) => head < shard_batch_range.end(),
                 None => true,
             };
             if !lagging {
@@ -471,14 +471,19 @@ impl CloudArchivalWriter {
             // TODO(cloud_archival): Race condition between this check and the upload below.
             // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
             let ext_head = self.cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id).await?;
-            if ext_head.is_some_and(|h| h >= batch_range.end()) {
+            if ext_head.is_some_and(|h| h >= shard_batch_range.end()) {
                 continue;
             }
             self.cloud_storage
-                .archive_shard_batch(&self.hot_store, &shard_layout, &batch_range, shard_uid)
+                .archive_shard_batch(
+                    &self.hot_store,
+                    &shard_batch_layout,
+                    &shard_batch_range,
+                    shard_uid,
+                )
                 .await?;
-            self.cloud_storage.update_cloud_shard_head(shard_id, batch_range.end()).await?;
-            advanced_shards.push((shard_id, batch_range.end()));
+            self.cloud_storage.update_cloud_shard_head(shard_id, shard_batch_range.end()).await?;
+            advanced_shards.push((shard_id, shard_batch_range.end()));
         }
         Ok(advanced_shards)
     }
@@ -492,7 +497,7 @@ impl CloudArchivalWriter {
         shard_layout: &ShardLayout,
         tracked_shards: &[ShardUId],
         epoch_ending_block_hash: Option<CryptoHash>,
-    ) -> Result<Vec<(ShardUId, ShardLayout, BatchRange)>, near_chain_primitives::Error> {
+    ) -> Result<Vec<(ShardUId, ShardLayout, BatchRange)>, CloudArchivingError> {
         let resharding_info = match epoch_ending_block_hash {
             Some(block_hash) => self.resharding_info(block_hash)?,
             None => None,
@@ -508,9 +513,16 @@ impl CloudArchivalWriter {
                 .map(|&uid| (uid, shard_layout.clone(), *batch_range))
                 .collect());
         };
-        // Carried-over shards keep their ShardUId and are read under the old layout
-        // across the boundary, which assumes a resharding keeps the layout version
-        // stable. A new shard layout version must re-verify this assumption.
+        // A carried-over shard keeps its ShardUId and is read under the old layout
+        // across the boundary, which holds only when a resharding keeps the layout
+        // version stable. A new version requires re-checking this handling, so a
+        // version-changing resharding errors out instead.
+        if resharding_info.new_layout.version() != shard_layout.version() {
+            return Err(CloudArchivingError::ReshardingLayoutVersionChanged {
+                old: shard_layout.version(),
+                new: resharding_info.new_layout.version(),
+            });
+        }
         let resharding_block = resharding_info.resharding_block_height;
         let new_tracked_shards = self
             .shard_tracker
