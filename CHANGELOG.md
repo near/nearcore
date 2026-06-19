@@ -5,6 +5,7 @@
 ### Protocol Changes
 
 ### Non-protocol Changes
+* Transaction-status requests (`tx`, `EXPERIMENTAL_tx_status`, and the `wait_until` path of `send_tx`/`broadcast_tx_commit`) that time out before reaching the requested `wait_until` finality now return a `TIMEOUT_ERROR` carrying a `reason` that explains what happened: `pending` (includes the last-known transaction status so callers can see how far it got and re-poll for a higher finality), `not_observed` (the transaction was never seen on chain), or `error` (the node could not produce a status, with `debug_info`). Previously the timeout was context-free.
 
 ## [2.13.0]
 

@@ -58,6 +58,7 @@ use near_jsonrpc_primitives::types::split_storage::{
 };
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse,
+    RpcTransactionTimeoutReason, TransactionInfo,
 };
 use near_jsonrpc_primitives::types::view_access_key::{
     RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
@@ -81,6 +82,7 @@ use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
@@ -104,6 +106,7 @@ use sharded_rpc::{
 use std::collections::HashSet;
 use std::future::Future;
 use std::net::SocketAddr;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -347,7 +350,11 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
     pub fn from_network_client_responses(resp: ProcessTxResponse) -> Self {
         match resp {
             ProcessTxResponse::InvalidTx(context) => Self::InvalidTransaction { context },
-            ProcessTxResponse::NoResponse => Self::TimeoutError,
+            ProcessTxResponse::NoResponse => Self::TimeoutError {
+                reason: RpcTransactionTimeoutReason::Error {
+                    debug_info: "no response from the node".to_string(),
+                },
+            },
             ProcessTxResponse::DoesNotTrackShard | ProcessTxResponse::RequestRouted => {
                 Self::DoesNotTrackShard
             }
@@ -915,7 +922,9 @@ impl JsonRpcHandler {
                 ?signer_account_id,
                 "timeout: tx_exists method"
             );
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError {
+                reason: RpcTransactionTimeoutReason::NotObserved,
+            }
         })?
     }
 
@@ -931,64 +940,115 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
-        let mut tx_status_result =
-            Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
-        self.clock.timeout(self.polling_config.polling_timeout, async {
-            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
-            let mut new_block_watcher = self.block_notification_watcher.clone();
-            new_block_watcher.mark_unchanged();
+        // If the request times out before any poll completes we report that we never got a
+        // usable status; each poll that keeps us waiting replaces this with a better reason.
+        let mut timeout_reason = RpcTransactionTimeoutReason::Error {
+            debug_info: "the node did not return a transaction status before the request timed out"
+                .to_string(),
+        };
 
-            loop {
-                tx_status_result = self.view_client_send( TxStatus {
-                    tx_hash,
-                    signer_account_id: account_id.clone(),
-                    fetch_receipt,
-                })
-                .await;
-                match tx_status_result.clone() {
-                    Ok(result) => {
-                        if tx_execution_status_meets_expectations(&finality, &result.status) {
-                            break Ok(result.into())
-                        }
-                        // else: No such transaction recorded on chain yet
-                    },
-                    Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
-                        ..
-                    }) => {
-                        if let Some(tx) = tx_info.to_signed_tx() {
-                            if let Ok(ProcessTxResponse::InvalidTx(context)) =
-                                self.send_tx_internal(tx.clone(), true).await
-                            {
-                                break Err(
-                                    near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
-                                        context
-                                    }
-                                );
-                            }
-                        }
-                        if finality == TxExecutionStatus::None {
-                            break Err(err);
-                        }
+        self.clock
+            .timeout(self.polling_config.polling_timeout, async {
+                // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+                let mut new_block_watcher = self.block_notification_watcher.clone();
+                new_block_watcher.mark_unchanged();
+
+                loop {
+                    match self.poll_tx_status(&tx_info, &finality, fetch_receipt).await {
+                        ControlFlow::Break(outcome) => break outcome,
+                        // Remember why we'd time out; reported if we actually do.
+                        ControlFlow::Continue(reason) => timeout_reason = reason,
                     }
-                    Err(err) => break Err(err),
+                    new_block_watcher.changed().await.map_err(|_| {
+                        RpcTransactionError::InternalError {
+                            debug_info: "block notification channel closed".to_string(),
+                        }
+                    })?;
                 }
-                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
+            })
+            .await
+            // The polling loop returns on its own once it reaches the requested finality or
+            // hits a definitive error; only a timeout falls through to `unwrap_or_else`.
+            .unwrap_or_else(|_| self.tx_status_on_timeout(&tx_info, fetch_receipt, timeout_reason))
+    }
+
+    /// Performs a single `TxStatus` poll for `tx_status_fetch`. Returns `ControlFlow::Break`
+    /// with the final response/error once the transaction reaches the requested `finality`
+    /// or hits a definitive error, or `ControlFlow::Continue` with the reason to report if
+    /// the request ultimately times out.
+    async fn poll_tx_status(
+        &self,
+        tx_info: &TransactionInfo,
+        finality: &TxExecutionStatus,
+        fetch_receipt: bool,
+    ) -> ControlFlow<Result<RpcTransactionResponse, RpcTransactionError>, RpcTransactionTimeoutReason>
+    {
+        let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
+        let request = TxStatus { tx_hash, signer_account_id: account_id.clone(), fetch_receipt };
+        match self.view_client_send(request).await {
+            Ok(result) => {
+                // Stop as soon as we reach the requested finality; otherwise the transaction
+                // is on its way but not there yet, so keep polling, remembering how far it got.
+                if tx_execution_status_meets_expectations(finality, &result.status) {
+                    ControlFlow::Break(Ok(result.into()))
+                } else {
+                    ControlFlow::Continue(RpcTransactionTimeoutReason::Pending {
+                        status: Box::new(result.into()),
+                    })
+                }
             }
-        })
-        .await
-        .map_err(|_| {
-            metrics::RPC_TIMEOUT_TOTAL.inc();
-            tracing::warn!(
-                target: "jsonrpc",
-                ?tx_info,
-                ?fetch_receipt,
-                ?tx_status_result,
-                timeout = ?self.polling_config.polling_timeout,
-                "timeout: tx_status_fetch method"
-            );
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
-        })?
+            // Not recorded on chain (yet). If we were handed the signed transaction we can
+            // detect an invalid one right away; otherwise only `wait_until: NONE` asks us to
+            // stop now instead of waiting for it to appear.
+            Err(err @ RpcTransactionError::UnknownTransaction { .. }) => {
+                if let Some(context) = self.detect_invalid_tx(tx_info).await {
+                    let error = RpcTransactionError::InvalidTransaction { context };
+                    return ControlFlow::Break(Err(error));
+                }
+                if *finality == TxExecutionStatus::None {
+                    ControlFlow::Break(Err(err))
+                } else {
+                    ControlFlow::Continue(RpcTransactionTimeoutReason::NotObserved)
+                }
+            }
+            // Any other error is terminal; surface it directly rather than waiting.
+            Err(err) => ControlFlow::Break(Err(err)),
+        }
+    }
+
+    /// Detects a transaction that is invalid — and therefore will never appear on chain —
+    /// so the caller can fail fast instead of polling for it until the request times out.
+    /// This is only possible when we were handed the full signed transaction rather than
+    /// just its hash; it re-validates the transaction and returns the validation error if
+    /// it is invalid, or `None` if the transaction is valid or we only have its hash.
+    async fn detect_invalid_tx(&self, tx_info: &TransactionInfo) -> Option<InvalidTxError> {
+        let tx = tx_info.to_signed_tx()?;
+        match self.send_tx_internal(tx.clone(), true).await {
+            Ok(ProcessTxResponse::InvalidTx(context)) => Some(context),
+            _ => None,
+        }
+    }
+
+    /// Builds the `TimeoutError` returned when `tx_status_fetch`'s polling loop is cancelled
+    /// by the timeout. The `reason` records why the request did not reach the requested
+    /// finality in time (see `RpcTransactionTimeoutReason`), so the caller still has full
+    /// information and can re-poll.
+    fn tx_status_on_timeout(
+        &self,
+        tx_info: &TransactionInfo,
+        fetch_receipt: bool,
+        reason: RpcTransactionTimeoutReason,
+    ) -> Result<RpcTransactionResponse, RpcTransactionError> {
+        metrics::RPC_TIMEOUT_TOTAL.inc();
+        tracing::warn!(
+            target: "jsonrpc",
+            ?tx_info,
+            ?fetch_receipt,
+            ?reason,
+            timeout = ?self.polling_config.polling_timeout,
+            "timeout: tx_status_fetch method"
+        );
+        Err(RpcTransactionError::TimeoutError { reason })
     }
 
     /// Send a transaction idempotently (subsequent send of the same transaction will not cause
