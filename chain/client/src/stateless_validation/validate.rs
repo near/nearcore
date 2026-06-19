@@ -150,10 +150,12 @@ pub fn validate_partial_encoded_state_witness(
             // authenticated producer could sign under any (epoch_id, height_created) and we
             // would store/forward under a forged key.
             //
-            // Tight check when the parent block is locally known: the signed anchor, height
-            // and epoch must match exactly what the parent implies. Loose check when the
-            // parent is absent (witness raced it): the signed height must be consistent with
-            // the anchor's height; the upper bound comes from the `MAX_HEIGHTS_AHEAD` gate above.
+            // Exact check when the parent block is locally known: the signed anchor, height
+            // and epoch must match exactly what the parent implies. Exact check when the
+            // parent is absent (witness raced it): the signed anchor pins the height to
+            // exactly anchor + 2. For a non-default same-epoch anchor this authorizes one
+            // ChunkProductionKey per shard, closing the cache-spam vector; the
+            // `prev_prev == default` fallback is not pinned here and stays at the V1 baseline.
             match epoch_manager.get_block_info(v2.prev_block_hash()) {
                 Ok(parent_info) => {
                     let expected_epoch_id =
@@ -179,11 +181,25 @@ pub fn validate_partial_encoded_state_witness(
                     if prev_prev_block_hash != &CryptoHash::default() {
                         let anchor_height =
                             epoch_manager.get_block_info(prev_prev_block_hash)?.height();
-                        if height_created < anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET {
+                        let expected_height =
+                            anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+                        // Parent unknown (witness raced it): the signed anchor pins the
+                        // height to exactly anchor + 2, capping authenticated cache spam to
+                        // one ChunkProductionKey per (non-default) anchor per shard (a
+                        // Byzantine producer cannot fan one anchor across many cache slots;
+                        // the `prev_prev == default` fallback above is not pinned and stays
+                        // at the V1 baseline). This intentionally drops a
+                        // legitimately skipped-slot chunk (height anchor + 3 or more) whose
+                        // parent is not yet processed: the skip's wall-clock elapses before
+                        // the parent exists, so it does not buy time for the parent to arrive
+                        // ahead of the witness, and the witness is lost (witnesses are lossy
+                        // by design). The fix that keeps both the spam bound and skip-race
+                        // liveness is anchor-keyed parent-absent caching, tracked as a
+                        // follow-up.
+                        if height_created != expected_height {
                             return Err(Error::InvalidPartialChunkStateWitness(format!(
-                                "V2 witness height {} below anchor-implied minimum {}",
-                                height_created,
-                                anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+                                "V2 witness height {height_created} does not match \
+                                 anchor-implied height {expected_height}"
                             )));
                         }
                     }
