@@ -229,7 +229,6 @@ impl ReceiptPreparationPipeline {
                         &account_id,
                         account.contract().into_owned(),
                         state_update,
-                        &self.config.wasm_config,
                         &self.chain_id,
                         AccessOptions::NO_SIDE_EFFECTS,
                     ) else {

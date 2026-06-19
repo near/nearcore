@@ -20,13 +20,11 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{Balance, Gas};
 use near_primitives::utils::derive_eth_implicit_account_id;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use near_primitives_core::{account::AccessKey, types::BlockHeight};
 use near_store::ShardUId;
-use near_vm_runner::ContractCode;
 use near_wallet_contract::{
     eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
 };
@@ -100,9 +98,6 @@ fn test_eth_implicit_account_creation() {
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let eth_implicit_account_id = eth_implicit_test_account();
 
-    let uses_global_contract =
-        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
-
     // Make zero-transfer to ETH-implicit account, invoking its creation.
     let transfer_tx = SignedTransaction::send_money(
         1,
@@ -120,38 +115,16 @@ fn test_eth_implicit_account_creation() {
         env.produce_block(0, i);
     }
 
-    let magic_bytes = wallet_contract_magic_bytes(chain_id);
-
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
-    let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id.clone() };
+    let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id };
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
             assert!(view.amount.is_zero());
-            if uses_global_contract {
-                assert_eq!(
-                    view.global_contract_hash,
-                    Some(eth_wallet_global_contract_hash(chain_id))
-                );
-            } else {
-                assert_eq!(view.code_hash, *magic_bytes.hash());
-            }
+            assert_eq!(view.global_contract_hash, Some(eth_wallet_global_contract_hash(chain_id)));
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),
-    }
-
-    // Verify contract code for non-global contract path.
-    if !uses_global_contract {
-        let request = QueryRequest::ViewCode { account_id: eth_implicit_account_id };
-        match view_request(&env, request).kind {
-            QueryResponseKind::ViewCode(view) => {
-                let contract_code = ContractCode::new(view.code, None);
-                assert_eq!(contract_code.hash(), magic_bytes.hash());
-                assert_eq!(contract_code.code(), magic_bytes.code());
-            }
-            _ => panic!("wrong query response"),
-        }
     }
 }
 
@@ -269,22 +242,18 @@ fn test_wallet_contract_interaction() {
     // Bob will receive a $NEAR transfer from the eth implicit account
     let receiver = bob_account();
 
-    // Deploy global contract if the feature is enabled.
-    let uses_global_contract =
-        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
-    if uses_global_contract {
-        let magic_bytes = wallet_contract_magic_bytes(chain_id);
-        let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
-        let deploy_tx = SignedTransaction::deploy_global_contract(
-            1,
-            relayer.clone(),
-            wallet_code.code().to_vec(),
-            &relayer_signer.signer,
-            *genesis_block.hash(),
-            GlobalContractDeployMode::CodeHash,
-        );
-        height = check_tx_processing(&mut env, deploy_tx, height, blocks_number);
-    }
+    // Deploy the wallet contract as a global contract for ETH implicit accounts.
+    let magic_bytes = wallet_contract_magic_bytes(chain_id);
+    let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+    let deploy_tx = SignedTransaction::deploy_global_contract(
+        1,
+        relayer.clone(),
+        wallet_code.code().to_vec(),
+        &relayer_signer.signer,
+        *genesis_block.hash(),
+        GlobalContractDeployMode::CodeHash,
+    );
+    height = check_tx_processing(&mut env, deploy_tx, height, blocks_number);
 
     // Generate an eth implicit account for the user
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
@@ -297,7 +266,7 @@ fn test_wallet_contract_interaction() {
     let deposit_for_account_creation = Balance::from_near(1);
     let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
     let block_hash = *genesis_block.hash();
-    let nonce = if uses_global_contract { 2 } else { 1 };
+    let nonce = 2;
     let signed_transaction = SignedTransaction::from_actions(
         nonce,
         relayer.clone(),

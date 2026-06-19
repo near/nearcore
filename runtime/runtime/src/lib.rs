@@ -587,7 +587,6 @@ impl Runtime {
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
-                    apply_state.current_protocol_version,
                 )?;
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
@@ -611,7 +610,6 @@ impl Runtime {
                     account_id,
                     account,
                     use_global_contract,
-                    apply_state.current_protocol_version,
                     &mut result,
                 )?;
             }
@@ -635,7 +633,6 @@ impl Runtime {
                     account_id,
                     account_contract,
                     &state_update,
-                    &apply_state.config.wasm_config,
                     &epoch_info_provider.chain_id(),
                     AccessOptions::DEFAULT,
                 )?;

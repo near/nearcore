@@ -2558,19 +2558,11 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
     let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     // Contract size is much larger than the rest of the storage proof, so we compare them to check if the contract is excluded.
-    if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(PROTOCOL_VERSION) {
-        assert!(
-            total_size < PREV_CONTRACT_SIZE,
-            "Contract code should not be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    } else {
-        assert!(
-            total_size > PREV_CONTRACT_SIZE,
-            "Contract code should be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    }
+    assert!(
+        total_size < PREV_CONTRACT_SIZE,
+        "Contract code should not be in storage proof. Storage proof size: {}",
+        total_size
+    );
 }
 
 /// Tests that the existing contract is not recorded in the state witness for a delete-account action.
@@ -2660,19 +2652,11 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
     let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     // Contract size is much larger than the rest of the storage proof, so we compare them to check if the contract is excluded.
-    if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(PROTOCOL_VERSION) {
-        assert!(
-            total_size < CONTRACT_SIZE,
-            "Contract code should not be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    } else {
-        assert!(
-            total_size > CONTRACT_SIZE,
-            "Contract code should be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    }
+    assert!(
+        total_size < CONTRACT_SIZE,
+        "Contract code should not be in storage proof. Storage proof size: {}",
+        total_size
+    );
 }
 
 /// Check that applying nothing does not change the state trie.

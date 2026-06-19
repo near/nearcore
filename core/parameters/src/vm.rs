@@ -213,9 +213,6 @@ pub struct Config {
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
 
-    /// Enable using global contract for ETH implicit accounts.
-    pub eth_implicit_global_contract: bool,
-
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
 
@@ -279,7 +276,6 @@ impl Config {
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
-        self.eth_implicit_global_contract = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;

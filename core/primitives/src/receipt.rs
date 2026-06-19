@@ -8,8 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::{Gas, ProtocolVersion};
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -885,13 +884,8 @@ impl GlobalContractDistributionReceipt {
         already_delivered_shards: Vec<ShardId>,
         code: Arc<[u8]>,
         nonce: u64,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
-            Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
-        } else {
-            Self::new_v1(id, target_shard, already_delivered_shards, code)
-        }
+        Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
     }
 
     pub fn new_v1(
