@@ -57,8 +57,8 @@ use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse,
-    RpcTransactionTimeoutReason, TransactionInfo,
+    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse, TimeoutErrorReason,
+    TransactionInfo,
 };
 use near_jsonrpc_primitives::types::view_access_key::{
     RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
@@ -351,7 +351,7 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
         match resp {
             ProcessTxResponse::InvalidTx(context) => Self::InvalidTransaction { context },
             ProcessTxResponse::NoResponse => Self::TimeoutError {
-                reason: RpcTransactionTimeoutReason::Error {
+                reason: TimeoutErrorReason::Error {
                     debug_info: "no response from the node".to_string(),
                 },
             },
@@ -923,7 +923,7 @@ impl JsonRpcHandler {
                 "timeout: tx_exists method"
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError {
-                reason: RpcTransactionTimeoutReason::NotObserved,
+                reason: TimeoutErrorReason::NotObserved,
             }
         })?
     }
@@ -942,7 +942,7 @@ impl JsonRpcHandler {
     > {
         // If the request times out before any poll completes we report that we never got a
         // usable status; each poll that keeps us waiting replaces this with a better reason.
-        let mut timeout_reason = RpcTransactionTimeoutReason::Error {
+        let mut timeout_reason = TimeoutErrorReason::Error {
             debug_info: "the node did not return a transaction status before the request timed out"
                 .to_string(),
         };
@@ -981,8 +981,7 @@ impl JsonRpcHandler {
         tx_info: &TransactionInfo,
         finality: &TxExecutionStatus,
         fetch_receipt: bool,
-    ) -> ControlFlow<Result<RpcTransactionResponse, RpcTransactionError>, RpcTransactionTimeoutReason>
-    {
+    ) -> ControlFlow<Result<RpcTransactionResponse, RpcTransactionError>, TimeoutErrorReason> {
         let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
         let request = TxStatus { tx_hash, signer_account_id: account_id.clone(), fetch_receipt };
         match self.view_client_send(request).await {
@@ -992,7 +991,7 @@ impl JsonRpcHandler {
                 if tx_execution_status_meets_expectations(finality, &result.status) {
                     ControlFlow::Break(Ok(result.into()))
                 } else {
-                    ControlFlow::Continue(RpcTransactionTimeoutReason::Pending {
+                    ControlFlow::Continue(TimeoutErrorReason::Pending {
                         status: Box::new(result.into()),
                     })
                 }
@@ -1001,14 +1000,14 @@ impl JsonRpcHandler {
             // detect an invalid one right away; otherwise only `wait_until: NONE` asks us to
             // stop now instead of waiting for it to appear.
             Err(err @ RpcTransactionError::UnknownTransaction { .. }) => {
-                if let Some(context) = self.detect_invalid_tx(tx_info).await {
+                if let Err(context) = self.validate_tx(tx_info).await {
                     let error = RpcTransactionError::InvalidTransaction { context };
                     return ControlFlow::Break(Err(error));
                 }
                 if *finality == TxExecutionStatus::None {
                     ControlFlow::Break(Err(err))
                 } else {
-                    ControlFlow::Continue(RpcTransactionTimeoutReason::NotObserved)
+                    ControlFlow::Continue(TimeoutErrorReason::NotObserved)
                 }
             }
             // Any other error is terminal; surface it directly rather than waiting.
@@ -1016,28 +1015,28 @@ impl JsonRpcHandler {
         }
     }
 
-    /// Detects a transaction that is invalid — and therefore will never appear on chain —
-    /// so the caller can fail fast instead of polling for it until the request times out.
-    /// This is only possible when we were handed the full signed transaction rather than
-    /// just its hash; it re-validates the transaction and returns the validation error if
-    /// it is invalid, or `None` if the transaction is valid or we only have its hash.
-    async fn detect_invalid_tx(&self, tx_info: &TransactionInfo) -> Option<InvalidTxError> {
-        let tx = tx_info.to_signed_tx()?;
+    /// Validates the transaction when we were handed the full signed transaction (rather
+    /// than just its hash), so the caller can fail fast on an invalid transaction instead
+    /// of polling for one that will never appear on chain. Returns `Err(context)` when the
+    /// transaction is known to be invalid, or `Ok(())` when it is valid or we cannot check
+    /// it (we only have its hash).
+    async fn validate_tx(&self, tx_info: &TransactionInfo) -> Result<(), InvalidTxError> {
+        let Some(tx) = tx_info.to_signed_tx() else { return Ok(()) };
         match self.send_tx_internal(tx.clone(), true).await {
-            Ok(ProcessTxResponse::InvalidTx(context)) => Some(context),
-            _ => None,
+            Ok(ProcessTxResponse::InvalidTx(context)) => Err(context),
+            _ => Ok(()),
         }
     }
 
     /// Builds the `TimeoutError` returned when `tx_status_fetch`'s polling loop is cancelled
     /// by the timeout. The `reason` records why the request did not reach the requested
-    /// finality in time (see `RpcTransactionTimeoutReason`), so the caller still has full
+    /// finality in time (see `TimeoutErrorReason`), so the caller still has full
     /// information and can re-poll.
     fn tx_status_on_timeout(
         &self,
         tx_info: &TransactionInfo,
         fetch_receipt: bool,
-        reason: RpcTransactionTimeoutReason,
+        reason: TimeoutErrorReason,
     ) -> Result<RpcTransactionResponse, RpcTransactionError> {
         metrics::RPC_TIMEOUT_TOTAL.inc();
         tracing::warn!(
@@ -2034,7 +2033,7 @@ impl JsonRpcHandler {
         // Coordinator-forwarded requests must only be answered for shards this
         // node actually applied. `block_effects` has no account filter, so the
         // scope is "every shard this node advertises tracking for at this
-        // epoch" — if any of those is missing a ChunkExtra, the response would
+        // epoch" - if any of those is missing a ChunkExtra, the response would
         // be silently partial, so we fail fast and let the coordinator retry.
         // Direct user requests preserve the legacy best-effort behavior.
         if source == RequestSource::Coordinator {
@@ -2354,7 +2353,7 @@ impl JsonRpcHandler {
                             error = %e,
                             "scatter-gather: peer failed"
                         );
-                        // Don't retry on request validation errors — they're
+                        // Don't retry on request validation errors - they're
                         // deterministic and every node will return the same.
                         if matches!(
                             e.error_struct.as_ref(),

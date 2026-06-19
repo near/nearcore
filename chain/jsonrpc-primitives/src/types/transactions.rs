@@ -54,10 +54,7 @@ pub enum RpcTransactionError {
     #[error("The node reached its limits. Try again later. More details: {debug_info}")]
     InternalError { debug_info: String },
     #[error("Timeout")]
-    TimeoutError {
-        /// Why the request timed out before reaching the requested `wait_until` finality.
-        reason: RpcTransactionTimeoutReason,
-    },
+    TimeoutError { reason: TimeoutErrorReason },
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
@@ -73,7 +70,7 @@ pub struct RpcTransactionResponse {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
-pub enum RpcTransactionTimeoutReason {
+pub enum TimeoutErrorReason {
     /// The node never observed the transaction on chain.
     NotObserved,
     /// The transaction was observed but is still pending the requested finality. The
@@ -172,7 +169,7 @@ mod tests {
     #[test]
     fn timeout_error_reports_pending() {
         let error = RpcTransactionError::TimeoutError {
-            reason: RpcTransactionTimeoutReason::Pending {
+            reason: TimeoutErrorReason::Pending {
                 status: Box::new(RpcTransactionResponse {
                     final_execution_outcome: None,
                     final_execution_status: TxExecutionStatus::Included,
@@ -191,8 +188,7 @@ mod tests {
     /// The `NotObserved` reason serializes as a bare tag with no payload.
     #[test]
     fn timeout_error_reports_not_observed() {
-        let error =
-            RpcTransactionError::TimeoutError { reason: RpcTransactionTimeoutReason::NotObserved };
+        let error = RpcTransactionError::TimeoutError { reason: TimeoutErrorReason::NotObserved };
         let value = serde_json::to_value(&error).unwrap();
         assert_eq!(value["name"], "TIMEOUT_ERROR");
         assert_eq!(value["info"]["reason"], "not_observed");
@@ -203,7 +199,7 @@ mod tests {
     #[test]
     fn timeout_error_round_trips() {
         let error = RpcTransactionError::TimeoutError {
-            reason: RpcTransactionTimeoutReason::Pending {
+            reason: TimeoutErrorReason::Pending {
                 status: Box::new(RpcTransactionResponse {
                     final_execution_outcome: None,
                     final_execution_status: TxExecutionStatus::Included,
@@ -214,9 +210,7 @@ mod tests {
         let decoded: RpcTransactionError = serde_json::from_str(&json).unwrap();
         assert!(matches!(
             decoded,
-            RpcTransactionError::TimeoutError {
-                reason: RpcTransactionTimeoutReason::Pending { .. }
-            }
+            RpcTransactionError::TimeoutError { reason: TimeoutErrorReason::Pending { .. } }
         ));
     }
 }
