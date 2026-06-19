@@ -185,10 +185,12 @@ pub fn validate_partial_encoded_state_witness(
                             anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
                         // Parent unknown (witness raced it): the signed anchor pins the
                         // height to exactly anchor + 2, capping authenticated cache spam to
-                        // one ChunkProductionKey per (non-default) anchor per shard (a
-                        // Byzantine producer cannot fan one anchor across many cache slots;
-                        // the `prev_prev == default` fallback above is not pinned and stays
-                        // at the V1 baseline). This intentionally drops a
+                        // one ChunkProductionKey per (non-default, same-epoch) anchor per
+                        // shard (a Byzantine producer cannot fan one anchor across many cache
+                        // slots). This branch pins height, not epoch; cross-epoch and
+                        // `prev_prev == default` anchors fall back to canonical sampling and
+                        // are not pinned here, staying at the V1 baseline. This intentionally
+                        // drops a
                         // legitimately skipped-slot chunk (height anchor + 3 or more) whose
                         // parent is not yet processed: the skip's wall-clock elapses before
                         // the parent exists, so it does not buy time for the parent to arrive

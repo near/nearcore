@@ -1,7 +1,11 @@
 use crate::stateless_validation::validate::validate_partial_encoded_state_witness;
 use near_async::time::Clock;
+#[cfg(feature = "nightly")]
+use near_async::time::{Duration, FakeClock, Utc};
 use near_chain::ChainStoreAccess;
 use near_chain::test_utils::setup;
+#[cfg(feature = "nightly")]
+use near_chain::{BlockProcessingArtifact, Provenance, test_utils::process_block_sync};
 use near_chain_primitives::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
@@ -10,6 +14,8 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
 };
+#[cfg(feature = "nightly")]
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 
@@ -268,6 +274,103 @@ fn v2_witness_with_absent_parent_and_valid_anchor_is_accepted() {
     assert!(
         matches!(result, Ok(ChunkRelevance::Relevant)),
         "parent-absent witness with a valid anchor must be accepted; got {result:?}"
+    );
+}
+
+/// Tight cross-check (parent known) accepts a chunk on a skipped slot. With the parent at
+/// `G.height + 2` (slot `G.height + 1` skipped) processed locally, a chunk at `G.height + 3`
+/// validates against the parent. Only the parent-absent race drops skipped-slot witnesses; once
+/// the parent is known the exact `anchor + 2` pin no longer applies.
+#[cfg(feature = "nightly")]
+#[test]
+fn v2_witness_with_parent_known_and_skipped_slot_is_accepted() {
+    use crate::stateless_validation::validate::ChunkRelevance;
+
+    let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+    clock.advance(Duration::milliseconds(3444));
+    let (mut chain, _epoch_manager, _runtime, signer) = setup(clock.clock());
+
+    let shard_id = ShardId::new(0);
+
+    // Grandparent anchor G, built consecutively on genesis.
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+    clock.advance(Duration::milliseconds(1));
+    let anchor = TestBlockBuilder::from_prev_block(clock.clock(), &genesis, signer.clone()).build();
+    let anchor_hash = *anchor.hash();
+    let anchor_height = anchor.header().height();
+    process_block_sync(
+        &mut chain,
+        anchor.into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+
+    // Parent P at G.height + 2: slot G.height + 1 is skipped (no block there).
+    let anchor_block = chain.get_block(&anchor_hash).unwrap();
+    clock.advance(Duration::milliseconds(1));
+    let parent = TestBlockBuilder::from_prev_block(clock.clock(), &anchor_block, signer.clone())
+        .height(anchor_height + 2)
+        .build();
+    let parent_hash = *parent.hash();
+    let parent_height = parent.header().height();
+    process_block_sync(
+        &mut chain,
+        parent.into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+
+    // Chunk built on the known parent P: height_created = P.height + 1 = G.height + 3.
+    let height_created = parent_height + 1;
+    assert_eq!(height_created, anchor_height + 3, "skipped slot G.height + 1");
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&parent_hash).unwrap();
+
+    // prev_block = P (locally known) so the tight branch runs; prev_prev = G is the
+    // signed anchor, two heights below the chunk because of the skip.
+    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        parent_hash,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        0,
+        height_created,
+        shard_id,
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        CongestionInfo::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer.as_ref(),
+        PROTOCOL_VERSION,
+    ));
+
+    let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
+        epoch_id,
+        chunk_header,
+        anchor_hash,
+        0,
+        b"payload".to_vec(),
+        7,
+        signer.as_ref(),
+    ));
+
+    let store = chain.chain_store().store();
+    let result = validate_partial_encoded_state_witness(
+        chain.epoch_manager.as_ref(),
+        &witness,
+        signer.validator_id(),
+        &store,
+    );
+
+    assert!(
+        matches!(result, Ok(ChunkRelevance::Relevant)),
+        "parent-known witness on a skipped slot (height anchor + 3) must be accepted; got {result:?}"
     );
 }
 
