@@ -3,7 +3,8 @@ use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::TxStatusError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionStatusRequest, TransactionInfo,
+    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionStatusRequest,
+    RpcTransactionTimeoutReason, TransactionInfo,
 };
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::transaction::SignedTransaction;
@@ -67,7 +68,11 @@ impl RpcFrom<TxStatusError> for RpcTransactionError {
                 Self::UnknownTransaction { requested_transaction_hash }
             }
             TxStatusError::InternalError(debug_info) => Self::InternalError { debug_info },
-            TxStatusError::TimeoutError => Self::TimeoutError,
+            TxStatusError::TimeoutError => Self::TimeoutError {
+                reason: RpcTransactionTimeoutReason::Error {
+                    debug_info: "the node timed out fetching the transaction status".to_string(),
+                },
+            },
         }
     }
 }
