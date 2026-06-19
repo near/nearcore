@@ -956,7 +956,6 @@ impl JsonRpcHandler {
                 loop {
                     match self.poll_tx_status(&tx_info, &finality, fetch_receipt).await {
                         ControlFlow::Break(outcome) => break outcome,
-                        // Remember why we'd time out; reported if we actually do.
                         ControlFlow::Continue(reason) => timeout_reason = reason,
                     }
                     new_block_watcher.changed().await.map_err(|_| {
@@ -2033,7 +2032,7 @@ impl JsonRpcHandler {
         // Coordinator-forwarded requests must only be answered for shards this
         // node actually applied. `block_effects` has no account filter, so the
         // scope is "every shard this node advertises tracking for at this
-        // epoch" - if any of those is missing a ChunkExtra, the response would
+        // epoch" — if any of those is missing a ChunkExtra, the response would
         // be silently partial, so we fail fast and let the coordinator retry.
         // Direct user requests preserve the legacy best-effort behavior.
         if source == RequestSource::Coordinator {
@@ -2353,7 +2352,7 @@ impl JsonRpcHandler {
                             error = %e,
                             "scatter-gather: peer failed"
                         );
-                        // Don't retry on request validation errors - they're
+                        // Don't retry on request validation errors — they're
                         // deterministic and every node will return the same.
                         if matches!(
                             e.error_struct.as_ref(),
