@@ -123,7 +123,7 @@ fn v2_witness_with_height_mismatch_is_rejected() {
     );
 }
 
-/// Loose cross-check (parent absent) rejects a signed height below the anchor-implied
+/// Exact cross-check (parent absent) rejects a signed height below the anchor-implied
 /// height (`anchor.height + 2`).
 #[cfg(feature = "nightly")]
 #[test]
@@ -184,11 +184,11 @@ fn v2_witness_with_height_below_anchor_height_is_rejected() {
     };
     assert!(
         msg.contains("does not match anchor-implied height"),
-        "error message must reference the loose cross-check; got: {msg}"
+        "error message must reference the exact cross-check; got: {msg}"
     );
 }
 
-/// Loose cross-check (parent absent) rejects a signed height above the anchor-implied
+/// Exact cross-check (parent absent) rejects a signed height above the anchor-implied
 /// height (`anchor.height + 2`) — a skipped slot. The exact pin closes the authenticated
 /// cache-spam vector: one anchor authorizes exactly one ChunkProductionKey, even though
 /// `MAX_HEIGHTS_AHEAD` alone would let the producer sign every height in the window.
@@ -251,11 +251,11 @@ fn v2_witness_with_height_above_anchor_height_is_rejected() {
     };
     assert!(
         msg.contains("does not match anchor-implied height"),
-        "error message must reference the loose cross-check; got: {msg}"
+        "error message must reference the exact cross-check; got: {msg}"
     );
 }
 
-/// Loose cross-check accepts a parent-absent witness at the anchor-implied height
+/// Exact cross-check accepts a parent-absent witness at the anchor-implied height
 /// (`anchor.height + 2`): the 1-block-behind win, resolved before the parent is processed.
 #[cfg(feature = "nightly")]
 #[test]
@@ -270,7 +270,7 @@ fn v2_witness_with_absent_parent_and_valid_anchor_is_accepted() {
     let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
 
     // Parent unknown locally (raced); anchor = genesis (seeded at init). Height
-    // exactly the anchor-implied height, so the loose check passes.
+    // exactly the anchor-implied height, so the exact check passes.
     let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
     let height = genesis_height + 2;
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
@@ -646,7 +646,7 @@ fn v2_accesses_resolves_anchored_db_row() {
     update.insert_ser(DBCol::ChunkProducers, &key_bytes, &anchored_stake);
     update.commit();
 
-    // Parent unknown (loose path); anchor = genesis; height at the anchor-implied minimum.
+    // Parent unknown (exact path); anchor = genesis; height at the anchor-implied height.
     let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
     let height_created = genesis_height + 2;
     let store = chain.chain_store().store();

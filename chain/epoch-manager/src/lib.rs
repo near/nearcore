@@ -1981,6 +1981,16 @@ impl EpochManager {
             cur_hash = prev_hash;
         };
 
+        // TODO(early-kickout): this forward-recompute aggregator re-derives the
+        // per-block blacklist instead of reading the producers consensus actually
+        // resolved from `DBCol::ChunkProducers`. The two agree because the stored row
+        // was itself written as `sample_chunk_producer_excluding(blacklist)` and the
+        // blacklist is deterministic from the same epoch prefix this walk reconstructs,
+        // so the recompute reproduces the persisted producer. The proper strict-anchored
+        // aggregator (error on a missing row like the consensus read path, cross-epoch
+        // decoupled from the anchor `BlockInfo`, epoch-sync producer payload) is deferred
+        // to the dynamic-blacklist PR.
+        //
         // Seed the running aggregator: fresh on `replace` (the cached prefix is for a
         // different epoch / fork), otherwise from a clone of the cached prefix so the
         // returned aggregator always covers the full `[epoch_start..block_hash]` range.
