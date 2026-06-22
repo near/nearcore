@@ -1156,9 +1156,19 @@ mod tests {
                 )
                 .unwrap();
             let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+            let core_reader = &self.chain.spice_core_reader;
+            let prev_hash = prev_block.header().hash();
+            // Default when the prev block is not recorded (tests that build on an
+            // unprocessed parent and never validate the certified header fields).
+            let certified_block_merkle_root =
+                core_reader.certified_block_merkle_root(prev_hash).unwrap_or_default();
+            let last_certified_block =
+                core_reader.last_certified_block(prev_hash).unwrap_or_default();
             TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
                 .chunks(chunks)
                 .spice_core_statements(vec![])
+                .certified_block_merkle_root(certified_block_merkle_root)
+                .last_certified_block(last_certified_block)
                 .build()
         }
 
