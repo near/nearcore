@@ -108,7 +108,11 @@ node4 = spin_up_node(config,
 node4.stop_checking_store()
 
 metrics4 = utils.MetricsTracker(node4)
-time.sleep(3)
+
+# Wait for the freshly-started node's RPC to come up before polling it. Under
+# load it can take well over the few seconds a fixed sleep would allow, and an
+# unready RPC makes the poll below fail with a connection-refused error.
+node4.wait_for_rpc(timeout=30)
 
 for block_height, _ in utils.poll_blocks(node4, timeout=TIMEOUT):
     assert time.time() - started < TIMEOUT, "Waiting for node 4 to catch up"
@@ -128,10 +132,17 @@ for block_height, _ in utils.poll_blocks(node4, timeout=TIMEOUT):
 
     time.sleep(0.1)
 
+# Sample the new node's caught-up height first, then read the boot node's
+# heights. `get_all_heights` walks the chain one RPC per block and is slow, so
+# sampling it before `catch_up_height` lets the chain advance during the walk
+# and the new node's height can overshoot the (now stale) snapshot. Wait for the
+# boot node to reach the caught-up height so it has that block in storage.
+catch_up_height = node4.get_latest_block().height
+utils.wait_for_blocks(boot_node, target=catch_up_height, timeout=TIMEOUT)
+
 # The boot heights are the heights of blocks that the node has in its storage.
 # It does not contain any blocks that were garbage collected.
-boot_heights = boot_node.get_all_heights()
-catch_up_height = node4.get_latest_block().height
+boot_heights = list(boot_node.get_all_heights())
 
 assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
                                                           boot_heights)
