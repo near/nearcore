@@ -457,7 +457,7 @@ impl Testbed<'_> {
                 total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt).unwrap();
                 match &outcome.outcome.status {
                     ExecutionStatus::Failure(e) if !refund_receipt_ids.contains(&outcome.id) => {
-                        panic!("Execution failed {:#?}", e)
+                        panic!("execution failed {e:#?}")
                     }
                     _ => (),
                 }
