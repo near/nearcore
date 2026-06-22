@@ -42,71 +42,12 @@ pub trait MerkleProofAccess {
                 block_hash, head_block_hash
             )));
         }
-
-        let mut path = vec![];
-        let mut level: u64 = 0;
-        let mut index = leaf_index;
-        let mut remaining_size = tree_size;
-
-        while remaining_size > 1 {
-            // Walk left.
-            {
-                let cur_index = index;
-                let cur_level = level;
-                // Go up as long as we're the right child. This finds us a largest subtree for
-                // which our current node is the rightmost descendant of at the current level.
-                while remaining_size > 1 && index % 2 == 1 {
-                    index /= 2;
-                    remaining_size = (remaining_size + 1) / 2;
-                    level += 1;
-                }
-                if level > cur_level {
-                    // To prove this subtree, get the partial tree for the rightmost leaf of the
-                    // subtree. It's OK if we can only go as far as the tree size; we'll aggregate
-                    // whatever we can. Once we have the partial tree, we push in whatever is in
-                    // between the levels we just traversed.
-                    let ordinal = ((cur_index + 1) * (1 << cur_level) - 1).min(tree_size - 1);
-                    let partial_tree_for_node = get_block_merkle_tree_from_ordinal(self, ordinal)?;
-                    partial_tree_for_node.iter_path_from_bottom(|hash, l| {
-                        if l >= cur_level && l < level {
-                            path.push(MerklePathItem { hash, direction: Direction::Left });
-                        }
-                    });
-                }
-            }
-            // Walk right.
-            if remaining_size > 1 {
-                let right_sibling_index = index + 1;
-                let ordinal = ((right_sibling_index + 1) * (1 << level) - 1).min(tree_size - 1);
-                // It's possible the right sibling is actually zero, in which case we don't push
-                // anything to the path.
-                if ordinal >= right_sibling_index * (1 << level) {
-                    // To prove a right sibling, get the partial tree for the rightmost leaf of the
-                    // subtree, and also get the block hash of the rightmost leaf; combining these
-                    // two will give us the root of the subtree, i.e. the right sibling.
-                    let leaf_hash = self.get_block_hash_from_ordinal(ordinal)?;
-                    let mut subtree_root_hash = leaf_hash;
-                    if level > 0 {
-                        let partial_tree_for_sibling =
-                            get_block_merkle_tree_from_ordinal(self, ordinal)?;
-                        partial_tree_for_sibling.iter_path_from_bottom(|hash, l| {
-                            if l < level {
-                                subtree_root_hash = combine_hash(&hash, &subtree_root_hash);
-                            }
-                        });
-                    }
-                    path.push(MerklePathItem {
-                        hash: subtree_root_hash,
-                        direction: Direction::Right,
-                    });
-                }
-
-                index = (index + 1) / 2;
-                remaining_size = (remaining_size + 1) / 2;
-                level += 1;
-            }
-        }
-        Ok(path)
+        compute_merkle_path_by_ordinal(
+            leaf_index,
+            tree_size,
+            |ordinal| get_block_merkle_tree_from_ordinal(self, ordinal),
+            |ordinal| self.get_block_hash_from_ordinal(ordinal),
+        )
     }
 }
 
@@ -116,6 +57,78 @@ fn get_block_merkle_tree_from_ordinal(
 ) -> Result<Arc<PartialMerkleTree>, Error> {
     let block_hash = this.get_block_hash_from_ordinal(block_ordinal)?;
     this.get_block_merkle_tree(&block_hash)
+}
+
+/// Build the inclusion path for the leaf at `leaf_index` within a merkle tree of
+/// `tree_size` leaves, given ordinal-indexed access to each leaf hash and to the
+/// frontier (partial) tree as of each ordinal. Accesses no leaf below `leaf_index`
+/// nor any frontier beyond `tree_size`. Assumes `leaf_index < tree_size`.
+pub fn compute_merkle_path_by_ordinal(
+    leaf_index: u64,
+    tree_size: u64,
+    partial_tree_at_ordinal: impl Fn(u64) -> Result<Arc<PartialMerkleTree>, Error>,
+    leaf_hash_at_ordinal: impl Fn(u64) -> Result<CryptoHash, Error>,
+) -> Result<MerklePath, Error> {
+    let mut path = vec![];
+    let mut level: u64 = 0;
+    let mut index = leaf_index;
+    let mut remaining_size = tree_size;
+
+    while remaining_size > 1 {
+        // Walk left.
+        {
+            let cur_index = index;
+            let cur_level = level;
+            // Go up as long as we're the right child. This finds us a largest subtree for
+            // which our current node is the rightmost descendant of at the current level.
+            while remaining_size > 1 && index % 2 == 1 {
+                index /= 2;
+                remaining_size = (remaining_size + 1) / 2;
+                level += 1;
+            }
+            if level > cur_level {
+                // To prove this subtree, get the partial tree for the rightmost leaf of the
+                // subtree. It's OK if we can only go as far as the tree size; we'll aggregate
+                // whatever we can. Once we have the partial tree, we push in whatever is in
+                // between the levels we just traversed.
+                let ordinal = ((cur_index + 1) * (1 << cur_level) - 1).min(tree_size - 1);
+                let partial_tree_for_node = partial_tree_at_ordinal(ordinal)?;
+                partial_tree_for_node.iter_path_from_bottom(|hash, l| {
+                    if l >= cur_level && l < level {
+                        path.push(MerklePathItem { hash, direction: Direction::Left });
+                    }
+                });
+            }
+        }
+        // Walk right.
+        if remaining_size > 1 {
+            let right_sibling_index = index + 1;
+            let ordinal = ((right_sibling_index + 1) * (1 << level) - 1).min(tree_size - 1);
+            // It's possible the right sibling is actually zero, in which case we don't push
+            // anything to the path.
+            if ordinal >= right_sibling_index * (1 << level) {
+                // To prove a right sibling, get the partial tree for the rightmost leaf of the
+                // subtree, and also get the leaf hash of the rightmost leaf; combining these
+                // two will give us the root of the subtree, i.e. the right sibling.
+                let leaf_hash = leaf_hash_at_ordinal(ordinal)?;
+                let mut subtree_root_hash = leaf_hash;
+                if level > 0 {
+                    let partial_tree_for_sibling = partial_tree_at_ordinal(ordinal)?;
+                    partial_tree_for_sibling.iter_path_from_bottom(|hash, l| {
+                        if l < level {
+                            subtree_root_hash = combine_hash(&hash, &subtree_root_hash);
+                        }
+                    });
+                }
+                path.push(MerklePathItem { hash: subtree_root_hash, direction: Direction::Right });
+            }
+
+            index = (index + 1) / 2;
+            remaining_size = (remaining_size + 1) / 2;
+            level += 1;
+        }
+    }
+    Ok(path)
 }
 
 impl MerkleProofAccess for Store {

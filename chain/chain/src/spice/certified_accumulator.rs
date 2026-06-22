@@ -14,14 +14,13 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{
-    Direction, MerklePath, MerklePathItem, PartialMerkleTree, combine_hash,
-};
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::types::{ChunkExecutionResult, ShardId, SpiceChunkId};
 use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::merkle_proof::compute_merkle_path_by_ordinal;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -142,9 +141,8 @@ fn build_certified_block_merkle_tree(
 }
 
 /// Inclusion proof of the certified leaf at `leaf_ordinal` within the certified
-/// accumulator of size `tree_size`. Mirrors
-/// `MerkleProofAccess::compute_past_block_proof_in_merkle_tree_of_later_block`,
-/// reading the per-ordinal frontier+leaf from `CertifiedAccumulatorByOrdinal`.
+/// accumulator of size `tree_size`, reading the per-ordinal frontier+leaf from
+/// `CertifiedAccumulatorByOrdinal`.
 pub fn compute_certified_block_proof(
     chain_store: &ChainStoreAdapter,
     leaf_ordinal: u64,
@@ -155,54 +153,10 @@ pub fn compute_certified_block_proof(
             "certified leaf ordinal {leaf_ordinal} is ahead of accumulator size {tree_size}"
         )));
     }
-
-    let mut path = vec![];
-    let mut level: u64 = 0;
-    let mut index = leaf_ordinal;
-    let mut remaining_size = tree_size;
-
-    while remaining_size > 1 {
-        // Walk left.
-        {
-            let cur_index = index;
-            let cur_level = level;
-            while remaining_size > 1 && index % 2 == 1 {
-                index /= 2;
-                remaining_size = (remaining_size + 1) / 2;
-                level += 1;
-            }
-            if level > cur_level {
-                let ordinal = ((cur_index + 1) * (1 << cur_level) - 1).min(tree_size - 1);
-                let (frontier, _) = chain_store.get_certified_accumulator_by_ordinal(ordinal)?;
-                frontier.iter_path_from_bottom(|hash, l| {
-                    if l >= cur_level && l < level {
-                        path.push(MerklePathItem { hash, direction: Direction::Left });
-                    }
-                });
-            }
-        }
-        // Walk right.
-        if remaining_size > 1 {
-            let right_sibling_index = index + 1;
-            let ordinal = ((right_sibling_index + 1) * (1 << level) - 1).min(tree_size - 1);
-            if ordinal >= right_sibling_index * (1 << level) {
-                let (frontier, leaf_hash) =
-                    chain_store.get_certified_accumulator_by_ordinal(ordinal)?;
-                let mut subtree_root_hash = leaf_hash;
-                if level > 0 {
-                    frontier.iter_path_from_bottom(|hash, l| {
-                        if l < level {
-                            subtree_root_hash = combine_hash(&hash, &subtree_root_hash);
-                        }
-                    });
-                }
-                path.push(MerklePathItem { hash: subtree_root_hash, direction: Direction::Right });
-            }
-
-            index = (index + 1) / 2;
-            remaining_size = (remaining_size + 1) / 2;
-            level += 1;
-        }
-    }
-    Ok(path)
+    compute_merkle_path_by_ordinal(
+        leaf_ordinal,
+        tree_size,
+        |ordinal| Ok(Arc::new(chain_store.get_certified_accumulator_by_ordinal(ordinal)?.0)),
+        |ordinal| Ok(chain_store.get_certified_accumulator_by_ordinal(ordinal)?.1),
+    )
 }
