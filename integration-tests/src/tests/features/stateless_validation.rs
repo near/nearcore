@@ -394,29 +394,22 @@ fn test_eth_implicit_accounts() {
     let chain_id = &genesis.config.chain_id;
     let signer = create_user_test_signer(AccountIdRef::new("test2").unwrap());
 
-    // Deploy global contract if the feature is enabled.
-    let uses_global_contract =
-        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
+    // Deploy the wallet contract as a global contract for ETH implicit accounts.
     let mut next_nonce = 1;
-    if uses_global_contract {
-        let magic_bytes = wallet_contract_magic_bytes(chain_id);
-        let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
-        let deploy_tx = SignedTransaction::deploy_global_contract(
-            next_nonce,
-            signer.get_account_id(),
-            wallet_code.code().to_vec(),
-            &signer.clone().into(),
-            *genesis_block.hash(),
-            GlobalContractDeployMode::CodeHash,
-        );
-        next_nonce += 1;
-        assert_eq!(
-            env.rpc_handlers[0].process_tx(deploy_tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
-        for _ in 0..5 {
-            produce_block(&mut env);
-        }
+    let magic_bytes = wallet_contract_magic_bytes(chain_id);
+    let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+    let deploy_tx = SignedTransaction::deploy_global_contract(
+        next_nonce,
+        signer.get_account_id(),
+        wallet_code.code().to_vec(),
+        &signer.clone().into(),
+        *genesis_block.hash(),
+        GlobalContractDeployMode::CodeHash,
+    );
+    next_nonce += 1;
+    assert_eq!(env.rpc_handlers[0].process_tx(deploy_tx, false, false), ProcessTxResponse::ValidTx);
+    for _ in 0..5 {
+        produce_block(&mut env);
     }
 
     // 1. Create two eth-implicit accounts

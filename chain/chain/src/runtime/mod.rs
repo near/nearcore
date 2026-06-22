@@ -26,7 +26,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
-use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig, ShardLayoutConfig};
+use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
@@ -709,14 +709,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_shard_limit(&self, protocol_version: ProtocolVersion) -> NumShards {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_config = epoch_manager.get_epoch_config(protocol_version);
-        match epoch_config.shard_layout_config {
-            ShardLayoutConfig::Static { shard_layout } => shard_layout.num_shards(),
-            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => {
-                dynamic_resharding_config.max_number_of_shards
-            }
-        }
+        self.epoch_manager.read().get_epoch_config(protocol_version).max_num_shards()
     }
 
     fn validate_tx(
@@ -771,7 +764,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
+        let (signer, access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
@@ -805,11 +798,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             match verify_and_charge_tx_ephemeral(
                 runtime_config,
                 &signer,
-                &mut access_key,
+                &access_key,
                 &tx,
                 &cost,
                 block_height,
-                current_protocol_version,
                 pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
@@ -1101,7 +1093,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
                         account,
-                        &mut key_entry.access_key,
+                        &key_entry.access_key,
                         current_nonce,
                         validated_tx.to_tx(),
                         &cost,
@@ -1112,11 +1104,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
                         account,
-                        &mut key_entry.access_key,
+                        &key_entry.access_key,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
-                        protocol_version,
                         &pending_constraints,
                     )
                 };

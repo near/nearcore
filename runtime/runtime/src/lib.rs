@@ -587,7 +587,6 @@ impl Runtime {
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.next_wasm_config.clone(),
                     apply_state.cache.as_deref(),
-                    apply_state.current_protocol_version,
                 )?;
                 near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
@@ -611,7 +610,6 @@ impl Runtime {
                     account_id,
                     account,
                     use_global_contract,
-                    apply_state.current_protocol_version,
                     &mut result,
                 )?;
             }
@@ -635,7 +633,6 @@ impl Runtime {
                     account_id,
                     account_contract,
                     &state_update,
-                    &apply_state.config.wasm_config,
                     &epoch_info_provider.chain_id(),
                     AccessOptions::DEFAULT,
                 )?;
@@ -1089,7 +1086,7 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV2(_)
                 );
 
-                if new_receipt.is_instant_receipt(apply_state.current_protocol_version) {
+                if new_receipt.is_instant_receipt() {
                     // Instant receipts are not sent as outgoing receipts, they will be processed immediately.
                     instant_receipts.push_back(new_receipt);
                 } else {
@@ -1422,10 +1419,7 @@ impl Runtime {
                 set_promise_yield_receipt(state_update, receipt);
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
-                if data_receipt.data.is_none()
-                    && ProtocolFeature::YieldResumeImprovements
-                        .enabled(apply_state.current_protocol_version)
-                {
+                if data_receipt.data.is_none() {
                     // This is a timeout resume. Check the status to see if the receipt has been resumed.
                     let status =
                         get_promise_yield_status(state_update, account_id, data_receipt.data_id)?;
@@ -1444,12 +1438,8 @@ impl Runtime {
                     // Remove the receipt from the state
                     remove_promise_yield_receipt(state_update, account_id, data_receipt.data_id);
 
-                    if ProtocolFeature::YieldResumeImprovements
-                        .enabled(apply_state.current_protocol_version)
-                    {
-                        // Clear the PromiseYield status
-                        remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
-                    }
+                    // Clear the PromiseYield status
+                    remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
 
                     // Clean up yield_id <-> data_id mappings if this was created by yield_create_with_id
                     if ProtocolFeature::YieldWithId.enabled(apply_state.current_protocol_version) {
@@ -1846,20 +1836,6 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// insert the outcome into the processing state depending on whether the protocol feature
-    /// `InvalidTxOutcome` is enabled or not
-    fn register_outcome(
-        protocol_version: ProtocolVersion,
-        outcomes: &mut Vec<ExecutionOutcomeWithId>,
-        outcome: ExecutionOutcomeWithId,
-    ) {
-        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
-            outcomes.push(outcome);
-        } else if let ExecutionStatus::SuccessReceiptId(_) = outcome.outcome.status {
-            outcomes.push(outcome);
-        }
-    }
-
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1989,11 +1965,7 @@ impl Runtime {
             if let Some(err) = maybe_validation_error {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 let outcome = ExecutionOutcomeWithId::failed(tx, err);
-                Self::register_outcome(
-                    processing_state.protocol_version,
-                    &mut processing_state.outcomes,
-                    outcome,
-                );
+                processing_state.outcomes.push(outcome);
                 continue;
             }
             let signer_id = tx.transaction.signer_id();
@@ -2013,11 +1985,7 @@ impl Runtime {
                         let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
                         let error = &error as &dyn std::error::Error;
                         tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
+                        processing_state.outcomes.push(outcome);
                         continue;
                     }
                 };
@@ -2032,11 +2000,7 @@ impl Runtime {
                         tx,
                         InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
                     );
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
+                    processing_state.outcomes.push(outcome);
                     continue;
                 }
                 Some(Err(e)) => return Err(e.clone().into()),
@@ -2058,11 +2022,7 @@ impl Runtime {
                         ),
                     );
 
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
+                    processing_state.outcomes.push(outcome);
                     continue;
                 }
                 Some(Err(e)) => return Err(e.clone().into()),
@@ -2086,11 +2046,7 @@ impl Runtime {
                                 num_nonces,
                             },
                         );
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
+                        processing_state.outcomes.push(outcome);
                         continue;
                     }
                     Some(Err(e)) => return Err(e.clone().into()),
@@ -2115,7 +2071,6 @@ impl Runtime {
                     &tx.transaction,
                     &cost,
                     Some(block_height),
-                    processing_state.protocol_version,
                     &PendingConstraints::default(),
                 )
             };
@@ -2195,11 +2150,7 @@ impl Runtime {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                     let outcome = ExecutionOutcomeWithId::failed(tx, error);
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
+                    processing_state.outcomes.push(outcome);
                     continue;
                 }
             };
@@ -2260,11 +2211,9 @@ impl Runtime {
                 .commit(StateChangeCause::TransactionProcessing { tx_hash: tx.get_hash() });
         }
 
-        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
-            debug_assert!(
-                processing_state.outcomes.len() == num_transactions - num_skipped_duplicate_txs
-            );
-        }
+        debug_assert!(
+            processing_state.outcomes.len() == num_transactions - num_skipped_duplicate_txs
+        );
 
         processing_state
             .metrics

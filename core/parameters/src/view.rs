@@ -268,8 +268,6 @@ pub struct VMConfigView {
     pub implicit_account_creation: bool,
     /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).
-    pub eth_implicit_global_contract: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -293,7 +291,6 @@ impl From<crate::vm::Config> for VMConfigView {
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
-            eth_implicit_global_contract: config.eth_implicit_global_contract,
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             gas_key_host_fns: config.gas_key_host_fns,
@@ -302,33 +299,6 @@ impl From<crate::vm::Config> for VMConfigView {
             yield_with_id_host_fns: config.yield_with_id_host_fns,
             chain_id_host_fn: config.chain_id_host_fn,
             bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
-        }
-    }
-}
-
-impl From<VMConfigView> for crate::vm::Config {
-    fn from(view: VMConfigView) -> Self {
-        Self {
-            ext_costs: crate::ExtCostsConfig::from(view.ext_costs),
-            grow_mem_cost: view.grow_mem_cost,
-            regular_op_cost: view.regular_op_cost,
-            linear_op_base_cost: view.linear_op_base_cost,
-            linear_op_unit_cost: view.linear_op_unit_cost,
-            discard_custom_sections: view.discard_custom_sections,
-            limit_config: view.limit_config,
-            storage_get_mode: view.storage_get_mode,
-            fix_contract_loading_cost: view.fix_contract_loading_cost,
-            vm_kind: view.vm_kind,
-            eth_implicit_accounts: view.eth_implicit_accounts,
-            eth_implicit_global_contract: view.eth_implicit_global_contract,
-            global_contract_host_fns: view.global_contract_host_fns,
-            reftypes_bulk_memory: view.reftypes_bulk_memory,
-            gas_key_host_fns: view.gas_key_host_fns,
-            one_yocto_on_promise: view.one_yocto_on_promise,
-            p256_verify_host_fn: view.p256_verify_host_fn,
-            yield_with_id_host_fns: view.yield_with_id_host_fns,
-            chain_id_host_fn: view.chain_id_host_fn,
-            bls12381_not_in_group_fix: view.bls12381_not_in_group_fix,
         }
     }
 }

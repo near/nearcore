@@ -628,7 +628,6 @@ impl Contract for RuntimeContractExt {
             | RuntimeContractIdentifier::Global { code_hash, .. } => {
                 self.storage.get(*code_hash).map(Arc::new)
             }
-            RuntimeContractIdentifier::LegacyEthWallet(legacy) => Some(legacy.contract()),
         }
     }
 }

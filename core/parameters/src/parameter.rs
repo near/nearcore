@@ -226,9 +226,9 @@ pub enum Parameter {
     // Contract runtime features
     FlatStorageReads,
     FixContractLoadingCost,
+    FixContractLoadingError,
     VmKind,
     EthImplicitAccounts,
-    EthImplicitGlobalContract,
     DiscardCustomSections,
     ReftypesBulkMemory,
 

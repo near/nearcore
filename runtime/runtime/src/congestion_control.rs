@@ -16,6 +16,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
@@ -439,11 +440,18 @@ impl ReceiptSinkV2 {
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        if forward_limit.gas >= gas && forward_limit.size >= size {
+        let admission_gas = if ProtocolFeature::ClampOutgoingGasAdmission
+            .enabled(apply_state.current_protocol_version)
+        {
+            gas.min(apply_state.config.congestion_control_config.allowed_shard_outgoing_gas)
+        } else {
+            gas
+        };
+
+        if forward_limit.gas >= admission_gas && forward_limit.size >= size {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
-            // underflow impossible: checked forward_limit > gas/size_to_forward above
-            forward_limit.gas = forward_limit.gas.checked_sub(gas).unwrap();
+            forward_limit.gas = forward_limit.gas.saturating_sub(gas);
             forward_limit.size -= size;
             stats.forwarded_receipts.entry(shard).or_default().add_receipt(size, gas);
 

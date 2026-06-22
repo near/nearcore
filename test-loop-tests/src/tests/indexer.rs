@@ -248,9 +248,6 @@ fn test_indexer_delayed_local_receipt() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_failed_local_tx() {
     init_test_logger();
-    if !ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     let mut env = setup();
     env.validator_runner().send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(

@@ -357,6 +357,11 @@ pub fn set_access_key_by_handle(
     key_handle: PublicKeyHandle,
     access_key: &AccessKey,
 ) {
+    debug_assert!(
+        access_key.gas_key_info().is_none() || access_key.nonce == 0,
+        "gas key access key must have nonce 0, got {}",
+        access_key.nonce
+    );
     set(state_update, TrieKey::access_key(account_id, key_handle), access_key);
 }
 

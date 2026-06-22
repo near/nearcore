@@ -457,12 +457,12 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
+                fix_contract_loading_error: params.get(Parameter::FixContractLoadingError)?,
                 storage_get_mode: match params.get(Parameter::FlatStorageReads)? {
                     true => StorageGetMode::FlatStorage,
                     false => StorageGetMode::Trie,
                 },
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
-                eth_implicit_global_contract: params.get(Parameter::EthImplicitGlobalContract)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,

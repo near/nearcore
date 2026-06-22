@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -24,9 +25,9 @@ expression: config_view
     },
     "action_creation_config": {
       "create_account_cost": {
-        "send_sir": 3850000000000,
-        "send_not_sir": 3850000000000,
-        "execution": 3850000000000
+        "send_sir": 500000000000,
+        "send_not_sir": 500000000000,
+        "execution": 7200000000000
       },
       "deploy_contract_cost": {
         "send_sir": 184765750000,
@@ -216,7 +217,6 @@ expression: config_view
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
-    "eth_implicit_global_contract": true,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
       "max_stack_height": 262144,
@@ -282,6 +282,6 @@ expression: config_view
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
   },
-  "min_gas_purchase_price": "0",
-  "account_creation_charge": "0"
+  "min_gas_purchase_price": "1000000000",
+  "account_creation_charge": "7000000000000000000000"
 }

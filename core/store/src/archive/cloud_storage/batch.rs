@@ -4,8 +4,7 @@
 //! keyed in cloud paths by the window's `BatchId`. The heights actually
 //! covered live inside the blob and may be narrower than the window for a
 //! partial first batch (genesis / fresh init / new child shard post-
-//! resharding). TODO(cloud_archival, resharding): a parent shard's last
-//! batch can also end early at a reshard boundary.
+//! resharding).
 
 use near_primitives::types::BlockHeight;
 
@@ -48,7 +47,6 @@ impl BatchRange {
 /// height, or a pre-archive cut for genesis / fresh init / resharded
 /// child). Starts at `height + 1` and ends at the next batch-aligned
 /// boundary.
-/// TODO(cloud_archival, resharding): also end early at reshard boundaries.
 pub fn compute_next_batch(height: BlockHeight, batch_size: u32) -> BatchRange {
     let batch_size = batch_size as u64;
     let start = height + 1;

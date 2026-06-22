@@ -8,7 +8,7 @@ use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDi
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shards::build_shard_batch;
 use near_primitives::errors::EpochError;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId, ShardVersion};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
 /// Error surfaced while archiving data or performing sanity checks.
@@ -26,6 +26,10 @@ pub enum CloudArchivingError {
     RetrievalError { error: CloudRetrievalError },
     #[error("Bucket config mismatch: local {local:?} != remote {remote:?}")]
     ConfigMismatch { local: BucketConfig, remote: BucketConfig },
+    #[error(
+        "resharding changed the shard layout version from {old} to {new}; cloud archival's carried-over shard handling must be reviewed for the new version"
+    )]
+    ReshardingLayoutVersionChanged { old: ShardVersion, new: ShardVersion },
 }
 
 impl From<std::io::Error> for CloudArchivingError {

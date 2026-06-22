@@ -741,8 +741,22 @@ impl WasmtimeVM {
                 // There should definitely be some validation in near_vm to ensure
                 // we load what we think we load.
                 let compiled_size = module.len();
-                let module = unsafe { Module::deserialize(&self.engine, &module) }
-                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                let module = match unsafe { Module::deserialize(&self.engine, &module) } {
+                    Ok(module) => module,
+                    Err(err) => {
+                        // Propagate failed contract loading as a cached `FunctionCallError`, mirroring
+                        // the memory-export check below, so it flows through the fee-charge points
+                        // and finalizes as a gas-bearing abort.
+                        if self.config.fix_contract_loading_error {
+                            let err = FunctionCallError::LoadingError { msg: err.to_string() };
+                            return Ok((
+                                err.size_bytes_approximate() as u64,
+                                to_any((wasm_bytes, Ok(Err(err)))),
+                            ));
+                        }
+                        return Err(VMRunnerError::LoadingError(err.to_string()));
+                    }
+                };
                 let Some(memory) = module.get_export_index(MEMORY_EXPORT) else {
                     let err = FunctionCallError::LinkError { msg: "memory export missing".into() };
                     return Ok((

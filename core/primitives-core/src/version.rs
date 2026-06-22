@@ -295,9 +295,8 @@ pub enum ProtocolFeature {
         note = "Was used for protocol versions where we checked balances which is not supported anymore."
     )]
     _DeprecatedRemoveCheckBalance,
-    /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
-    /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
-    ExcludeExistingCodeFromWitnessForCodeLen,
+    #[deprecated]
+    _DeprecatedExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
     #[deprecated]
     _DeprecatedBlockHeightForReceiptId,
@@ -338,16 +337,14 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     #[deprecated]
     _DeprecatedDeterministicAccountIds,
-    InvalidTxGenerateOutcomes,
+    #[deprecated]
+    _DeprecatedInvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
     /// Meta transactions with gas key support via `Action::DelegateV2`.
     DelegateV2,
-    /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
-    /// Previously, the allowance was decremented in-place before later checks
-    /// (storage stake, function call permission) that could return an error,
-    /// violating the documented contract of no mutation on error.
-    FixAccessKeyAllowanceCharging,
+    #[deprecated]
+    _DeprecatedFixAccessKeyAllowanceCharging,
     /// Fix missing early return on DepositWithFunctionCall error path in
     /// validate_delegate_action_key. Previously the error could be
     /// overwritten by a subsequent receiver_id or method_name check.
@@ -367,26 +364,24 @@ pub enum ProtocolFeature {
     UniqueChunkTransactions,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
-    InstantPromiseYield,
+    #[deprecated]
+    _DeprecatedInstantPromiseYield,
     /// Improve functionality of Yield/Resume. Keep the current status of yielded receipt in the
     /// trie state. Allows to call yield and resume in two actions within the same transaction.
     /// Keeping the status in the state could allow to query it from contracts.
-    YieldResumeImprovements,
-    /// Includes tokens burnt as part of global contract deploys into corresponding
-    /// execution outcome's `tokens_burnt`.
-    IncludeDeployGlobalContractOutcomeBurntStorage,
-    /// Nonce-based idempotency for global contract distribution receipts. Each
-    /// distribution carries an auto-incremented nonce. Any distribution receipt
-    /// with a nonce less than the one already stored will be dropped. This
-    /// prevents race conditions in the case of multiple distribution attempts
-    /// for the same contract.
-    GlobalContractDistributionNonce,
-    /// Use global contract for ETH implicit accounts instead of embedded WASM.
-    EthImplicitGlobalContract,
+    #[deprecated]
+    _DeprecatedYieldResumeImprovements,
+    #[deprecated]
+    _DeprecatedIncludeDeployGlobalContractOutcomeBurntStorage,
+    #[deprecated]
+    _DeprecatedGlobalContractDistributionNonce,
+    #[deprecated]
+    _DeprecatedEthImplicitGlobalContract,
     /// Process action receipts containing a single DeleteAccount action as
     /// instant receipts, executing them immediately after the receipt that
     /// produced them rather than sending them as outgoing receipts.
-    InstantDeleteAccount,
+    #[deprecated]
+    _DeprecatedInstantDeleteAccount,
     /// Opt-in strict nonce mode for transactions. When enabled, TransactionV1
     /// can carry `NonceMode::Strict` which requires `tx_nonce == ak_nonce + 1`
     /// (sequential ordering). Transactions with a nonce gap are held in the
@@ -396,11 +391,13 @@ pub enum ProtocolFeature {
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
-    /// Make chunk-producer-to-shard assignment sticky across epoch boundaries:
-    /// preserve assignment by `ShardId` (rather than `ShardIndex`) and, when a
-    /// shard splits, distribute the parent's chunk producers across its child
-    /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
-    /// sync after resharding.
+    /// Extend the existing sticky chunk-producer-to-shard assignment to
+    /// resharding boundaries. Previously stickiness was keyed by
+    /// `ShardIndex`, which is unstable across a shard layout change; switch
+    /// to keying by `ShardId`, and when a shard splits distribute the
+    /// parent's chunk producers across its child shards using greedy
+    /// stake-balanced bin-packing. Reduces unnecessary state sync after
+    /// resharding.
     StickyReshardingValidatorAssignment,
     /// Add FIPS 204 ML-DSA-65 (post-quantum) as a third transaction signature
     /// scheme alongside ed25519 and secp256k1. Pre-feature blocks reject any
@@ -412,12 +409,19 @@ pub enum ProtocolFeature {
     FixDelegatedDeterministicStateInit,
     /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
     /// per-action `Vec<AccountContract>`: one entry per action in the
-    /// receipt, set to the contract that was executed for `FunctionCall`
-    /// actions and to `AccountContract::None` for everything else (matching
-    /// the receipt's action order). This is relevant when the receiver
-    /// account and the contract source diverge — e.g. global contracts.
-    /// Wire format changes (new borsh discriminant), so the cutover must be
-    /// coordinated across the network.
+    /// receipt, recording the contract attached to the receiver account
+    /// immediately before that action ran. Captured unconditionally for
+    /// every action kind (not just `FunctionCall`), so consumers can see
+    /// what code an account had even on receipts that did not invoke a
+    /// contract. `AccountContract::None` is emitted when the account has
+    /// no contract deployed, when it did not yet exist (e.g. the
+    /// `CreateAccount` slot that materialized it), or for unexecuted
+    /// trailing slots padded after a mid-receipt failure. Order matches
+    /// the receipt's `actions` vector. This is relevant when the receiver
+    /// account and the contract source diverge — e.g. global contracts
+    /// and `UseGlobalContract` flows. Wire format changes (new borsh
+    /// discriminant), so the cutover must be coordinated across the
+    /// network.
     ExecutionMetadataV4,
     /// New host functions `promise_yield_create_with_id` and `promise_yield_resume_with_yield_id`
     /// that allow contracts to provide a custom yield ID for yield/resume.
@@ -433,6 +437,11 @@ pub enum ProtocolFeature {
     /// `ContractCodeResponseV2` (with a signed inner payload); receivers
     /// require a verifiable signature before processing the response.
     SignedContractCodeResponse,
+    ClampOutgoingGasAdmission,
+    /// Charge the contract-loading fee (and finalize as a gas-bearing abort
+    /// rather than a zero-gas nop) when a compiled module fails to load at
+    /// `Module::deserialize`.
+    FixContractLoadingError,
 }
 
 impl ProtocolFeature {
@@ -532,15 +541,15 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedIncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::_DeprecatedStatePartsCompression
             | ProtocolFeature::_DeprecatedDeterministicAccountIds => 82,
-            ProtocolFeature::InvalidTxGenerateOutcomes
-            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
-            | ProtocolFeature::FixAccessKeyAllowanceCharging
-            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-            | ProtocolFeature::GlobalContractDistributionNonce
-            | ProtocolFeature::InstantPromiseYield
-            | ProtocolFeature::YieldResumeImprovements
-            | ProtocolFeature::EthImplicitGlobalContract
-            | ProtocolFeature::InstantDeleteAccount => 83,
+            ProtocolFeature::_DeprecatedInvalidTxGenerateOutcomes
+            | ProtocolFeature::_DeprecatedExcludeExistingCodeFromWitnessForCodeLen
+            | ProtocolFeature::_DeprecatedFixAccessKeyAllowanceCharging
+            | ProtocolFeature::_DeprecatedIncludeDeployGlobalContractOutcomeBurntStorage
+            | ProtocolFeature::_DeprecatedGlobalContractDistributionNonce
+            | ProtocolFeature::_DeprecatedInstantPromiseYield
+            | ProtocolFeature::_DeprecatedYieldResumeImprovements
+            | ProtocolFeature::_DeprecatedEthImplicitGlobalContract
+            | ProtocolFeature::_DeprecatedInstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime | ProtocolFeature::EarlyKickout => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
@@ -556,11 +565,14 @@ impl ProtocolFeature {
             | ProtocolFeature::YieldWithId
             | ProtocolFeature::ExecutionMetadataV4
             | ProtocolFeature::SignedContractCodeResponse
+            | ProtocolFeature::ClampOutgoingGasAdmission
+            | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
+
+            ProtocolFeature::FixContractLoadingError => 86,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
-            ProtocolFeature::AccountCostIncrease => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,

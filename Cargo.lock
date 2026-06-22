@@ -2450,9 +2450,9 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "finite-wasm"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d81b511929c2669eaf64e36471cf27c2508133e62ade9d49e608e8d675e7854"
+checksum = "aead728a69267399a7e8149e767372f693fa933aa53128a248fa7371844bb898"
 dependencies = [
  "bitvec",
  "dissimilar",
@@ -2466,9 +2466,9 @@ dependencies = [
 
 [[package]]
 name = "finite-wasm"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dce601f45d7bbc875827d3c35fa00f7dfc00ec63cdf327ff34b54ab1f2ac1ad"
+checksum = "4f0ffc0c7068edefc6ad3ad9773158080db461cdba18bc4ea6b77baaffaff441"
 dependencies = [
  "bitvec",
  "dissimilar",
@@ -5430,7 +5430,7 @@ name = "near-vm-compiler"
 version = "0.0.0"
 dependencies = [
  "enumset",
- "finite-wasm 0.5.0",
+ "finite-wasm 0.5.1",
  "near-vm-types",
  "near-vm-vm",
  "rkyv",
@@ -5447,7 +5447,7 @@ dependencies = [
  "dynasm",
  "dynasmrt",
  "enumset",
- "finite-wasm 0.5.0",
+ "finite-wasm 0.5.1",
  "memoffset 0.8.0",
  "near-vm-compiler",
  "near-vm-types",
@@ -5475,7 +5475,7 @@ name = "near-vm-engine"
 version = "0.0.0"
 dependencies = [
  "backtrace",
- "finite-wasm 0.5.0",
+ "finite-wasm 0.5.1",
  "more-asserts",
  "near-vm-compiler",
  "near-vm-types",
@@ -5510,8 +5510,8 @@ dependencies = [
  "ed25519-dalek",
  "enum-map",
  "expect-test",
- "finite-wasm 0.5.0",
- "finite-wasm 0.6.0",
+ "finite-wasm 0.5.1",
+ "finite-wasm 0.6.1",
  "hex",
  "lru 0.16.3",
  "memoffset 0.8.0",
@@ -5560,7 +5560,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "cfg-if",
- "finite-wasm 0.5.0",
+ "finite-wasm 0.5.1",
  "indexmap 2.14.0",
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
@@ -5607,7 +5607,7 @@ dependencies = [
  "backtrace",
  "cc",
  "cfg-if",
- "finite-wasm 0.5.0",
+ "finite-wasm 0.5.1",
  "libc",
  "memoffset 0.8.0",
  "more-asserts",
@@ -6745,7 +6745,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.8",
+ "socket2 0.6.0",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -6783,7 +6783,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.8",
+ "socket2 0.6.0",
  "tracing",
  "windows-sys 0.60.2",
 ]

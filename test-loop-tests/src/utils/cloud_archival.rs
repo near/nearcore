@@ -47,51 +47,53 @@ pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_heig
     env.runner_for_account(account_id).run_until_head_height(target_height);
 }
 
-/// Runs until the head epoch has shard layout `new_layout` and its sync hash is
-/// recorded, then returns the resharding block height (the last block of the
-/// epoch before the split).
-pub fn run_until_resharding_sync_hash_recorded(
+/// Resharding data observed by a test.
+pub struct ReshardingInfo {
+    /// The last block of the epoch before the split.
+    pub resharding_block_height: BlockHeight,
+    /// The shard the resharding removes.
+    pub parent_shard: ShardId,
+    /// One of the new child shards.
+    pub child_shard: ShardId,
+    /// A shard the resharding leaves unchanged.
+    pub carried_shard: ShardId,
+}
+
+/// Runs the chain one epoch past the resharding to `new_layout`.
+pub fn run_until_one_epoch_after_resharding(
     env: &mut TestLoopEnv,
     archival_id: &AccountId,
+    base_layout: &ShardLayout,
     new_layout: &ShardLayout,
-    timeout: Duration,
-) -> BlockHeight {
+    boundary: &AccountId,
+    epoch_length: BlockHeightDelta,
+) -> ReshardingInfo {
+    let timeout = Duration::seconds((5 * epoch_length) as i64);
     env.runner_for_account(archival_id).run_until(
         |node| {
             let epoch_id = node.head().epoch_id;
-            let layout = node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap();
-            if layout != *new_layout {
-                return false;
-            }
-            let chain_store = node.client().chain.chain_store().store().chain_store();
-            chain_store.get_current_epoch_sync_hash(&epoch_id).is_some()
+            node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == *new_layout
         },
         timeout,
     );
     let node = env.node_for_account(archival_id);
     let epoch_manager = &node.client().epoch_manager;
     let head = node.head().last_block_hash;
+    // Follow prev_hash to the old epoch's last block; it can sit below
+    // epoch_start - 1 when slots before the epoch start are skipped.
     let epoch_first = *epoch_manager.get_block_info(&head).unwrap().epoch_first_block();
     let resharding_block = *epoch_manager.get_block_info(&epoch_first).unwrap().prev_hash();
-    epoch_manager.get_block_info(&resharding_block).unwrap().height()
-}
+    let resharding_block_height = epoch_manager.get_block_info(&resharding_block).unwrap().height();
 
-/// Runs until the writer's `CLOUD_MIN_HEAD` exceeds `min_height`.
-pub fn run_until_cloud_head_above(
-    env: &mut TestLoopEnv,
-    archival_id: &AccountId,
-    min_height: BlockHeight,
-    timeout: Duration,
-) {
-    env.runner_for_account(archival_id).run_until(
-        move |node| {
-            let store = node.client().chain.chain_store().store();
-            let cloud_head: BlockHeight =
-                store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap_or(0);
-            cloud_head > min_height
-        },
-        timeout,
-    );
+    run_node_until(env, archival_id, resharding_block_height + epoch_length);
+
+    let parent_shard = base_layout.account_id_to_shard_id(boundary);
+    let child_shard = new_layout.account_id_to_shard_id(boundary);
+    let carried_shard = base_layout
+        .shard_ids()
+        .find(|shard_id| *shard_id != parent_shard)
+        .expect("layout has a shard other than the resharding parent");
+    ReshardingInfo { resharding_block_height, parent_shard, child_shard, carried_shard }
 }
 
 fn execute_future<F: Future>(fut: F) -> F::Output {
