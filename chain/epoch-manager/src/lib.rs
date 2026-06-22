@@ -2018,6 +2018,62 @@ impl EpochManager {
         Ok(Some((running, replace)))
     }
 
+    /// Test-only: seed `DBCol::ChunkProducers` for an already-recorded block,
+    /// mirroring `ChainStoreUpdate::save_chunk_producers_for_header` so nightly
+    /// tests exercise the DB-anchored path the harnesses otherwise never seed.
+    ///
+    /// Must run after the block's `record_block_info` commit (reads the recorded
+    /// `BlockInfo`). Idempotent; EarlyKickout-gated (no-op on stable).
+    pub fn seed_chunk_producers_for_test(&self, block_hash: &CryptoHash) {
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_store::DBCol;
+
+            let block_info =
+                self.get_block_info(block_hash).expect("block must be recorded before seeding");
+            // Gate on the anchor's own epoch, mirroring production's
+            // `get_epoch_protocol_version(header.epoch_id())`: a row exists iff the
+            // anchor's epoch has EarlyKickout, which is exactly when the aggregator's
+            // same-epoch read path applies. Gating on the epoch *after* the anchor
+            // would seed dead rows for last-of-epoch anchors across an activation edge.
+            let own_epoch_info =
+                self.get_epoch_info(block_info.epoch_id()).expect("anchor epoch info");
+            if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
+                return;
+            }
+            // Sample from the epoch *after* the anchor, matching
+            // `save_chunk_producers_for_header`'s `get_epoch_id_from_prev_block`.
+            let epoch_id = if self
+                .is_next_block_epoch_start(block_hash)
+                .expect("block must be recorded before seeding")
+            {
+                self.get_next_epoch_id(block_hash).expect("next epoch id")
+            } else {
+                self.get_epoch_id(block_hash).expect("epoch id")
+            };
+            let epoch_info = self.get_epoch_info(&epoch_id).expect("epoch info");
+            let shard_layout = self.get_shard_layout(&epoch_id).expect("shard layout");
+            let height = block_info.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+            let mut store_update = self.store.store_ref().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                if let Some(validator_id) =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+                {
+                    let validator_stake = epoch_info.get_validator(validator_id);
+                    store_update.insert_ser(
+                        DBCol::ChunkProducers,
+                        &get_block_shard_id(block_hash, shard_id),
+                        &validator_stake,
+                    );
+                }
+            }
+            store_update.commit();
+        }
+        #[cfg(not(feature = "nightly"))]
+        let _ = block_hash;
+    }
+
     /// Get the shard split to include in the block header, if any.
     ///
     /// This method is expected to be called during the production of the last block of an epoch.
