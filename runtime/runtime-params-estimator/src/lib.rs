@@ -118,9 +118,9 @@ use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
 use utils::{
-    average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
-    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
-    transaction_cost, transaction_cost_ext,
+    average_cost, extra_refund_block_latency, fn_cost, fn_cost_count, fn_cost_in_contract,
+    fn_cost_with_setup, generate_data_only_contract, generate_fn_name, noop_function_call_cost,
+    read_resource, transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -397,7 +397,7 @@ fn action_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
     };
     let block_size = 100;
     // Sender != Receiver means this will be executed over two blocks.
-    let block_latency = 1;
+    let block_latency = 1 + extra_refund_block_latency();
     let cost = transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0;
 
     ctx.cached.action_receipt_creation = Some(cost.clone());
@@ -432,7 +432,7 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         };
         let block_size = 100;
         // Transferring from one account to another may touch two shards, thus executes over two blocks.
-        let block_latency = 1;
+        let block_latency = 1 + extra_refund_block_latency();
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
@@ -456,7 +456,7 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
         };
         let block_size = 100;
         // Creating a new account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
-        let block_latency = 1;
+        let block_latency = 1 + extra_refund_block_latency();
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
@@ -722,7 +722,8 @@ fn deploy_contract_cost(
     };
     // Use a small block size since deployments are gas heavy.
     let block_size = 5;
-    let (total_cost, _ext) = transaction_cost_ext(ctx, block_size, &mut make_transaction, 0);
+    let (total_cost, _ext) =
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, extra_refund_block_latency());
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
@@ -867,7 +868,7 @@ fn inner_action_function_call_per_byte(ctx: &mut EstimatorContext, arg_len: usiz
         tb.transaction_from_function_call(sender, "noop", args)
     };
     let block_size = 5;
-    let block_latency = 0;
+    let block_latency = extra_refund_block_latency();
     transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
 }
 
@@ -906,11 +907,11 @@ fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
 fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
-    let block_latency = 2;
+    let block_latency = 2 + extra_refund_block_latency();
     let (total_cost, _) =
         fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, block_latency);
     // The function returns a promise.
-    let block_latency = 1;
+    let block_latency = 1 + extra_refund_block_latency();
     let (base_cost, _) =
         fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base, block_latency);
 
@@ -921,11 +922,11 @@ fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
 fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
-    let block_latency = 2;
+    let block_latency = 2 + extra_refund_block_latency();
     let (total_cost, _) =
         fn_cost_count(ctx, "data_receipt_100kib_40", ExtCosts::base, block_latency);
     // The function returns a chain of two promises.
-    let block_latency = 2;
+    let block_latency = 2 + extra_refund_block_latency();
     let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_40", ExtCosts::base, block_latency);
 
     let bytes_per_transaction = 1000 * 100 * 1024;
@@ -946,7 +947,7 @@ fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
             tb.transaction_from_actions(sender, receiver, vec![action])
         };
         // meta tx is delayed by 2 block compared to local receipt
-        let block_latency = 2;
+        let block_latency = 2 + extra_refund_block_latency();
         let block_size = 100;
         let (gas_cost, _ext_costs) =
             transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
@@ -1036,7 +1037,7 @@ fn deterministic_state_init_cost(
 }
 
 fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
-    let block_latency = 0;
+    let block_latency = extra_refund_block_latency();
     let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base, block_latency);
     assert_eq!(count, 1_000_000);
 
@@ -1560,8 +1561,12 @@ fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
     let result = if let Some(cost) = &ctx.cached.yield_create_base {
         cost.clone()
     } else {
-        let (result, count) =
-            fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 0);
+        let (result, count) = fn_cost_count(
+            ctx,
+            "yield_create_base",
+            ExtCosts::yield_create_base,
+            extra_refund_block_latency(),
+        );
         assert_eq!(count, 1000);
         let result = result / count;
         ctx.cached.yield_create_base.insert(result).clone()
@@ -1572,13 +1577,17 @@ fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
 fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
     let noop_function_call = noop_function_call_cost(ctx);
     let base_cost = yield_create_base(ctx);
-    let method_cost =
-        fn_cost_count(ctx, "yield_create_byte_100b_method_length", ExtCosts::yield_create_base, 0);
+    let method_cost = fn_cost_count(
+        ctx,
+        "yield_create_byte_100b_method_length",
+        ExtCosts::yield_create_base,
+        extra_refund_block_latency(),
+    );
     let argument_cost = fn_cost_count(
         ctx,
         "yield_create_byte_1000b_argument_length",
         ExtCosts::yield_create_base,
-        0,
+        extra_refund_block_latency(),
     );
     let compute = |(cost, count): (GasCost, u64), bytes: u64| -> GasCost {
         let it = cost.saturating_sub(&noop_function_call, &NonNegativeTolerance::PER_MILLE) / count;
@@ -1592,8 +1601,12 @@ fn yield_create_with_id_base(ctx: &mut EstimatorContext) -> GasCost {
     let result = if let Some(cost) = &ctx.cached.yield_create_with_id_base {
         cost.clone()
     } else {
-        let (result, count) =
-            fn_cost_count(ctx, "yield_create_with_id_base", ExtCosts::yield_create_with_id_base, 0);
+        let (result, count) = fn_cost_count(
+            ctx,
+            "yield_create_with_id_base",
+            ExtCosts::yield_create_with_id_base,
+            extra_refund_block_latency(),
+        );
         assert_eq!(count, 1000);
         let result = result / count;
         ctx.cached.yield_create_with_id_base.insert(result).clone()
