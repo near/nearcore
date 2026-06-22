@@ -1,6 +1,6 @@
 //! Smoke test: every chunk gets endorsed when V2 witnesses resolve via the grandparent
 //! anchor. Witness parts are not retransmitted, so a false chunk-mask bit is the oracle
-//! for a dropped part or failed producer resolution. Nightly-gated (`EarlyKickout`).
+//! for a dropped part or failed producer resolution.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;

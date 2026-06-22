@@ -24,10 +24,10 @@ pub fn verify_block_vrf(
     Ok(())
 }
 
-/// Verify chunk header signature using anchored chunk producer lookup.
-/// Uses get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id),
-/// which resolves via the chunk's grandparent anchor in the ChunkProducers DB
-/// column when EarlyKickout is enabled, and errors on a missing DB entry.
+/// Verify chunk header signature using the anchored chunk producer lookup.
+/// Under EarlyKickout the producer is read from the ChunkProducers DB column
+/// keyed by the chunk's grandparent anchor; cross-epoch and low-height chunks,
+/// and the feature-off path, fall back to the canonical height sampler.
 pub fn verify_chunk_header_signature_by_hash(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
