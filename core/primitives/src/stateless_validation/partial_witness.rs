@@ -208,7 +208,7 @@ pub struct PartialEncodedStateWitnessInnerV2 {
     shard_id: ShardId,
     height_created: BlockHeight,
     prev_block_hash: CryptoHash,
-    /// Grandparent anchor used for producer resolution; signed so a validator
+    /// Grandparent anchor used for producer resolution; added so a validator
     /// can resolve and signature-verify the part before processing the parent
     /// block. `CryptoHash::default()` when the chunk has no real grandparent.
     prev_prev_block_hash: CryptoHash,

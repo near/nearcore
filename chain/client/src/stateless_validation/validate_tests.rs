@@ -439,3 +439,70 @@ fn v2_witness_with_anchor_mismatch_is_rejected() {
         "error message must reference the cross-check; got: {msg}"
     );
 }
+
+/// A default anchor (no real grandparent) is only legitimate for a chunk at genesis or
+/// genesis + 1. With the parent absent there is no anchor to pin the height, so a
+/// default-anchor witness above genesis + 1 is rejected to close the unpinned-height
+/// escape hatch on the canonical-sampling path.
+#[test]
+fn v2_witness_with_default_anchor_above_genesis_plus_one_is_rejected() {
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+
+    let genesis_hash = *chain.genesis().hash();
+    let genesis_height = chain.genesis().height();
+    let shard_id = ShardId::new(0);
+    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+
+    // Parent unknown locally (raced) and a default anchor, with a height above
+    // genesis + 1 — the escape hatch the guard closes.
+    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
+    let forged_height = genesis_height + 3;
+    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        unknown_parent,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        0,
+        forged_height,
+        shard_id,
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        CongestionInfo::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer.as_ref(),
+        PROTOCOL_VERSION,
+    ));
+
+    let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
+        epoch_id,
+        chunk_header,
+        CryptoHash::default(),
+        0,
+        b"payload".to_vec(),
+        7,
+        signer.as_ref(),
+    ));
+
+    let store = chain.chain_store().store();
+    let result = validate_partial_encoded_state_witness(
+        chain.epoch_manager.as_ref(),
+        &witness,
+        signer.validator_id(),
+        &store,
+    );
+
+    let err =
+        result.err().expect("validation must reject default-anchor witness above genesis + 1");
+    let Error::InvalidPartialChunkStateWitness(msg) = err else {
+        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    };
+    assert!(
+        msg.contains("default anchor") && msg.contains("above genesis + 1"),
+        "error message must reference the default-anchor guard; got: {msg}"
+    );
+}

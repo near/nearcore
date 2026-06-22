@@ -538,10 +538,11 @@ impl ChunkValidationActor {
             return Err(Error::Other(ERROR_MSG.to_string()));
         }
 
-        // Send acknowledgement back to the chunk producer
+        // Send acknowledgement back to the chunk producer. The ack is a best-effort
+        // latency signal and must never abort witness processing, so log and continue
+        // on failure rather than returning early.
         if let Err(err) = self.send_state_witness_ack(&witness) {
             tracing::error!(target: "chunk_validation", ?err, "failed to send state witness ack");
-            return Err(err);
         }
 
         // Save the witness if configured to do so

@@ -64,9 +64,10 @@ use std::sync::Arc;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
-/// True iff the witness wire version is on the wrong side of the EarlyKickout boundary.
+/// True iff the witness wire version is wrong for the epoch's protocol version (on the
+/// wrong side of the EarlyKickout boundary), in which case the witness is dropped.
 /// `version = None` (unresolved, e.g. header-sync lag) returns false: must not poison V2 traffic.
-pub(super) fn witness_kicked_out(
+pub(super) fn witness_version_mismatch(
     version: Option<ProtocolVersion>,
     witness: &VersionedPartialEncodedStateWitness,
 ) -> bool {
@@ -455,7 +456,7 @@ impl PartialWitnessActor {
             partial_witness.chunk_production_key();
 
         let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
-        if witness_kicked_out(version, &partial_witness) {
+        if witness_version_mismatch(version, &partial_witness) {
             tracing::debug!(
                 target: "client",
                 ?epoch_id,
@@ -601,7 +602,7 @@ impl PartialWitnessActor {
         {
             let epoch_id = partial_witness.chunk_production_key().epoch_id;
             let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
-            if witness_kicked_out(version, &partial_witness) {
+            if witness_version_mismatch(version, &partial_witness) {
                 tracing::debug!(
                     target: "client",
                     ?epoch_id,

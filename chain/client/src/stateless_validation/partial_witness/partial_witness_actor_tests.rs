@@ -1,4 +1,4 @@
-use super::partial_witness_actor::{PartialWitnessActor, witness_kicked_out};
+use super::partial_witness_actor::{PartialWitnessActor, witness_version_mismatch};
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{IntoAsyncSender, IntoSender, noop};
@@ -72,25 +72,25 @@ fn v2_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
 }
 
 #[test]
-fn witness_kicked_out_pre_kickout_drops_v2_proceeds_v1() {
+fn witness_version_mismatch_pre_kickout_drops_v2_proceeds_v1() {
     let signer = create_test_signer("test_account");
-    assert!(!witness_kicked_out(Some(pre_kickout_version()), &v1_witness(&signer)));
-    assert!(witness_kicked_out(Some(pre_kickout_version()), &v2_witness(&signer)));
+    assert!(!witness_version_mismatch(Some(pre_kickout_version()), &v1_witness(&signer)));
+    assert!(witness_version_mismatch(Some(pre_kickout_version()), &v2_witness(&signer)));
 }
 
 #[test]
-fn witness_kicked_out_post_kickout_drops_v1_proceeds_v2() {
+fn witness_version_mismatch_post_kickout_drops_v1_proceeds_v2() {
     let signer = create_test_signer("test_account");
-    assert!(witness_kicked_out(Some(post_kickout_version()), &v1_witness(&signer)));
-    assert!(!witness_kicked_out(Some(post_kickout_version()), &v2_witness(&signer)));
+    assert!(witness_version_mismatch(Some(post_kickout_version()), &v1_witness(&signer)));
+    assert!(!witness_version_mismatch(Some(post_kickout_version()), &v2_witness(&signer)));
 }
 
 /// Unknown epoch (header-sync lag) must not drop either variant: V2 traffic never retransmits.
 #[test]
-fn witness_kicked_out_unknown_epoch_proceeds_both_variants() {
+fn witness_version_mismatch_unknown_epoch_proceeds_both_variants() {
     let signer = create_test_signer("test_account");
-    assert!(!witness_kicked_out(None, &v1_witness(&signer)));
-    assert!(!witness_kicked_out(None, &v2_witness(&signer)));
+    assert!(!witness_version_mismatch(None, &v1_witness(&signer)));
+    assert!(!witness_version_mismatch(None, &v2_witness(&signer)));
 }
 
 fn build_v2_witness(

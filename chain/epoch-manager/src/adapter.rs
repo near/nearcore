@@ -1067,8 +1067,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
             let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
             if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
-                // `CryptoHash::default()` is the wire sentinel for "no anchor"
-                // (chunk at height <= genesis_height + 1).
+                // `CryptoHash::default()` means no grandparent (chunk at genesis
+                // or genesis + 1).
                 if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
                     // Errors with MissingBlock when the anchor is unprocessed.
                     let anchor_epoch_id = self.get_epoch_id(anchor)?;

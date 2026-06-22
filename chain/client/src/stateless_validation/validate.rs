@@ -138,7 +138,8 @@ pub fn validate_partial_encoded_state_witness(
                 Ok(_) => "hit",
                 // Anchor not processed: node is two or more blocks behind. Drop.
                 Err(EpochError::MissingBlock(_)) => "miss_anchor_block",
-                // Anchor known but no `DBCol::ChunkProducers` entry; steady-state ~0, persistent = writer bug.
+                // Anchor processed but its `DBCol::ChunkProducers` row is missing; ~never
+                // in normal operation, a persistent miss means a row-writer bug.
                 Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
                 Err(_) => "error",
             };
@@ -146,16 +147,10 @@ pub fn validate_partial_encoded_state_witness(
                 .with_label_values(&[shard_id_label.as_str(), label])
                 .inc();
             let info = result?;
-            // Cross-check the signed chunk key against the signed anchor: without it an
-            // authenticated producer could sign under any (epoch_id, height_created) and we
-            // would store/forward under a forged key.
-            //
-            // Exact check when the parent block is locally known: the signed anchor, height
-            // and epoch must match exactly what the parent implies. Exact check when the
-            // parent is absent (witness raced it): the signed anchor pins the height to
-            // exactly anchor + 2. For a non-default same-epoch anchor this authorizes one
-            // ChunkProductionKey per shard, closing the cache-spam vector; the
-            // `prev_prev == default` fallback is not pinned here and stays at the V1 baseline.
+            // Cross-check the signed chunk key against the signed anchor, otherwise an
+            // authenticated producer could sign under a forged (epoch_id, height_created).
+            // Parent known: the key must match exactly what the parent implies. Parent
+            // absent (witness raced it): the anchor pins the height to exactly anchor + 2.
             match epoch_manager.get_block_info(v2.prev_block_hash()) {
                 Ok(parent_info) => {
                     let expected_epoch_id =
@@ -179,29 +174,38 @@ pub fn validate_partial_encoded_state_witness(
                 }
                 Err(EpochError::MissingBlock(_)) => {
                     if prev_prev_block_hash != &CryptoHash::default() {
+                        // Parent unknown (witness raced it): pin the height to exactly
+                        // anchor + 2 for a non-default same-epoch anchor, so one anchor maps
+                        // to one ChunkProductionKey per shard and cannot fan across cache
+                        // slots. Cross-epoch anchors fall back to canonical sampling and are
+                        // not pinned here. This intentionally drops a legitimately
+                        // skipped-slot chunk whose parent is not yet processed (the skip's
+                        // wall-clock elapses before the parent exists, so it does not buy time
+                        // for the parent to land first); witnesses are lossy and the
+                        // anchor-keyed fix is tracked as a follow-up.
                         let anchor_height =
                             epoch_manager.get_block_info(prev_prev_block_hash)?.height();
                         let expected_height =
                             anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-                        // Parent unknown (witness raced it): the signed anchor pins the
-                        // height to exactly anchor + 2, capping authenticated cache spam to
-                        // one ChunkProductionKey per (non-default, same-epoch) anchor per
-                        // shard (a Byzantine producer cannot fan one anchor across many cache
-                        // slots). This branch pins height, not epoch; cross-epoch and
-                        // `prev_prev == default` anchors fall back to canonical sampling and
-                        // are not pinned here, staying at the V1 baseline. This intentionally
-                        // drops a
-                        // legitimately skipped-slot chunk (height anchor + 3 or more) whose
-                        // parent is not yet processed: the skip's wall-clock elapses before
-                        // the parent exists, so it does not buy time for the parent to arrive
-                        // ahead of the witness, and the witness is lost (witnesses are lossy
-                        // by design). The fix that keeps both the spam bound and skip-race
-                        // liveness is anchor-keyed parent-absent caching, tracked as a
-                        // follow-up.
                         if height_created != expected_height {
                             return Err(Error::InvalidPartialChunkStateWitness(format!(
                                 "V2 witness height {height_created} does not match \
                                  anchor-implied height {expected_height}"
+                            )));
+                        }
+                    } else {
+                        // Default anchor with the parent absent: no anchor to pin the height
+                        // and the resolver falls back to canonical sampling. A legitimate
+                        // default anchor only occurs for a chunk at genesis or genesis + 1, so
+                        // reject anything higher to keep the default-anchor path from being an
+                        // unpinned height escape hatch.
+                        let genesis_height = near_store::get_genesis_height(store)
+                            .ok_or_else(|| Error::Other("genesis height not found".to_owned()))?;
+                        if height_created > genesis_height + 1 {
+                            return Err(Error::InvalidPartialChunkStateWitness(format!(
+                                "V2 witness with default anchor at height {height_created} \
+                                 above genesis + 1 ({})",
+                                genesis_height + 1
                             )));
                         }
                     }
