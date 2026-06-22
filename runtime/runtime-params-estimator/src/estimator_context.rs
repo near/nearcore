@@ -31,7 +31,7 @@ use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
     get_signer_and_access_key, set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter;
 use std::sync::Arc;
 
@@ -443,10 +443,22 @@ impl Testbed<'_> {
 
         let mut total_burnt_gas = Gas::ZERO;
         if !allow_failures {
+            // Gas-refund receipts (predecessor "system") are allowed to fail: e.g. when an
+            // account deletes itself, the gas refund bounces back to the now-missing account.
+            // The protocol just burns the refunded tokens in that case, so such failures are
+            // expected and must not abort the estimation.
+            let refund_receipt_ids: HashSet<CryptoHash> = self
+                .prev_receipts
+                .iter()
+                .filter(|receipt| receipt.predecessor_id().is_system())
+                .map(|receipt| *receipt.receipt_id())
+                .collect();
             for outcome in &apply_result.outcomes {
                 total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt).unwrap();
                 match &outcome.outcome.status {
-                    ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
+                    ExecutionStatus::Failure(e) if !refund_receipt_ids.contains(&outcome.id) => {
+                        panic!("Execution failed {:#?}", e)
+                    }
                     _ => (),
                 }
             }
