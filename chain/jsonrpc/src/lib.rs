@@ -882,6 +882,7 @@ impl JsonRpcHandler {
         tx_hash: CryptoHash,
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
+        let mut last_error: Option<RpcTransactionError> = None;
         self.clock.timeout(self.polling_config.polling_timeout, async {
             // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
             let mut new_block_watcher = self.block_notification_watcher.clone();
@@ -908,7 +909,7 @@ impl JsonRpcHandler {
                     }) => {
                         return Ok(false);
                     }
-                    _ => {}
+                    Err(err) => last_error = Some(err),
                 }
                 new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
             }
@@ -920,11 +921,12 @@ impl JsonRpcHandler {
                 target: "jsonrpc",
                 ?tx_hash,
                 ?signer_account_id,
+                ?last_error,
                 "timeout: tx_exists method"
             );
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError {
-                reason: TimeoutErrorReason::NotObserved,
-            }
+            let debug_info = format!("tx_exists timeout, last error: {:?}", last_error);
+            let reason = TimeoutErrorReason::Error { debug_info };
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError { reason }
         })?
     }
 
