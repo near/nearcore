@@ -1723,7 +1723,9 @@ impl ShardsManagerActor {
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
             // because prev_block_hash may not be ready
-            if !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root()) {
+            if proof.1.from_shard_id != header.shard_id()
+                || !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root())
+            {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
