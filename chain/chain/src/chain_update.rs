@@ -5,7 +5,7 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::spice::certified_accumulator::update_and_save_certified_block_merkle_tree;
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
-    record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
+    SpiceCoreReader, record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
 };
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
@@ -229,6 +229,7 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         should_save_state_transition_data: bool,
+        spice_core_reader: &SpiceCoreReader,
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
@@ -317,7 +318,7 @@ impl<'a> ChainUpdate<'a> {
             )?;
             update_and_save_certified_block_merkle_tree(
                 &mut self.chain_store_update,
-                self.epoch_manager.as_ref(),
+                spice_core_reader,
                 &block,
             )?;
         }

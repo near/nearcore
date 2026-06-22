@@ -228,19 +228,32 @@ impl SpiceCoreReader {
     /// `SpiceCoreWriterActor`), slow path the ancestry block bodies under
     /// `context_hash` for shards the writer or this node lacks. Genesis carries
     /// no certifying statements, so only the fast path applies there.
+    ///
+    /// `certifying_block`, when set, additionally overlays its own in-flight
+    /// statements, for shards it is certifying that are not yet committed; these
+    /// take precedence over the committed store.
     fn gather_certified_results(
         &self,
         context_hash: &CryptoHash,
         block_header: &BlockHeader,
+        certifying_block: Option<&Block>,
     ) -> Result<HashMap<ShardId, Arc<ChunkExecutionResult>>, Error> {
         let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut results = self.get_execution_results_by_shard_id(block_header)?;
+        if let Some(certifying_block) = certifying_block {
+            for (chunk_id, result) in
+                certifying_block.spice_core_statements().iter_execution_results()
+            {
+                if chunk_id.block_hash == *block_header.hash() {
+                    results.insert(chunk_id.shard_id, Arc::new(result.clone()));
+                }
+            }
+        }
         let all_present = shard_layout.shard_ids().all(|shard_id| results.contains_key(&shard_id));
         if !all_present && !block_header.is_genesis() {
             let relevant_blocks = HashSet::from([*block_header.hash()]);
             let mut results_by_block = HashMap::new();
-            collect_certified_execution_results_from_ancestry(
-                &self.chain_store,
+            self.collect_certified_execution_results_from_ancestry(
                 context_hash,
                 block_header,
                 &relevant_blocks,
@@ -255,6 +268,38 @@ impl SpiceCoreReader {
         Ok(results)
     }
 
+    fn certified_block_roots_impl(
+        &self,
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+        certifying_block: Option<&Block>,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        let results =
+            self.gather_certified_results(context_hash, block_header, certifying_block)?;
+        self.certified_roots_from_results(block_header, &results)
+    }
+
+    /// Merklizes per-shard state/outcome roots like the non-spice
+    /// `Chunks::compute_state_root` / `compute_outcome_root`. `None` if any shard
+    /// is missing from `results`.
+    fn certified_roots_from_results(
+        &self,
+        block_header: &BlockHeader,
+        results: &HashMap<ShardId, Arc<ChunkExecutionResult>>,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
+        let mut state_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
+        let mut outcome_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
+        for shard_id in shard_layout.shard_ids() {
+            let Some(result) = results.get(&shard_id) else {
+                return Ok(None);
+            };
+            state_roots.push(*result.chunk_extra.state_root());
+            outcome_roots.push(*result.chunk_extra.outcome_root());
+        }
+        Ok(Some((merklize(&state_roots).0, merklize(&outcome_roots).0)))
+    }
+
     /// Certified state and outcome roots for a fully certified `block_header`,
     /// from the committed store. `None` when any shard's result is unavailable.
     pub fn certified_block_roots(
@@ -262,8 +307,23 @@ impl SpiceCoreReader {
         context_hash: &CryptoHash,
         block_header: &BlockHeader,
     ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
-        let results = self.gather_certified_results(context_hash, block_header)?;
-        certified_roots_from_results(self.epoch_manager.as_ref(), block_header, &results)
+        self.certified_block_roots_impl(context_hash, block_header, None)
+    }
+
+    /// Like `certified_block_roots`, but for a `block_header` that `certifying_block`
+    /// is in the act of certifying: overlays the certifying block's own in-flight
+    /// results, which are not yet committed. Used while building the certified-block
+    /// merkle tree during block application.
+    pub fn certified_block_roots_for_certifying_block(
+        &self,
+        certifying_block: &Block,
+        block_header: &BlockHeader,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        self.certified_block_roots_impl(
+            certifying_block.header().prev_hash(),
+            block_header,
+            Some(certifying_block),
+        )
     }
 
     /// Per-shard certified outcome roots for `block_header`, in shard order.
@@ -275,7 +335,7 @@ impl SpiceCoreReader {
         context_hash: &CryptoHash,
         block_header: &BlockHeader,
     ) -> Result<Option<Vec<CryptoHash>>, Error> {
-        let results = self.gather_certified_results(context_hash, block_header)?;
+        let results = self.gather_certified_results(context_hash, block_header, None)?;
         let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut outcome_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
         for shard_id in shard_layout.shard_ids() {
@@ -344,6 +404,39 @@ impl SpiceCoreReader {
             return Err(Error::Other(format!(
                 "invalid last_certified_block: expected {expected_last:?}, got {actual_last:?}"
             )));
+        }
+        Ok(())
+    }
+
+    /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
+    /// `stop_header`, collecting `ChunkExecutionResult` core statements whose certified
+    /// chunk belongs to a block in `relevant_blocks`, grouped by block hash and shard.
+    /// Reads block bodies because `DBCol::execution_results` is written asynchronously by
+    /// `SpiceCoreWriterActor`. Pre-existing entries in `results_by_block` take precedence.
+    fn collect_certified_execution_results_from_ancestry(
+        &self,
+        from_hash: &CryptoHash,
+        stop_header: &BlockHeader,
+        relevant_blocks: &HashSet<CryptoHash>,
+        results_by_block: &mut HashMap<CryptoHash, HashMap<ShardId, Arc<ChunkExecutionResult>>>,
+    ) -> Result<(), Error> {
+        let mut current_hash = *from_hash;
+        while current_hash != *stop_header.hash() {
+            let block = self.chain_store.get_block(&current_hash)?;
+            if block.header().height() <= stop_header.height() {
+                break;
+            }
+            for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
+                if !relevant_blocks.contains(&chunk_id.block_hash) {
+                    continue;
+                }
+                results_by_block
+                    .entry(chunk_id.block_hash)
+                    .or_default()
+                    .entry(chunk_id.shard_id)
+                    .or_insert_with(|| Arc::new(result.clone()));
+            }
+            current_hash = *block.header().prev_hash();
         }
         Ok(())
     }
@@ -736,8 +829,7 @@ impl SpiceCoreReader {
 
         // Collect execution results from the ancestry's block bodies, keeping any
         // already seeded from `core_statements_for_next_block` above.
-        collect_certified_execution_results_from_ancestry(
-            &self.chain_store,
+        self.collect_certified_execution_results_from_ancestry(
             block_header.hash(),
             &old_last_certified,
             &newly_certified_set,
@@ -762,7 +854,7 @@ impl SpiceCoreReader {
     }
 }
 
-pub(crate) fn get_uncertified_chunks(
+fn get_uncertified_chunks(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
@@ -1067,60 +1159,6 @@ fn find_oldest_uncertified_block_header(
 /// Returns block hashes that became fully certified due to the execution results
 /// in `core_statements`. A block is newly certified when all of its previously
 /// uncertified chunks appear in the execution results.
-/// Merklizes per-shard state/outcome roots like the non-spice
-/// `Chunks::compute_state_root` / `compute_outcome_root`. `None` if any shard is
-/// missing from `results`.
-pub(crate) fn certified_roots_from_results(
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_header: &BlockHeader,
-    results: &HashMap<ShardId, Arc<ChunkExecutionResult>>,
-) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
-    let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
-    let mut state_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
-    let mut outcome_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
-    for shard_id in shard_layout.shard_ids() {
-        let Some(result) = results.get(&shard_id) else {
-            return Ok(None);
-        };
-        state_roots.push(*result.chunk_extra.state_root());
-        outcome_roots.push(*result.chunk_extra.outcome_root());
-    }
-    Ok(Some((merklize(&state_roots).0, merklize(&outcome_roots).0)))
-}
-
-/// Walks the canonical ancestry backwards from `from_hash` down to (but
-/// excluding) `stop_header`, collecting `ChunkExecutionResult` core statements
-/// whose certified chunk belongs to a block in `relevant_blocks`, grouped by
-/// block hash and shard. Reads block bodies because `DBCol::execution_results`
-/// is written asynchronously. Pre-existing entries take precedence.
-pub(crate) fn collect_certified_execution_results_from_ancestry(
-    chain_store: &ChainStoreAdapter,
-    from_hash: &CryptoHash,
-    stop_header: &BlockHeader,
-    relevant_blocks: &HashSet<CryptoHash>,
-    results_by_block: &mut HashMap<CryptoHash, HashMap<ShardId, Arc<ChunkExecutionResult>>>,
-) -> Result<(), Error> {
-    let mut current_hash = *from_hash;
-    while current_hash != *stop_header.hash() {
-        let block = chain_store.get_block(&current_hash)?;
-        if block.header().height() <= stop_header.height() {
-            break;
-        }
-        for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
-            if !relevant_blocks.contains(&chunk_id.block_hash) {
-                continue;
-            }
-            results_by_block
-                .entry(chunk_id.block_hash)
-                .or_default()
-                .entry(chunk_id.shard_id)
-                .or_insert_with(|| Arc::new(result.clone()));
-        }
-        current_hash = *block.header().prev_hash();
-    }
-    Ok(())
-}
-
 pub fn find_newly_certified_block_hashes(
     prev_uncertified_chunks: &[SpiceUncertifiedChunkInfo],
     core_statements: &SpiceCoreStatements,
