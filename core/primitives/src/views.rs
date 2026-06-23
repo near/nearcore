@@ -15,7 +15,7 @@ use crate::action::{
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
-use crate::block_header::BlockHeaderInnerLite;
+use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerLiteV2};
 use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
@@ -931,6 +931,10 @@ pub struct BlockHeaderView {
     pub prev_last_certified_block_epoch_id: Option<EpochId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certified_block_merkle_root: Option<CryptoHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_certified_block: Option<CryptoHash>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -981,6 +985,8 @@ impl From<&BlockHeader> for BlockHeaderView {
             spice_chunk_endorsement_stats: header
                 .spice_chunk_endorsement_stats()
                 .map(<[SpiceChunkEndorsementStats]>::to_vec),
+            certified_block_merkle_root: header.certified_block_merkle_root().copied(),
+            last_certified_block: header.last_certified_block().copied(),
         }
     }
 }
@@ -1019,6 +1025,8 @@ impl From<BlockHeaderView> for BlockHeader {
             view.shard_split,
             view.prev_last_certified_block_epoch_id,
             view.spice_chunk_endorsement_stats,
+            view.certified_block_merkle_root,
+            view.last_certified_block,
         )
     }
 }
@@ -1052,21 +1060,31 @@ pub struct BlockHeaderInnerLiteView {
     pub next_bp_hash: CryptoHash,
     /// The merkle root of all the block hashes
     pub block_merkle_root: CryptoHash,
+    /// Spice: merkle root anchoring certified execution roots (`None` on older headers).
+    /// Borsh-skipped to keep the persisted `EpochLightClientBlocks` layout intact.
+    #[borsh(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certified_block_merkle_root: Option<CryptoHash>,
+    /// Spice: most recently certified block (`None` on older headers).
+    #[borsh(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_certified_block: Option<CryptoHash>,
 }
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        let inner_lite = header.inner_lite();
         BlockHeaderInnerLiteView {
-            height: inner_lite.height,
-            epoch_id: inner_lite.epoch_id.0,
-            next_epoch_id: inner_lite.next_epoch_id.0,
-            prev_state_root: inner_lite.prev_state_root,
-            outcome_root: inner_lite.prev_outcome_root,
-            timestamp: inner_lite.timestamp,
-            timestamp_nanosec: inner_lite.timestamp,
-            next_bp_hash: inner_lite.next_bp_hash,
-            block_merkle_root: inner_lite.block_merkle_root,
+            height: header.height(),
+            epoch_id: header.epoch_id().0,
+            next_epoch_id: header.next_epoch_id().0,
+            prev_state_root: *header.prev_state_root(),
+            outcome_root: *header.outcome_root(),
+            timestamp: header.raw_timestamp(),
+            timestamp_nanosec: header.raw_timestamp(),
+            next_bp_hash: *header.next_bp_hash(),
+            block_merkle_root: *header.block_merkle_root(),
+            certified_block_merkle_root: header.certified_block_merkle_root().copied(),
+            last_certified_block: header.last_certified_block().copied(),
         }
     }
 }
@@ -2713,14 +2731,28 @@ impl From<BlockHeader> for LightClientBlockLiteView {
 }
 impl LightClientBlockLiteView {
     pub fn hash(&self) -> CryptoHash {
-        let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
-        combine_hash(
-            &combine_hash(
-                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
-                &self.inner_rest_hash,
-            ),
-            &self.prev_block_hash,
-        )
+        let inner_lite_hash = match self.inner_lite.certified_block_merkle_root {
+            Some(certified_block_merkle_root) => {
+                let inner_lite = BlockHeaderInnerLiteV2 {
+                    height: self.inner_lite.height,
+                    epoch_id: EpochId(self.inner_lite.epoch_id),
+                    next_epoch_id: EpochId(self.inner_lite.next_epoch_id),
+                    prev_state_root: self.inner_lite.prev_state_root,
+                    prev_outcome_root: self.inner_lite.outcome_root,
+                    timestamp: self.inner_lite.timestamp_nanosec,
+                    next_bp_hash: self.inner_lite.next_bp_hash,
+                    block_merkle_root: self.inner_lite.block_merkle_root,
+                    certified_block_merkle_root,
+                    last_certified_block: self.inner_lite.last_certified_block.unwrap_or_default(),
+                };
+                hash(&borsh::to_vec(&inner_lite).unwrap())
+            }
+            None => {
+                let inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+                hash(&borsh::to_vec(&inner_lite).unwrap())
+            }
+        };
+        combine_hash(&combine_hash(&inner_lite_hash, &self.inner_rest_hash), &self.prev_block_hash)
     }
 }
 
