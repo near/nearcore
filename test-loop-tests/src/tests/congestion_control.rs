@@ -3,7 +3,9 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::run_for_number_of_blocks;
-use crate::utils::transactions::{TransactionRunner, check_txs, execute_tx, make_accounts};
+use crate::utils::transactions::{
+    TransactionRunner, execute_tx, make_accounts, run_txs_parallel_on,
+};
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
@@ -27,8 +29,6 @@ const NUM_CLIENTS: usize = NUM_PRODUCERS + NUM_VALIDATORS + NUM_RPC;
 /// with producers, validators, rpc nodes, single shard tracking and state sync.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_congestion_control_simple() {
     init_test_logger();
 
@@ -52,7 +52,8 @@ fn slow_test_congestion_control_simple() {
 
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// N/A under spice: missing chunks are applied as empty new chunks, so
+// missed_chunks_count is always 0 and shards never enter ShardStuck.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_one_shard_congested() {
     init_test_logger();
@@ -159,8 +160,13 @@ fn setup(
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
+    // TODO(SPICE): Spice execution-certification does not yet support shuffling chunk-producer
+    // shard assignment across epoch boundaries: after the first boundary the prev
+    // block's execution results never get certified (MissingExecutionResults for
+    // all shards) and the chunk executor wedges.
+    let shuffle_shard_assignment = !cfg!(feature = "protocol_feature_spice");
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(true)
+        .shuffle_shard_assignment_for_chunk_producers(shuffle_shard_assignment)
         .build_store_for_genesis_protocol_version();
 
     let env = TestLoopBuilder::new()
@@ -181,19 +187,22 @@ fn do_call_contract(
     tracing::info!(target: "test", ?rpc_id, ?contract_id, "calling contract");
     let burn_gas = Gas::from_teragas(250);
     let args = burn_gas.as_gas().to_le_bytes().to_vec();
-    let mut txs = vec![];
     let node = env.node_for_account(rpc_id);
-    for sender_id in accounts {
-        let tx = node.tx_call(
-            sender_id,
-            contract_id,
-            "burn_gas_raw",
-            args.clone(),
-            Balance::ZERO,
-            Gas::from_teragas(300),
-        );
-        txs.push(node.submit_tx(tx));
-    }
-    env.test_loop.run_for(Duration::seconds(20));
-    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &txs);
+    let txs = accounts
+        .iter()
+        .map(|sender_id| {
+            node.tx_call(
+                sender_id,
+                contract_id,
+                "burn_gas_raw",
+                args.clone(),
+                Balance::ZERO,
+                Gas::from_teragas(300),
+            )
+        })
+        .collect_vec();
+    // Poll each tx to completion with generous deadline rather than checking after a fixed duration.
+    // All calls land on the contract's (congested) shard and
+    // drain slowly through congestion backpressure.
+    run_txs_parallel_on(&mut env.test_loop, rpc_id, txs, &env.node_datas, Duration::seconds(60));
 }

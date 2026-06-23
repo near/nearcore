@@ -257,14 +257,35 @@ pub fn run_txs_parallel(
     node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) {
+    run_txs_parallel_on(
+        test_loop,
+        &node_datas[0].account_id,
+        txs,
+        node_datas,
+        maximum_duration,
+    );
+}
+
+/// Like `run_txs_parallel`, but submits and polls transactions against the node
+/// identified by `rpc_id`. Use this when the first node doesn't track all shards
+/// (otherwise transaction results may not be observable there).
+pub fn run_txs_parallel_on(
+    test_loop: &mut TestLoopV2,
+    rpc_id: &AccountId,
+    txs: Vec<SignedTransaction>,
+    node_datas: &[NodeExecutionData],
+    maximum_duration: Duration,
+) {
     let mut tx_runners = txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect_vec();
 
-    let tx_processor_sender = &node_datas[0].rpc_handler_sender;
+    let node_data = get_node_data(node_datas, rpc_id);
+    let tx_processor_sender = &node_data.rpc_handler_sender;
+    let client_handle = node_data.client_sender.actor_handle();
     let future_spawner = test_loop.future_spawner("TransactionRunner");
 
     test_loop.run_until(
         |tl_data| {
-            let client = &tl_data.get(&node_datas[0].client_sender.actor_handle()).client;
+            let client = &tl_data.get(&client_handle).client;
             let mut all_ready = true;
             for runner in &mut tx_runners {
                 match runner.poll_assert_success(tx_processor_sender, client, &future_spawner) {

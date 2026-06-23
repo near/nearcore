@@ -242,8 +242,14 @@ fn build_block_bandwidth_requests(
     let shard_layout = epoch_manager.get_shard_layout(&block_header.epoch_id())?;
     let prev_block_hash = block_header.prev_hash();
     let mut result = BTreeMap::new();
-    // TODO(spice-resharding): double-check if shards for block or prev_block should be
-    // used as keys.
+    // Keys are the block's (current) shards, matching the non-spice
+    // `Block::block_bandwidth_requests`, since the result is consumed when
+    // applying this block's chunks. The prev-block shard mapping is only used to
+    // locate the source execution result, which is keyed by the prev block's
+    // shard layout.
+    // TODO(spice-resharding): across a resharding boundary both children map to
+    // the same parent and inherit the parent's requests verbatim (no per-child
+    // handling). Spice resharding support is incomplete, see dynamic_resharding.md.
     for shard_id in shard_layout.shard_ids() {
         let (_, prev_block_shard_id, _) =
             epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
@@ -268,8 +274,14 @@ fn build_block_congestion_info(
     let shard_layout = epoch_manager.get_shard_layout(&block_header.epoch_id())?;
     let prev_block_hash = block_header.prev_hash();
     let mut result = BTreeMap::new();
-    // TODO(spice-resharding): double-check if shards for block or prev_block should be
-    // used as keys.
+    // Keys are the block's (current) shards, matching the non-spice
+    // `Block::block_congestion_info`, since the result is consumed when applying
+    // this block's chunks. The prev-block shard mapping is only used to locate the
+    // source execution result, which is keyed by the prev block's shard layout.
+    // TODO(spice-resharding): across a resharding boundary both children map to
+    // the same parent and inherit the parent's congestion info verbatim, instead
+    // of splitting it like the non-spice `get_child_congestion_info`. Spice
+    // resharding support is incomplete, see dynamic_resharding.md.
     for shard_id in shard_layout.shard_ids() {
         let (_, prev_block_shard_id, _) =
             epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
@@ -278,6 +290,9 @@ fn build_block_congestion_info(
             .get(&prev_block_shard_id)
             .expect("block execution result should contain execution results for all shards");
         let congestion_info = prev_shard_execution_result.chunk_extra.congestion_info();
+        // Always 0 under spice: missing chunks are applied as empty new chunks, so
+        // shards never get "stuck" (see panic in chunk_executor_actor.rs). No
+        // missed-chunk backpressure by design.
         let missed_chunks_count = 0;
         result.insert(shard_id, ExtendedCongestionInfo::new(congestion_info, missed_chunks_count));
     }
