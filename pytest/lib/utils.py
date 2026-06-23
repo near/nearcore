@@ -13,6 +13,7 @@ import subprocess
 from prometheus_client.parser import text_string_to_metric_families
 from retrying import retry
 from rc import gcloud
+from geventhttpclient import useragent
 
 import cluster
 import transaction
@@ -328,12 +329,15 @@ def poll_blocks(node: cluster.LocalNode,
         timeout: Total timeout from the first status request sent to the node.
         poll_interval: How long to wait in seconds between each status request
             sent to the node.
-        tolerate_connection_errors: If True, a `ConnectionError` raised while
+        tolerate_connection_errors: If True, a connection error raised while
             querying the node (e.g. its RPC is briefly down because it restarted
             its own process during state sync) is swallowed and polling continues
-            until the node responds again or `timeout` is reached.  Defaults to
-            False, which propagates the error immediately.
-        kw: Keyword arguments passed to `BaseDone.get_latest_block` method.
+            until the node responds again or `timeout` is reached.  This covers
+            both the built-in `ConnectionError` and `geventhttpclient`'s own
+            `useragent.ConnectionError` (retries exceeded, bad status, empty
+            response).  Defaults to False, which propagates the error immediately.
+        kw: Keyword arguments passed to `cluster.BaseNode.get_latest_block`
+            method.
     Yields:
         A `cluster.BlockId` object for each time node’s latest block
         changes including the first block when function starts.  Note that there
@@ -350,7 +354,7 @@ def poll_blocks(node: cluster.LocalNode,
     while time.monotonic() < end:
         try:
             latest = node.get_latest_block(**kw)
-        except ConnectionError:
+        except (ConnectionError, useragent.ConnectionError):
             if not tolerate_connection_errors:
                 raise
             time.sleep(poll_interval)
