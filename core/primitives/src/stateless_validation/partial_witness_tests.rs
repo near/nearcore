@@ -1,6 +1,4 @@
-use super::partial_witness::{
-    PartialEncodedStateWitness, PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
-};
+use super::partial_witness::{PartialEncodedStateWitness, VersionedPartialEncodedStateWitness};
 use crate::test_utils::{create_test_signer, test_chunk_header};
 use crate::types::EpochId;
 use crate::validator_signer::ValidatorSigner;
@@ -27,36 +25,28 @@ fn post_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version()
 }
 
-fn make_v1_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
+fn make_witness(
+    signer: &ValidatorSigner,
+    protocol_version: ProtocolVersion,
+) -> VersionedPartialEncodedStateWitness {
     let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-    let chunk_header = test_chunk_header(prev_block_hash, signer, pre_kickout_version());
-    VersionedPartialEncodedStateWitness::V1(PartialEncodedStateWitness::new(
-        test_epoch_id(),
-        chunk_header,
-        0,
-        b"test_witness_data".to_vec(),
-        17,
-        signer,
-    ))
-}
+    let chunk_header = test_chunk_header(prev_block_hash, signer, protocol_version);
 
-fn make_v2_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
-    let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-    let chunk_header = test_chunk_header(prev_block_hash, signer, post_kickout_version());
-    VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
+    VersionedPartialEncodedStateWitness::new(
         test_epoch_id(),
         chunk_header,
         0,
         b"test_witness_data".to_vec(),
         17,
         signer,
-    ))
+        protocol_version,
+    )
 }
 
 #[test]
 fn test_v1_construction_and_accessors() {
     let signer = test_signer();
-    let w = make_v1_witness(&signer);
+    let w = make_witness(&signer, pre_kickout_version());
     assert!(matches!(w, VersionedPartialEncodedStateWitness::V1(_)));
     assert!(w.prev_block_hash().is_none());
     assert_eq!(w.part_ord(), 0);
@@ -68,14 +58,14 @@ fn test_v1_construction_and_accessors() {
 #[test]
 fn test_version_label() {
     let signer = test_signer();
-    assert_eq!(make_v1_witness(&signer).version_label(), "v1");
-    assert_eq!(make_v2_witness(&signer).version_label(), "v2");
+    assert_eq!(make_witness(&signer, pre_kickout_version()).version_label(), "v1");
+    assert_eq!(make_witness(&signer, post_kickout_version()).version_label(), "v2");
 }
 
 #[test]
 fn test_v2_construction_and_accessors() {
     let signer = test_signer();
-    let w = make_v2_witness(&signer);
+    let w = make_witness(&signer, post_kickout_version());
     assert!(matches!(w, VersionedPartialEncodedStateWitness::V2(_)));
     let expected_hash = CryptoHash::hash_bytes(b"prev_block");
     assert_eq!(w.prev_block_hash(), Some(&expected_hash));
@@ -91,7 +81,7 @@ fn test_v2_construction_and_accessors() {
 #[test]
 fn test_borsh_roundtrip_v1() {
     let signer = test_signer();
-    let w = make_v1_witness(&signer);
+    let w = make_witness(&signer, pre_kickout_version());
     let bytes = borsh::to_vec(&w).unwrap();
     let decoded: VersionedPartialEncodedStateWitness = borsh::from_slice(&bytes).unwrap();
     assert_eq!(w, decoded);
@@ -101,7 +91,7 @@ fn test_borsh_roundtrip_v1() {
 #[test]
 fn test_borsh_roundtrip_v2() {
     let signer = test_signer();
-    let w = make_v2_witness(&signer);
+    let w = make_witness(&signer, post_kickout_version());
     let bytes = borsh::to_vec(&w).unwrap();
     let decoded: VersionedPartialEncodedStateWitness = borsh::from_slice(&bytes).unwrap();
     assert_eq!(w, decoded);
@@ -112,8 +102,8 @@ fn test_borsh_roundtrip_v2() {
 #[test]
 fn test_versioned_discriminants_are_stable() {
     let signer = test_signer();
-    let v1 = make_v1_witness(&signer);
-    let v2 = make_v2_witness(&signer);
+    let v1 = make_witness(&signer, pre_kickout_version());
+    let v2 = make_witness(&signer, post_kickout_version());
     let v1_bytes = borsh::to_vec(&v1).unwrap();
     let v2_bytes = borsh::to_vec(&v2).unwrap();
     assert_eq!(v1_bytes[0], 0, "V1 discriminant must be 0");
@@ -127,8 +117,8 @@ fn test_versioned_discriminants_are_stable() {
 #[test]
 fn test_v2_signature_differentiator_prevents_cross_version_replay() {
     let signer = test_signer();
-    let v1 = make_v1_witness(&signer);
-    let v2 = make_v2_witness(&signer);
+    let v1 = make_witness(&signer, pre_kickout_version());
+    let v2 = make_witness(&signer, post_kickout_version());
 
     let v1_sig = match &v1 {
         VersionedPartialEncodedStateWitness::V1(w) => w.signature.clone(),
@@ -157,8 +147,8 @@ fn test_v2_signature_differentiator_prevents_cross_version_replay() {
 #[test]
 fn test_v1_signature_differentiator_prevents_cross_version_replay() {
     let signer = test_signer();
-    let v1 = make_v1_witness(&signer);
-    let v2 = make_v2_witness(&signer);
+    let v1 = make_witness(&signer, pre_kickout_version());
+    let v2 = make_witness(&signer, post_kickout_version());
 
     let v2_sig = match &v2 {
         VersionedPartialEncodedStateWitness::V2(w) => w.signature.clone(),
@@ -185,8 +175,8 @@ fn test_v1_signature_differentiator_prevents_cross_version_replay() {
 #[test]
 fn test_coexistence_v1_and_v2_both_accepted() {
     let signer = test_signer();
-    let v1 = make_v1_witness(&signer);
-    let v2 = make_v2_witness(&signer);
+    let v1 = make_witness(&signer, pre_kickout_version());
+    let v2 = make_witness(&signer, post_kickout_version());
 
     for (witness, label) in [(&v1, "v1"), (&v2, "v2")] {
         let bytes = borsh::to_vec(witness).unwrap();

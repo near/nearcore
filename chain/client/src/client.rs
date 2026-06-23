@@ -1938,9 +1938,10 @@ impl Client {
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
 
-        // Notify chunk validation actor about the new block for orphan witness processing
+        // ChunkValidationActor drains its orphan-witness pool; PartialWitnessActor replays deferred V2 witnesses.
         let block_notification = BlockNotificationMessage { block: block.clone() };
         self.chunk_validation_sender.block_notification.send(block_notification.clone());
+        self.partial_witness_adapter.block_notification.send(block_notification.clone());
 
         // Notify all subscribed watchers about the new block.
         self.block_notification_watch_sender.send_replace(Some(block_notification));
