@@ -272,6 +272,38 @@ fn test_certified_block_proof_unaffected_by_side_fork() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_certified_block_header_info_rejects_wrong_fields() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    // b2 certifies b1, so the certified fields as of b2 are non-default.
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+
+    // A correctly built block on b2 validates.
+    let good = block_builder(&chain, &b2).spice_core_statements(vec![]).build();
+    core_reader.validate_certified_block_header_info(good.header()).unwrap();
+
+    // A wrong certified_block_merkle_root is rejected.
+    let bad_root = block_builder(&chain, &b2)
+        .certified_block_merkle_root(*b2.hash())
+        .spice_core_statements(vec![])
+        .build();
+    let err = core_reader.validate_certified_block_header_info(bad_root.header()).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid certified_block_merkle_root"), "{err:?}");
+
+    // A wrong last_certified_block is rejected (its root is still correct).
+    let bad_last = block_builder(&chain, &b2)
+        .last_certified_block(*b2.hash())
+        .spice_core_statements(vec![])
+        .build();
+    let err = core_reader.validate_certified_block_header_info(bad_last.header()).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid last_certified_block"), "{err:?}");
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_all_execution_results_exist_when_all_exist() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
