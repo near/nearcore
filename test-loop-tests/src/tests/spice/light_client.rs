@@ -40,9 +40,11 @@ fn test_spice_light_client_proof() {
     let tx_block_hash = outcome.transaction_outcome.block_hash;
     let tx_height =
         env.rpc_node().client().chain.get_block_header(&tx_block_hash).unwrap().height();
-    // Run until the head certifies the tx's block, so its leaf is in the certified
-    // accumulator the proof anchors to.
-    env.rpc_runner().run_until_head_certifies(tx_height);
+    // The proof anchors to the final head's prev, so run one block past the consensus
+    // head that certified the tx -- making that head the final head's prev.
+    env.rpc_runner().run_until_certified(tx_height);
+    let certified_head_height = env.rpc_node().head().height;
+    env.rpc_runner().run_until_final_head_height(certified_head_height + 1);
 
     // The trusted head + its certified anchor root, from next_light_client_block (which
     // returns a final block). Pass the head's prev as the client's last tracked head.
