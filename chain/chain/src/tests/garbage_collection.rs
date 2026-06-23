@@ -104,6 +104,15 @@ fn do_fork(
             )
             .unwrap();
         store_update.merge(epoch_manager_update.into());
+        // Mirror production so the EarlyKickout anchored producer-resolution path
+        // reads seeded `DBCol::ChunkProducers` rows.
+        store_update
+            .save_chunk_producers_for_header(
+                epoch_manager.as_ref(),
+                block.header(),
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
 
         let mut trie_changes_shards = Vec::new();
         for shard_id in 0..num_shards {
@@ -766,6 +775,11 @@ fn add_block(
         )
         .unwrap();
     store_update.merge(epoch_manager_update.into());
+    // Mirror production so the EarlyKickout anchored producer-resolution path
+    // reads seeded `DBCol::ChunkProducers` rows.
+    store_update
+        .save_chunk_producers_for_header(epoch_manager, block.header(), PROTOCOL_VERSION)
+        .unwrap();
     store_update.commit().unwrap();
     *prev_block = block.clone();
 }

@@ -550,7 +550,7 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedYieldResumeImprovements
             | ProtocolFeature::_DeprecatedEthImplicitGlobalContract
             | ProtocolFeature::_DeprecatedInstantDeleteAccount => 83,
-            ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::Wasmtime | ProtocolFeature::EarlyKickout => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::FixDelegatedDeterministicStateInit
@@ -576,7 +576,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::EarlyKickout => 152,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -621,7 +620,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 86;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 155;

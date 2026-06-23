@@ -7,6 +7,7 @@ use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Formatter};
 
@@ -133,6 +134,7 @@ impl Debug for PartialEncodedStateWitnessV2 {
             .field("shard_id", &self.inner.shard_id)
             .field("height_created", &self.inner.height_created)
             .field("prev_block_hash", &self.inner.prev_block_hash)
+            .field("prev_prev_block_hash", &self.inner.prev_prev_block_hash)
             .field("part_ord", &self.inner.part_ord)
             .finish()
     }
@@ -142,6 +144,7 @@ impl PartialEncodedStateWitnessV2 {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        prev_prev_block_hash: CryptoHash,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -150,6 +153,7 @@ impl PartialEncodedStateWitnessV2 {
         let inner = PartialEncodedStateWitnessInnerV2::new(
             epoch_id,
             chunk_header,
+            prev_prev_block_hash,
             part_ord,
             part,
             encoded_length,
@@ -168,6 +172,12 @@ impl PartialEncodedStateWitnessV2 {
 
     pub fn prev_block_hash(&self) -> &CryptoHash {
         &self.inner.prev_block_hash
+    }
+
+    /// Grandparent anchor of the chunk; `CryptoHash::default()` when the chunk
+    /// has no real grandparent (height <= genesis_height + 1).
+    pub fn prev_prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_prev_block_hash
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
@@ -198,6 +208,10 @@ pub struct PartialEncodedStateWitnessInnerV2 {
     shard_id: ShardId,
     height_created: BlockHeight,
     prev_block_hash: CryptoHash,
+    /// Grandparent anchor used for producer resolution; signed so a validator
+    /// can resolve and signature-verify the part before processing the parent
+    /// block. `CryptoHash::default()` when the chunk has no real grandparent.
+    prev_prev_block_hash: CryptoHash,
     part_ord: usize,
     part: Box<[u8]>,
     encoded_length: usize,
@@ -208,6 +222,7 @@ impl PartialEncodedStateWitnessInnerV2 {
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        prev_prev_block_hash: CryptoHash,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -217,6 +232,7 @@ impl PartialEncodedStateWitnessInnerV2 {
             shard_id: chunk_header.shard_id(),
             height_created: chunk_header.height_created(),
             prev_block_hash: *chunk_header.prev_block_hash(),
+            prev_prev_block_hash,
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,
@@ -227,23 +243,17 @@ impl PartialEncodedStateWitnessInnerV2 {
 
 /// Wire-format versioned partial encoded state witness.
 ///
-/// V1 is the legacy format; V2 adds `prev_block_hash` to enable
-/// hash-based chunk-producer lookup against `DBCol::ChunkProducers`.
+/// V1 is the legacy format; V2 adds `prev_block_hash` and the grandparent
+/// anchor `prev_prev_block_hash`, enabling hash-based chunk-producer lookup
+/// against `DBCol::ChunkProducers` before the parent block is processed.
 ///
-/// Current scope (this PR): wire types and network plumbing only. V2 is
-/// inert — handlers drop V2 unconditionally and
-/// [`VersionedPartialEncodedStateWitness::new`] always returns V1
-/// regardless of `protocol_version`. The `protocol_version` parameter is
-/// plumbed through so the version-gated rollout below lands as a pure
-/// implementation change in the consumer follow-up.
-///
-/// Eventual rollout policy (consumer follow-up PR):
+/// Rollout policy:
 /// - Before EarlyKickout activation: only V1 is emitted and accepted.
 ///   V2 arriving over the wire is dropped.
 /// - At/after EarlyKickout activation: only V2 is emitted and accepted.
 ///   V1 arriving over the wire is dropped.
-/// - [`VersionedPartialEncodedStateWitness::new`] will select the variant
-///   based on the `protocol_version` argument.
+/// - [`VersionedPartialEncodedStateWitness::new`] selects variant based on
+///   `protocol_version` argument.
 ///
 /// Cross-version replay resistance: V1 and V2 use distinct
 /// `signature_differentiator` strings, so a signature produced over V1's
@@ -269,21 +279,33 @@ impl VersionedPartialEncodedStateWitness {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        prev_prev_block_hash: CryptoHash,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        let _ = protocol_version;
-        Self::V1(PartialEncodedStateWitness::new(
-            epoch_id,
-            chunk_header,
-            part_ord,
-            part,
-            encoded_length,
-            signer,
-        ))
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            Self::V2(PartialEncodedStateWitnessV2::new(
+                epoch_id,
+                chunk_header,
+                prev_prev_block_hash,
+                part_ord,
+                part,
+                encoded_length,
+                signer,
+            ))
+        } else {
+            Self::V1(PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header,
+                part_ord,
+                part,
+                encoded_length,
+                signer,
+            ))
+        }
     }
 
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
@@ -297,6 +319,15 @@ impl VersionedPartialEncodedStateWitness {
         match self {
             Self::V1(_) => None,
             Self::V2(v2) => Some(v2.prev_block_hash()),
+        }
+    }
+
+    /// Grandparent anchor of the chunk (V2 only); see
+    /// [`PartialEncodedStateWitnessV2::prev_prev_block_hash`].
+    pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(v2.prev_prev_block_hash()),
         }
     }
 

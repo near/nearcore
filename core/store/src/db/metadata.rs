@@ -1,11 +1,13 @@
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-
 /// Database version type.
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion =
-    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) { 49 } else { 48 };
+///
+/// forknet/early-kickout demo: pinned to 49. The binary is capped at PV 84
+/// (see STABLE_PROTOCOL_VERSION), which disables ContinuousEpochSync (PV 85)
+/// and would otherwise drop DB_VERSION to 48 — but the forked mainnet snapshot
+/// is already at v49, and the 48->49 migration self-skips on forknet DBs.
+pub const DB_VERSION: DbVersion = 49;
 
 /// Minimum supported database version. This is a property of the current binary.
 pub const MIN_SUPPORTED_DB_VERSION: DbVersion = 45;

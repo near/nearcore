@@ -1,3 +1,4 @@
+mod early_kickout;
 mod pick_shard_to_split;
 mod random_epochs;
 
@@ -519,18 +520,21 @@ fn test_validator_reward_one_validator() {
             rng_seed,
         )
         .unwrap();
+    epoch_manager.seed_chunk_producers_for_test(&h[0]);
     epoch_manager
         .record_block_info(
             block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
+    epoch_manager.seed_chunk_producers_for_test(&h[1]);
     epoch_manager
         .record_block_info(
             block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
+    epoch_manager.seed_chunk_producers_for_test(&h[2]);
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
@@ -931,6 +935,7 @@ fn test_expected_chunks() {
             )
             .unwrap()
             .commit();
+        epoch_manager.read().seed_chunk_producers_for_test(curr_block);
         prev_block = *curr_block;
 
         if epoch_id != initial_epoch_id {
@@ -1015,6 +1020,7 @@ fn test_expected_chunks_prev_block_not_produced() {
                 )
                 .unwrap()
                 .commit();
+            epoch_manager.read().seed_chunk_producers_for_test(curr_block);
             prev_block = *curr_block;
         }
         if epoch_id != initial_epoch_id {
@@ -1227,6 +1233,59 @@ fn test_epoch_info_aggregator() {
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
     assert_eq!(aggregator.block_tracker, tracker);
     assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
+}
+
+/// Guards the forward-walk `version_tracker` / `all_proposals` overwrite-latest fix.
+/// These two trackers are last-value (not additive): the aggregator walks blocks in
+/// increasing height, so the highest-height write must win. A naive forward `or_insert`
+/// would keep the *oldest* value and silently change the result; this pins the latest.
+/// Runs on the stable/default protocol version so it guards the production path.
+#[test]
+fn test_epoch_info_aggregator_overwrites_latest_version_and_proposal() {
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    // Single validator -> block producer is id 0 at every height, so both trackers are
+    // written on every block and the latest must win.
+    let validators = vec![("test0".parse().unwrap(), stake_amount)];
+    let mut em = setup_default_epoch_manager(validators, 100, 1, 1, 90, 60);
+
+    let low_version = PROTOCOL_VERSION - 1;
+    let high_version = PROTOCOL_VERSION;
+    let small_stake = Balance::from_yoctonear(1_000);
+    let large_stake = Balance::from_yoctonear(2_000);
+    let account: AccountId = "test0".parse().unwrap();
+
+    let h = hash_range(5);
+    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+    // Block 1: low version + small proposal.
+    record_block_with_version(
+        &mut em,
+        h[0],
+        h[1],
+        1,
+        vec![stake("test0".parse().unwrap(), small_stake)],
+        low_version,
+    );
+    // Block 3 (height 2 skipped): high version + large proposal. The later block must win.
+    record_block_with_version(
+        &mut em,
+        h[1],
+        h[3],
+        3,
+        vec![stake("test0".parse().unwrap(), large_stake)],
+        high_version,
+    );
+
+    let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
+    assert_eq!(
+        aggregator.version_tracker.get(&0),
+        Some(&high_version),
+        "version_tracker must hold the latest (highest-height) reported version"
+    );
+    assert_eq!(
+        aggregator.all_proposals.get(&account).map(|p| p.stake()),
+        Some(large_stake),
+        "all_proposals must hold the latest (highest-height) proposal"
+    );
 }
 
 /// If the node stops and restarts, the aggregator should be able to recover
@@ -1561,6 +1620,8 @@ fn test_chunk_producer_kickout() {
                 rng_seed,
             )
             .unwrap();
+        // Uncommitted record, but inline aggregation still reads the anchor row.
+        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -1636,6 +1697,8 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 rng_seed,
             )
             .unwrap();
+        // Uncommitted record, but inline aggregation still reads the anchor row.
+        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -1747,6 +1810,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 rng_seed,
             )
             .unwrap();
+        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -2347,6 +2411,7 @@ fn test_final_block_consistency() {
         )
         .unwrap()
         .commit();
+    epoch_manager.seed_chunk_producers_for_test(&h[5]);
     let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
 }
@@ -3447,6 +3512,7 @@ fn test_possible_epochs_of_height_around_tip() {
             num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.read().seed_chunk_producers_for_test(&h[i]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3511,6 +3577,7 @@ fn test_possible_epochs_of_height_around_tip() {
             num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.read().seed_chunk_producers_for_test(&h[i]);
         let tip = Tip {
             height,
             last_block_hash: h[i],

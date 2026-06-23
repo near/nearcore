@@ -137,18 +137,12 @@ impl Chain {
                 .add_validator_proposals(block_info, *genesis.header().random_value())?
                 .into(),
         );
-        // Save chunk producers for height 1 (next height after genesis).
+        // Save chunk producers anchored at genesis (chunks at genesis + 2). Chunks at
+        // genesis + 1 and below have no grandparent and resolve via the canonical sampler.
         store_update.save_chunk_producers_for_header(
             epoch_manager,
             genesis.header(),
             genesis_protocol_version,
-        )?;
-        // Save chunk producers for the genesis chunks themselves (height 0).
-        // Genesis chunks have prev_block_hash = CryptoHash::default().
-        store_update.save_genesis_chunk_producers(
-            epoch_manager,
-            genesis_protocol_version,
-            genesis.header().height(),
         )?;
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());

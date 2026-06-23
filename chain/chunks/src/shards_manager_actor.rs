@@ -68,7 +68,7 @@
 //! Before `process_partial_encoded_chunk` returns HaveAllPartsAndReceipts, it will perform
 //! the validation steps and return error if validation fails.
 //! 1) validate the chunk header is signed by the correct chunk producer and the chunk producer
-//!    is not slashed (see `validate_chunk_header`)
+//!    is not slashed (see `validate_chunk_header_preliminary` and `validate_chunk_header_full`)
 //! 2) validate the merkle proofs of the parts and receipts with regarding to the parts root and
 //!    receipts root in the chunk header (see the beginning of `process_partial_encoded_chunk`)
 //! 3) after the full chunk is reconstructed, validate chunk's proofs in the header matches the body
@@ -487,20 +487,19 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id =
-            match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
-                Ok(info) => Some(info.take_account_id()),
-                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
-                    // prev_block not processed (orphan) or invalid shard selection.
-                    // Downstream target selection falls through to a random shard
-                    // tracker anyway — for orphans, old_block = true forces
-                    // request_own_parts_from_others = true, which bypasses
-                    // chunk_producer_account_id at the shard_representative_target
-                    // match below.
-                    None
-                }
-                Err(err) => return Err(err.into()),
-            };
+        let chunk_producer_account_id = match self
+            .epoch_manager
+            .get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id)
+        {
+            Ok(info) => Some(info.take_account_id()),
+            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
+                // Orphan (prev_block unprocessed) or invalid shard selection. Target
+                // selection falls through to a random shard tracker; for orphans
+                // old_block = true forces request_own_parts_from_others, bypassing this.
+                None
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -1855,7 +1854,7 @@ impl ShardsManagerActor {
 
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info_db(&prev_block_hash, header.shard_id())?
+            .get_chunk_producer_info_from_prev_block(&prev_block_hash, header.shard_id())?
             .take_account_id();
 
         if have_all_parts {
@@ -3433,16 +3432,10 @@ mod test {
 
     #[test]
     fn test_orphan_chunk_request_graceful_degradation() {
-        // When requesting chunks for orphans, prev_block_hash (from the chunk header) is unknown
-        // to the epoch manager because the parent block hasn't been processed yet. Verify the
-        // orphan path executes without panics and still emits network requests:
-        // - request_partial_encoded_chunk: get_chunk_producer_info_db returns MissingBlock, so
-        //   chunk_producer_account_id is None. Target selection bypasses it anyway because
-        //   old_block = true forces request_own_parts_from_others = true, picking a random
-        //   shard tracker.
-        // - should_wait_for_chunk_forwarding: uses CPK-based lookup at height_created + 1 and
-        //   returns Ok(false) because `me` isn't the next chunk producer.
-        // - resend_chunk_requests: re-exercises the same path with the stored prev_block_hash.
+        // Orphan request path: prev_block_hash is unknown to the epoch manager (parent
+        // unprocessed). Verify it executes without panic and still emits network requests
+        // across request_partial_encoded_chunk, should_wait_for_chunk_forwarding and
+        // resend_chunk_requests.
         let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
@@ -3670,33 +3663,12 @@ mod test {
         );
     }
 
-    /// Test that when EarlyKickout is enabled and the ChunkProducers DB entry
-    /// is missing, a chunk forward is cached (not rejected) via the
-    /// DBNotFoundErr path. This exercises the ChunkProducerNotInDB → DBNotFoundErr
-    /// error mapping that replaced the broad ValidatorError catch.
+    /// An orphan chunk forward (unprocessed prev block) is cached, not rejected,
+    /// via the MissingBlock -> DBNotFoundErr mapping.
     #[cfg(feature = "nightly")]
     #[test]
-    fn test_forward_cached_on_chunk_producer_db_miss() {
-        // Default fixture: non-orphan, prev_block_hash = CryptoHash::default() (genesis).
-        // The fixture populates ChunkProducers DB, so we delete the entries to
-        // exercise the ChunkProducerNotInDB → DBNotFoundErr → cache path.
-        let fixture = ChunkTestFixture::default();
-
-        // Delete ChunkProducers entries so the DB miss path is exercised.
-        {
-            let epoch_id =
-                fixture.epoch_manager.get_epoch_id_from_prev_block(&CryptoHash::default()).unwrap();
-            let shard_layout = fixture.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-            let mut store_update = fixture.chain_store.store().store_update();
-            for shard_id in shard_layout.shard_ids() {
-                use near_primitives::utils::get_block_shard_id;
-                store_update.delete(
-                    DBCol::ChunkProducers,
-                    &get_block_shard_id(&CryptoHash::default(), shard_id),
-                );
-            }
-            store_update.commit();
-        }
+    fn test_forward_cached_on_unprocessed_prev_block() {
+        let fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
         let mut shards_manager = make_shards_manager(&fixture);
 
         let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
@@ -3738,40 +3710,31 @@ mod test {
     #[cfg(feature = "nightly")]
     #[test]
     fn test_bad_signature_chunk_evicted_on_full_validation() {
+        use near_primitives::sharding::PartialEncodedChunkV2;
         use near_primitives::test_utils::create_test_signer;
-        use near_primitives::types::validator_stake::ValidatorStake;
-        use near_primitives::utils::get_block_shard_id;
-        use near_store::DBCol;
 
         let fixture = ChunkTestFixture::default();
 
-        // Overwrite the ChunkProducers DB entry for the mock chunk's shard
-        // with a bogus validator whose public key differs from the actual signer.
-        // This makes the hash-based signature check fail during full validation.
-        let shard_id = fixture.mock_chunk_header.shard_id();
-        let prev_block_hash = *fixture.mock_chunk_header.prev_block_hash();
+        // Re-sign the chunk header with a key that does not belong to the
+        // resolved chunk producer, so the hash-based signature check fails
+        // during full validation.
+        let mut bad_header = fixture.mock_chunk_header.clone();
         {
-            let key = get_block_shard_id(&prev_block_hash, shard_id);
+            let ShardChunkHeader::V3(ref mut v3) = bad_header else {
+                panic!("fixture must produce a V3 chunk header");
+            };
             let bogus_signer = create_test_signer("bogus_producer");
-            let bogus_stake = ValidatorStake::new(
-                "bogus_producer".parse().unwrap(),
-                bogus_signer.public_key(),
-                near_primitives::types::Balance::ZERO,
-            );
-            // Delete the existing write-once entry, then insert the bogus one.
-            let mut store_update = fixture.chain_store.store().store_update();
-            store_update.delete(DBCol::ChunkProducers, &key);
-            store_update.commit();
-            let mut store_update = fixture.chain_store.store().store_update();
-            store_update.insert_ser(DBCol::ChunkProducers, &key, &bogus_stake);
-            store_update.commit();
+            v3.signature = bogus_signer.sign_bytes(v3.hash.as_ref());
         }
 
         let mut shards_manager = make_shards_manager(&fixture);
 
-        let chunk_hash = fixture.mock_chunk_header.chunk_hash();
-        let all_part_ords: Vec<u64> = (0..fixture.mock_chunk_parts.len() as u64).collect();
-        let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&all_part_ords);
+        let chunk_hash = bad_header.chunk_hash().clone();
+        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: bad_header,
+            parts: fixture.mock_chunk_parts.clone(),
+            prev_outgoing_receipts: Vec::new(),
+        });
 
         // process_partial_encoded_chunk: preliminary validation passes (no sig
         // check), parts are merged into encoded_chunks, then

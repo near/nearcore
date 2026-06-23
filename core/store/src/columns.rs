@@ -399,15 +399,15 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
-    /// Pre-computed chunk producer for the chunk at height `prev_block.height+1` on the given shard.
-    /// Populated during header sync and block processing, gated behind `EarlyKickout` protocol feature.
-    /// Authoritative source for historical chunk producer lookups.
-    /// - *Rows*: BlockHash || ShardId (prev_block_hash, shard_id) — 40 bytes
+    /// Pre-computed chunk producer for the chunk anchored at the given block (its
+    /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
+    /// Populated during header sync and block processing, gated behind `EarlyKickout`
+    /// protocol feature. Authoritative source for historical chunk producer lookups.
+    /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
     // TODO(early-kickout): bump DB_VERSION before moving to stable so that
     // older databases get a proper migration and read-only opens don't fail on the
     // missing column family.
-    #[cfg(feature = "nightly")]
     ChunkProducers,
 }
 
@@ -495,7 +495,6 @@ impl DBCol {
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults
             | DBCol::SpiceEndorsementStats => true,
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => true,
             _ => false,
         }
@@ -667,7 +666,6 @@ impl DBCol {
             | DBCol::StateSyncNewChunks
             // TODO(early-kickout): Make ChunkProducers a cold column when GC is implemented.
             => false,
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => false,
         }
     }
@@ -764,7 +762,6 @@ impl DBCol {
             // TODO(early-kickout): before moving to stable, add a GC strategy
             // (e.g. retain only canonical-chain entries or entries within a sliding window)
             // to prevent unbounded disk growth on long-running nodes.
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => GcPolicy::Other,
         }
     }
@@ -866,7 +863,6 @@ impl DBCol {
             DBCol::SpiceEndorsementStats => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }
