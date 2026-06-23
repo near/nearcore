@@ -208,9 +208,11 @@ pub enum DBCol {
     /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of leaves in the whole tree.
     BlockMerkleTree,
     /// Spice: like BlockMerkleTree but over reconstructed certified light-client block
-    /// hashes; anchors light-client proofs of certified execution results.
+    /// hashes; anchors light-client proofs of certified execution results. Also carries
+    /// the leaves this block newly certified, replayed into the per-ordinal index on
+    /// canonicalization.
     /// - *Rows*: BlockHash
-    /// - *Column type*: PartialMerkleTree
+    /// - *Column type*: CertifiedBlockAccumulatorState
     #[cfg(feature = "protocol_feature_spice")]
     CertifiedBlockMerkleTree,
     /// Spice: per certified-leaf ordinal, the accumulator frontier before that

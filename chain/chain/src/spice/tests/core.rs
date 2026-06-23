@@ -21,7 +21,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{compute_root_from_path, merklize};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
@@ -232,6 +232,42 @@ fn test_last_certified_state_root_when_execution_results_column_is_partially_wri
 
     let root = core_reader.last_certified_state_root(b2.hash()).unwrap();
     assert_eq!(root, Some(expected));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_certified_block_proof_unaffected_by_side_fork() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    // Canonical: b2 certifies b1 (ordinal 0), b3 certifies b2 (ordinal 1); b4 commits
+    // certified_block_merkle_root = root([leaf(b1), leaf(b2)]).
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+    let b3 = build_block(&chain, &b2, block_certification_core_statements(&b2));
+    process_block(&mut chain, b3.clone());
+    let b4 = build_block(&chain, &b3, vec![]);
+    process_block(&mut chain, b4.clone());
+
+    let certified_root = *b4.header().certified_block_merkle_root().unwrap();
+    let (lite, proof) = chain.spice_block_header_lite_and_proof(b1.hash(), b4.hash()).unwrap();
+    assert_eq!(compute_root_from_path(&proof, lite.hash()), certified_root);
+
+    // A side fork re-certifies b2 with different roots: a sibling of b3 (same prev b2)
+    // whose leaf at ordinal 1 differs, processed after the canonical head.
+    let fork_state_root = *b1.hash();
+    let y = build_block(
+        &chain,
+        &b2,
+        block_certification_core_statements_with_state_root(&b2, fork_state_root),
+    );
+    process_block(&mut chain, y.clone());
+
+    // The side fork must not corrupt the canonical accumulator; the proof still verifies.
+    let (lite, proof) = chain.spice_block_header_lite_and_proof(b1.hash(), b4.hash()).unwrap();
+    assert_eq!(compute_root_from_path(&proof, lite.hash()), certified_root);
 }
 
 #[test]
@@ -1554,6 +1590,32 @@ fn block_certification_core_statements_with_wrong_endorser(
             chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() },
             execution_result: test_execution_result_for_chunk(chunk),
         });
+    }
+    core_statements
+}
+
+/// Like `block_certification_core_statements`, but certifies with a chosen state root so
+/// the produced leaf differs (used to forge a divergent side-fork certification).
+fn block_certification_core_statements_with_state_root(
+    block: &Block,
+    state_root: CryptoHash,
+) -> Vec<SpiceCoreStatement> {
+    let validators = test_validators();
+    let mut core_statements = Vec::new();
+    for chunk in block.chunks().iter_raw() {
+        let execution_result = ChunkExecutionResult {
+            chunk_extra: ChunkExtra::new_with_only_state_root(&state_root),
+            outgoing_receipts_root: CryptoHash::default(),
+        };
+        let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() };
+        for validator in &validators {
+            let signer = create_test_signer(validator);
+            let endorsement =
+                SpiceChunkEndorsement::new(chunk_id.clone(), execution_result.clone(), &signer);
+            core_statements.push(endorsement_into_core_statement(endorsement));
+        }
+        core_statements
+            .push(SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result });
     }
     core_statements
 }

@@ -14,7 +14,9 @@ use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithProof, SignedTransaction,
 };
-use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::types::{
+    BlockHeight, CertifiedBlockAccumulatorState, EpochId, NumBlocks, ShardId,
+};
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
     get_receipt_proof_target_shard_prefix, index_to_bytes,
@@ -306,14 +308,21 @@ impl ChainStoreAdapter {
         )
     }
 
-    pub fn get_certified_block_merkle_tree(
+    pub fn get_certified_block_merkle_state(
         &self,
         block_hash: &CryptoHash,
-    ) -> Result<PartialMerkleTree, Error> {
+    ) -> Result<CertifiedBlockAccumulatorState, Error> {
         option_to_not_found(
             self.store.get_ser(DBCol::certified_block_merkle_tree(), block_hash.as_ref()),
             format_args!("CERTIFIED BLOCK MERKLE TREE: {}", block_hash),
         )
+    }
+
+    pub fn get_certified_block_merkle_tree(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<PartialMerkleTree, Error> {
+        Ok(self.get_certified_block_merkle_state(block_hash)?.tree)
     }
 
     /// (frontier before leaf `ordinal`, leaf hash at `ordinal`) in the certified accumulator.

@@ -2,6 +2,7 @@ use self::chunk_extra::ChunkExtra;
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
+use crate::merkle::PartialMerkleTree;
 use crate::shard_layout::ShardLayout;
 use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
@@ -1381,6 +1382,23 @@ pub struct SpiceUncertifiedChunkInfo {
     pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
     pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+}
+
+/// Value of `DBCol::CertifiedBlockMerkleTree`: the certified accumulator as of a block
+/// (children build on `tree`) plus the leaves it newly certified. The leaves are indexed
+/// per-ordinal only when the block is canonical, so the ordinal index ignores forks.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, ProtocolSchema)]
+pub struct CertifiedBlockAccumulatorState {
+    pub tree: PartialMerkleTree,
+    pub newly_certified_leaves: Vec<CertifiedBlockLeaf>,
+}
+
+/// One certified-block leaf: the block it certifies and its reconstructed lite-view hash.
+/// The ordinal and frontier are derived on replay, so they are not stored.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, ProtocolSchema)]
+pub struct CertifiedBlockLeaf {
+    pub certified_block_hash: CryptoHash,
+    pub leaf_hash: CryptoHash,
 }
 
 /// Keeps the current status of a single yield/resume operation. Before yielding and after executing

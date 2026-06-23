@@ -31,8 +31,8 @@ use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
-    StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    BlockHeight, BlockHeightDelta, CertifiedBlockAccumulatorState, EpochId, NumBlocks, ShardId,
+    StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -1050,7 +1050,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
-    certified_block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
+    certified_block_merkle_tree: HashMap<CryptoHash, Arc<CertifiedBlockAccumulatorState>>,
     certified_accumulator_by_ordinal: HashMap<u64, (PartialMerkleTree, CryptoHash)>,
     certified_block_leaf_ordinal: HashMap<CryptoHash, u64>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
@@ -1481,6 +1481,11 @@ impl<'a> ChainStoreUpdate<'a> {
             // At this point block_merkle_tree for header is already saved.
             let block_ordinal = self.get_block_merkle_tree(&header_hash)?.size();
             self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
+            // Re-point the certified accumulator's ordinal index for canonical spice blocks.
+            // The per-block state is fork-local; the ordinal index follows the canonical chain.
+            if header.is_spice() {
+                self.index_canonical_certified_leaves(&header_hash, &header_prev_hash)?;
+            }
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.
@@ -1606,11 +1611,56 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_certified_block_merkle_tree(
         &mut self,
         block_hash: CryptoHash,
-        certified_block_merkle_tree: PartialMerkleTree,
+        state: CertifiedBlockAccumulatorState,
     ) {
         self.chain_store_cache_update
             .certified_block_merkle_tree
-            .insert(block_hash, Arc::new(certified_block_merkle_tree));
+            .insert(block_hash, Arc::new(state));
+    }
+
+    fn get_certified_block_merkle_state(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<CertifiedBlockAccumulatorState, Error> {
+        if let Some(state) =
+            self.chain_store_cache_update.certified_block_merkle_tree.get(block_hash)
+        {
+            Ok(state.as_ref().clone())
+        } else {
+            self.chain_store.get_certified_block_merkle_state(block_hash)
+        }
+    }
+
+    /// Points the per-ordinal certified index at `block_hash`'s leaves. Each frontier is
+    /// rebuilt onto the prev block's tree, so only leaf hashes are stored per block. Missing
+    /// state means nothing to index yet (genesis, or a header synced ahead of its body).
+    pub(crate) fn index_canonical_certified_leaves(
+        &mut self,
+        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let leaves = match self.get_certified_block_merkle_state(block_hash) {
+            Ok(state) => state.newly_certified_leaves,
+            Err(Error::DBNotFoundErr(_)) => return Ok(()),
+            Err(err) => return Err(err),
+        };
+        if leaves.is_empty() {
+            return Ok(());
+        }
+        let prev_header = self.get_block_header(prev_hash)?;
+        // Genesis and the pre-spice activation-boundary block anchor an empty accumulator.
+        let mut frontier = if prev_header.is_genesis() || !prev_header.is_spice() {
+            PartialMerkleTree::default()
+        } else {
+            self.get_certified_block_merkle_state(prev_hash)?.tree
+        };
+        for leaf in leaves {
+            let ordinal = frontier.size();
+            self.save_certified_accumulator_entry(ordinal, frontier.clone(), leaf.leaf_hash);
+            self.save_certified_block_leaf_ordinal(leaf.certified_block_hash, ordinal);
+            frontier.insert(leaf.leaf_hash);
+        }
+        Ok(())
     }
 
     pub fn save_certified_accumulator_entry(

@@ -2,7 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
-use crate::spice::certified_accumulator::update_and_save_certified_block_merkle_tree;
+use crate::spice::certified_accumulator::save_certified_block_merkle_tree_for_block;
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
     SpiceCoreReader, record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
@@ -316,11 +316,21 @@ impl<'a> ChainUpdate<'a> {
                 self.epoch_manager.as_ref(),
                 &block,
             )?;
-            update_and_save_certified_block_merkle_tree(
+            // Fork-local per-block state. Its leaves are indexed into the canonical ordinal index
+            // only when the block is canonical: here at body processing (the header head can be
+            // ahead from header sync), and via `update_height` for reorg in-between blocks.
+            save_certified_block_merkle_tree_for_block(
                 &mut self.chain_store_update,
                 spice_core_reader,
                 &block,
             )?;
+            let is_canonical =
+                self.chain_store_update.get_block_hash_by_height(block.header().height())?
+                    == *block.hash();
+            if is_canonical {
+                self.chain_store_update
+                    .index_canonical_certified_leaves(block.hash(), block.header().prev_hash())?;
+            }
         }
 
         // Update the chain head if it's the new tip
