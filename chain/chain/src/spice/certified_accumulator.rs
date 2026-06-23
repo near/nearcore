@@ -41,7 +41,9 @@ fn build_certified_block_merkle_tree(
         return Ok((PartialMerkleTree::default(), vec![]));
     }
     let prev_hash = block.header().prev_hash();
-    let prev_tree = if chain_store.get_block_header(prev_hash)?.is_genesis() {
+    let prev_header = chain_store.get_block_header(prev_hash)?;
+    // Genesis and the pre-spice block at the activation boundary anchor an empty accumulator.
+    let prev_tree = if prev_header.is_genesis() || !prev_header.is_spice() {
         PartialMerkleTree::default()
     } else {
         chain_store.get_certified_block_merkle_tree(prev_hash)?

@@ -348,12 +348,14 @@ impl SpiceCoreReader {
             .map(|(state_root, _)| state_root))
     }
 
-    /// The certified-block tree as of `prev_hash` (empty for genesis).
+    /// The certified-block tree as of `prev_hash` (empty for genesis or a pre-spice block
+    /// at the spice activation boundary).
     fn prev_certified_block_merkle_tree(
         &self,
         prev_hash: &CryptoHash,
     ) -> Result<PartialMerkleTree, Error> {
-        if self.chain_store.get_block_header(prev_hash)?.is_genesis() {
+        let prev_header = self.chain_store.get_block_header(prev_hash)?;
+        if prev_header.is_genesis() || !prev_header.is_spice() {
             return Ok(PartialMerkleTree::default());
         }
         self.chain_store.get_certified_block_merkle_tree(prev_hash)
