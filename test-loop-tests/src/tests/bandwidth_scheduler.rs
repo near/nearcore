@@ -21,7 +21,9 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
-use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_chain::ChainStoreAccess;
+#[cfg(not(feature = "protocol_feature_spice"))]
+use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{Client, RpcHandlerActor};
 use near_crypto::Signer;
@@ -60,8 +62,6 @@ use testlib::bandwidth_scheduler::{
 
 /// 3 shards, random receipt sizes
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(3)
@@ -214,9 +214,37 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
 
     tracing::info!(target: "scheduler_test", txs_done = %workload_generator.txs_done(), "total transactions completed");
 
+    // Under spice, chunk execution lags block production. Wait for execution to
+    // reach the workload range, then analyze the executed chain (executed
+    // ChunkExtras / recorded receipt proofs) rather than the consensus tip.
+    #[cfg(feature = "protocol_feature_spice")]
+    {
+        let target = last_height.unwrap();
+        env.test_loop.run_until(
+            |data| {
+                data.get(&client_handle)
+                    .client
+                    .chain
+                    .chain_store()
+                    .spice_execution_head()
+                    .map(|tip| tip.height >= target)
+                    .unwrap_or(false)
+            },
+            Duration::seconds(60),
+        );
+    }
+
     let client = &env.test_loop.data.get(&client_handle).client;
-    let bandwidth_stats =
-        analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
+    #[cfg(not(feature = "protocol_feature_spice"))]
+    let tip_block_hash = client.chain.head().unwrap().last_block_hash;
+    #[cfg(feature = "protocol_feature_spice")]
+    let tip_block_hash = client.chain.chain_store().spice_execution_head().unwrap().last_block_hash;
+    let bandwidth_stats = analyze_workload_blocks(
+        first_height.unwrap(),
+        last_height.unwrap(),
+        tip_block_hash,
+        client,
+    );
 
     let summary = bandwidth_stats.summarize(&active_links);
     println!("{}", summary);
@@ -228,6 +256,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
 fn analyze_workload_blocks(
     first_height: BlockHeight,
     last_height: BlockHeight,
+    tip_block_hash: CryptoHash,
     client: &Client,
 ) -> TestBandwidthStats {
     assert!(first_height <= last_height);
@@ -235,15 +264,15 @@ fn analyze_workload_blocks(
     let chain = &client.chain;
     let epoch_manager = &*client.epoch_manager;
 
-    let tip = chain.head().unwrap();
-    if tip.height < first_height {
+    let mut block = chain.get_block(&tip_block_hash).unwrap();
+    if block.header().height() < last_height {
         panic!(
-            "Can't gather stats between {}..={} - tip height is {}",
-            first_height, last_height, tip.height
+            "Can't gather stats between {}..={} - analyzed tip height is {}",
+            first_height,
+            last_height,
+            block.header().height()
         );
     }
-
-    let mut block = chain.get_block(&tip.last_block_hash).unwrap();
     let mut prev_block = chain.get_block(&block.header().prev_hash()).unwrap();
 
     let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
@@ -260,6 +289,13 @@ fn analyze_workload_blocks(
         if block.header().height() < first_height {
             break;
         }
+        // The analyzed tip may sit above last_height under spice (execution head
+        // can be ahead of the workload range); skip those blocks.
+        if block.header().height() > last_height {
+            block = prev_block;
+            prev_block = chain.get_block(block.header().prev_hash()).unwrap();
+            continue;
+        }
         let cur_shard_layout = client
             .epoch_manager
             .get_shard_layout(&epoch_manager.get_epoch_id(&block.hash()).unwrap())
@@ -270,21 +306,99 @@ fn analyze_workload_blocks(
             let shard_id = new_chunk.shard_id();
             let shard_index = cur_shard_layout.get_shard_index(shard_id).unwrap();
             let shard_uid = ShardUId::new(cur_shard_layout.version(), shard_id);
-            let prev_shard_index = epoch_manager
-                .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
+            // Bandwidth scheduler inputs for applying chunk (block, shard). A
+            // chunk header carries forward the *previous* chunk's apply summary, so
+            // in the non-spice path `prev_state_root` / `congestion_info` /
+            // `bandwidth_requests` all come from the chunk header. Under spice, that summary
+            // lives in the previous block's executed `ChunkExtra` plus the recorded receipt proofs.
+            #[cfg(not(feature = "protocol_feature_spice"))]
+            let (
+                prev_state_root,
+                congestion_info,
+                bandwidth_requests_opt,
+                incoming_receipts,
+                outgoing_receipts,
+            ) = {
+                let prev_shard_index = epoch_manager
+                    .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
+                    .unwrap()
+                    .2;
+                let prev_height_included =
+                    prev_block.chunks().get(prev_shard_index).unwrap().height_included();
+                let incoming_receipts: Vec<Receipt> = get_incoming_receipts_for_shard(
+                    &chain.chain_store,
+                    epoch_manager,
+                    shard_id,
+                    &cur_shard_layout,
+                    *block.hash(),
+                    prev_height_included,
+                    ReceiptFilter::TargetShard,
+                )
                 .unwrap()
-                .2;
-            let prev_height_included =
-                prev_block.chunks().get(prev_shard_index).unwrap().height_included();
+                .iter()
+                .flat_map(|response| response.1.iter().flat_map(|proof| proof.0.clone()))
+                .collect();
+                let outgoing_receipts: Vec<Receipt> = chain
+                    .chain_store
+                    .get_outgoing_receipts(block.hash(), shard_id)
+                    .unwrap()
+                    .iter()
+                    .cloned()
+                    .collect();
+                (
+                    new_chunk.prev_state_root(),
+                    new_chunk.congestion_info(),
+                    new_chunk.bandwidth_requests().cloned(),
+                    incoming_receipts,
+                    outgoing_receipts,
+                )
+            };
+            #[cfg(feature = "protocol_feature_spice")]
+            let (
+                prev_state_root,
+                congestion_info,
+                bandwidth_requests_opt,
+                incoming_receipts,
+                outgoing_receipts,
+            ) = {
+                let chain_store = client.chain.chain_store();
+                // The previous block's executed ChunkExtra is the self-consistent
+                // bundle that feeds this chunk's apply: its state_root is this
+                // chunk's pre-state and its bandwidth_requests/congestion_info
+                // describe that exact state (mirrors build_spice_apply_chunk_block_context).
+                let prev_chunk_extra =
+                    chain_store.get_chunk_extra(prev_block.hash(), &shard_uid).unwrap();
+                // Incoming receipts are the proofs recorded under the previous block
+                // (see source_receipt_proofs in ChunkExecutorActor); outgoing
+                // receipts are the proofs recorded under this block keyed by source.
+                let incoming_receipts: Vec<Receipt> = chain_store
+                    .iter_receipt_proofs_for_shard(prev_block.hash(), shard_id)
+                    .into_iter()
+                    .flat_map(|proof| proof.0)
+                    .collect();
+                let outgoing_receipts: Vec<Receipt> = cur_shard_layout
+                    .shard_ids()
+                    .filter_map(|to_shard_id| {
+                        chain_store.get_receipt_proof(block.hash(), to_shard_id, shard_id)
+                    })
+                    .flat_map(|proof| proof.0)
+                    .collect();
+                (
+                    *prev_chunk_extra.state_root(),
+                    prev_chunk_extra.congestion_info(),
+                    prev_chunk_extra.bandwidth_requests().cloned(),
+                    incoming_receipts,
+                    outgoing_receipts,
+                )
+            };
 
             // pre-state trie
             let store = client.chain.chain_store().store();
             let trie_storage = Arc::new(TrieDBStorage::new(store.trie_store(), shard_uid));
-            let trie = Trie::new(trie_storage, new_chunk.prev_state_root(), None);
+            let trie = Trie::new(trie_storage, prev_state_root, None);
 
             let mut cur_chunk_stats = ChunkBandwidthStats::new();
 
-            let congestion_info = new_chunk.congestion_info();
             let congestion_control = CongestionControl::new(
                 runtime_config.congestion_control_config,
                 congestion_info,
@@ -292,34 +406,14 @@ fn analyze_workload_blocks(
             );
             cur_chunk_stats.congestion_level = congestion_control.congestion_level();
 
-            // Fetch incoming receipts for this chunk
-            let incoming_receipts_proofs = get_incoming_receipts_for_shard(
-                &chain.chain_store,
-                epoch_manager,
-                shard_id,
-                &cur_shard_layout,
-                *block.hash(),
-                prev_height_included,
-                ReceiptFilter::TargetShard,
-            )
-            .unwrap();
-
-            // Fetch outgoing receipts generated by this chunk
-            let outgoing_receipts =
-                chain.chain_store.get_outgoing_receipts(&block.hash(), shard_id).unwrap();
-
             // Record size of incoming receipts in chunk stats
-            for receipt_proof_response in incoming_receipts_proofs {
-                for receipt_proof in receipt_proof_response.1.iter() {
-                    for receipt in &receipt_proof.0 {
-                        cur_chunk_stats.total_incoming_receipts_size +=
-                            ByteSize::b(borsh::object_length(receipt).unwrap().try_into().unwrap());
-                    }
-                }
+            for receipt in &incoming_receipts {
+                cur_chunk_stats.total_incoming_receipts_size +=
+                    ByteSize::b(borsh::object_length(receipt).unwrap().try_into().unwrap());
             }
 
             // Record size of outgoing receipts in chunk stats
-            for receipt in outgoing_receipts.iter() {
+            for receipt in &outgoing_receipts {
                 let receipt_size =
                     ByteSize::b(borsh::object_length(receipt).unwrap().try_into().unwrap());
 
@@ -336,8 +430,7 @@ fn analyze_workload_blocks(
             }
 
             // Extract the current bandwidth requests
-            let BandwidthRequests::V1(bandwidth_requests) = new_chunk
-                .bandwidth_requests()
+            let BandwidthRequests::V1(bandwidth_requests) = bandwidth_requests_opt
                 .expect("Bandwidth scheduler is enabled, the requests should be there");
 
             // Look into the outgoing buffers
