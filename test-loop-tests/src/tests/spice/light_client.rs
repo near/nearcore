@@ -111,3 +111,56 @@ fn test_spice_light_client_proof() {
     let b_leaf = block_header_lite.hash();
     assert_eq!(compute_root_from_path(&block_proof, b_leaf), head_certified_root);
 }
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_light_client_cross_epoch() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new()
+        .validators_spec(create_validators_spec(2, 1))
+        .enable_rpc()
+        .epoch_length(5)
+        .build();
+
+    // The light client's last known block lives in this epoch.
+    env.rpc_runner().run_until_new_epoch();
+    let last_block_hash = env.rpc_node().head().last_block_hash;
+    let last_epoch_id = env.rpc_node().head().epoch_id;
+
+    // Move the head two epochs ahead. next_light_client_block must then return the stored
+    // epoch block for the in-between epoch, not a freshly computed head block.
+    env.rpc_runner().run_until_new_epoch();
+    let in_between_epoch_id = env.rpc_node().head().epoch_id;
+    env.rpc_runner().run_until_new_epoch();
+    assert_ne!(env.rpc_node().head().epoch_id, last_epoch_id);
+    assert_ne!(env.rpc_node().head().epoch_id, in_between_epoch_id);
+
+    let light_client_block = env
+        .rpc_node_mut()
+        .view_client_actor()
+        .handle(GetNextLightClientBlock { last_block_hash })
+        .unwrap()
+        .expect("cross-epoch next_light_client_block must return the stored epoch block");
+    // The stored block is the in-between epoch's, confirming the cross-epoch branch ran.
+    assert_eq!(light_client_block.inner_lite.epoch_id, in_between_epoch_id.0);
+
+    // A cross-epoch light-client block must carry the certified fields, equal to what the
+    // corresponding on-chain block header committed.
+    let certified_block_merkle_root = light_client_block
+        .inner_lite
+        .certified_block_merkle_root
+        .expect("cross-epoch light-client block must carry certified_block_merkle_root");
+    let last_certified_block = light_client_block
+        .inner_lite
+        .last_certified_block
+        .expect("cross-epoch light-client block must carry last_certified_block");
+    let header = env
+        .rpc_node()
+        .client()
+        .chain
+        .get_block_header_by_height(light_client_block.inner_lite.height)
+        .unwrap();
+    assert_eq!(Some(&certified_block_merkle_root), header.certified_block_merkle_root());
+    assert_eq!(Some(&last_certified_block), header.last_certified_block());
+}

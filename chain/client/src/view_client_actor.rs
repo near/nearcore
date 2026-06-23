@@ -1108,7 +1108,30 @@ impl
             if ret.inner_lite.height <= last_height { Ok(None) } else { Ok(Some(Arc::new(ret))) }
         } else {
             match self.chain.chain_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
-                Ok(light_block) => Ok(Some(light_block)),
+                Ok(light_block) => {
+                    let epoch_id = EpochId(light_block.inner_lite.epoch_id);
+                    let protocol_version = self
+                        .epoch_manager
+                        .get_epoch_protocol_version(&epoch_id)
+                        .into_chain_error()?;
+                    if !ProtocolFeature::Spice.enabled(protocol_version) {
+                        return Ok(Some(light_block));
+                    }
+                    // The persisted view borsh-skips the certified fields; read them from
+                    // the block's own header. It is retained as long as the light client's
+                    // last block is, so it is present whenever this branch can serve.
+                    let block_hash = self
+                        .chain
+                        .chain_store()
+                        .get_block_hash_by_height(light_block.inner_lite.height)?;
+                    let header = self.chain.get_block_header(&block_hash)?;
+                    let mut light_block = LightClientBlockView::clone(&light_block);
+                    light_block.inner_lite.certified_block_merkle_root =
+                        header.certified_block_merkle_root().copied();
+                    light_block.inner_lite.last_certified_block =
+                        header.last_certified_block().copied();
+                    Ok(Some(Arc::new(light_block)))
+                }
                 Err(e) => {
                     if let near_chain::Error::DBNotFoundErr(_) = e {
                         Ok(None)
