@@ -311,6 +311,7 @@ def poll_blocks(node: cluster.LocalNode,
                 *,
                 timeout: float = 120,
                 poll_interval: float = 0.25,
+                tolerate_connection_errors: bool = False,
                 __target: typing.Optional[int] = None,
                 **kw) -> typing.Iterable[cluster.BlockId]:
     """Polls a node about the latest block and yields it when it changes.
@@ -327,6 +328,11 @@ def poll_blocks(node: cluster.LocalNode,
         timeout: Total timeout from the first status request sent to the node.
         poll_interval: How long to wait in seconds between each status request
             sent to the node.
+        tolerate_connection_errors: If True, a `ConnectionError` raised while
+            querying the node (e.g. its RPC is briefly down because it restarted
+            its own process during state sync) is swallowed and polling continues
+            until the node responds again or `timeout` is reached.  Defaults to
+            False, which propagates the error immediately.
         kw: Keyword arguments passed to `BaseDone.get_latest_block` method.
     Yields:
         A `cluster.BlockId` object for each time node’s latest block
@@ -342,7 +348,13 @@ def poll_blocks(node: cluster.LocalNode,
     previous = -1
 
     while time.monotonic() < end:
-        latest = node.get_latest_block(**kw)
+        try:
+            latest = node.get_latest_block(**kw)
+        except ConnectionError:
+            if not tolerate_connection_errors:
+                raise
+            time.sleep(poll_interval)
+            continue
         if latest.height != previous:
             if __target:
                 msg = f'{latest}  (waiting for #{__target})'
