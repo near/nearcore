@@ -56,3 +56,6 @@ block; the execution column is where state actually changes.
   (scope → per-component delta → synthesize + adversarial check).
 - **A PR impact assessment** → follow [`playbooks/pr-review.md`](playbooks/pr-review.md)
   (map changed files → components, then trace effects outward via *Interactions*).
+- **A release review** → follow [`playbooks/release-review.md`](playbooks/release-review.md)
+  (diff the pinned baseline against a target commit; covers both protocol-gated changes
+  and ungated `neard` behavioral changes — networking, sync, storage, ops).

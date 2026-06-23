@@ -8,6 +8,8 @@ Claude Code from the repo root.
   Proposal (NEP).
 - [pr-review.md](pr-review.md) — assess a pull request's effects *beyond* the immediate
   diff, via the components' Interactions graph.
+- [release-review.md](release-review.md) — assess everything that changed between the
+  model's pinned baseline and a target commit; doubles as a regeneration trigger.
 
 Both rest on the same idea: the specs under `../spec/` describe **current** behavior
 with `file:line` citations; the thing under review is a **delta**; the review is the

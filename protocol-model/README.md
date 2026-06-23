@@ -34,7 +34,7 @@ exactly that: fixing stale docs.
 | [`CONVENTIONS.md`](CONVENTIONS.md) | Spec template + citation/verification rules. |
 | [`REGENERATION.md`](REGENERATION.md) | Reusable task to rebuild the model for a new release. |
 | [`GLOSSARY.md`](GLOSSARY.md) | Shared protocol terms. |
-| [`playbooks/`](playbooks/) | Staged prompt workflows: [NEP review](playbooks/nep-review.md), [PR review](playbooks/pr-review.md). |
+| [`playbooks/`](playbooks/) | Staged prompt workflows: [NEP review](playbooks/nep-review.md), [PR review](playbooks/pr-review.md), [release review](playbooks/release-review.md). |
 | [`plans/`](plans/) | One reusable generation plan per component. |
 | [`spec/`](spec/) | The specification itself. |
 
