@@ -236,6 +236,38 @@ fn test_last_certified_state_root_when_execution_results_column_is_partially_wri
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_certified_block_header_info_rejects_wrong_fields() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    // b2 certifies b1, so the certified fields as of b2 are non-default.
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+
+    // A correctly built block on b2 validates.
+    let good = block_builder(&chain, &b2).spice_core_statements(vec![]).build();
+    core_reader.validate_certified_block_header_info(good.header()).unwrap();
+
+    // A wrong certified_block_merkle_root is rejected.
+    let bad_root = block_builder(&chain, &b2)
+        .certified_block_merkle_root(*b2.hash())
+        .spice_core_statements(vec![])
+        .build();
+    let err = core_reader.validate_certified_block_header_info(bad_root.header()).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid certified_block_merkle_root"), "{err:?}");
+
+    // A wrong last_certified_block is rejected (its root is still correct).
+    let bad_last = block_builder(&chain, &b2)
+        .last_certified_block(*b2.hash())
+        .spice_core_statements(vec![])
+        .build();
+    let err = core_reader.validate_certified_block_header_info(bad_last.header()).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid last_certified_block"), "{err:?}");
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_all_execution_results_exist_when_all_exist() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
@@ -1564,8 +1596,15 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+    let core_reader = core_reader(chain);
+    let prev_hash = prev_block.header().hash();
+    let certified_block_merkle_root =
+        core_reader.certified_block_merkle_root(prev_hash).unwrap_or_default();
+    let last_certified_block = core_reader.last_certified_block(prev_hash).unwrap_or_default();
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
+        .certified_block_merkle_root(certified_block_merkle_root)
+        .last_certified_block(last_certified_block)
 }
 
 fn build_block(

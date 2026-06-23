@@ -8,7 +8,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -346,6 +346,55 @@ impl SpiceCoreReader {
         Ok(self
             .certified_block_roots(block_hash, &last_certified)?
             .map(|(state_root, _)| state_root))
+    }
+
+    /// The certified-block tree as of `prev_hash` (empty for genesis or a pre-spice block
+    /// at the spice activation boundary).
+    fn prev_certified_block_merkle_tree(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<PartialMerkleTree, Error> {
+        let prev_header = self.chain_store.get_block_header(prev_hash)?;
+        if prev_header.is_genesis() || !prev_header.is_spice() {
+            return Ok(PartialMerkleTree::default());
+        }
+        self.chain_store.get_certified_block_merkle_tree(prev_hash)
+    }
+
+    /// Certified-block merkle root for a block built on `prev_hash` (the tree as of
+    /// `prev_hash`), committed in its header.
+    pub fn certified_block_merkle_root(&self, prev_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(self.prev_certified_block_merkle_tree(prev_hash)?.root())
+    }
+
+    /// Hash of the last fully certified block as of `prev_hash`.
+    pub fn last_certified_block(&self, prev_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(*get_last_certified_block_header(&self.chain_store, prev_hash)?.hash())
+    }
+
+    pub fn validate_certified_block_header_info(&self, header: &BlockHeader) -> Result<(), Error> {
+        let prev_hash = header.prev_hash();
+
+        let actual_root = header.certified_block_merkle_root().ok_or_else(|| {
+            Error::Other("missing certified_block_merkle_root on spice block header".to_string())
+        })?;
+        let expected_root = self.certified_block_merkle_root(prev_hash)?;
+        if &expected_root != actual_root {
+            return Err(Error::Other(format!(
+                "invalid certified_block_merkle_root: expected {expected_root:?}, got {actual_root:?}"
+            )));
+        }
+
+        let actual_last = header.last_certified_block().ok_or_else(|| {
+            Error::Other("missing last_certified_block on spice block header".to_string())
+        })?;
+        let expected_last = self.last_certified_block(prev_hash)?;
+        if &expected_last != actual_last {
+            return Err(Error::Other(format!(
+                "invalid last_certified_block: expected {expected_last:?}, got {actual_last:?}"
+            )));
+        }
+        Ok(())
     }
 
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)

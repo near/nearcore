@@ -1,4 +1,5 @@
 pub mod block_application;
+pub mod certified_accumulator;
 pub mod chain;
 pub mod chunk_application;
 pub mod chunk_validation;
