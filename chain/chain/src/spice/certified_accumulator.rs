@@ -1,8 +1,5 @@
-//! The certified-block merkle accumulator: a parallel merkle tree (mirroring
-//! `block_merkle_tree`) over the reconstructed light-client lite view of every
-//! block whose spice execution results are certified. Its root is committed in
-//! the V7 header (`certified_block_merkle_root`) and anchors light-client
-//! inclusion proofs. The per-leaf-ordinal index keeps proofs O(log n).
+//! A merkle tree, mirroring `block_merkle_tree`, over the reconstructed lite views
+//! of certified spice blocks. Its root is the V7 `certified_block_merkle_root`.
 
 use crate::lightclient::reconstruct_certified_lite_view;
 use crate::spice::core::{SpiceCoreReader, find_newly_certified_block_hashes};
@@ -15,11 +12,8 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::merkle_proof::compute_merkle_path_by_ordinal;
 use std::sync::Arc;
 
-/// Builds and saves the certified-block merkle tree as of `block`: the tree as
-/// of its prev, extended by the blocks `block` newly certifies (one leaf each,
-/// in ascending height order). Keyed by `block`'s hash so the next block's
-/// header commits its root. Mirrors `record_uncertified_chunks_for_block`:
-/// reads and writes through `chain_store_update`.
+/// Builds and saves the certified-block merkle tree as of `block`: its prev's tree
+/// extended with a leaf per block `block` newly certifies, keyed by `block`'s hash.
 pub fn update_and_save_certified_block_merkle_tree(
     chain_store_update: &mut ChainStoreUpdate,
     reader: &SpiceCoreReader,

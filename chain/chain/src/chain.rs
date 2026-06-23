@@ -705,9 +705,8 @@ impl Chain {
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
-    /// Spice: the light-client `block_header_lite` (reconstructed with certified
-    /// roots) and the inclusion proof of `block_hash`'s certified leaf, anchored
-    /// to `head_block_hash`'s `certified_block_merkle_root`.
+    /// Spice: `block_header_lite` (reconstructed with certified roots) and the proof of
+    /// `block_hash`'s leaf, anchored to `head_block_hash`'s `certified_block_merkle_root`.
     pub fn spice_block_header_lite_and_proof(
         &self,
         block_hash: &CryptoHash,
@@ -721,9 +720,8 @@ impl Chain {
         let block_header_lite =
             reconstruct_certified_lite_view(&block_header, state_root, outcome_root);
         let leaf_ordinal = self.chain_store().get_certified_block_leaf_ordinal(block_hash)?;
-        // `head_block_hash`'s header commits the certified accumulator as of its
-        // predecessor (mirroring `prev_last_certified_block_epoch_id`), so the
-        // proof anchors to the tree as of `head`'s prev.
+        // The header commits the certified accumulator as of its prev, so the proof
+        // anchors to the tree as of `head`'s prev.
         let head_prev = *self.get_block_header(head_block_hash)?.prev_hash();
         let tree_size = self.chain_store().get_certified_block_merkle_tree(&head_prev)?.size();
         let proof = compute_certified_block_proof(self.chain_store(), leaf_ordinal, tree_size)?;

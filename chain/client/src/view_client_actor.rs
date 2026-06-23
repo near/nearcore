@@ -1153,10 +1153,8 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                     .get_shard_index(target_shard_id)
                     .map_err(Into::into)
                     .into_chain_error()?;
-                // Spice: the certified outcome roots belong to the block where the
-                // chunk executed (the outcome's own block), not the next block that
-                // carries `prev_outcome_root` in the classic model. So resolve the
-                // proof against that block directly without advancing.
+                // Spice: the certified outcome root lives in the outcome's own block, not the
+                // next block (classic `prev_outcome_root`), so resolve against it without advancing.
                 let outcome_block_header =
                     self.chain.get_block_header(&outcome_proof.block_hash)?;
                 if outcome_block_header.certified_block_merkle_root().is_some() {

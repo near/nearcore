@@ -223,15 +223,9 @@ impl SpiceCoreReader {
         Ok(Some(BlockExecutionResults(results)))
     }
 
-    /// Per-shard certified execution results for `block_header` from the
-    /// committed store: fast path `DBCol::execution_results` (written async by
-    /// `SpiceCoreWriterActor`), slow path the ancestry block bodies under
-    /// `context_hash` for shards the writer or this node lacks. Genesis carries
-    /// no certifying statements, so only the fast path applies there.
-    ///
-    /// `certifying_block`, when set, additionally overlays its own in-flight
-    /// statements, for shards it is certifying that are not yet committed; these
-    /// take precedence over the committed store.
+    /// Per-shard certified execution results for `block_header`: the committed
+    /// `execution_results` column, the ancestry under `context_hash` for shards it
+    /// lacks, and `certifying_block`'s own in-flight statements (when set, winning).
     fn gather_certified_results(
         &self,
         context_hash: &CryptoHash,
@@ -279,9 +273,7 @@ impl SpiceCoreReader {
         self.certified_roots_from_results(block_header, &results)
     }
 
-    /// Merklizes per-shard state/outcome roots like the non-spice
-    /// `Chunks::compute_state_root` / `compute_outcome_root`. `None` if any shard
-    /// is missing from `results`.
+    /// Merkle roots over the per-shard state and outcome roots. `None` if any shard is missing.
     fn certified_roots_from_results(
         &self,
         block_header: &BlockHeader,
@@ -310,10 +302,8 @@ impl SpiceCoreReader {
         self.certified_block_roots_impl(context_hash, block_header, None)
     }
 
-    /// Like `certified_block_roots`, but for a `block_header` that `certifying_block`
-    /// is in the act of certifying: overlays the certifying block's own in-flight
-    /// results, which are not yet committed. Used while building the certified-block
-    /// merkle tree during block application.
+    /// Like `certified_block_roots`, but overlays `certifying_block`'s own not-yet-
+    /// committed results. Used while building the certified-block tree during application.
     pub fn certified_block_roots_for_certifying_block(
         &self,
         certifying_block: &Block,
@@ -326,10 +316,8 @@ impl SpiceCoreReader {
         )
     }
 
-    /// Per-shard certified outcome roots for `block_header`, in shard order.
-    /// `merklize`d, these give the block's certified `outcome_root` and the
-    /// per-shard inclusion path used by light-client proofs. `None` when any
-    /// shard's result is unavailable.
+    /// Per-shard certified outcome roots for `block_header`, in shard order; `merklize`d
+    /// they give the block's certified `outcome_root`. `None` if any shard is missing.
     pub fn certified_block_shard_outcome_roots(
         &self,
         context_hash: &CryptoHash,
@@ -347,9 +335,8 @@ impl SpiceCoreReader {
         Ok(Some(outcome_roots))
     }
 
-    /// State root certified as of `block_hash`: the merkle root over per-shard
-    /// state roots of the last fully certified block. Returns `None` when the
-    /// certified block's execution results are not all available yet.
+    /// State root certified as of `block_hash`: the merkle root over the last fully
+    /// certified block's per-shard state roots. `None` if its results aren't all available.
     pub fn last_certified_state_root(
         &self,
         block_hash: &CryptoHash,
@@ -371,9 +358,8 @@ impl SpiceCoreReader {
         self.chain_store.get_certified_block_merkle_tree(prev_hash)
     }
 
-    /// Certified-block merkle root committed in the header of a block built on
-    /// `prev_hash` (the tree as of `prev_hash`). Produced and validated like
-    /// `prev_last_certified_block_epoch_id`.
+    /// Certified-block merkle root for a block built on `prev_hash` (the tree as of
+    /// `prev_hash`), committed in its header.
     pub fn certified_block_merkle_root(&self, prev_hash: &CryptoHash) -> Result<CryptoHash, Error> {
         Ok(self.prev_certified_block_merkle_tree(prev_hash)?.root())
     }

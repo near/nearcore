@@ -20,10 +20,8 @@ pub fn get_epoch_block_producers_view(
         .collect::<Vec<_>>())
 }
 
-/// Reconstructs the light-client lite view of a certified spice block, placing the
-/// certified roots into the classic `prev_state_root` / `outcome_root` slots. Its
-/// `hash()` is both the leaf in the certified-block merkle tree and the
-/// `block_header_lite` returned for proofs anchored to `certified_block_merkle_root`.
+/// Light-client lite view of a certified spice block, with the certified roots in the
+/// classic `prev_state_root` / `outcome_root` slots. Its `hash()` is the accumulator leaf.
 pub fn reconstruct_certified_lite_view(
     block_header: &BlockHeader,
     certified_state_root: CryptoHash,

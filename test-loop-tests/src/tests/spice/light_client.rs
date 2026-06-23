@@ -30,7 +30,7 @@ fn test_spice_light_client_proof() {
     let tx = SignedTransaction::send_money(
         1,
         sender.clone(),
-        receiver.clone(),
+        receiver,
         &create_user_test_signer(&sender),
         Balance::from_near(1),
         env.rpc_node().head().last_block_hash,
@@ -44,10 +44,8 @@ fn test_spice_light_client_proof() {
     // accumulator the proof anchors to.
     env.rpc_runner().run_until_head_certifies(tx_height);
 
-    // Obtain the trusted head the way a light client does -- from
-    // next_light_client_block, which returns a final block by construction -- and take
-    // the certified anchor root from it. Its `last_block_hash` is the client's
-    // previously tracked head; use the head's prev.
+    // The trusted head + its certified anchor root, from next_light_client_block (which
+    // returns a final block). Pass the head's prev as the client's last tracked head.
     let final_head = env
         .rpc_node_mut()
         .view_client_actor()
@@ -76,7 +74,7 @@ fn test_spice_light_client_proof() {
         .handle(GetExecutionOutcome {
             id: TransactionOrReceiptId::Transaction {
                 transaction_hash: tx_hash,
-                sender_id: sender.clone(),
+                sender_id: sender,
             },
         })
         .unwrap();
@@ -93,9 +91,8 @@ fn test_spice_light_client_proof() {
     let block_header_lite = block_proof_response.block_header_lite;
     let block_proof = block_proof_response.proof;
 
-    // Verify the tx the way a light client does: chain two merkle inclusion proofs
-    // through the block B that executed it, with SPICE's certified accumulator standing
-    // in for block_merkle_root. Each proof recomputes a root from a leaf and a path:
+    // Verify like a light client: two merkle proofs chained through block B, the
+    // certified accumulator standing in for block_merkle_root:
     //
     //   tx outcome --outcome_proof--> B's certified outcome_root   (read from B's lite view)
     //   B's leaf   --block_proof----> head's certified accumulator  (trusted via the head)
@@ -108,8 +105,7 @@ fn test_spice_light_client_proof() {
     assert_eq!(b_outcome_root, block_header_lite.inner_lite.outcome_root);
 
     // 2. B is included in the certified accumulator the trusted head commits to.
-    // (B's whole reconstructed lite view -- certified state/outcome roots included -- is
-    // hashed into this leaf, so a faithful reconstruction is what makes the proof verify.)
+    // (B's whole reconstructed lite view is hashed into the leaf, so it's verified too.)
     let b_leaf = block_header_lite.hash();
     assert_eq!(compute_root_from_path(&block_proof, b_leaf), head_certified_root);
 }

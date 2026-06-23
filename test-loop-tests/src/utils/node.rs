@@ -516,11 +516,8 @@ impl<'a> NodeRunner<'a> {
         );
     }
 
-    /// Run until the final head commits a `last_certified_block` at height >=
-    /// `height`. A light-client proof anchors to the final head's committed
-    /// certification (as of its prev), and `GetBlockProof` requires a final,
-    /// canonical head -- so this is the condition for such a proof over a tx at
-    /// `height` to be constructible.
+    /// Run until the final head's committed `last_certified_block` reaches `height` --
+    /// when a light-client proof for a tx at `height` becomes constructible.
     pub fn run_until_head_certifies(&mut self, height: BlockHeight) {
         let initial_height = self.head().height;
         let height_diff = height.saturating_sub(initial_height) as usize;

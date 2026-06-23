@@ -1061,8 +1061,7 @@ pub struct BlockHeaderInnerLiteView {
     /// The merkle root of all the block hashes
     pub block_merkle_root: CryptoHash,
     /// Spice (V7 headers only): merkle root anchoring certified execution roots.
-    /// Borsh-skipped to keep the persisted `EpochLightClientBlocks` layout intact;
-    /// carried over JSON and reconstructed on demand.
+    /// Borsh-skipped to keep the persisted `EpochLightClientBlocks` layout intact.
     #[borsh(skip)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certified_block_merkle_root: Option<CryptoHash>,
