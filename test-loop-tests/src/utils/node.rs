@@ -516,6 +516,32 @@ impl<'a> NodeRunner<'a> {
         );
     }
 
+    /// Run until the final head commits a `last_certified_block` at height >=
+    /// `height`. A light-client proof anchors to the final head's committed
+    /// certification (as of its prev), and `GetBlockProof` requires a final,
+    /// canonical head -- so this is the condition for such a proof over a tx at
+    /// `height` to be constructible.
+    pub fn run_until_head_certifies(&mut self, height: BlockHeight) {
+        let initial_height = self.head().height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        // Certification trails consensus by the execution delay, and the final head
+        // trails consensus by the (currently observed) finality gap.
+        let extra = self.node_data.expected_execution_delay() as usize;
+        let finality_gap = self.head().height.saturating_sub(self.final_head().height) as usize;
+        let timeout = self.calculate_block_distance_timeout(height_diff + extra + finality_gap);
+        self.run_until(
+            |node| {
+                let chain = &node.client().chain;
+                let final_head = chain.final_head().unwrap().last_block_hash;
+                let header = chain.get_block_header(&final_head).unwrap();
+                header
+                    .last_certified_block()
+                    .is_some_and(|hash| chain.get_block_header(hash).unwrap().height() >= height)
+            },
+            timeout,
+        );
+    }
+
     pub fn run_until_new_epoch(&mut self) {
         let curr_epoch_id = self.head().epoch_id;
         let epoch_length = self.client().config.epoch_length as usize;

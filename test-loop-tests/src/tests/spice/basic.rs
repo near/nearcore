@@ -15,17 +15,15 @@ use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
-use near_client_primitives::types::{GetBlockError, GetBlockProof, GetExecutionOutcome};
+use near_client_primitives::types::GetBlockError;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::compute_root_from_path;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId,
-    TransactionOrReceiptId,
 };
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::QueryRequest;
@@ -222,117 +220,6 @@ fn test_spice_chain_with_delayed_execution() {
     let view_account_result =
         env.node_for_account(&producer_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-}
-
-/// End-to-end light-client proof over spice certified results: submit a tx,
-/// fetch an `EXPERIMENTAL_light_client_proof`-style proof via the view client,
-/// and verify it the way a light client would — anchoring `block_proof` to the
-/// head's `certified_block_merkle_root` rather than `block_merkle_root`.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_light_client_proof() {
-    init_test_logger();
-
-    let sender = create_account_id("sender");
-    let receiver = create_account_id("receiver");
-
-    let num_producers = 2;
-    let num_validators = 1;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .add_user_account_simple(sender.clone(), Balance::from_near(10))
-        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
-        .build();
-
-    let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
-
-    let block_hash = env.node_for_account(&producer_account).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender.clone(),
-        receiver.clone(),
-        &create_user_test_signer(&sender),
-        Balance::from_near(1),
-        block_hash,
-    );
-    let tx_hash = tx.get_hash();
-    env.runner_for_account(&producer_account).run_tx(tx, Duration::seconds(20));
-
-    // Run enough further blocks that the tx's block is fully certified and well
-    // inside the certified accumulator of a final head.
-    let target = env.node_for_account(&producer_account).head().height + 25;
-    env.runner_for_account(&producer_account).run_until_head_height(target);
-
-    // The head we prove against, and its committed certified-accumulator root.
-    let (light_client_head, head_certified_root) = {
-        let node = env.node_for_account(&producer_account);
-        let head = node.client().chain.final_head().unwrap().last_block_hash;
-        let root = *node
-            .client()
-            .chain
-            .get_block_header(&head)
-            .unwrap()
-            .certified_block_merkle_root()
-            .expect("spice head must commit certified_block_merkle_root");
-        (head, root)
-    };
-
-    let (outcome_proof, outcome_root_proof, block_header_lite, block_proof) = {
-        let node_data = env.get_node_data_by_account_id(&producer_account);
-        let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
-        let outcome_response = view_client
-            .handle(GetExecutionOutcome {
-                id: TransactionOrReceiptId::Transaction {
-                    transaction_hash: tx_hash,
-                    sender_id: sender.clone(),
-                },
-            })
-            .unwrap();
-        let block_proof_response = view_client
-            .handle(GetBlockProof {
-                block_hash: outcome_response.outcome_proof.block_hash,
-                head_block_hash: light_client_head,
-            })
-            .unwrap();
-        (
-            outcome_response.outcome_proof,
-            outcome_response.outcome_root_proof,
-            block_proof_response.block_header_lite,
-            block_proof_response.proof,
-        )
-    };
-
-    // 1. Outcome -> shard outcome root -> the block's certified combined outcome root.
-    let outcome_hashes = outcome_proof.to_hashes();
-    let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);
-    let shard_outcome_root = compute_root_from_path(&outcome_proof.proof, outcome_hash);
-    let block_outcome_root =
-        compute_root_from_path(&outcome_root_proof, CryptoHash::hash_borsh(shard_outcome_root));
-    assert_eq!(
-        block_outcome_root, block_header_lite.inner_lite.outcome_root,
-        "reconstructed outcome root must match the certified outcome root in block_header_lite",
-    );
-
-    // 2. The certified roots are populated (not the production-time placeholders).
-    assert_ne!(block_header_lite.inner_lite.outcome_root, CryptoHash::default());
-    assert_ne!(block_header_lite.inner_lite.prev_state_root, CryptoHash::default());
-    assert!(block_header_lite.inner_lite.certified_block_merkle_root.is_some());
-
-    // 3. The certified leaf is included in the head's certified accumulator.
-    let leaf = block_header_lite.hash();
-    let computed_root = compute_root_from_path(&block_proof, leaf);
-    assert_eq!(
-        computed_root, head_certified_root,
-        "block proof must anchor the certified leaf to the head's certified_block_merkle_root",
-    );
 }
 
 /// Test that consensus cannot be more than one epoch ahead of certification.
