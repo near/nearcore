@@ -16,6 +16,7 @@ mod cloud_archival;
 mod combined_transactions_size_limit;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
+mod congestion_control_limits;
 mod consensus;
 mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
