@@ -959,6 +959,14 @@ impl TestBlockBuilder {
             *prev_header.next_epoch_id()
         };
         let chunks_len = prev_chunks.len();
+        // With no certification happening in most tests, the last certified block stays
+        // at genesis: a block on genesis points at it, later blocks carry it forward.
+        // Tests that certify set this explicitly.
+        let last_certified_block = if prev_header.is_genesis() {
+            *prev_header.hash()
+        } else {
+            prev_header.last_certified_block().copied().unwrap_or_else(|| *prev_header.hash())
+        };
         Self {
             clock,
             signer,
@@ -987,7 +995,7 @@ impl TestBlockBuilder {
             },
             spice_chunk_endorsement_stats: Vec::new(),
             certified_block_merkle_root: CryptoHash::default(),
-            last_certified_block: CryptoHash::default(),
+            last_certified_block,
             prev_header,
         }
     }
