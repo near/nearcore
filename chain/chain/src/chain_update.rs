@@ -324,9 +324,13 @@ impl<'a> ChainUpdate<'a> {
                 spice_core_reader,
                 &block,
             )?;
+            // No canonical block at this height yet means this block is not (currently) canonical.
             let is_canonical =
-                self.chain_store_update.get_block_hash_by_height(block.header().height())?
-                    == *block.hash();
+                match self.chain_store_update.get_block_hash_by_height(block.header().height()) {
+                    Ok(hash) => hash == *block.hash(),
+                    Err(Error::DBNotFoundErr(_)) => false,
+                    Err(err) => return Err(err),
+                };
             if is_canonical {
                 self.chain_store_update
                     .index_canonical_certified_leaves(block.hash(), block.header().prev_hash())?;

@@ -263,7 +263,7 @@ fn test_certified_block_proof_unaffected_by_side_fork() {
         &b2,
         block_certification_core_statements_with_state_root(&b2, fork_state_root),
     );
-    process_block(&mut chain, y.clone());
+    process_block(&mut chain, y);
 
     // The side fork must not corrupt the canonical accumulator; the proof still verifies.
     let (lite, proof) = chain.spice_block_header_lite_and_proof(b1.hash(), b4.hash()).unwrap();
