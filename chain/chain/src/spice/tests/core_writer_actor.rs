@@ -698,8 +698,6 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     let core_reader = core_reader(chain);
     let prev_hash = prev_block.header().hash();
-    // Default when the prev block is not recorded (tests that build on an
-    // unprocessed parent and never validate the certified header fields).
     let certified_block_merkle_root =
         core_reader.certified_block_merkle_root(prev_hash).unwrap_or_default();
     let last_certified_block = core_reader.last_certified_block(prev_hash).unwrap_or_default();

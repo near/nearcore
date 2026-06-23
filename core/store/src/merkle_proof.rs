@@ -62,13 +62,18 @@ fn get_block_merkle_tree_from_ordinal(
 /// Build the inclusion path for the leaf at `leaf_index` within a merkle tree of
 /// `tree_size` leaves, given ordinal-indexed access to each leaf hash and to the
 /// frontier (partial) tree as of each ordinal. Accesses no leaf below `leaf_index`
-/// nor any frontier beyond `tree_size`. Assumes `leaf_index < tree_size`.
+/// nor any frontier beyond `tree_size`. Errors if `leaf_index >= tree_size`.
 pub fn compute_merkle_path_by_ordinal(
     leaf_index: u64,
     tree_size: u64,
     partial_tree_at_ordinal: impl Fn(u64) -> Result<Arc<PartialMerkleTree>, Error>,
     leaf_hash_at_ordinal: impl Fn(u64) -> Result<CryptoHash, Error>,
 ) -> Result<MerklePath, Error> {
+    if leaf_index >= tree_size {
+        return Err(Error::Other(format!(
+            "leaf index {leaf_index} is ahead of tree size {tree_size}"
+        )));
+    }
     let mut path = vec![];
     let mut level: u64 = 0;
     let mut index = leaf_index;

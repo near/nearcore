@@ -46,8 +46,8 @@ pub struct BlockHeaderInnerLite {
     pub block_merkle_root: CryptoHash,
 }
 
-/// V1 -> V2: spice commits certified execution roots so light clients can
-/// verify them from the headers alone.
+/// Spice commits certified execution roots so light clients can verify them
+/// from the headers alone.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -71,7 +71,6 @@ pub struct BlockHeaderInnerLiteV2 {
     /// Merkle root over the reconstructed light-client lite views of every
     /// block whose spice execution results are certified.
     pub certified_block_merkle_root: CryptoHash,
-    /// Most recently certified block.
     pub last_certified_block: CryptoHash,
 }
 

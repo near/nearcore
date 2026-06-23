@@ -81,11 +81,8 @@ pub fn compute_certified_block_proof(
     leaf_ordinal: u64,
     tree_size: u64,
 ) -> Result<MerklePath, Error> {
-    if leaf_ordinal >= tree_size {
-        return Err(Error::Other(format!(
-            "certified leaf ordinal {leaf_ordinal} is ahead of accumulator size {tree_size}"
-        )));
-    }
+    // TODO(spice-perf): each ordinal row is read twice (frontier + leaf). Consider a
+    // per-call cache so it is fetched once.
     compute_merkle_path_by_ordinal(
         leaf_ordinal,
         tree_size,
