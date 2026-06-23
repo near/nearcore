@@ -90,7 +90,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    LightClientBlockView, SignedTransactionView,
+    LightClientBlockLiteView, LightClientBlockView, SignedTransactionView,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -711,7 +711,7 @@ impl Chain {
         &self,
         block_hash: &CryptoHash,
         head_block_hash: &CryptoHash,
-    ) -> Result<(near_primitives::views::LightClientBlockLiteView, MerklePath), Error> {
+    ) -> Result<(LightClientBlockLiteView, MerklePath), Error> {
         let block_header = self.get_block_header(block_hash)?;
         let (state_root, outcome_root) = self
             .spice_core_reader
