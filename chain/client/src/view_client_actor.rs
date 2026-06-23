@@ -50,9 +50,10 @@ use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin,
 use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
-    Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
+    Finality, MaybeBlockId, ShardId, ShardIndex, SyncCheckpoint, TransactionOrReceiptId,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -1120,6 +1121,34 @@ impl
     }
 }
 
+/// `GetExecutionOutcome` for a spice block: the certified outcome root lives in the
+/// outcome's own block, not the next block (classic `prev_outcome_root`), so resolve
+/// against it without advancing.
+fn spice_execution_outcome_response(
+    chain: &Chain,
+    outcome_proof: ExecutionOutcomeWithIdAndProof,
+    outcome_block_header: &BlockHeader,
+    target_shard_id: ShardId,
+    target_shard_index: ShardIndex,
+    id: CryptoHash,
+) -> Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError> {
+    let context = chain.head()?.last_block_hash;
+    let outcome_roots = chain
+        .spice_core_reader
+        .certified_block_shard_outcome_roots(&context, outcome_block_header)?
+        .ok_or(GetExecutionOutcomeError::NotConfirmed { transaction_or_receipt_id: id })?;
+    if target_shard_index >= outcome_roots.len() {
+        return Err(GetExecutionOutcomeError::InconsistentState {
+            number_or_shards: outcome_roots.len(),
+            execution_outcome_shard_id: target_shard_id,
+        });
+    }
+    Ok(GetExecutionOutcomeResponse {
+        outcome_proof: outcome_proof.into(),
+        outcome_root_proof: merklize(&outcome_roots).1[target_shard_index].clone(),
+    })
+}
+
 impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>
     for ViewClientActor
 {
@@ -1153,29 +1182,17 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                     .get_shard_index(target_shard_id)
                     .map_err(Into::into)
                     .into_chain_error()?;
-                // Spice: the certified outcome root lives in the outcome's own block, not the
-                // next block (classic `prev_outcome_root`), so resolve against it without advancing.
                 let outcome_block_header =
                     self.chain.get_block_header(&outcome_proof.block_hash)?;
-                if outcome_block_header.certified_block_merkle_root().is_some() {
-                    let context = self.chain.head()?.last_block_hash;
-                    let outcome_roots = self
-                        .chain
-                        .spice_core_reader
-                        .certified_block_shard_outcome_roots(&context, &outcome_block_header)?
-                        .ok_or(GetExecutionOutcomeError::NotConfirmed {
-                            transaction_or_receipt_id: id,
-                        })?;
-                    if target_shard_index >= outcome_roots.len() {
-                        return Err(GetExecutionOutcomeError::InconsistentState {
-                            number_or_shards: outcome_roots.len(),
-                            execution_outcome_shard_id: target_shard_id,
-                        });
-                    }
-                    return Ok(GetExecutionOutcomeResponse {
-                        outcome_proof: outcome_proof.into(),
-                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_index].clone(),
-                    });
+                if outcome_block_header.is_spice() {
+                    return spice_execution_outcome_response(
+                        &self.chain,
+                        outcome_proof,
+                        &outcome_block_header,
+                        target_shard_id,
+                        target_shard_index,
+                        id,
+                    );
                 }
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
@@ -1641,7 +1658,7 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> f
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
         let head_block_header = BlockHeader::clone(&head_block_header);
         self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
-        let (block_header_lite, proof) = if block_header.certified_block_merkle_root().is_some() {
+        let (block_header_lite, proof) = if block_header.is_spice() {
             // Spice: reconstruct with certified roots and anchor to the certified accumulator.
             self.chain.spice_block_header_lite_and_proof(&msg.block_hash, &msg.head_block_hash)?
         } else {
