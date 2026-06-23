@@ -1164,6 +1164,9 @@ impl Client {
                 newly_certified_block_execution_results,
                 prev_last_certified_block_epoch_id,
                 spice_chunk_endorsement_stats,
+                // TODO(spice): set from the certified accumulator once it lands.
+                certified_block_merkle_root: CryptoHash::default(),
+                last_certified_block: CryptoHash::default(),
             })
         } else {
             None

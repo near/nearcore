@@ -220,6 +220,8 @@ fn block_header_shard_split_validation() {
         forged_shard_split.clone(), // FORGED shard_split
         header.prev_last_certified_block_epoch_id().cloned(),
         header.spice_chunk_endorsement_stats().map(<[_]>::to_vec),
+        header.certified_block_merkle_root().cloned(),
+        header.last_certified_block().cloned(),
     );
 
     // Sanity: the forged header is V6 and carries the forged shard_split.
