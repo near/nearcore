@@ -283,7 +283,7 @@ pub(crate) fn fn_cost_in_contract(
         let setup = vec![Action::DeployContract(DeployContractAction { code: code.to_vec() })];
         let setup_tx = tb.transaction_from_actions(account.clone(), account.clone(), setup);
 
-        testbed.process_block(vec![setup_tx], 0);
+        testbed.process_block(vec![setup_tx], extra_refund_block_latency());
     }
 
     let mut blocks = Vec::with_capacity(n_blocks);
@@ -308,7 +308,8 @@ pub(crate) fn fn_cost_in_contract(
     );
     blocks.insert(n_warmup_blocks, vec![base_tx]);
 
-    let mut measurements = testbed.measure_blocks(blocks, BlockLatency::Uniform(0));
+    let mut measurements =
+        testbed.measure_blocks(blocks, BlockLatency::Uniform(extra_refund_block_latency()));
     measurements.drain(0..n_warmup_blocks);
 
     let (base_gas_cost, _base_ext_costs) = measurements.remove(0);
