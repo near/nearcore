@@ -2,10 +2,12 @@ use crate::ChainStoreAccess;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::EpochId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
-use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView};
+use near_primitives::views::{
+    BlockHeaderInnerLiteView, LightClientBlockLiteView, LightClientBlockView,
+};
 
 pub fn get_epoch_block_producers_view(
     epoch_id: &EpochId,
@@ -16,6 +18,33 @@ pub fn get_epoch_block_producers_view(
         .iter()
         .map(|x| x.clone().into())
         .collect::<Vec<_>>())
+}
+
+/// Light-client lite view of a certified spice block, with the certified roots in the
+/// classic `prev_state_root` / `outcome_root` slots. Its `hash()` is the accumulator leaf.
+pub fn reconstruct_certified_lite_view(
+    block_header: &BlockHeader,
+    certified_state_root: CryptoHash,
+    certified_outcome_root: CryptoHash,
+) -> LightClientBlockLiteView {
+    let inner_lite = BlockHeaderInnerLiteView {
+        height: block_header.height(),
+        epoch_id: block_header.epoch_id().0,
+        next_epoch_id: block_header.next_epoch_id().0,
+        prev_state_root: certified_state_root,
+        outcome_root: certified_outcome_root,
+        timestamp: block_header.raw_timestamp(),
+        timestamp_nanosec: block_header.raw_timestamp(),
+        next_bp_hash: *block_header.next_bp_hash(),
+        block_merkle_root: *block_header.block_merkle_root(),
+        certified_block_merkle_root: block_header.certified_block_merkle_root().copied(),
+        last_certified_block: block_header.last_certified_block().copied(),
+    };
+    LightClientBlockLiteView {
+        prev_block_hash: *block_header.prev_hash(),
+        inner_rest_hash: hash(&block_header.inner_rest_bytes()),
+        inner_lite,
+    }
 }
 
 /// Creates the `LightClientBlock` from the information in the chain store for a given block.

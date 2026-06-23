@@ -264,6 +264,18 @@ pub fn create_chunk(
     };
     let epoch_sync_data_hash =
         client.epoch_manager.compute_epoch_sync_data_hash(last_block.hash()).unwrap();
+    // The chain may have certified blocks by now, so take the certified header fields
+    // from the actual chain state rather than the builder's no-certification default.
+    let (certified_block_merkle_root, last_certified_block) =
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            let reader = &client.chain.spice_core_reader;
+            (
+                reader.certified_block_merkle_root(last_block.hash()).unwrap(),
+                reader.last_certified_block(last_block.hash()).unwrap(),
+            )
+        } else {
+            (CryptoHash::default(), CryptoHash::default())
+        };
     let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
         .height(next_height)
         .chunks(vec![encoded_chunk.cloned_header()])
@@ -272,6 +284,8 @@ pub fn create_chunk(
         .block_merkle_tree(&mut block_merkle_tree)
         .spice_chunk_endorsement_stats(spice_chunk_endorsement_stats)
         .epoch_sync_data_hash(epoch_sync_data_hash)
+        .certified_block_merkle_root(certified_block_merkle_root)
+        .last_certified_block(last_certified_block)
         .build();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
         .map_err(|(err, _)| err)

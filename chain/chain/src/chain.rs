@@ -1862,6 +1862,7 @@ impl Chain {
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
         let epoch_to_check = self.protocol_version_check;
         let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
+        let spice_core_reader = self.spice_core_reader.clone();
         let mut chain_update = self.chain_update();
         let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
@@ -1869,6 +1870,7 @@ impl Chain {
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
+            &spice_core_reader,
         )?;
         if new_head.is_some() {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
@@ -2569,6 +2571,7 @@ impl Chain {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
+            self.spice_core_reader.validate_certified_block_header_info(header)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(
