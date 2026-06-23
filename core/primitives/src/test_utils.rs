@@ -959,9 +959,8 @@ impl TestBlockBuilder {
             *prev_header.next_epoch_id()
         };
         let chunks_len = prev_chunks.len();
-        // With no certification happening in most tests, the last certified block stays
-        // at genesis: a block on genesis points at it, later blocks carry it forward.
-        // Tests that certify set this explicitly.
+        // Default the last certified block to genesis (no certification in most tests),
+        // carried forward from prev. Tests that certify set it explicitly.
         let last_certified_block = if prev_header.is_genesis() {
             *prev_header.hash()
         } else {

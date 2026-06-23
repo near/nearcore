@@ -1,5 +1,5 @@
 //! A merkle tree, mirroring `block_merkle_tree`, over the reconstructed lite views
-//! of certified spice blocks. Its root is the V7 `certified_block_merkle_root`.
+//! of certified spice blocks. Its root is the header's `certified_block_merkle_root`.
 
 use crate::lightclient::reconstruct_certified_lite_view;
 use crate::spice::core::{SpiceCoreReader, find_newly_certified_block_hashes};

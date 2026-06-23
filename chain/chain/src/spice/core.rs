@@ -335,8 +335,9 @@ impl SpiceCoreReader {
         Ok(Some(outcome_roots))
     }
 
-    /// State root certified as of `block_hash`: the merkle root over the last fully
-    /// certified block's per-shard state roots. `None` if its results aren't all available.
+    /// State root certified as of `block_hash`: the merkle root over per-shard
+    /// state roots of the last fully certified block. Returns `None` when the
+    /// certified block's execution results are not all available yet.
     pub fn last_certified_state_root(
         &self,
         block_hash: &CryptoHash,
