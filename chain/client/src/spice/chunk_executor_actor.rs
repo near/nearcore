@@ -303,6 +303,10 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
         let to_shard_id = receipt_proof.1.to_shard_id;
+        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
+        // dropped here if it arrives before reconcile created the executor (startup /
+        // catch-up, or around an epoch boundary). Reconcile from the source block's
+        // parent and retry the lookup before treating the shard as untracked.
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;
@@ -1143,16 +1147,20 @@ impl PerShardChunkExecutor {
             Err(Error::DBNotFoundErr(_)) => return Ok(()),
             Err(err) => return Err(err),
         };
-        let stale: Vec<CryptoHash> = self
-            .unverified_receipts
-            .keys()
-            .filter(|source_block| match self.chain_store.get_block_header(source_block) {
-                Ok(header) => header.height() <= final_head.height,
-                // Unknown block: it can never be applied, so drop its receipts.
-                Err(_) => true,
-            })
-            .copied()
-            .collect();
+        let mut stale = Vec::new();
+        for source_block in self.unverified_receipts.keys().copied() {
+            match self.chain_store.get_block_header(&source_block) {
+                // At or below the final head: can never be applied again — drop it.
+                Ok(header) if header.height() <= final_head.height => stale.push(source_block),
+                Ok(_) => {}
+                // Source block not on disk yet: a receipt can outrun its block, so the
+                // block may still arrive and the receipt still apply — keep it. (A block
+                // that never arrives leaks its buffered receipts, but that's rare —
+                // abandoned forks only — and we have no height to prune it safely.)
+                Err(Error::DBNotFoundErr(_)) => {}
+                Err(err) => return Err(err),
+            }
+        }
         for source_block in stale {
             self.unverified_receipts.remove(&source_block);
         }
