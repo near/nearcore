@@ -325,6 +325,24 @@ impl ChainStoreAdapter {
         Ok(self.get_certified_block_merkle_state(block_hash)?.tree)
     }
 
+    /// (frontier before leaf `ordinal`, leaf hash at `ordinal`) in the certified accumulator.
+    pub fn get_certified_accumulator_by_ordinal(
+        &self,
+        ordinal: u64,
+    ) -> Result<(PartialMerkleTree, CryptoHash), Error> {
+        option_to_not_found(
+            self.store.get_ser(DBCol::certified_accumulator_by_ordinal(), &index_to_bytes(ordinal)),
+            format_args!("CERTIFIED ACCUMULATOR BY ORDINAL: {}", ordinal),
+        )
+    }
+
+    pub fn get_certified_block_leaf_ordinal(&self, block_hash: &CryptoHash) -> Result<u64, Error> {
+        option_to_not_found(
+            self.store.get_ser(DBCol::certified_block_leaf_ordinal(), block_hash.as_ref()),
+            format_args!("CERTIFIED BLOCK LEAF ORDINAL: {}", block_hash),
+        )
+    }
+
     pub fn get_block_hash_from_ordinal(
         &self,
         block_ordinal: NumBlocks,

@@ -316,12 +316,25 @@ impl<'a> ChainUpdate<'a> {
                 self.epoch_manager.as_ref(),
                 &block,
             )?;
-            // Fork-local per-block certified accumulator state.
+            // Fork-local per-block state. Its leaves are indexed into the canonical ordinal index
+            // only when the block is canonical: here at body processing (the header head can be
+            // ahead from header sync), and via `update_height` for reorg in-between blocks.
             save_certified_block_merkle_tree_for_block(
                 &mut self.chain_store_update,
                 spice_core_reader,
                 &block,
             )?;
+            // No canonical block at this height yet means this block is not (currently) canonical.
+            let is_canonical =
+                match self.chain_store_update.get_block_hash_by_height(block.header().height()) {
+                    Ok(hash) => hash == *block.hash(),
+                    Err(Error::DBNotFoundErr(_)) => false,
+                    Err(err) => return Err(err),
+                };
+            if is_canonical {
+                self.chain_store_update
+                    .index_canonical_certified_leaves(block.hash(), block.header().prev_hash())?;
+            }
         }
 
         // Update the chain head if it's the new tip

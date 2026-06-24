@@ -6,12 +6,15 @@ use crate::spice::core::{SpiceCoreReader, find_newly_certified_block_hashes};
 use crate::{ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
-use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::types::{CertifiedBlockAccumulatorState, CertifiedBlockLeaf};
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::merkle_proof::compute_merkle_path_by_ordinal;
+use std::sync::Arc;
 
 /// Builds and saves the fork-local certified accumulator state for `block` (prev's tree
-/// plus `block`'s newly-certified leaves), keyed by `block`'s hash.
+/// plus `block`'s newly-certified leaves), keyed by `block`'s hash. The per-ordinal index
+/// is written only for canonical blocks (see `index_canonical_certified_leaves`).
 pub fn save_certified_block_merkle_tree_for_block(
     chain_store_update: &mut ChainStoreUpdate,
     reader: &SpiceCoreReader,
@@ -68,4 +71,22 @@ fn build_certified_block_merkle_tree(
         tree.insert(leaf_hash);
     }
     Ok((tree, leaves))
+}
+
+/// Inclusion proof of the certified leaf at `leaf_ordinal` within the certified
+/// accumulator of size `tree_size`, reading the per-ordinal frontier+leaf from
+/// `CertifiedAccumulatorByOrdinal`.
+pub fn compute_certified_block_proof(
+    chain_store: &ChainStoreAdapter,
+    leaf_ordinal: u64,
+    tree_size: u64,
+) -> Result<MerklePath, Error> {
+    // TODO(spice-perf): each ordinal row is read twice (frontier + leaf). Consider a
+    // per-call cache so it is fetched once.
+    compute_merkle_path_by_ordinal(
+        leaf_ordinal,
+        tree_size,
+        |ordinal| Ok(Arc::new(chain_store.get_certified_accumulator_by_ordinal(ordinal)?.0)),
+        |ordinal| Ok(chain_store.get_certified_accumulator_by_ordinal(ordinal)?.1),
+    )
 }
