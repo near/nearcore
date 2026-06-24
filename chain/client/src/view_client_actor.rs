@@ -20,12 +20,13 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
-    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
-    GetMaintenanceWindows, GetMaintenanceWindowsError, GetNextLightClientBlockError,
-    GetProcessedReceiptIds, GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError,
-    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    Error, ExecutionBlockProofResponse, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError,
+    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists,
+    GetExecutionBlockProof, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
+    GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
     GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
@@ -49,6 +50,7 @@ use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
+use near_primitives::spice::commitment::SpiceCommitmentProofView;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
@@ -1145,13 +1147,42 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
         match self.chain.get_execution_outcome(&id) {
             Ok(outcome) => {
                 let mut outcome_proof = outcome;
-                let epoch_id =
-                    *self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
+                let block_header =
+                    BlockHeader::clone(self.chain.get_block(&outcome_proof.block_hash)?.header());
+                let epoch_id = *block_header.epoch_id();
                 let shard_layout =
                     self.epoch_manager.get_shard_layout(&epoch_id).into_chain_error()?;
                 let target_shard_id =
                     account_id_to_shard_id(self.epoch_manager.as_ref(), &account_id, &epoch_id)
                         .into_chain_error()?;
+                if block_header.is_spice() {
+                    // SPICE: the proof anchors into the certified block's own outcome
+                    // root, not the next block's `prev_outcome_root`.
+                    let Some(shard_outcome_roots) = self
+                        .chain
+                        .spice_core_reader
+                        .certified_block_shard_outcome_roots(&block_header)?
+                    else {
+                        return Err(GetExecutionOutcomeError::NotConfirmed {
+                            transaction_or_receipt_id: id,
+                        });
+                    };
+                    let Some(index) = shard_outcome_roots
+                        .iter()
+                        .position(|(shard_id, _)| *shard_id == target_shard_id)
+                    else {
+                        return Err(GetExecutionOutcomeError::InconsistentState {
+                            number_or_shards: shard_outcome_roots.len(),
+                            execution_outcome_shard_id: target_shard_id,
+                        });
+                    };
+                    let roots: Vec<CryptoHash> =
+                        shard_outcome_roots.iter().map(|(_, root)| *root).collect();
+                    return Ok(GetExecutionOutcomeResponse {
+                        outcome_proof: outcome_proof.into(),
+                        outcome_root_proof: merklize(&roots).1[index].clone(),
+                    });
+                }
                 let target_shard_index = shard_layout
                     .get_shard_index(target_shard_id)
                     .map_err(Into::into)
@@ -1620,12 +1651,62 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> f
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
         let head_block_header = BlockHeader::clone(&head_block_header);
         self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
+        // A plain block-inclusion proof, valid for spice blocks too (their `block_hash`
+        // sits in the block merkle tree like any block). Execution anchoring lives in
+        // `GetExecutionBlockProof`.
         let block_header_lite = block_header.into();
         let proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
             &msg.block_hash,
             &msg.head_block_hash,
         )?;
         Ok(GetBlockProofResponse { block_header_lite, proof })
+    }
+}
+
+impl Handler<GetExecutionBlockProof, Result<ExecutionBlockProofResponse, GetBlockProofError>>
+    for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetExecutionBlockProof,
+    ) -> Result<ExecutionBlockProofResponse, GetBlockProofError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetExecutionBlockProof"])
+            .start_timer();
+        let block_header = self.chain.get_block_header(&msg.block_hash)?;
+        let block_header = BlockHeader::clone(&block_header);
+        let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
+        let head_block_header = BlockHeader::clone(&head_block_header);
+        self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
+        if block_header.is_spice() {
+            // SPICE: anchor the execution commitment via the anchor block (the
+            // certifier's canonical child), not the certified block itself.
+            let Some(proof) =
+                self.chain.spice_commitment_proof(&msg.block_hash, &msg.head_block_hash)?
+            else {
+                return Err(GetBlockProofError::ProofNotAvailable { block_hash: msg.block_hash });
+            };
+            return Ok(ExecutionBlockProofResponse {
+                block_header_lite: proof.anchor_block_lite,
+                block_proof: proof.anchor_block_proof,
+                spice_commitment_proof: Some(SpiceCommitmentProofView {
+                    outcome_commitment_proof: proof.outcome_commitment_proof,
+                    state_commitment_proof: proof.state_commitment_proof,
+                    commitment_height: proof.commitment_height,
+                }),
+            });
+        }
+        let block_header_lite = block_header.into();
+        let block_proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
+            &msg.block_hash,
+            &msg.head_block_hash,
+        )?;
+        Ok(ExecutionBlockProofResponse {
+            block_header_lite,
+            block_proof,
+            spice_commitment_proof: None,
+        })
     }
 }
 

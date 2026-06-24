@@ -84,6 +84,9 @@ impl RpcFrom<GetBlockProofError> for RpcLightClientProofError {
             GetBlockProofError::UnknownBlock { error_message } => {
                 Self::UnknownBlock { error_message }
             }
+            GetBlockProofError::ProofNotAvailable { block_hash } => {
+                Self::ProofNotAvailable { block_hash }
+            }
             GetBlockProofError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             }

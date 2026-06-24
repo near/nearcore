@@ -4,7 +4,8 @@ use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
-    record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
+    index_spice_certifier_for_canonical_block, record_spice_endorsement_stats_for_block,
+    record_uncertified_chunks_for_block,
 };
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
@@ -314,6 +315,18 @@ impl<'a> ChainUpdate<'a> {
                 self.epoch_manager.as_ref(),
                 &block,
             )?;
+            // Header sync advances the header head (and the canonical height index)
+            // ahead of bodies, so this height may already be canonical when its body
+            // arrives here; index now. `update_height` re-points blocks a reorg makes canonical.
+            let is_canonical =
+                match self.chain_store_update.get_block_hash_by_height(block.header().height()) {
+                    Ok(hash) => hash == *block.hash(),
+                    Err(Error::DBNotFoundErr(_)) => false,
+                    Err(err) => return Err(err),
+                };
+            if is_canonical {
+                index_spice_certifier_for_canonical_block(&mut self.chain_store_update, &block)?;
+            }
         }
 
         // Update the chain head if it's the new tip

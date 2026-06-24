@@ -8,6 +8,12 @@ use near_primitives::{
 };
 
 pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
+    // Under spice these slots hold the certified-block commitment the block was produced
+    // with, independent of its chunks; preserve them instead of deriving from chunks.
+    let spice = ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
+    let spice_prev_state_root = *block.header().prev_state_root();
+    let spice_prev_outcome_root = *block.header().outcome_root();
+
     let chunk_headers = vec![prev_block.chunks()[0].clone()];
     let mut balance_burnt = Balance::ZERO;
     for chunk in block.chunks().iter_new() {
@@ -24,7 +30,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
             header.inner_lite.prev_state_root = chunks.compute_state_root();
-            header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
+            header.inner_lite.prev_outcome_root =
+                if spice { spice_prev_outcome_root } else { chunks.compute_outcome_root() };
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply =
@@ -36,7 +43,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
             header.inner_lite.prev_state_root = chunks.compute_state_root();
-            header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
+            header.inner_lite.prev_outcome_root =
+                if spice { spice_prev_outcome_root } else { chunks.compute_outcome_root() };
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply =
@@ -48,7 +56,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
             header.inner_lite.prev_state_root = chunks.compute_state_root();
-            header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
+            header.inner_lite.prev_outcome_root =
+                if spice { spice_prev_outcome_root } else { chunks.compute_outcome_root() };
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply =
@@ -60,7 +69,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
             header.inner_lite.prev_state_root = chunks.compute_state_root();
-            header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
+            header.inner_lite.prev_outcome_root =
+                if spice { spice_prev_outcome_root } else { chunks.compute_outcome_root() };
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply =
@@ -73,15 +83,16 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.chunk_tx_root = chunks.compute_chunk_tx_root();
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
-            if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-                header.inner_lite.prev_state_root = *prev_block.header().prev_state_root();
+            if spice {
+                header.inner_lite.prev_state_root = spice_prev_state_root;
             } else {
                 header.inner_lite.prev_state_root = chunks.compute_state_root();
                 header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
                 header.inner_rest.total_supply =
                     header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             }
-            header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
+            header.inner_lite.prev_outcome_root =
+                if spice { spice_prev_outcome_root } else { chunks.compute_outcome_root() };
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
             header.inner_rest.chunk_endorsements =
@@ -93,15 +104,16 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.chunk_tx_root = chunks.compute_chunk_tx_root();
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
-            if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-                header.inner_lite.prev_state_root = *prev_block.header().prev_state_root();
+            if spice {
+                header.inner_lite.prev_state_root = spice_prev_state_root;
             } else {
                 header.inner_lite.prev_state_root = chunks.compute_state_root();
                 header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
                 header.inner_rest.total_supply =
                     header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             }
-            header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
+            header.inner_lite.prev_outcome_root =
+                if spice { spice_prev_outcome_root } else { chunks.compute_outcome_root() };
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
             header.inner_rest.chunk_endorsements =
@@ -113,15 +125,16 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.chunk_tx_root = chunks.compute_chunk_tx_root();
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
-            if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-                header.inner_lite.prev_state_root = *prev_block.header().prev_state_root();
+            if spice {
+                header.inner_lite.prev_state_root = spice_prev_state_root;
             } else {
                 header.inner_lite.prev_state_root = chunks.compute_state_root();
                 header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
                 header.inner_rest.total_supply =
                     header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             }
-            header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
+            header.inner_lite.prev_outcome_root =
+                if spice { spice_prev_outcome_root } else { chunks.compute_outcome_root() };
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
             header.inner_rest.chunk_endorsements =

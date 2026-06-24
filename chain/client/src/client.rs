@@ -1151,6 +1151,8 @@ impl Client {
                     prev_header,
                     &core_statements,
                 )?;
+            let (prev_state_commitment_root, prev_outcome_commitment_root) =
+                self.chain.spice_core_reader.light_client_commitment_roots(prev_header)?;
             let prev_last_certified_block_epoch_id = self
                 .chain
                 .spice_core_reader
@@ -1162,6 +1164,8 @@ impl Client {
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,
+                prev_state_commitment_root,
+                prev_outcome_commitment_root,
                 prev_last_certified_block_epoch_id,
                 spice_chunk_endorsement_stats,
             })

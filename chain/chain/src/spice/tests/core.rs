@@ -12,6 +12,7 @@ use itertools::Itertools as _;
 use near_async::messaging::{Handler as _, IntoSender as _, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_primitives::Error;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -1503,6 +1504,158 @@ fn test_get_newly_certified_block_execution_results_multi_block_incremental() {
     assert_eq!(block_execution_results(&b2), execution_results[0]);
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_certifier_index_and_proof_happy_path() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, certifier.clone());
+    let anchor = build_block(&mut chain, &certifier, vec![]);
+    process_block(&mut chain, anchor.clone());
+    let head = build_block(&mut chain, &anchor, vec![]);
+    process_block(&mut chain, head.clone());
+
+    assert_eq!(chain.chain_store().spice_certifier(b1.hash()), Some(*certifier.hash()));
+    let proof = chain.spice_commitment_proof(b1.hash(), head.hash()).unwrap().unwrap();
+    assert_eq!(proof.anchor_block_lite.hash(), *anchor.hash());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_commitment_proof_fail_closed_for_uncertified_block() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+
+    assert_eq!(chain.chain_store().spice_certifier(b1.hash()), None);
+    assert!(chain.spice_commitment_proof(b1.hash(), b1.hash()).unwrap().is_none());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_certifier_index_ignores_losing_fork() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, certifier.clone());
+    let anchor = build_block(&mut chain, &certifier, vec![]);
+    process_block(&mut chain, anchor.clone());
+
+    // A losing sibling of `certifier` that also certifies b1 but never becomes canonical.
+    let losing_certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, losing_certifier.clone());
+
+    assert_ne!(losing_certifier.hash(), certifier.hash());
+    assert_eq!(chain.chain_store().spice_certifier(b1.hash()), Some(*certifier.hash()));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_certifier_index_follows_winning_fork() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, certifier.clone());
+    assert_eq!(chain.chain_store().spice_certifier(b1.hash()), Some(*certifier.hash()));
+
+    // A competing branch that also certifies b1 and grows longer, winning the reorg.
+    let winning_certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, winning_certifier.clone());
+    let mut tip = winning_certifier.clone();
+    for _ in 0..2 {
+        tip = build_block(&mut chain, &tip, vec![]);
+        process_block(&mut chain, tip.clone());
+    }
+
+    assert_ne!(winning_certifier.hash(), certifier.hash());
+    assert_eq!(
+        chain.get_block_hash_by_height(certifier.header().height()).unwrap(),
+        *winning_certifier.hash()
+    );
+    assert_eq!(chain.chain_store().spice_certifier(b1.hash()), Some(*winning_certifier.hash()));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_proof_anchor_follows_canonical_child() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, certifier.clone());
+    let anchor = build_block(&mut chain, &certifier, vec![]);
+    process_block(&mut chain, anchor.clone());
+
+    // A competing child of the same certifier that wins: the certifier stays canonical,
+    // so the index is untouched and the proof re-derives the new canonical child.
+    let new_anchor = build_block(&mut chain, &certifier, vec![]);
+    process_block(&mut chain, new_anchor.clone());
+    let head = build_block(&mut chain, &new_anchor, vec![]);
+    process_block(&mut chain, head.clone());
+
+    assert_ne!(new_anchor.hash(), anchor.hash());
+    assert_eq!(
+        chain.get_block_hash_by_height(certifier.header().height()).unwrap(),
+        *certifier.hash()
+    );
+    assert_eq!(chain.chain_store().spice_certifier(b1.hash()), Some(*certifier.hash()));
+    let proof = chain.spice_commitment_proof(b1.hash(), head.hash()).unwrap().unwrap();
+    assert_eq!(proof.anchor_block_lite.hash(), *new_anchor.hash());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_commitment_roots_producer_equals_validator() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, certifier.clone());
+    // `anchor` commits over what `certifier` certified (as-of-prev).
+    let anchor = build_block(&mut chain, &certifier, vec![]);
+    process_block(&mut chain, anchor.clone());
+
+    let (state_root, outcome_root) =
+        core_reader.light_client_commitment_roots(certifier.header()).unwrap();
+    assert_eq!(anchor.header().prev_state_root(), &state_root);
+    assert_eq!(anchor.header().outcome_root(), &outcome_root);
+    assert_ne!(state_root, CryptoHash::default());
+    assert_ne!(outcome_root, CryptoHash::default());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_validation_rejects_invalid_commitment_roots() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let certifier = build_block(&mut chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, certifier.clone());
+
+    // A block on `certifier` with wrong commitment slots: `certifier` certified b1, so
+    // the recomputed roots are non-default and the planted default slots mismatch.
+    let tampered = block_builder(&chain, &certifier)
+        .spice_commitment_roots(CryptoHash::default(), CryptoHash::default())
+        .spice_core_statements(vec![])
+        .build();
+
+    assert_matches!(
+        core_reader.validate_light_client_commitment_roots(tampered.header()),
+        Err(Error::InvalidSpiceCommitmentRoots(_))
+    );
+}
+
 fn block_execution_results(block: &Block) -> BlockExecutionResults {
     let mut results = HashMap::new();
     for chunk in block.chunks().iter_raw() {
@@ -1564,8 +1717,15 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+    // Defaults when prev is unprocessed: some tests build blocks only to feed
+    // validation directly, where the commitment roots are irrelevant.
+    let (prev_state_commitment_root, prev_outcome_commitment_root) = chain
+        .spice_core_reader
+        .light_client_commitment_roots(prev_block.header())
+        .unwrap_or_default();
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
+        .spice_commitment_roots(prev_state_commitment_root, prev_outcome_commitment_root)
 }
 
 fn build_block(

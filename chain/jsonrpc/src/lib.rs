@@ -14,12 +14,13 @@ use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, 
 use near_async::time::{Clock, Duration};
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
-    DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetChunkExtraExists,
-    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice,
-    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
-    GetReceiptToTx, GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse,
-    Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus, TxStatusError,
+    DebugStatus, ExecutionBlockProofResponse, GetBlock, GetBlockProof, GetBlockProofResponse,
+    GetChunk, GetChunkExtraExists, GetClientConfig, GetExecutionBlockProof, GetExecutionOutcome,
+    GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
+    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetReceiptToTx, GetReceiptToTxResponse,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse,
+    TxStatus, TxStatusError,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -445,6 +446,7 @@ pub struct ClientSenderForRpc(
 pub struct ViewClientSenderForRpc(
     AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
     AsyncSender<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>,
+    AsyncSender<GetExecutionBlockProof, Result<ExecutionBlockProofResponse, GetBlockProofError>>,
     AsyncSender<GetChunk, Result<ChunkView, GetChunkError>>,
     AsyncSender<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>,
     AsyncSender<GetGasPrice, Result<GasPriceView, GetGasPriceError>>,
@@ -2360,8 +2362,8 @@ impl JsonRpcHandler {
         let execution_outcome_proof: near_client_primitives::types::GetExecutionOutcomeResponse =
             self.view_client_send(GetExecutionOutcome { id }).await?;
 
-        let block_proof: near_client_primitives::types::GetBlockProofResponse = self
-            .view_client_send(GetBlockProof {
+        let block_proof: ExecutionBlockProofResponse = self
+            .view_client_send(GetExecutionBlockProof {
                 block_hash: execution_outcome_proof.outcome_proof.block_hash,
                 head_block_hash: light_client_head,
             })
@@ -2371,7 +2373,8 @@ impl JsonRpcHandler {
             outcome_proof: execution_outcome_proof.outcome_proof,
             outcome_root_proof: execution_outcome_proof.outcome_root_proof,
             block_header_lite: block_proof.block_header_lite,
-            block_proof: block_proof.proof,
+            block_proof: block_proof.block_proof,
+            spice_commitment_proof: block_proof.spice_commitment_proof,
         })
     }
 

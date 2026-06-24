@@ -399,6 +399,13 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
+    /// For spice light clients, maps a certified block to the canonical block
+    /// whose core statements certified it. Re-pointed to the canonical certifier
+    /// on reorg. Used to locate the anchor block of a block's execution commitment.
+    /// - *Rows*: BlockHash (certified block H)
+    /// - *Content type*: BlockHash (certifier X)
+    #[cfg(feature = "protocol_feature_spice")]
+    SpiceCertifierByBlock,
     /// Pre-computed chunk producer for the chunk anchored at the given block (its
     /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
     /// Populated during header sync and block processing, gated behind `EarlyKickout`
@@ -601,6 +608,8 @@ impl DBCol {
             | DBCol::SpiceEndorsementStats => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ContractAccesses => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::SpiceCertifierByBlock => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -714,6 +723,7 @@ impl DBCol {
             | DBCol::Endorsements
             | DBCol::ExecutionResults
             | DBCol::ReceiptProofs
+            | DBCol::SpiceCertifierByBlock
             | DBCol::SpiceEndorsementStats
             | DBCol::UncertifiedChunks
             | DBCol::UncertifiedExecutionResults
@@ -867,6 +877,8 @@ impl DBCol {
             DBCol::SpiceEndorsementStats => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::SpiceCertifierByBlock => &[DBKeyType::BlockHash],
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
@@ -924,6 +936,13 @@ impl DBCol {
     pub fn spice_endorsement_stats() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::SpiceEndorsementStats;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn spice_certifier_by_block() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::SpiceCertifierByBlock;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }
