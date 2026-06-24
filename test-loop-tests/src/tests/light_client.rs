@@ -1,5 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
@@ -19,6 +17,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, TransactionOrReceiptId};
 use near_primitives::views::{LightClientBlockLiteView, LightClientBlockView};
+use std::collections::{HashMap, HashSet};
 
 fn light_client_block_hash(block: &LightClientBlockView) -> CryptoHash {
     LightClientBlockLiteView {
