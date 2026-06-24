@@ -15,7 +15,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::Signature;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
-use near_primitives::block_body::SpiceCoreStatement;
+use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -705,7 +705,20 @@ fn build_block(
     prev_block: &Block,
     spice_core_statements: Vec<SpiceCoreStatement>,
 ) -> Arc<Block> {
-    block_builder(chain, prev_block).spice_core_statements(spice_core_statements).build()
+    let prev_hash = prev_block.header().hash();
+    let statements = SpiceCoreStatements::new(spice_core_statements.clone());
+    let certified_block_merkle_root = chain
+        .spice_core_reader
+        .certified_batch(prev_hash, &statements)
+        .map(|batch| batch.root)
+        .unwrap_or_default();
+    let last_certified_block =
+        chain.spice_core_reader.last_certified_block_hash(prev_hash).unwrap_or_default();
+    block_builder(chain, prev_block)
+        .certified_block_merkle_root(certified_block_merkle_root)
+        .last_certified_block(last_certified_block)
+        .spice_core_statements(spice_core_statements)
+        .build()
 }
 
 #[track_caller]

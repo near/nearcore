@@ -2372,6 +2372,8 @@ impl JsonRpcHandler {
             outcome_root_proof: execution_outcome_proof.outcome_root_proof,
             block_header_lite: block_proof.block_header_lite,
             block_proof: block_proof.proof,
+            batch_proof: block_proof.batch_proof,
+            certifying_block_header_lite: block_proof.certifying_block_header_lite,
         })
     }
 
@@ -2394,6 +2396,8 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientBlockProofResponse {
             block_header_lite: block_proof.block_header_lite,
             block_proof: block_proof.proof,
+            batch_proof: block_proof.batch_proof,
+            certifying_block_header_lite: block_proof.certifying_block_header_lite,
         })
     }
 

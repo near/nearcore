@@ -1,4 +1,5 @@
 use crate::spice::chunk_application::ChunkPersistenceConfig;
+use crate::spice::core::newly_certified_block_hashes_for_block;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -1050,6 +1051,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
+    certified_by_block: HashMap<CryptoHash, CryptoHash>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
@@ -1478,6 +1480,12 @@ impl<'a> ChainStoreUpdate<'a> {
             // At this point block_merkle_tree for header is already saved.
             let block_ordinal = self.get_block_merkle_tree(&header_hash)?.size();
             self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
+            // Re-point the certified-by-block index onto the canonical chain. A stale fork
+            // entry then isn't reachable from the canonical block_merkle_root and fails closed.
+            if header.is_spice() {
+                let block = self.get_block(&header_hash)?;
+                self.index_certified_by_block(&block)?;
+            }
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.
@@ -1598,6 +1606,28 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update
             .block_merkle_tree
             .insert(block_hash, Arc::new(block_merkle_tree));
+    }
+
+    pub fn save_certified_by_block(
+        &mut self,
+        certified_block_hash: CryptoHash,
+        certifying_block_hash: CryptoHash,
+    ) {
+        self.chain_store_cache_update
+            .certified_by_block
+            .insert(certified_block_hash, certifying_block_hash);
+    }
+
+    /// Points each block `block` newly certifies at `block`, so a light-client proof for it
+    /// anchors on `block`'s batch root. Called only for canonical blocks (initial processing
+    /// and reorg re-point), keeping the index on the canonical chain.
+    pub(crate) fn index_certified_by_block(&mut self, block: &Block) -> Result<(), Error> {
+        let certified = newly_certified_block_hashes_for_block(self.chain_store(), block)?;
+        let certifying_block_hash = *block.header().hash();
+        for certified_block_hash in certified {
+            self.save_certified_by_block(certified_block_hash, certifying_block_hash);
+        }
+        Ok(())
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
@@ -2146,6 +2176,15 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (block_hash, block_merkle_tree) in &self.chain_store_cache_update.block_merkle_tree {
             store_update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree);
+        }
+        for (certified_block_hash, certifying_block_hash) in
+            &self.chain_store_cache_update.certified_by_block
+        {
+            store_update.set_ser(
+                DBCol::certified_by_block(),
+                certified_block_hash.as_ref(),
+                certifying_block_hash,
+            );
         }
         for (block_ordinal, block_hash) in &self.chain_store_cache_update.block_ordinal_to_hash {
             store_update.set_ser(DBCol::BlockOrdinal, &index_to_bytes(*block_ordinal), block_hash);

@@ -316,6 +316,17 @@ impl ChainStoreAdapter {
         )
     }
 
+    /// Spice: the canonical block `C` that certified `certified_block_hash`.
+    pub fn get_certified_by_block(
+        &self,
+        certified_block_hash: &CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        option_to_not_found(
+            self.store.get_ser(DBCol::certified_by_block(), certified_block_hash.as_ref()),
+            format_args!("CERTIFIED BY BLOCK: {}", certified_block_hash),
+        )
+    }
+
     pub fn get_block_merkle_tree_from_ordinal(
         &self,
         block_ordinal: NumBlocks,
