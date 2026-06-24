@@ -6,7 +6,9 @@ use crate::block_processing_utils::{
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
 use crate::crypto_hash_timer::CryptoHashTimer;
-use crate::lightclient::get_epoch_block_producers_view;
+use crate::lightclient::{
+    SpiceCertifiedBatchProof, get_epoch_block_producers_view, reconstruct_certified_lite_view,
+};
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::pending::PendingBlocksPool;
@@ -89,7 +91,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    LightClientBlockView, SignedTransactionView,
+    LightClientBlockLiteView, LightClientBlockView, SignedTransactionView,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -702,6 +704,48 @@ impl Chain {
             get_epoch_block_producers_view(final_block_header.next_epoch_id(), epoch_manager)?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
+    }
+
+    /// Spice: the certified-execution proof for `block_hash`, anchored to `head_block_hash`.
+    /// Two hops: `block_hash`'s leaf into its certifying block `C`'s batch root, then `C` into
+    /// `head`'s `block_merkle_root` (the existing consensus block proof).
+    pub fn spice_certified_batch_proof(
+        &self,
+        block_hash: &CryptoHash,
+        head_block_hash: &CryptoHash,
+    ) -> Result<SpiceCertifiedBatchProof, Error> {
+        let certifying_block_hash = self.chain_store.get_certified_by_block(block_hash)?;
+        let certifying_block = self.chain_store.get_block(&certifying_block_hash)?;
+        let batch = self.spice_core_reader.certified_batch(
+            certifying_block.header().prev_hash(),
+            certifying_block.spice_core_statements(),
+        )?;
+        let batch_proof = batch.path_for(block_hash).ok_or_else(|| {
+            Error::Other(format!(
+                "block {block_hash} not certified by its indexed block {certifying_block_hash}"
+            ))
+        })?;
+
+        let block_header = self.get_block_header(block_hash)?;
+        let (state_root, outcome_root) = self
+            .spice_core_reader
+            .certified_block_roots_for_certifying_block(&certifying_block, &block_header)?
+            .ok_or_else(|| Error::Other(format!("block {block_hash} is not certified")))?;
+        let block_header_lite =
+            reconstruct_certified_lite_view(&block_header, state_root, outcome_root);
+
+        let certifying_block_header_lite =
+            LightClientBlockLiteView::from(BlockHeader::clone(certifying_block.header()));
+        let block_proof = self.compute_past_block_proof_in_merkle_tree_of_later_block(
+            &certifying_block_hash,
+            head_block_hash,
+        )?;
+        Ok(SpiceCertifiedBatchProof {
+            block_header_lite,
+            batch_proof,
+            certifying_block_header_lite,
+            block_proof,
+        })
     }
 
     pub fn save_block(&mut self, block: MaybeValidated<Arc<Block>>) -> Result<(), Error> {
@@ -2569,6 +2613,7 @@ impl Chain {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
+            self.spice_core_reader.validate_certified_batch_root(&block)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(

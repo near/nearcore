@@ -21,7 +21,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
@@ -1503,6 +1503,157 @@ fn test_get_newly_certified_block_execution_results_multi_block_incremental() {
     assert_eq!(block_execution_results(&b2), execution_results[0]);
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_certified_batch_proof_unaffected_by_side_fork() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    // Canonical: b2 certifies b1 (index[b1] = b2); b3 is the head.
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+    let b3 = build_block(&chain, &b2, vec![]);
+    process_block(&mut chain, b3.clone());
+
+    assert_eq!(chain.chain_store().get_certified_by_block(b1.hash()).unwrap(), *b2.hash());
+    assert_eq!(certifying_block_of_proof(&chain, b1.hash(), b3.hash()), *b2.hash());
+
+    // A losing fork re-certifies b1 with different roots: a sibling of b2 (same prev b1)
+    // processed after the canonical head, so it never becomes canonical.
+    let fork_state_root = *b2.hash();
+    let c2 = build_block(
+        &chain,
+        &b1,
+        block_certification_core_statements_with_state_root(&b1, fork_state_root),
+    );
+    process_block(&mut chain, c2);
+
+    // The losing fork must not re-point index[b1]; the proof still anchors on b2.
+    assert_eq!(chain.chain_store().get_certified_by_block(b1.hash()).unwrap(), *b2.hash());
+    assert_eq!(certifying_block_of_proof(&chain, b1.hash(), b3.hash()), *b2.hash());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_certified_batch_proof_follows_reorg() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    // Canonical: b2 certifies b1 (index[b1] = b2); b3 is the head.
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+    let b3 = build_block(&chain, &b2, vec![]);
+    process_block(&mut chain, b3.clone());
+    assert_eq!(chain.head().unwrap().last_block_hash, *b3.hash());
+
+    assert_eq!(chain.chain_store().get_certified_by_block(b1.hash()).unwrap(), *b2.hash());
+    let b_proof = chain.spice_certified_batch_proof(b1.hash(), b3.hash()).unwrap();
+
+    // A heavier fork off b1 re-certifies b1 with a different root, then overtakes.
+    let fork_state_root = *b2.hash();
+    let c2 = build_block(
+        &chain,
+        &b1,
+        block_certification_core_statements_with_state_root(&b1, fork_state_root),
+    );
+    process_block(&mut chain, c2.clone());
+    let c3 = build_block(&chain, &c2, vec![]);
+    process_block(&mut chain, c3.clone());
+    let c4 = build_block(&chain, &c3, vec![]);
+    process_block(&mut chain, c4.clone());
+    assert_eq!(chain.head().unwrap().last_block_hash, *c4.hash());
+
+    // The reorg re-points index[b1] from b2 to c2; the proof now anchors on c2 with a
+    // differing leaf and batch root.
+    assert_eq!(chain.chain_store().get_certified_by_block(b1.hash()).unwrap(), *c2.hash());
+    assert_eq!(certifying_block_of_proof(&chain, b1.hash(), c4.hash()), *c2.hash());
+    let c_proof = chain.spice_certified_batch_proof(b1.hash(), c4.hash()).unwrap();
+    assert_ne!(c_proof.block_header_lite.hash(), b_proof.block_header_lite.hash());
+    assert_ne!(
+        c_proof.certifying_block_header_lite.inner_lite.certified_block_merkle_root,
+        b_proof.certifying_block_header_lite.inner_lite.certified_block_merkle_root,
+    );
+}
+
+/// Verifies the leaf-into-batch-root hop of `certified_block_hash`'s proof and returns the
+/// certifying block it anchors on. (The certifying-block-into-`block_merkle_root` hop is the
+/// standard block proof, covered end-to-end where `block_merkle_root` is real.)
+fn certifying_block_of_proof(
+    chain: &Chain,
+    certified_block_hash: &CryptoHash,
+    head: &CryptoHash,
+) -> CryptoHash {
+    let proof = chain.spice_certified_batch_proof(certified_block_hash, head).unwrap();
+    let batch_root =
+        proof.certifying_block_header_lite.inner_lite.certified_block_merkle_root.unwrap();
+    assert!(verify_path(batch_root, &proof.batch_proof, proof.block_header_lite.hash()));
+    proof.certifying_block_header_lite.hash()
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_certified_batch_root_rejects_wrong_fields() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+
+    // A block on b2 that certifies b2 with the correct batch root validates.
+    let good = build_block(&chain, &b2, block_certification_core_statements(&b2));
+    core_reader.validate_certified_batch_root(&good).unwrap();
+
+    let bad_root = block_builder(&chain, &b2)
+        .certified_block_merkle_root(*b2.hash())
+        .last_certified_block(core_reader.last_certified_block_hash(b2.hash()).unwrap())
+        .spice_core_statements(block_certification_core_statements(&b2))
+        .build();
+    let err = core_reader.validate_certified_batch_root(&bad_root).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid certified_block_merkle_root"), "{err:?}");
+
+    let good_root = build_block(&chain, &b2, block_certification_core_statements(&b2));
+    let bad_last = block_builder(&chain, &b2)
+        .certified_block_merkle_root(*good_root.header().certified_block_merkle_root().unwrap())
+        .last_certified_block(*b2.hash())
+        .spice_core_statements(block_certification_core_statements(&b2))
+        .build();
+    let err = core_reader.validate_certified_batch_root(&bad_last).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid last_certified_block"), "{err:?}");
+}
+
+fn block_certification_core_statements_with_state_root(
+    block: &Block,
+    state_root: CryptoHash,
+) -> Vec<SpiceCoreStatement> {
+    let validators = test_validators();
+    let mut core_statements = Vec::new();
+    for chunk in block.chunks().iter_raw() {
+        let execution_result = ChunkExecutionResult {
+            chunk_extra: ChunkExtra::new_with_only_state_root(&state_root),
+            outgoing_receipts_root: CryptoHash::default(),
+        };
+        for validator in &validators {
+            let signer = create_test_signer(validator);
+            let endorsement = SpiceChunkEndorsement::new(
+                SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() },
+                execution_result.clone(),
+                &signer,
+            );
+            core_statements.push(endorsement_into_core_statement(endorsement));
+        }
+        core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() },
+            execution_result,
+        });
+    }
+    core_statements
+}
+
 fn block_execution_results(block: &Block) -> BlockExecutionResults {
     let mut results = HashMap::new();
     for chunk in block.chunks().iter_raw() {
@@ -1573,7 +1724,20 @@ fn build_block(
     prev_block: &Block,
     spice_core_statements: Vec<SpiceCoreStatement>,
 ) -> Arc<Block> {
-    block_builder(chain, prev_block).spice_core_statements(spice_core_statements).build()
+    let prev_hash = prev_block.header().hash();
+    let statements = SpiceCoreStatements::new(spice_core_statements.clone());
+    let certified_block_merkle_root = chain
+        .spice_core_reader
+        .certified_batch(prev_hash, &statements)
+        .map(|batch| batch.root)
+        .unwrap_or_default();
+    let last_certified_block =
+        chain.spice_core_reader.last_certified_block_hash(prev_hash).unwrap_or_default();
+    block_builder(chain, prev_block)
+        .certified_block_merkle_root(certified_block_merkle_root)
+        .last_certified_block(last_certified_block)
+        .spice_core_statements(spice_core_statements)
+        .build()
 }
 
 fn process_block(chain: &mut Chain, block: Arc<Block>) {

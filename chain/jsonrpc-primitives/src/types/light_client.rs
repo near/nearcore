@@ -29,6 +29,13 @@ pub struct RpcLightClientExecutionProofResponse {
     pub outcome_root_proof: near_primitives::merkle::MerklePath,
     pub block_header_lite: near_primitives::views::LightClientBlockLiteView,
     pub block_proof: near_primitives::merkle::MerklePath,
+    /// Spice: `block_header_lite`'s leaf into the certifying block's batch root. `block_proof`
+    /// then anchors `certifying_block_header_lite` into the head's `block_merkle_root`. Absent
+    /// for non-spice blocks, where `block_proof` anchors `block_header_lite` directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_proof: Option<near_primitives::merkle::MerklePath>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certifying_block_header_lite: Option<near_primitives::views::LightClientBlockLiteView>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -43,6 +50,10 @@ pub struct RpcLightClientNextBlockResponse {
 pub struct RpcLightClientBlockProofResponse {
     pub block_header_lite: near_primitives::views::LightClientBlockLiteView,
     pub block_proof: near_primitives::merkle::MerklePath,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_proof: Option<near_primitives::merkle::MerklePath>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certifying_block_header_lite: Option<near_primitives::views::LightClientBlockLiteView>,
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]

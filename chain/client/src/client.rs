@@ -1159,11 +1159,20 @@ impl Client {
                 .chain
                 .spice_core_reader
                 .spice_chunk_endorsement_stats_for_next_block(prev_header, height)?;
+            let certified_block_merkle_root = self
+                .chain
+                .spice_core_reader
+                .certified_batch(prev_header.hash(), &core_statements)?
+                .root;
+            let last_certified_block =
+                self.chain.spice_core_reader.last_certified_block_hash(prev_header.hash())?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,
                 prev_last_certified_block_epoch_id,
                 spice_chunk_endorsement_stats,
+                certified_block_merkle_root,
+                last_certified_block,
             })
         } else {
             None

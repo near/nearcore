@@ -861,6 +861,11 @@ pub struct GetBlockProof {
 pub struct GetBlockProofResponse {
     pub block_header_lite: LightClientBlockLiteView,
     pub proof: MerklePath,
+    /// Spice: `block_header_lite`'s leaf into the certifying block's batch root. `proof` then
+    /// anchors that certifying block (`certifying_block_header_lite`) into `block_merkle_root`.
+    /// `None` for non-spice blocks, where `proof` anchors `block_header_lite` directly.
+    pub batch_proof: Option<MerklePath>,
+    pub certifying_block_header_lite: Option<LightClientBlockLiteView>,
 }
 
 #[derive(thiserror::Error, Debug)]

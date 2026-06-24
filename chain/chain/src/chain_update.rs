@@ -314,6 +314,17 @@ impl<'a> ChainUpdate<'a> {
                 self.epoch_manager.as_ref(),
                 &block,
             )?;
+            // Index the blocks this block certifies onto itself, but only while it is canonical
+            // (the header head can be ahead from header sync); `update_height` re-points on reorg.
+            let is_canonical =
+                match self.chain_store_update.get_block_hash_by_height(block.header().height()) {
+                    Ok(hash) => hash == *block.hash(),
+                    Err(Error::DBNotFoundErr(_)) => false,
+                    Err(err) => return Err(err),
+                };
+            if is_canonical {
+                self.chain_store_update.index_certified_by_block(&block)?;
+            }
         }
 
         // Update the chain head if it's the new tip
