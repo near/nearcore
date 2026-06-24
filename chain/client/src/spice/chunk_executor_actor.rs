@@ -89,10 +89,8 @@ pub(crate) struct PerShardDeps {
     pub(crate) core_reader: SpiceCoreReader,
 }
 
-/// Per-tracked-shard executor. This change lands the chassis and lifecycle; the
-/// apply path, sinks, and receipt tracker migrate here in follow-up changes, which
-/// wire in these fields and drop the suppression.
-#[allow(dead_code)]
+/// Per-tracked-shard executor: owns this shard's parked-block queue, in-flight
+/// set, and network-receipt buffer, and runs the apply path for its shard.
 pub(crate) struct PerShardChunkExecutor {
     shard_uid: ShardUId,
     chain_store: ChainStoreAdapter,
@@ -167,10 +165,8 @@ pub struct ChunkExecutorActor {
 
     /// One executor per tracked shard, reconciled on every block. Keyed by
     /// `ShardUId` so per-shard state can't be conflated across shard layouts.
+    /// Each owns its own network-receipt buffer (no coordinator-side receipt state).
     per_shard_executors: HashMap<ShardUId, PerShardChunkExecutor>,
-
-    /// Coordinator-side network-receipt buffer; not yet partitioned per shard.
-    pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
@@ -212,7 +208,6 @@ impl ChunkExecutorActor {
             data_distributor_adapter,
             core_writer_sender,
             config,
-            pending_unverified_receipts: HashMap::new(),
         }
     }
 }
@@ -249,39 +244,25 @@ pub struct ExecutorIncomingUnverifiedReceipts {
     pub receipt_proof: ReceiptProof,
 }
 
-struct VerifiedReceipts {
-    receipt_proof: ReceiptProof,
-    block_hash: CryptoHash,
-}
-
-enum ReceiptVerificationContext {
-    NotReady,
-    Ready { execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> },
-}
-
-impl ExecutorIncomingUnverifiedReceipts {
-    /// Returns VerifiedReceipts iff receipts are valid.
-    /// execution_results should contain results for all shards of the relevant block.
-    fn verify(
-        self,
-        execution_results: &HashMap<ShardId, Arc<ChunkExecutionResult>>,
-    ) -> Result<VerifiedReceipts, Error> {
-        let Some(execution_result) = execution_results.get(&self.receipt_proof.1.from_shard_id)
-        else {
-            debug_assert!(false, "execution results missing results when verifying receipts");
-            tracing::error!(
-                target: "chunk_executor",
-                from_shard_id=?self.receipt_proof.1.from_shard_id,
-                "execution results missing results when verifying receipts"
-            );
-            return Err(Error::InvalidShardId(self.receipt_proof.1.from_shard_id));
-        };
-        if !self.receipt_proof.verify_against_receipt_root(execution_result.outgoing_receipts_root)
-        {
-            return Err(Error::InvalidReceiptsProof);
-        }
-        Ok(VerifiedReceipts { receipt_proof: self.receipt_proof, block_hash: self.block_hash })
+/// Verify a network-path receipt proof against the source block's execution
+/// results. `execution_results` must hold results for the proof's source shard.
+fn verify_receipt_proof(
+    receipt_proof: &ReceiptProof,
+    execution_results: &HashMap<ShardId, Arc<ChunkExecutionResult>>,
+) -> Result<(), Error> {
+    let Some(execution_result) = execution_results.get(&receipt_proof.1.from_shard_id) else {
+        debug_assert!(false, "execution results missing results when verifying receipts");
+        tracing::error!(
+            target: "chunk_executor",
+            from_shard_id=?receipt_proof.1.from_shard_id,
+            "execution results missing results when verifying receipts"
+        );
+        return Err(Error::InvalidShardId(receipt_proof.1.from_shard_id));
+    };
+    if !receipt_proof.verify_against_receipt_root(execution_result.outgoing_receipts_root) {
+        return Err(Error::InvalidReceiptsProof);
     }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -312,23 +293,27 @@ enum ApplyOutcome {
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
-        let block_hash = receipts.block_hash;
+        let ExecutorIncomingUnverifiedReceipts { block_hash, receipt_proof } = receipts;
         tracing::debug!(
             target: "chunk_executor",
             %block_hash,
-            receipt_proofs=?receipts.receipt_proof,
+            ?receipt_proof,
             "received receipts",
         );
-        self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
-        // Some additional receipts can arrive after we have already started executing the block.
-        // (For example receiving receipts from push/pull code paths.) In this case we want to make
-        // sure we process pending receipts to make sure don't leak memory by storing unverified
-        // receipts indefinitely.
-        // The receipt buffer is still coordinator-side (not yet partitioned per shard).
-        if let Err(err) = self.try_process_pending_unverified_receipts(&block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while trying to save pending unverified receipts");
+        // Route to the destination shard's executor, which owns the buffer for
+        // receipts addressed to it.
+        let to_shard_id = receipt_proof.1.to_shard_id;
+        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
+        // dropped here if it arrives before reconcile created the executor (startup /
+        // catch-up, or around an epoch boundary). Reconcile from the source block's
+        // parent and retry the lookup before treating the shard as untracked.
+        let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
+            tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
+            return;
+        };
+        if let Err(err) = executor.handle_incoming_receipt(block_hash, receipt_proof) {
+            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling incoming receipt");
         }
-        self.drive_all_pending();
     }
 }
 
@@ -344,13 +329,13 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
 
 impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
-        // The unverified-receipt buffer is still coordinator-side; drain it for this
-        // source block, then re-drive every shard's parked queue (a landed chunk execution result can
-        // unblock parked children).
-        if let Err(err) = self.try_process_pending_unverified_receipts(&block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while processing pending unverified receipts");
+        // A landed chunk execution result lets each shard verify receipts buffered
+        // against this source block and unblock parked children gated on it.
+        for executor in self.per_shard_executors.values_mut() {
+            if let Err(err) = executor.handle_execution_result_endorsed(&block_hash) {
+                tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling execution result endorsed");
+            }
         }
-        self.drive_all_pending();
     }
 }
 
@@ -424,19 +409,14 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Route a processed block: reconcile the tracked-shard set, drain the
-    /// coordinator-side receipt buffer for the parent (not yet partitioned per
-    /// shard), then hand the block to every tracked shard's executor.
+    /// Route a processed block: reconcile the tracked-shard set, then hand the
+    /// block to every tracked shard's executor (each drains its own receipt
+    /// buffer for the parent block).
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         let prev_block_hash = *block.header().prev_hash();
         self.reconcile_tracked_shards(&prev_block_hash)?;
-        // TODO(spice): refactor try_process_pending_unverified_receipts to take prev_block_execution_results as argument.
-        if let Err(err) = self.try_process_pending_unverified_receipts(&prev_block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failure when processing pending unverified receipts");
-            return Err(err);
-        }
         // TODO(spice): handle a node tracking zero shards (e.g. a `NoShards` light
         // client). With no executors here, nothing schedules an apply, so the
         // runtime finalize trigger (`coordinator_post_apply`, fired on apply-done)
@@ -446,14 +426,6 @@ impl ChunkExecutorActor {
             executor.handle_processed_block(&block);
         }
         Ok(())
-    }
-
-    /// Re-drive every tracked shard's parked queue — used when a receipt or chunk execution result
-    /// lands that could unblock parked blocks across shards.
-    fn drive_all_pending(&mut self) {
-        for executor in self.per_shard_executors.values_mut() {
-            executor.try_apply_pending();
-        }
     }
 
     /// Find the executor that owns `shard_id`. Receipt routing identifies the
@@ -526,6 +498,13 @@ impl PerShardChunkExecutor {
     /// Park `block` and try to drain — the per-shard half of the coordinator
     /// routing a processed block to this shard.
     fn handle_processed_block(&mut self, block: &Block) {
+        // The parent's execution results may already be available (e.g. catching
+        // up), so verify-drain any receipts buffered against it before parking, so
+        // this block can find its incoming receipts on disk.
+        let prev_block_hash = *block.header().prev_hash();
+        if let Err(err) = self.try_drain_unverified_receipts(&prev_block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %prev_block_hash, "failed to drain unverified receipts on processed block");
+        }
         self.parked_blocks.insert((block.header().height(), *block.hash()));
         self.try_apply_pending();
     }
@@ -803,7 +782,7 @@ impl ChunkExecutorActor {
     /// and finalize each block whose tracked shards all have `ChunkExtra` on
     /// disk. Used on startup to recover from a crash between apply-commit and
     /// finalize; the hot path finalizes directly in `coordinator_post_apply`.
-    fn advance_execution_head(&self) -> Result<(), Error> {
+    fn advance_execution_head(&mut self) -> Result<(), Error> {
         loop {
             let head = self.chain_store.spice_execution_head()?.last_block_hash;
             let next = match self.chain_store.get_next_block_hash(&head) {
@@ -826,14 +805,20 @@ impl ChunkExecutorActor {
         }
     }
 
-    fn finalize_block(&self, block_hash: &CryptoHash) -> Result<(), Error> {
+    fn finalize_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         apply_block_postprocessing(
             self.runtime_adapter.as_ref(),
             self.epoch_manager.as_ref(),
             &self.chain_store,
             &block,
-        )
+        )?;
+        // The final execution head may have advanced; drop receipts buffered
+        // against source blocks at or below it — they can never be applied.
+        for executor in self.per_shard_executors.values_mut() {
+            executor.prune_unverified_receipts_below_final_head()?;
+        }
+        Ok(())
     }
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
@@ -1107,54 +1092,104 @@ impl PerShardChunkExecutor {
         }
         store_update.commit();
     }
-}
 
-impl ChunkExecutorActor {
-    fn save_verified_receipts(&self, verified_receipts: &VerifiedReceipts) {
-        let store = self.chain_store.store();
-        let mut store_update = store.store_update();
-        let VerifiedReceipts { receipt_proof, block_hash } = verified_receipts;
-        save_receipt_proof(&mut store_update, &block_hash, &receipt_proof);
-        store_update.commit();
+    /// Buffer a network-path receipt proof against its source block until that
+    /// block's execution results land and the proof can be verified.
+    fn buffer_unverified_receipt(&mut self, source_block: CryptoHash, receipt_proof: ReceiptProof) {
+        self.unverified_receipts.entry(source_block).or_default().push(receipt_proof);
     }
 
-    fn receipts_verification_context(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<ReceiptVerificationContext, Error> {
-        let block = self.chain_store.get_block(block_hash)?;
+    /// Verify and persist any receipts buffered against `source_block` once its
+    /// execution results are available. Invalid proofs are dropped with a warning.
+    fn try_drain_unverified_receipts(&mut self, source_block: &CryptoHash) -> Result<(), Error> {
+        let block = match self.chain_store.get_block(source_block) {
+            Ok(block) => block,
+            // Source block not on disk yet — nothing to drain. A later receipt or
+            // chunk execution result endorsement re-drives once it lands.
+            Err(Error::DBNotFoundErr(_)) => return Ok(()),
+            Err(err) => return Err(err),
+        };
         if !self.core_reader.all_execution_results_exist(block.header())? {
-            return Ok(ReceiptVerificationContext::NotReady);
+            return Ok(());
         }
         let execution_results =
             self.core_reader.get_execution_results_by_shard_id(block.header())?;
-        Ok(ReceiptVerificationContext::Ready { execution_results })
-    }
-
-    fn try_process_pending_unverified_receipts(
-        &mut self,
-        block_hash: &CryptoHash,
-    ) -> Result<(), Error> {
-        let verification_context = self.receipts_verification_context(&block_hash)?;
-        let ReceiptVerificationContext::Ready { execution_results } = verification_context else {
+        let Some(receipt_proofs) = self.unverified_receipts.remove(source_block) else {
             return Ok(());
         };
-        let pending_receipts = self.pending_unverified_receipts.remove(block_hash);
-        for receipt in pending_receipts.into_iter().flatten() {
-            let verified_receipts = match receipt.verify(&execution_results) {
-                Ok(verified_receipts) => verified_receipts,
-                Err(err) => {
-                    // TODO(spice): Notify spice data distributor about invalid receipts so it can ban
-                    // or de-prioritize the node which sent them.
-                    tracing::warn!(target: "chunk_executor", ?err, ?block_hash, "encountered invalid receipts");
-                    continue;
+        for receipt_proof in receipt_proofs {
+            match verify_receipt_proof(&receipt_proof, &execution_results) {
+                // Commit each proof in its own transaction: duplicate network
+                // deliveries share a key, so batching them would overwrite within
+                // one transaction. Separate commits make the writes idempotent.
+                Ok(()) => {
+                    let mut store_update = self.chain_store.store().store_update();
+                    save_receipt_proof(&mut store_update, source_block, &receipt_proof);
+                    store_update.commit();
                 }
-            };
-            self.save_verified_receipts(&verified_receipts);
+                // TODO(spice): Notify spice data distributor about invalid receipts so it can ban
+                // or de-prioritize the node which sent them.
+                Err(err) => {
+                    tracing::warn!(target: "chunk_executor", ?err, %source_block, "encountered invalid receipts")
+                }
+            }
         }
         Ok(())
     }
 
+    /// Drop receipts buffered against source blocks at or below the final
+    /// execution head — they can never be applied.
+    fn prune_unverified_receipts_below_final_head(&mut self) -> Result<(), Error> {
+        // Absent on non-spice nodes (seeded only when SPICE is enabled at genesis);
+        // nothing below it to prune then.
+        let final_head = match self.chain_store.spice_final_execution_head() {
+            Ok(head) => head,
+            Err(Error::DBNotFoundErr(_)) => return Ok(()),
+            Err(err) => return Err(err),
+        };
+        let mut stale = Vec::new();
+        for source_block in self.unverified_receipts.keys().copied() {
+            match self.chain_store.get_block_header(&source_block) {
+                // At or below the final head: can never be applied again — drop it.
+                Ok(header) if header.height() <= final_head.height => stale.push(source_block),
+                Ok(_) => {}
+                // Source block not on disk yet: a receipt can outrun its block, so the
+                // block may still arrive and the receipt still apply — keep it. (A block
+                // that never arrives leaks its buffered receipts, but that's rare —
+                // abandoned forks only — and we have no height to prune it safely.)
+                Err(Error::DBNotFoundErr(_)) => {}
+                Err(err) => return Err(err),
+            }
+        }
+        for source_block in stale {
+            self.unverified_receipts.remove(&source_block);
+        }
+        Ok(())
+    }
+
+    /// Network receipt arrival for this shard: buffer it, verify-drain if ready,
+    /// then re-drive the parked queue.
+    fn handle_incoming_receipt(
+        &mut self,
+        source_block: CryptoHash,
+        receipt_proof: ReceiptProof,
+    ) -> Result<(), Error> {
+        self.buffer_unverified_receipt(source_block, receipt_proof);
+        self.try_drain_unverified_receipts(&source_block)?;
+        self.try_apply_pending();
+        Ok(())
+    }
+
+    /// The chunk execution result for `source_block` landed: drain receipts buffered
+    /// against it and re-drive this shard's parked queue.
+    fn handle_execution_result_endorsed(&mut self, source_block: &CryptoHash) -> Result<(), Error> {
+        self.try_drain_unverified_receipts(source_block)?;
+        self.try_apply_pending();
+        Ok(())
+    }
+}
+
+impl ChunkExecutorActor {
     fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
         let start_block = match self.chain_store.spice_final_execution_head() {
             Ok(final_execution_head) => final_execution_head.last_block_hash,
@@ -1191,7 +1226,10 @@ impl ChunkExecutorActor {
 
     #[cfg(test)]
     pub fn pending_receipts_count(&self) -> usize {
-        self.pending_unverified_receipts.len()
+        // Sum across per-shard trackers. Matches the old coordinator-side count
+        // under a single-shard regime; may overcount under multi-shard since each
+        // shard's tracker keys by source block independently.
+        self.per_shard_executors.values().map(|executor| executor.unverified_receipts.len()).sum()
     }
 }
 
