@@ -376,19 +376,28 @@ impl SpiceCoreReader {
         Ok(*get_last_certified_block_header(&self.chain_store, prev_hash)?.hash())
     }
 
-    /// Recomputes a block's certified batch root from its own statements and rejects a
-    /// header that committed a different value. Self-contained, no saved tree to read.
-    /// `last_certified_block` is an unvalidated convenience field (not a proof anchor).
+    /// Recomputes a block's certified batch root and last-certified-block from its own
+    /// statements and rejects a header that committed different values. Self-contained,
+    /// no saved tree to read.
     pub fn validate_certified_batch_root(&self, block: &Block) -> Result<(), Error> {
         let header = block.header();
-        let expected_root =
-            self.certified_batch(header.prev_hash(), block.spice_core_statements())?.root;
+        let prev_hash = header.prev_hash();
+        let expected_root = self.certified_batch(prev_hash, block.spice_core_statements())?.root;
         let actual_root = header.certified_block_merkle_root().ok_or_else(|| {
             Error::Other("spice block missing certified_block_merkle_root".to_string())
         })?;
         if *actual_root != expected_root {
             return Err(Error::Other(format!(
                 "invalid certified_block_merkle_root: header {actual_root}, computed {expected_root}"
+            )));
+        }
+        let expected_last = self.last_certified_block_hash(prev_hash)?;
+        let actual_last = header
+            .last_certified_block()
+            .ok_or_else(|| Error::Other("spice block missing last_certified_block".to_string()))?;
+        if *actual_last != expected_last {
+            return Err(Error::Other(format!(
+                "invalid last_certified_block: header {actual_last}, computed {expected_last}"
             )));
         }
         Ok(())
