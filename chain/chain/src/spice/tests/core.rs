@@ -1610,20 +1610,10 @@ fn test_validate_certified_batch_root_rejects_wrong_fields() {
 
     let bad_root = block_builder(&chain, &b2)
         .certified_block_merkle_root(*b2.hash())
-        .last_certified_block(core_reader.last_certified_block_hash(b2.hash()).unwrap())
         .spice_core_statements(block_certification_core_statements(&b2))
         .build();
     let err = core_reader.validate_certified_batch_root(&bad_root).unwrap_err();
     assert!(format!("{err:?}").contains("invalid certified_block_merkle_root"), "{err:?}");
-
-    let bad_last = build_block(&chain, &b2, block_certification_core_statements(&b2));
-    let bad_last = block_builder(&chain, &b2)
-        .certified_block_merkle_root(*bad_last.header().certified_block_merkle_root().unwrap())
-        .last_certified_block(*b2.hash())
-        .spice_core_statements(block_certification_core_statements(&b2))
-        .build();
-    let err = core_reader.validate_certified_batch_root(&bad_last).unwrap_err();
-    assert!(format!("{err:?}").contains("invalid last_certified_block"), "{err:?}");
 }
 
 fn block_certification_core_statements_with_state_root(

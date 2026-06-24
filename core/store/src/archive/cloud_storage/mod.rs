@@ -187,7 +187,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
 fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
     // TODO(spice): decide how the reader handles spice columns.
     #[cfg(feature = "protocol_feature_spice")]
-    if col == DBCol::ReceiptProofs {
+    if matches!(col, DBCol::ReceiptProofs | DBCol::CertifiedByBlock) {
         return true;
     }
     matches!(
