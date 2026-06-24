@@ -260,6 +260,23 @@ impl ShardTracker {
             .collect())
     }
 
+    /// Shards tracked this or next epoch. The "or next epoch" part keeps a shard
+    /// rotating in next epoch alive ahead of the boundary, so its per-shard state
+    /// is ready when the boundary arrives.
+    pub fn tracked_shard_uids_this_or_next_epoch(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ShardUId>, EpochError> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        Ok(shard_layout
+            .shard_uids()
+            .filter(|shard_uid| {
+                self.cares_about_shard_this_or_next_epoch(parent_hash, shard_uid.shard_id())
+            })
+            .collect())
+    }
+
     /// Whether the client cares about some shard right now.
     pub fn cares_about_shard(&self, parent_hash: &CryptoHash, shard_id: ShardId) -> bool {
         let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
