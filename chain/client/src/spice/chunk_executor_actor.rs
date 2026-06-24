@@ -1491,11 +1491,11 @@ pub mod testonly {
         fn run_internal_events(&mut self) {
             loop {
                 let mut events_processed = 0;
-                while let Ok(task) = self.tasks_rc.try_recv() {
+                while let Ok(Some(task)) = self.tasks_rc.try_next() {
                     events_processed += 1;
                     task();
                 }
-                while let Ok(event) = self.actor_rc.try_recv() {
+                while let Ok(Some(event)) = self.actor_rc.try_next() {
                     events_processed += 1;
                     self.actor.handle_apply_chunks_done(event).unwrap();
                 }
