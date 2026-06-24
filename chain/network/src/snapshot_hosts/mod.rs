@@ -178,19 +178,34 @@ impl Inner {
         Some(d)
     }
 
+    /// Adds the peer to the shard-specific caches, but only if the info matches
+    /// the sync hash we are currently syncing.
+    fn add_to_shard_hosts(&mut self, info: &SnapshotHostInfo) {
+        if self.current_state_sync_hash.as_ref() != Some(&info.sync_hash) {
+            return;
+        }
+        for shard_id in &info.shards {
+            self.hosts_for_shard.entry(*shard_id).or_default().insert(info.peer_id.clone());
+        }
+    }
+
+    fn remove_from_shard_hosts(&mut self, peer_id: &PeerId) {
+        for hosts in self.hosts_for_shard.values_mut() {
+            hosts.remove(peer_id);
+        }
+    }
+
     /// Ingests a new SnapshotHostInfo into the cache
     /// assumes that the SnapshotHostInfo is valid and new
     fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
-        // If we have an active state sync and this info matches its sync hash, add it to the shard-specific caches
-        if self.current_state_sync_hash.as_ref() == Some(&d.sync_hash) {
-            for shard_id in &d.shards {
-                self.hosts_for_shard
-                    .entry(*shard_id)
-                    .or_insert(HashSet::default())
-                    .insert(d.peer_id.clone());
+        self.add_to_shard_hosts(d.as_ref());
+        // `push` returns a different peer on eviction, or `d` itself on a
+        // same-key update; only an eviction should leave the shard caches.
+        if let Some((displaced, _)) = self.hosts.push(d.peer_id.clone(), d.clone()) {
+            if displaced != d.peer_id {
+                self.remove_from_shard_hosts(&displaced);
             }
         }
-        self.hosts.push(d.peer_id.clone(), d.clone());
     }
 
     /// Updates the current state sync hash. This is called when a local state sync request is initiated.
@@ -206,15 +221,9 @@ impl Inner {
         self.peer_selector.clear();
 
         // Rebuild the shard-specific caches with hosts that match the new sync hash
-        for (_, info) in &self.hosts {
-            if info.sync_hash == *sync_hash {
-                for shard_id in &info.shards {
-                    self.hosts_for_shard
-                        .entry(*shard_id)
-                        .or_insert(HashSet::default())
-                        .insert(info.peer_id.clone());
-                }
-            }
+        let known_hosts: Vec<_> = self.hosts.iter().map(|(_, info)| info.clone()).collect();
+        for info in &known_hosts {
+            self.add_to_shard_hosts(info.as_ref());
         }
     }
 
@@ -235,6 +244,8 @@ impl Inner {
             let Some((peer_id, info)) = self.hosts.pop_lru() else { break };
             if info.epoch_height >= min_epoch_to_keep {
                 new_hosts.push(peer_id, info);
+            } else {
+                self.remove_from_shard_hosts(&peer_id);
             }
         }
         self.hosts = new_hosts;
@@ -419,5 +430,10 @@ impl SnapshotHostsCache {
     pub(crate) fn has_selector(&self, shard_id: ShardId, part_id: u64) -> bool {
         let inner = self.0.lock();
         inner.peer_selector.contains_key(&(shard_id, part_id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shard_host_peers(&self) -> HashSet<PeerId> {
+        self.0.lock().hosts_for_shard.values().flatten().cloned().collect()
     }
 }
