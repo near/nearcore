@@ -1,13 +1,8 @@
-//! Transaction-inclusion limits and RPC rejection under congestion control.
-//!
-//! Migrated from `integration-tests/src/tests/features/congestion_control.rs`
-//! (the `TestEnv` versions). These exercise how many transactions get included
-//! per chunk as a shard becomes congested, and that the RPC layer rejects new
-//! transactions to a fully-congested shard.
-//!
-//! Phase 1 of the migration covers the non-spice path only; the tests are
-//! ignored under spice (chunk-production-time congestion gating reads a lagging
-//! signal there — handled separately in a follow-up).
+//! Transaction-inclusion limits and RPC rejection under congestion control: how
+//! many transactions get included per chunk as a shard becomes congested, and that
+//! the RPC layer rejects transactions to a fully-congested shard. Runs under spice
+//! and non-spice; congestion is read from the executed `ChunkExtra` at the
+//! execution head.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -15,6 +10,7 @@ use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, execute_tx};
 use assert_matches::assert_matches;
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
@@ -27,19 +23,20 @@ use near_primitives::errors::{
     ActionErrorKind, FunctionCallError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockHeight, Gas, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
+use std::sync::Arc;
 
 const ACCOUNT_PARENT_ID: &str = "near";
 const CONTRACT_ID: &str = "contract.near";
 
 // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
 fn set_wasm_cost(config: &mut RuntimeConfig) {
-    let wasm_config = std::sync::Arc::make_mut(&mut config.wasm_config);
+    let wasm_config = Arc::make_mut(&mut config.wasm_config);
     wasm_config.regular_op_cost = u32::MAX;
 }
 
@@ -52,8 +49,8 @@ fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mu
     config.congestion_control_config = cc_config.congestion_control_config;
 }
 
-/// Single node tracking all 4 shards, with zeroed wasm cost and pinned
-/// congestion-control parameters.
+/// Single node tracking all 4 shards, with inflated per-op wasm cost (so
+/// gas-burning calls finish fast) and pinned congestion-control parameters.
 fn setup_congestion_env() -> TestLoopEnv {
     let parent: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
     let test0: AccountId = "test0".parse().unwrap();
@@ -64,7 +61,7 @@ fn setup_congestion_env() -> TestLoopEnv {
         .transaction_validity_period(20)
         .shard_layout(ShardLayout::multi_shard(4, 3))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&vec![parent.clone(), test0], Balance::from_near(1_000_000_000))
+        .add_user_accounts_simple(&[parent.clone(), test0], Balance::from_near(1_000_000_000))
         .build();
     let epoch_config_store =
         TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
@@ -87,17 +84,12 @@ fn setup_congestion_env() -> TestLoopEnv {
 // ---- low-level helpers operating on the single node (index 0) ----
 
 fn head_height(env: &TestLoopEnv) -> BlockHeight {
-    env.node(0).head().height
+    env.validator().head().height
 }
 
 /// Advance the chain by exactly one block.
 fn produce_one_block(env: &mut TestLoopEnv) {
-    let target = head_height(env) + 1;
-    let handle = env.node_datas[0].client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| data.get(&handle).client.chain.head().unwrap().height >= target,
-        Duration::seconds(20),
-    );
+    env.validator_runner().run_for_number_of_blocks(1);
 }
 
 /// Submit a transaction to the node's pool synchronously and return the
@@ -134,12 +126,20 @@ fn head_chunk_num_tx(node: &TestLoopNode, shard_id: ShardId) -> usize {
     head_chunk(node, shard_id).to_transactions().len()
 }
 
+/// Congestion info of the shard's last executed chunk, from its `ChunkExtra` at
+/// `last_executed()` (the execution head, which trails consensus under spice).
 fn head_congestion_info(node: &TestLoopNode, shard_id: ShardId) -> CongestionInfo {
-    let block = node.head_block();
+    let executed_hash = node.last_executed().last_block_hash;
+    let block = node.block(executed_hash);
     let shard_layout =
         node.client().epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-    block.chunks().get(shard_index).expect("chunk header must be available").congestion_info()
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    node.client()
+        .chain
+        .chain_store()
+        .get_chunk_extra(&executed_hash, &shard_uid)
+        .unwrap()
+        .congestion_info()
 }
 
 fn head_congestion_control_config(node: &TestLoopNode) -> CongestionControlConfig {
@@ -198,7 +198,7 @@ fn new_cheap_fn_call(
 /// Submit N 100-Tgas function calls to the pool. Returns the number accepted
 /// (the rest were rejected for shard congestion).
 fn submit_n_100tgas_fns(env: &TestLoopEnv, n: u32, nonce: &mut u64, signer: &Signer) -> u32 {
-    let block_hash = env.node(0).head().last_block_hash;
+    let block_hash = env.validator().head().last_block_hash;
     let mut included = 0;
     for _ in 0..n {
         let tx = new_fn_call_100tgas(nonce, signer, block_hash);
@@ -219,7 +219,7 @@ fn submit_n_cheap_fns(
     signer: &Signer,
     receiver: &AccountId,
 ) {
-    let block_hash = env.node(0).head().last_block_hash;
+    let block_hash = env.validator().head().last_block_hash;
     for _ in 0..n {
         let tx = new_cheap_fn_call(nonce, signer, receiver.clone(), block_hash);
         assert_eq!(process_tx(env, tx), ProcessTxResponse::ValidTx);
@@ -230,8 +230,8 @@ fn submit_n_cheap_fns(
 
 fn setup_account(env: &mut TestLoopEnv, account_id: &AccountId, account_parent_id: &AccountId) {
     let signer = InMemorySigner::test_signer(account_parent_id);
-    let block_hash = env.node(0).head().last_block_hash;
-    let nonce = env.node(0).get_next_nonce(account_parent_id);
+    let block_hash = env.validator().head().last_block_hash;
+    let nonce = env.validator().get_next_nonce(account_parent_id);
     let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
     let tx = SignedTransaction::create_account(
         nonce,
@@ -252,8 +252,8 @@ fn setup_contract(env: &mut TestLoopEnv) {
     let signer = InMemorySigner::test_signer(&parent);
     let contract = near_test_contracts::congestion_control_test_contract();
 
-    let block_hash = env.node(0).head().last_block_hash;
-    let nonce = env.node(0).get_next_nonce(&parent);
+    let block_hash = env.validator().head().last_block_hash;
+    let nonce = env.validator().get_next_nonce(&parent);
     let create_contract_tx = SignedTransaction::create_contract(
         nonce,
         parent.clone(),
@@ -270,8 +270,8 @@ fn setup_contract(env: &mut TestLoopEnv) {
     );
 
     // The function call should end in a gas-exceeded error.
-    let block_hash = env.node(0).head().last_block_hash;
-    let mut nonce = env.node(0).get_next_nonce(&parent);
+    let block_hash = env.validator().head().last_block_hash;
+    let mut nonce = env.validator().get_next_nonce(&parent);
     let fn_tx = new_fn_call_100tgas(&mut nonce, &signer, block_hash);
     let FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) =
         execute_setup_tx(env, fn_tx)
@@ -301,13 +301,16 @@ fn measure_remote_tx_limit(
     let dummy_id: AccountId = "test2.near".parse().unwrap();
     let env = setup_congestion_env();
 
-    let node = env.node(0);
-    let tip = node.head();
-    let shard_layout = node.client().epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
-    let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
-    let dummy_shard_id = shard_layout.account_id_to_shard_id(&dummy_id);
-    drop(node);
+    let (contract_shard_id, remote_shard_id, dummy_shard_id) = {
+        let node = env.validator();
+        let tip = node.head();
+        let shard_layout = node.client().epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+        (
+            shard_layout.account_id_to_shard_id(&contract_id),
+            shard_layout.account_id_to_shard_id(&remote_id),
+            shard_layout.account_id_to_shard_id(&dummy_id),
+        )
+    };
 
     // For a clean test setup, ensure we use 3 different shards.
     assert_ne!(remote_shard_id, contract_shard_id);
@@ -335,7 +338,7 @@ fn measure_tx_limit(
     let remote_signer: Signer = InMemorySigner::test_signer(&remote_id);
     let local_signer: Signer = InMemorySigner::test_signer(&contract_id);
     let (remote_shard_id, contract_shard_id, config) = {
-        let node = env.node(0);
+        let node = env.validator();
         let tip = node.head();
         let shard_layout = node.client().epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         (
@@ -368,10 +371,10 @@ fn measure_tx_limit(
     for i in 2..timeout {
         produce_one_block(&mut env);
 
-        let node = env.node(0);
-        let remote_num_tx = head_chunk_num_tx(&node, remote_shard_id);
-        let local_num_tx = head_chunk_num_tx(&node, contract_shard_id);
-        drop(node);
+        let (remote_num_tx, local_num_tx) = {
+            let node = env.validator();
+            (head_chunk_num_tx(&node, remote_shard_id), head_chunk_num_tx(&node, contract_shard_id))
+        };
 
         if i == 2 {
             remote_tx_included_without_congestion = remote_num_tx;
@@ -386,7 +389,7 @@ fn measure_tx_limit(
 
     // Now we expect the contract's shard to have non-trivial incoming congestion.
     let (incoming_congestion, congestion_level, congestion_info) = {
-        let node = env.node(0);
+        let node = env.validator();
         let congestion_info = head_congestion_info(&node, contract_shard_id);
         (
             congestion_info.incoming_congestion(&config),
@@ -408,7 +411,7 @@ fn measure_tx_limit(
     submit_n_cheap_fns(&env, 1000, &mut nonce, &local_signer, &dummy_receiver);
     produce_one_block(&mut env);
     produce_one_block(&mut env);
-    let node = env.node(0);
+    let node = env.validator();
     let remote_tx_included_with_congestion = head_chunk_num_tx(&node, remote_shard_id);
     let local_tx_included_with_congestion = head_chunk_num_tx(&node, contract_shard_id);
 
@@ -423,7 +426,6 @@ fn measure_tx_limit(
 /// Test that less gas is attributed to transactions when the local shard has
 /// delayed receipts (local traffic only, contract signs its own calls).
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
 
@@ -454,7 +456,6 @@ fn test_transaction_limit_for_local_congestion() {
 
 /// Same as above but with remote traffic, staying below the reject threshold.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_limit_for_remote_congestion() {
     init_test_logger();
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
@@ -484,7 +485,6 @@ fn test_transaction_limit_for_remote_congestion() {
 
 /// Test that clients stop including transactions to fully congested receivers.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_transaction_filtering() {
     init_test_logger();
 
@@ -493,7 +493,7 @@ fn slow_test_transaction_filtering() {
     let (
         remote_tx_included_without_congestion,
         local_tx_included_without_congestion,
-        _remote_tx_included_with_congestion,
+        remote_tx_included_with_congestion,
         local_tx_included_with_congestion,
     ) = measure_remote_tx_limit(upper_limit_congestion);
 
@@ -506,13 +506,12 @@ fn slow_test_transaction_filtering() {
         "{local_tx_included_with_congestion} < {local_tx_included_without_congestion} failed"
     );
     // remote transactions, with full congestion, should be rejected (0 included)
-    assert_eq!(_remote_tx_included_with_congestion, 0);
+    assert_eq!(remote_tx_included_with_congestion, 0);
 }
 
 /// Test that RPC clients stop accepting transactions when the receiver is
 /// fully congested.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_client_rejection() {
     init_test_logger();
 
@@ -524,8 +523,8 @@ fn test_rpc_client_rejection() {
     let signer: Signer = InMemorySigner::test_signer(&sender_id);
 
     // Check we can send transactions at the start.
-    let mut nonce = env.node(0).get_next_nonce(&sender_id);
-    let block_hash = env.node(0).head().last_block_hash;
+    let mut nonce = env.validator().get_next_nonce(&sender_id);
+    let block_hash = env.validator().head().last_block_hash;
     let fn_tx = new_fn_call_100tgas(&mut nonce, &signer, block_hash);
     assert_eq!(process_tx(&env, fn_tx), ProcessTxResponse::ValidTx);
 
@@ -539,7 +538,7 @@ fn test_rpc_client_rejection() {
     }
 
     // Check that congestion control rejects new transactions.
-    let block_hash = env.node(0).head().last_block_hash;
+    let block_hash = env.validator().head().last_block_hash;
     let fn_tx = new_fn_call_100tgas(&mut nonce, &signer, block_hash);
     assert_matches!(
         process_tx(&env, fn_tx),
