@@ -77,7 +77,7 @@ struct CacheEntry {
 }
 
 enum CacheUpdate {
-    WitnessPart(VersionedPartialEncodedStateWitness, Arc<ReedSolomonEncoder>),
+    WitnessPart(Box<VersionedPartialEncodedStateWitness>, Arc<ReedSolomonEncoder>),
     AccessedContractHashes(HashSet<CodeHash>),
     AccessedContractCodes(Vec<CodeBytes>),
 }
@@ -129,7 +129,7 @@ impl CacheEntry {
     ) -> Option<(DecodePartialWitnessResult, Vec<CodeBytes>)> {
         match update {
             CacheUpdate::WitnessPart(partial_witness, encoder) => {
-                self.process_witness_part(partial_witness, encoder);
+                self.process_witness_part(*partial_witness, encoder);
             }
             CacheUpdate::AccessedContractHashes(code_hashes) => {
                 self.set_requested_contracts(code_hashes);
@@ -374,7 +374,7 @@ impl PartialEncodedStateWitnessTracker {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
         let key = partial_witness.chunk_production_key();
         let encoder = self.get_encoder(&key)?;
-        let update = CacheUpdate::WitnessPart(partial_witness, encoder);
+        let update = CacheUpdate::WitnessPart(Box::new(partial_witness), encoder);
         self.process_update(key, true, update)
     }
 

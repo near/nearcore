@@ -399,10 +399,11 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
-    /// Pre-computed chunk producer for the chunk at height `prev_block.height+1` on the given shard.
-    /// Populated during header sync and block processing, gated behind `EarlyKickout` protocol feature.
-    /// Authoritative source for historical chunk producer lookups.
-    /// - *Rows*: BlockHash || ShardId (prev_block_hash, shard_id) — 40 bytes
+    /// Pre-computed chunk producer for the chunk anchored at the given block (its
+    /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
+    /// Populated during header sync and block processing, gated behind `EarlyKickout`
+    /// protocol feature. Authoritative source for historical chunk producer lookups.
+    /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
     // TODO(early-kickout): bump DB_VERSION before moving to stable so that
     // older databases get a proper migration and read-only opens don't fail on the

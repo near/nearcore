@@ -1218,9 +1218,9 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
     /// Error selecting chunk producer for a shard.
     ChunkProducerSelectionError(String),
-    /// Chunk producer entry not found in the ChunkProducers DB column.
-    /// This is transient during initial sync — the entry is populated when
-    /// the parent block is processed.
+    /// Chunk producer entry not found in the ChunkProducers DB column. The
+    /// `CryptoHash` is the chunk's grandparent anchor. This is transient during
+    /// initial sync — the entry is populated when the anchor block is processed.
     ChunkProducerNotInDB(CryptoHash, ShardId),
 }
 
