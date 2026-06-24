@@ -16,6 +16,7 @@ use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::types::BlockHeightDelta;
 
@@ -160,11 +161,11 @@ fn setup(
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
-    // TODO(SPICE): Spice execution-certification does not yet support shuffling chunk-producer
+    // TODO(spice): Spice execution-certification does not yet support shuffling chunk-producer
     // shard assignment across epoch boundaries: after the first boundary the prev
     // block's execution results never get certified (MissingExecutionResults for
     // all shards) and the chunk executor wedges.
-    let shuffle_shard_assignment = !cfg!(feature = "protocol_feature_spice");
+    let shuffle_shard_assignment = !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(shuffle_shard_assignment)
         .build_store_for_genesis_protocol_version();

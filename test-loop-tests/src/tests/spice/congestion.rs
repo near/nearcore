@@ -9,10 +9,8 @@
 //! bandwidth requests are generated in that lagging regime.
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::hash::CryptoHash;
@@ -42,23 +40,11 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
 
     // Two producers (which also endorse); no shard-assignment shuffle, which is
     // not yet supported by spice execution certification across epoch boundaries.
-    let validators_spec = create_validators_spec(2, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let node_account = clients[0].clone();
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout.clone())
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .build();
-    let epoch_config_store =
-        TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
+        .validators(2, 0)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
         .track_all_shards()
         .delay_warmup()
         .build();
@@ -66,15 +52,15 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
     let mut env = env.warmup();
 
     // Deploy the contract on the congested shard.
-    let deploy_tx = env.node_for_account(&node_account).tx_deploy_test_contract(&contract_id);
-    env.runner_for_account(&node_account).run_tx(deploy_tx, Duration::seconds(20));
+    let deploy_tx = env.validator().tx_deploy_test_contract(&contract_id);
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(20));
 
     // Fire a burst of gas-burning calls from every account to the single
     // contract, congesting its shard and generating cross-shard receipts.
     let burn_gas = Gas::from_teragas(250);
     let args = burn_gas.as_gas().to_le_bytes().to_vec();
     let tx_hashes: Vec<CryptoHash> = {
-        let node = env.node_for_account(&node_account);
+        let node = env.validator();
         accounts
             .iter()
             .map(|sender_id| {
@@ -106,7 +92,7 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
     let mut max_lag: u64 = 0;
     let mut max_delayed_gas: u128 = 0;
     let mut saw_bandwidth_scheduler_output = false;
-    env.runner_for_account(&node_account).run_until(
+    env.validator_runner().run_until(
         |node| {
             let head = node.head();
             let exec = node.last_executed();
