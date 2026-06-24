@@ -1483,8 +1483,12 @@ impl<'a> ChainStoreUpdate<'a> {
             // Re-point the certified-by-block index onto the canonical chain. A stale fork
             // entry then isn't reachable from the canonical block_merkle_root and fails closed.
             if header.is_spice() {
-                let block = self.get_block(&header_hash)?;
-                self.index_certified_by_block(&block)?;
+                // The header can be ahead of its body during sync; skip until the body lands.
+                match self.get_block(&header_hash) {
+                    Ok(block) => self.index_certified_by_block(&block)?,
+                    Err(Error::DBNotFoundErr(_)) => {}
+                    Err(err) => return Err(err),
+                }
             }
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {

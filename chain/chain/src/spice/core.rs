@@ -1212,7 +1212,13 @@ pub(crate) fn newly_certified_block_hashes_for_block(
     if block.header().is_genesis() {
         return Ok(vec![]);
     }
-    let prev_uncertified = get_uncertified_chunks(chain_store, block.header().prev_hash())?;
+    let prev_hash = block.header().prev_hash();
+    // A header can be synced ahead of its body, and old uncertified_chunks are garbage
+    // collected; in both cases there is nothing (left) to index for this block.
+    if !chain_store.store_ref().exists(DBCol::uncertified_chunks(), prev_hash.as_ref()) {
+        return Ok(vec![]);
+    }
+    let prev_uncertified = get_uncertified_chunks(chain_store, prev_hash)?;
     Ok(find_newly_certified_block_hashes(&prev_uncertified, block.spice_core_statements()))
 }
 
