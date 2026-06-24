@@ -260,9 +260,9 @@ impl ShardTracker {
             .collect())
     }
 
-    /// Shards tracked this or next epoch. Used to size per-shard state that must
-    /// persist across an epoch boundary (e.g. a shard rotating in next epoch
-    /// needs its state ready ahead of the boundary).
+    /// Shards tracked this or next epoch. The "or next epoch" part keeps a shard
+    /// rotating in next epoch alive ahead of the boundary, so its per-shard state
+    /// is ready when the boundary arrives.
     pub fn tracked_shard_uids_this_or_next_epoch(
         &self,
         parent_hash: &CryptoHash,

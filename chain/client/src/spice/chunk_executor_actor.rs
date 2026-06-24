@@ -305,7 +305,7 @@ enum ApplyOutcome {
     /// Block is no longer relevant for this shard (past the final execution
     /// head, not in this shard's layout, or already applied on disk).
     Dropped,
-    /// Inputs not yet on disk (prev CER, prev chunk extra, or receipts missing).
+    /// Inputs not yet on disk (prev chunk execution result, prev chunk extra, or receipts missing).
     /// Re-driven by a later receipt / endorsement / sibling apply.
     NotReady,
 }
@@ -345,7 +345,7 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
 impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         // The unverified-receipt buffer is still coordinator-side; drain it for this
-        // source block, then re-drive every shard's parked queue (a landed CER can
+        // source block, then re-drive every shard's parked queue (a landed chunk execution result can
         // unblock parked children).
         if let Err(err) = self.try_process_pending_unverified_receipts(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while processing pending unverified receipts");
@@ -437,13 +437,18 @@ impl ChunkExecutorActor {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failure when processing pending unverified receipts");
             return Err(err);
         }
+        // TODO(spice): handle a node tracking zero shards (e.g. a `NoShards` light
+        // client). With no executors here, nothing schedules an apply, so the
+        // runtime finalize trigger (`coordinator_post_apply`, fired on apply-done)
+        // never runs and the execution head only advances on the startup disk walk.
+        // The fix is to decouple the finalize trigger from apply-done.
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
         }
         Ok(())
     }
 
-    /// Re-drive every tracked shard's parked queue — used when a receipt or CER
+    /// Re-drive every tracked shard's parked queue — used when a receipt or chunk execution result
     /// lands that could unblock parked blocks across shards.
     fn drive_all_pending(&mut self) {
         for executor in self.per_shard_executors.values_mut() {
@@ -486,9 +491,8 @@ impl ChunkExecutorActor {
     }
 
     /// After a shard applies, wake local destination shards (their incoming
-    /// receipts are now on disk — local-path fanout), then finalize the block if
-    /// all its tracked shards are applied. The dedup guard skips redundant
-    /// finalize attempts from the N per-shard arrivals for one block.
+    /// receipts are now on disk — local-path fanout), then finalize the block once
+    /// all its tracked shards are applied.
     fn coordinator_post_apply(
         &mut self,
         block_hash: &CryptoHash,
@@ -501,12 +505,9 @@ impl ChunkExecutorActor {
                 executor.handle_local_chunk_applied();
             }
         }
-        let block = self.chain_store.get_block(block_hash)?;
-        // N shards finishing one block each call this; finalize once. Correct only
-        // while the apply-done handler runs on the single coordinator actor mailbox.
-        if self.chain_store.spice_execution_head()?.height >= block.header().height() {
-            return Ok(());
-        }
+        // Each tracked shard's apply-done lands here; finalize the block once all of
+        // them are applied. `finalize_block` is idempotent, so being driven here
+        // repeatedly is harmless.
         if self.all_tracked_shards_applied(block_hash)? {
             self.finalize_block(block_hash)?;
         }
@@ -558,7 +559,7 @@ impl PerShardChunkExecutor {
         }
     }
 
-    /// Readiness checks for this shard's chunk in `block` (prev CER, prev chunk
+    /// Readiness checks for this shard's chunk in `block` (prev chunk execution result, prev chunk
     /// extra, incoming receipts on disk), then dispatch to the apply spawner.
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     fn try_apply(&mut self, block_hash: &CryptoHash) -> Result<ApplyOutcome, Error> {
@@ -1169,14 +1170,19 @@ impl ChunkExecutorActor {
             Err(err) => return Err(err),
         };
 
-        // Park every block above the execution head into its tracked shards'
+        // Park every block above the final execution head into its tracked shards'
         // executors and try to drain. A freshly-started node catches up from disk;
         // blocks not yet ready stay parked and are re-driven by apply-done fanout,
-        // incoming receipts, and CER endorsements.
+        // incoming receipts, and chunk execution result endorsements.
         let mut next_block_hashes: VecDeque<_> =
             self.chain_store.get_all_next_block_hashes(&start_block).into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
-            self.handle_processed_block(&block_hash)?;
+            // A single bad block must not abort startup recovery for the whole chain;
+            // log and continue. Normal runtime triggers (incoming receipts, chunk execution result
+            // endorsements, apply-done fanout) re-drive it later.
+            if let Err(err) = self.handle_processed_block(&block_hash) {
+                tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to process block during startup recovery; skipping");
+            }
             next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
 

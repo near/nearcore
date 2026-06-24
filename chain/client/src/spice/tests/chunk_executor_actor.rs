@@ -14,6 +14,7 @@ use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
+use near_chain::Error;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
@@ -357,14 +358,15 @@ fn block_executed(actor: &TestActor, block: &Block) -> bool {
         if !actor.actor.shard_tracker.cares_about_shard(block.hash(), shard_uid.shard_id()) {
             continue;
         }
-        if actor
+        match actor
             .actor
             .chain_store
             .chunk_store()
             .get_chunk_extra(block.header().hash(), &shard_uid)
-            .is_err()
         {
-            return false;
+            Ok(_) => {}
+            Err(Error::DBNotFoundErr(_)) => return false,
+            Err(err) => panic!("unexpected error reading chunk extra: {err:?}"),
         }
     }
     true
