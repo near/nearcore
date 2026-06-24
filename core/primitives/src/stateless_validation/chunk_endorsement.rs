@@ -33,7 +33,7 @@ impl ChunkEndorsement {
         };
         let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
         let inner = ChunkEndorsementInnerV1::new(chunk_header.chunk_hash().clone());
-        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        let signature = signer.sign_bytes(&endorsement_signed_bytes(&inner.chunk_hash));
         let endorsement = ChunkEndorsementV2 { inner, signature, metadata, metadata_signature };
         ChunkEndorsement::V2(endorsement)
     }
@@ -77,9 +77,7 @@ impl ChunkEndorsement {
         signature: &Signature,
         public_key: &PublicKey,
     ) -> bool {
-        let inner = ChunkEndorsementInnerV1::new(chunk_hash);
-        let data = borsh::to_vec(&inner).unwrap();
-        signature.verify(&data, public_key)
+        signature.verify(&endorsement_signed_bytes(&chunk_hash), public_key)
     }
 
     /// Returns the account ID of the chunk validator that generated this endorsement.
@@ -110,11 +108,15 @@ pub struct ChunkEndorsementV2 {
 
 impl ChunkEndorsementV2 {
     fn verify(&self, public_key: &PublicKey) -> bool {
-        let inner = borsh::to_vec(&self.inner).unwrap();
         let metadata = borsh::to_vec(&self.metadata).unwrap();
-        self.signature.verify(&inner, public_key)
+        self.signature.verify(&endorsement_signed_bytes(&self.inner.chunk_hash), public_key)
             && self.metadata_signature.verify(&metadata, public_key)
     }
+}
+
+/// Canonical signed bytes for a chunk endorsement, derived from `chunk_hash`.
+fn endorsement_signed_bytes(chunk_hash: &ChunkHash) -> Vec<u8> {
+    borsh::to_vec(&ChunkEndorsementInnerV1::new(chunk_hash.clone())).unwrap()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
