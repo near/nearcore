@@ -207,6 +207,26 @@ pub enum DBCol {
     /// - *Rows*: BlockHash
     /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of leaves in the whole tree.
     BlockMerkleTree,
+    /// Spice: like BlockMerkleTree but over reconstructed certified light-client block
+    /// hashes; anchors light-client proofs of certified execution results. Also carries
+    /// the leaves this block newly certified, replayed into the per-ordinal index on
+    /// canonicalization.
+    /// - *Rows*: BlockHash
+    /// - *Column type*: CertifiedBlockAccumulatorState
+    #[cfg(feature = "protocol_feature_spice")]
+    CertifiedBlockMerkleTree,
+    /// Spice: per certified-leaf ordinal, the accumulator frontier before that
+    /// leaf plus the leaf hash. Enables light-client inclusion proofs.
+    /// - *Rows*: certified ordinal (u64)
+    /// - *Column type*: (PartialMerkleTree, CryptoHash)
+    #[cfg(feature = "protocol_feature_spice")]
+    CertifiedAccumulatorByOrdinal,
+    /// Spice: a block's position (certified ordinal) in the certified
+    /// accumulator. Present once the block's execution is certified.
+    /// - *Rows*: BlockHash
+    /// - *Column type*: u64
+    #[cfg(feature = "protocol_feature_spice")]
+    CertifiedBlockLeafOrdinal,
     /// Mapping from height to the set of Chunk Hashes that were included in the block at that height.
     /// - *Rows*: height (u64)
     /// - *Column type*: Vec<ChunkHash (CryptoHash)>
@@ -668,6 +688,12 @@ impl DBCol {
             | DBCol::StateSyncNewChunks
             // TODO(early-kickout): Make ChunkProducers a cold column when GC is implemented.
             => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedBlockMerkleTree => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedAccumulatorByOrdinal => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedBlockLeafOrdinal => false,
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => false,
         }
@@ -730,6 +756,12 @@ impl DBCol {
             | DBCol::EpochStart
             | DBCol::EpochSyncProof
             | DBCol::EpochValidatorInfo => GcPolicy::Permanent,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedBlockMerkleTree => GcPolicy::Permanent,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedAccumulatorByOrdinal => GcPolicy::Permanent,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedBlockLeafOrdinal => GcPolicy::Permanent,
 
             DBCol::AccountAnnouncements
             | DBCol::_BlockExtra
@@ -866,6 +898,12 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::SpiceEndorsementStats => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedBlockMerkleTree => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedAccumulatorByOrdinal => &[DBKeyType::BlockOrdinal],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::CertifiedBlockLeafOrdinal => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
@@ -875,6 +913,27 @@ impl DBCol {
     pub fn witnesses() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::Witnesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn certified_block_merkle_tree() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::CertifiedBlockMerkleTree;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn certified_accumulator_by_ordinal() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::CertifiedAccumulatorByOrdinal;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn certified_block_leaf_ordinal() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::CertifiedBlockLeafOrdinal;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

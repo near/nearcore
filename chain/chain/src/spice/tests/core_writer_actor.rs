@@ -696,8 +696,15 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+    let core_reader = core_reader(chain);
+    let prev_hash = prev_block.header().hash();
+    let certified_block_merkle_root =
+        core_reader.certified_block_merkle_root(prev_hash).unwrap_or_default();
+    let last_certified_block = core_reader.last_certified_block(prev_hash).unwrap_or_default();
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
+        .certified_block_merkle_root(certified_block_merkle_root)
+        .last_certified_block(last_certified_block)
 }
 
 fn build_block(

@@ -8,7 +8,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -223,51 +223,178 @@ impl SpiceCoreReader {
         Ok(Some(BlockExecutionResults(results)))
     }
 
-    /// State root certified as of `block_hash`: the merkle root over per-shard
-    /// state roots of the last fully certified block. Mirrors the non-spice
-    /// `Chunks::compute_state_root`. Returns `None` when the certified block's
-    /// execution results are not all available yet.
-    pub fn last_certified_state_root(
+    /// Per-shard certified execution results for `block_header`: the committed
+    /// `execution_results` column, the ancestry under `context_hash` for shards it
+    /// lacks, and `certifying_block`'s own in-flight statements (when set, winning).
+    fn gather_certified_results(
         &self,
-        block_hash: &CryptoHash,
-    ) -> Result<Option<CryptoHash>, Error> {
-        let last_certified = get_last_certified_block_header(&self.chain_store, block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(last_certified.epoch_id())?;
-
-        // Fast path: `DBCol::execution_results`, written asynchronously by
-        // `SpiceCoreWriterActor`. By the time a block is fully certified the writer has
-        // almost always recorded its results, so this usually returns everything.
-        let mut results = self.get_execution_results_by_shard_id(&last_certified)?;
-
-        // Slow path: when the writer has not caught up yet some shards are missing. Recover
-        // them from the ancestry's block bodies, which is also the only source for shards
-        // this node does not track. Genesis carries no certifying statements, so its results
-        // only ever come from the fast path above.
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+        certifying_block: Option<&Block>,
+    ) -> Result<HashMap<ShardId, Arc<ChunkExecutionResult>>, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
+        let mut results = self.get_execution_results_by_shard_id(block_header)?;
+        if let Some(certifying_block) = certifying_block {
+            for (chunk_id, result) in
+                certifying_block.spice_core_statements().iter_execution_results()
+            {
+                if chunk_id.block_hash == *block_header.hash() {
+                    results.insert(chunk_id.shard_id, Arc::new(result.clone()));
+                }
+            }
+        }
         let all_present = shard_layout.shard_ids().all(|shard_id| results.contains_key(&shard_id));
-        if !all_present && !last_certified.is_genesis() {
-            let relevant_blocks = HashSet::from([*last_certified.hash()]);
+        if !all_present && !block_header.is_genesis() {
+            let relevant_blocks = HashSet::from([*block_header.hash()]);
             let mut results_by_block = HashMap::new();
             self.collect_certified_execution_results_from_ancestry(
-                block_hash,
-                &last_certified,
+                context_hash,
+                block_header,
                 &relevant_blocks,
                 &mut results_by_block,
             )?;
             for (shard_id, result) in
-                results_by_block.remove(last_certified.hash()).unwrap_or_default()
+                results_by_block.remove(block_header.hash()).unwrap_or_default()
             {
                 results.entry(shard_id).or_insert(result);
             }
         }
+        Ok(results)
+    }
 
+    fn certified_block_roots_impl(
+        &self,
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+        certifying_block: Option<&Block>,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        let results =
+            self.gather_certified_results(context_hash, block_header, certifying_block)?;
+        self.certified_roots_from_results(block_header, &results)
+    }
+
+    /// Merkle roots over the per-shard state and outcome roots. `None` if any shard is missing.
+    fn certified_roots_from_results(
+        &self,
+        block_header: &BlockHeader,
+        results: &HashMap<ShardId, Arc<ChunkExecutionResult>>,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut state_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
+        let mut outcome_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
         for shard_id in shard_layout.shard_ids() {
             let Some(result) = results.get(&shard_id) else {
                 return Ok(None);
             };
             state_roots.push(*result.chunk_extra.state_root());
+            outcome_roots.push(*result.chunk_extra.outcome_root());
         }
-        Ok(Some(merklize(&state_roots).0))
+        Ok(Some((merklize(&state_roots).0, merklize(&outcome_roots).0)))
+    }
+
+    /// Certified state and outcome roots for a fully certified `block_header`,
+    /// from the committed store. `None` when any shard's result is unavailable.
+    pub fn certified_block_roots(
+        &self,
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        self.certified_block_roots_impl(context_hash, block_header, None)
+    }
+
+    /// Like `certified_block_roots`, but overlays `certifying_block`'s own not-yet-
+    /// committed results. Used while building the certified-block tree during application.
+    pub fn certified_block_roots_for_certifying_block(
+        &self,
+        certifying_block: &Block,
+        block_header: &BlockHeader,
+    ) -> Result<Option<(CryptoHash, CryptoHash)>, Error> {
+        self.certified_block_roots_impl(
+            certifying_block.header().prev_hash(),
+            block_header,
+            Some(certifying_block),
+        )
+    }
+
+    /// Per-shard certified outcome roots for `block_header`, in shard order; `merklize`d
+    /// they give the block's certified `outcome_root`. `None` if any shard is missing.
+    pub fn certified_block_shard_outcome_roots(
+        &self,
+        context_hash: &CryptoHash,
+        block_header: &BlockHeader,
+    ) -> Result<Option<Vec<CryptoHash>>, Error> {
+        let results = self.gather_certified_results(context_hash, block_header, None)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
+        let mut outcome_roots = Vec::with_capacity(shard_layout.num_shards() as usize);
+        for shard_id in shard_layout.shard_ids() {
+            let Some(result) = results.get(&shard_id) else {
+                return Ok(None);
+            };
+            outcome_roots.push(*result.chunk_extra.outcome_root());
+        }
+        Ok(Some(outcome_roots))
+    }
+
+    /// State root certified as of `block_hash`: the merkle root over per-shard
+    /// state roots of the last fully certified block. Returns `None` when the
+    /// certified block's execution results are not all available yet.
+    pub fn last_certified_state_root(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let last_certified = get_last_certified_block_header(&self.chain_store, block_hash)?;
+        Ok(self
+            .certified_block_roots(block_hash, &last_certified)?
+            .map(|(state_root, _)| state_root))
+    }
+
+    /// The certified-block tree as of `prev_hash` (empty for genesis or a pre-spice block
+    /// at the spice activation boundary).
+    fn prev_certified_block_merkle_tree(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<PartialMerkleTree, Error> {
+        let prev_header = self.chain_store.get_block_header(prev_hash)?;
+        if prev_header.is_genesis() || !prev_header.is_spice() {
+            return Ok(PartialMerkleTree::default());
+        }
+        self.chain_store.get_certified_block_merkle_tree(prev_hash)
+    }
+
+    /// Certified-block merkle root for a block built on `prev_hash` (the tree as of
+    /// `prev_hash`), committed in its header.
+    pub fn certified_block_merkle_root(&self, prev_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(self.prev_certified_block_merkle_tree(prev_hash)?.root())
+    }
+
+    /// Hash of the last fully certified block as of `prev_hash`.
+    pub fn last_certified_block(&self, prev_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(*get_last_certified_block_header(&self.chain_store, prev_hash)?.hash())
+    }
+
+    pub fn validate_certified_block_header_info(&self, header: &BlockHeader) -> Result<(), Error> {
+        let prev_hash = header.prev_hash();
+
+        let actual_root = header.certified_block_merkle_root().ok_or_else(|| {
+            Error::Other("missing certified_block_merkle_root on spice block header".to_string())
+        })?;
+        let expected_root = self.certified_block_merkle_root(prev_hash)?;
+        if &expected_root != actual_root {
+            return Err(Error::Other(format!(
+                "invalid certified_block_merkle_root: expected {expected_root:?}, got {actual_root:?}"
+            )));
+        }
+
+        let actual_last = header.last_certified_block().ok_or_else(|| {
+            Error::Other("missing last_certified_block on spice block header".to_string())
+        })?;
+        let expected_last = self.last_certified_block(prev_hash)?;
+        if &expected_last != actual_last {
+            return Err(Error::Other(format!(
+                "invalid last_certified_block: expected {expected_last:?}, got {actual_last:?}"
+            )));
+        }
+        Ok(())
     }
 
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)

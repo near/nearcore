@@ -21,7 +21,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{compute_root_from_path, merklize};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
@@ -232,6 +232,116 @@ fn test_last_certified_state_root_when_execution_results_column_is_partially_wri
 
     let root = core_reader.last_certified_state_root(b2.hash()).unwrap();
     assert_eq!(root, Some(expected));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_certified_block_proof_unaffected_by_side_fork() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    // Canonical: b2 certifies b1 (ordinal 0), b3 certifies b2 (ordinal 1); b4 commits
+    // certified_block_merkle_root = root([leaf(b1), leaf(b2)]).
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+    let b3 = build_block(&chain, &b2, block_certification_core_statements(&b2));
+    process_block(&mut chain, b3.clone());
+    let b4 = build_block(&chain, &b3, vec![]);
+    process_block(&mut chain, b4.clone());
+
+    let certified_root = *b4.header().certified_block_merkle_root().unwrap();
+    let (lite, proof) = chain.spice_block_header_lite_and_proof(b1.hash(), b4.hash()).unwrap();
+    assert_eq!(compute_root_from_path(&proof, lite.hash()), certified_root);
+
+    // A side fork re-certifies b2 with different roots: a sibling of b3 (same prev b2)
+    // whose leaf at ordinal 1 differs, processed after the canonical head.
+    let fork_state_root = *b1.hash();
+    let y = build_block(
+        &chain,
+        &b2,
+        block_certification_core_statements_with_state_root(&b2, fork_state_root),
+    );
+    process_block(&mut chain, y);
+
+    // The side fork must not corrupt the canonical accumulator; the proof still verifies.
+    let (lite, proof) = chain.spice_block_header_lite_and_proof(b1.hash(), b4.hash()).unwrap();
+    assert_eq!(compute_root_from_path(&proof, lite.hash()), certified_root);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_certified_block_proof_follows_reorg() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    // Canonical b-chain: b2 certifies b1, b3 anchors root([leaf(b1)]).
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+    let b3 = build_block(&chain, &b2, vec![]);
+    process_block(&mut chain, b3.clone());
+    assert_eq!(chain.head().unwrap().last_block_hash, *b3.hash());
+
+    let b_root = *b3.header().certified_block_merkle_root().unwrap();
+    let (b_lite, b_proof) = chain.spice_block_header_lite_and_proof(b1.hash(), b3.hash()).unwrap();
+    assert_eq!(compute_root_from_path(&b_proof, b_lite.hash()), b_root);
+
+    // Heavier fork off b1 re-certifies b1 with a different root, then overtakes.
+    let fork_state_root = *b2.hash();
+    let c2 = build_block(
+        &chain,
+        &b1,
+        block_certification_core_statements_with_state_root(&b1, fork_state_root),
+    );
+    process_block(&mut chain, c2.clone());
+    let c3 = build_block(&chain, &c2, vec![]);
+    process_block(&mut chain, c3.clone());
+    let c4 = build_block(&chain, &c3, vec![]);
+    process_block(&mut chain, c4.clone());
+    assert_eq!(chain.head().unwrap().last_block_hash, *c4.hash());
+
+    // The reorg re-points the canonical ordinal index to the fork's leaf for b1, so a
+    // proof anchored to the new head verifies against the fork's root and differing leaf.
+    let c_root = *c4.header().certified_block_merkle_root().unwrap();
+    let (c_lite, c_proof) = chain.spice_block_header_lite_and_proof(b1.hash(), c4.hash()).unwrap();
+    assert_eq!(compute_root_from_path(&c_proof, c_lite.hash()), c_root);
+    assert_ne!(c_lite.hash(), b_lite.hash());
+    assert_ne!(c_root, b_root);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_certified_block_header_info_rejects_wrong_fields() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let b1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    // b2 certifies b1, so the certified fields as of b2 are non-default.
+    let b2 = build_block(&chain, &b1, block_certification_core_statements(&b1));
+    process_block(&mut chain, b2.clone());
+
+    // A correctly built block on b2 validates.
+    let good = block_builder(&chain, &b2).spice_core_statements(vec![]).build();
+    core_reader.validate_certified_block_header_info(good.header()).unwrap();
+
+    // A wrong certified_block_merkle_root is rejected.
+    let bad_root = block_builder(&chain, &b2)
+        .certified_block_merkle_root(*b2.hash())
+        .spice_core_statements(vec![])
+        .build();
+    let err = core_reader.validate_certified_block_header_info(bad_root.header()).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid certified_block_merkle_root"), "{err:?}");
+
+    // A wrong last_certified_block is rejected (its root is still correct).
+    let bad_last = block_builder(&chain, &b2)
+        .last_certified_block(*b2.hash())
+        .spice_core_statements(vec![])
+        .build();
+    let err = core_reader.validate_certified_block_header_info(bad_last.header()).unwrap_err();
+    assert!(format!("{err:?}").contains("invalid last_certified_block"), "{err:?}");
 }
 
 #[test]
@@ -1558,14 +1668,47 @@ fn block_certification_core_statements_with_wrong_endorser(
     core_statements
 }
 
+/// Like `block_certification_core_statements`, but certifies with a chosen state root so
+/// the produced leaf differs (used to forge a divergent side-fork certification).
+fn block_certification_core_statements_with_state_root(
+    block: &Block,
+    state_root: CryptoHash,
+) -> Vec<SpiceCoreStatement> {
+    let validators = test_validators();
+    let mut core_statements = Vec::new();
+    for chunk in block.chunks().iter_raw() {
+        let execution_result = ChunkExecutionResult {
+            chunk_extra: ChunkExtra::new_with_only_state_root(&state_root),
+            outgoing_receipts_root: CryptoHash::default(),
+        };
+        let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() };
+        for validator in &validators {
+            let signer = create_test_signer(validator);
+            let endorsement =
+                SpiceChunkEndorsement::new(chunk_id.clone(), execution_result.clone(), &signer);
+            core_statements.push(endorsement_into_core_statement(endorsement));
+        }
+        core_statements
+            .push(SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result });
+    }
+    core_statements
+}
+
 fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
     let block_producer = chain
         .epoch_manager
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+    let core_reader = core_reader(chain);
+    let prev_hash = prev_block.header().hash();
+    let certified_block_merkle_root =
+        core_reader.certified_block_merkle_root(prev_hash).unwrap_or_default();
+    let last_certified_block = core_reader.last_certified_block(prev_hash).unwrap_or_default();
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
+        .certified_block_merkle_root(certified_block_merkle_root)
+        .last_certified_block(last_certified_block)
 }
 
 fn build_block(

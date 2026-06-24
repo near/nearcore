@@ -939,6 +939,8 @@ pub struct TestBlockBuilder {
     newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
     prev_last_certified_block_epoch_id: Option<EpochId>,
     spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
+    certified_block_merkle_root: CryptoHash,
+    last_certified_block: CryptoHash,
 }
 
 #[cfg(feature = "clock")]
@@ -957,6 +959,13 @@ impl TestBlockBuilder {
             *prev_header.next_epoch_id()
         };
         let chunks_len = prev_chunks.len();
+        // Default the last certified block to genesis (no certification in most tests),
+        // carried forward from prev. Tests that certify set it explicitly.
+        let last_certified_block = if prev_header.is_genesis() {
+            *prev_header.hash()
+        } else {
+            prev_header.last_certified_block().copied().unwrap_or_else(|| *prev_header.hash())
+        };
         Self {
             clock,
             signer,
@@ -984,6 +993,8 @@ impl TestBlockBuilder {
                 None
             },
             spice_chunk_endorsement_stats: Vec::new(),
+            certified_block_merkle_root: CryptoHash::default(),
+            last_certified_block,
             prev_header,
         }
     }
@@ -1089,6 +1100,16 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn certified_block_merkle_root(mut self, root: CryptoHash) -> Self {
+        self.certified_block_merkle_root = root;
+        self
+    }
+
+    pub fn last_certified_block(mut self, block_hash: CryptoHash) -> Self {
+        self.last_certified_block = block_hash;
+        self
+    }
+
     pub fn spice_chunk_endorsement_stats(mut self, stats: Vec<SpiceChunkEndorsementStats>) -> Self {
         self.spice_chunk_endorsement_stats = stats;
         self
@@ -1146,6 +1167,8 @@ impl TestBlockBuilder {
                         .prev_last_certified_block_epoch_id
                         .expect("prev_last_certified_block_epoch_id not set for spice block"),
                     spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
+                    certified_block_merkle_root: self.certified_block_merkle_root,
+                    last_certified_block: self.last_certified_block,
                 }
             }),
         );

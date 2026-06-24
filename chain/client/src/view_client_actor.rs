@@ -50,9 +50,10 @@ use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin,
 use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
-    Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
+    Finality, MaybeBlockId, ShardId, ShardIndex, SyncCheckpoint, TransactionOrReceiptId,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -1110,7 +1111,30 @@ impl
             if ret.inner_lite.height <= last_height { Ok(None) } else { Ok(Some(Arc::new(ret))) }
         } else {
             match self.chain.chain_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
-                Ok(light_block) => Ok(Some(light_block)),
+                Ok(light_block) => {
+                    let epoch_id = EpochId(light_block.inner_lite.epoch_id);
+                    let protocol_version = self
+                        .epoch_manager
+                        .get_epoch_protocol_version(&epoch_id)
+                        .into_chain_error()?;
+                    if !ProtocolFeature::Spice.enabled(protocol_version) {
+                        return Ok(Some(light_block));
+                    }
+                    // The persisted view borsh-skips the certified fields; read them from
+                    // the block's own header. It is retained as long as the light client's
+                    // last block is, so it is present whenever this branch can serve.
+                    let block_hash = self
+                        .chain
+                        .chain_store()
+                        .get_block_hash_by_height(light_block.inner_lite.height)?;
+                    let header = self.chain.get_block_header(&block_hash)?;
+                    let mut light_block = LightClientBlockView::clone(&light_block);
+                    light_block.inner_lite.certified_block_merkle_root =
+                        header.certified_block_merkle_root().copied();
+                    light_block.inner_lite.last_certified_block =
+                        header.last_certified_block().copied();
+                    Ok(Some(Arc::new(light_block)))
+                }
                 Err(e) => {
                     if let near_chain::Error::DBNotFoundErr(_) = e {
                         Ok(None)
@@ -1121,6 +1145,34 @@ impl
             }
         }
     }
+}
+
+/// `GetExecutionOutcome` for a spice block: the certified outcome root lives in the
+/// outcome's own block, not the next block (classic `prev_outcome_root`), so resolve
+/// against it without advancing.
+fn spice_execution_outcome_response(
+    chain: &Chain,
+    outcome_proof: ExecutionOutcomeWithIdAndProof,
+    outcome_block_header: &BlockHeader,
+    target_shard_id: ShardId,
+    target_shard_index: ShardIndex,
+    id: CryptoHash,
+) -> Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError> {
+    let context = chain.head()?.last_block_hash;
+    let outcome_roots = chain
+        .spice_core_reader
+        .certified_block_shard_outcome_roots(&context, outcome_block_header)?
+        .ok_or(GetExecutionOutcomeError::NotConfirmed { transaction_or_receipt_id: id })?;
+    if target_shard_index >= outcome_roots.len() {
+        return Err(GetExecutionOutcomeError::InconsistentState {
+            number_or_shards: outcome_roots.len(),
+            execution_outcome_shard_id: target_shard_id,
+        });
+    }
+    Ok(GetExecutionOutcomeResponse {
+        outcome_proof: outcome_proof.into(),
+        outcome_root_proof: merklize(&outcome_roots).1[target_shard_index].clone(),
+    })
 }
 
 impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>
@@ -1156,6 +1208,18 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                     .get_shard_index(target_shard_id)
                     .map_err(Into::into)
                     .into_chain_error()?;
+                let outcome_block_header =
+                    self.chain.get_block_header(&outcome_proof.block_hash)?;
+                if outcome_block_header.is_spice() {
+                    return spice_execution_outcome_response(
+                        &self.chain,
+                        outcome_proof,
+                        &outcome_block_header,
+                        target_shard_id,
+                        target_shard_index,
+                        id,
+                    );
+                }
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
@@ -1620,11 +1684,17 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> f
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
         let head_block_header = BlockHeader::clone(&head_block_header);
         self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
-        let block_header_lite = block_header.into();
-        let proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
-            &msg.block_hash,
-            &msg.head_block_hash,
-        )?;
+        let (block_header_lite, proof) = if block_header.is_spice() {
+            // Spice: reconstruct with certified roots and anchor to the certified accumulator.
+            self.chain.spice_block_header_lite_and_proof(&msg.block_hash, &msg.head_block_hash)?
+        } else {
+            let block_header_lite = block_header.into();
+            let proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
+                &msg.block_hash,
+                &msg.head_block_hash,
+            )?;
+            (block_header_lite, proof)
+        };
         Ok(GetBlockProofResponse { block_header_lite, proof })
     }
 }

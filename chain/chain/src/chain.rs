@@ -6,7 +6,7 @@ use crate::block_processing_utils::{
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
 use crate::crypto_hash_timer::CryptoHashTimer;
-use crate::lightclient::get_epoch_block_producers_view;
+use crate::lightclient::{get_epoch_block_producers_view, reconstruct_certified_lite_view};
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::pending::PendingBlocksPool;
@@ -18,6 +18,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
+use crate::spice::certified_accumulator::compute_certified_block_proof;
 use crate::spice::core::SpiceCoreReader;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
@@ -64,7 +65,7 @@ use near_primitives::challenge::ChunkProofs;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::merkle::{PartialMerkleTree, merklize};
+use near_primitives::merkle::{MerklePath, PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
 };
@@ -88,7 +89,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    LightClientBlockView, SignedTransactionView,
+    LightClientBlockLiteView, LightClientBlockView, SignedTransactionView,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -701,6 +702,29 @@ impl Chain {
             get_epoch_block_producers_view(final_block_header.next_epoch_id(), epoch_manager)?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
+    }
+
+    /// Spice: `block_header_lite` (reconstructed with certified roots) and the proof of
+    /// `block_hash`'s leaf, anchored to `head_block_hash`'s `certified_block_merkle_root`.
+    pub fn spice_block_header_lite_and_proof(
+        &self,
+        block_hash: &CryptoHash,
+        head_block_hash: &CryptoHash,
+    ) -> Result<(LightClientBlockLiteView, MerklePath), Error> {
+        let block_header = self.get_block_header(block_hash)?;
+        let (state_root, outcome_root) = self
+            .spice_core_reader
+            .certified_block_roots(head_block_hash, &block_header)?
+            .ok_or_else(|| Error::Other(format!("block {block_hash} is not certified")))?;
+        let block_header_lite =
+            reconstruct_certified_lite_view(&block_header, state_root, outcome_root);
+        let leaf_ordinal = self.chain_store().get_certified_block_leaf_ordinal(block_hash)?;
+        // The header commits the certified accumulator as of its prev, so the proof
+        // anchors to the tree as of `head`'s prev.
+        let head_prev = *self.get_block_header(head_block_hash)?.prev_hash();
+        let tree_size = self.chain_store().get_certified_block_merkle_tree(&head_prev)?.size();
+        let proof = compute_certified_block_proof(self.chain_store(), leaf_ordinal, tree_size)?;
+        Ok((block_header_lite, proof))
     }
 
     pub fn save_block(&mut self, block: MaybeValidated<Arc<Block>>) -> Result<(), Error> {
@@ -1861,6 +1885,7 @@ impl Chain {
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
         let epoch_to_check = self.protocol_version_check;
         let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
+        let spice_core_reader = self.spice_core_reader.clone();
         let mut chain_update = self.chain_update();
         let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
@@ -1868,6 +1893,7 @@ impl Chain {
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
+            &spice_core_reader,
         )?;
         if new_head.is_some() {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
@@ -2568,6 +2594,7 @@ impl Chain {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
+            self.spice_core_reader.validate_certified_block_header_info(header)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(
