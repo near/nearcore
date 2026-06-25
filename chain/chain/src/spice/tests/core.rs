@@ -920,6 +920,43 @@ fn test_validate_core_statements_in_block_with_duplicate_endorsement() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_core_statements_in_block_with_equivocating_endorsement() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let validator = &test_validators()[0];
+
+    let endorsement = test_chunk_endorsement(validator, &block, chunk_header);
+    let signer = create_test_signer(validator);
+    let equivocating_endorsement = SpiceChunkEndorsement::new(
+        SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
+        invalid_execution_result_for_chunk(chunk_header),
+        &signer,
+    );
+
+    let next_block = build_block(
+        &mut chain,
+        &block,
+        vec![
+            endorsement_into_core_statement(endorsement),
+            endorsement_into_core_statement(equivocating_endorsement),
+        ],
+    );
+    assert_matches!(
+        core_reader.validate_core_statements_in_block(&next_block),
+        Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
+            reason: "duplicate endorsement",
+            index: 1
+        })
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_duplicate_execution_result() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
