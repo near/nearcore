@@ -27,9 +27,11 @@ mod utils;
 const INTERVAL: Duration = Duration::milliseconds(250);
 
 /// How many consecutive times we retry building a streamer message for the same
-/// height *while the node is fully synced* before terminating. Failures while the
-/// node is still syncing are expected (e.g. epoch data not yet available after a
-/// restart, see #15867) and do not count against this budget.
+/// height before terminating. In `WaitForFullSync` mode, failures while the node
+/// is still syncing are expected (e.g. epoch data not yet available after a
+/// restart, see #15867) and do not count against this budget. In
+/// `StreamWhileSyncing` mode the node is ~always syncing, so every failure is
+/// counted - otherwise the budget would never be enforced.
 const MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS: u32 = 10;
 
 /// This function supposed to return the entire `StreamerMessage`.
@@ -104,6 +106,7 @@ pub async fn build_streamer_message(
         // All transaction outcomes have been removed.
         let mut receipt_outcomes = outcomes;
 
+        // Local receipts recovered from shard-outcomes would miss the delayed ones.
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             indexer_transactions
                 .iter()
@@ -111,18 +114,6 @@ pub async fn build_streamer_message(
             &runtime_config,
             gas_price,
         );
-
-        // Pair same-block local receipts (executed in the chunk that produced
-        // them) with their outcomes as a fallback. Delayed local receipts -
-        // executed in a later block - are served from `DBCol::Receipts` by
-        // `fetch_outcomes_with_receipts` instead.
-        for receipt in &chunk_local_receipts {
-            if let Some(outcome) = receipt_outcomes.get_mut(&receipt.receipt_id) {
-                if outcome.receipt.is_none() {
-                    outcome.receipt = Some(receipt.clone());
-                }
-            }
-        }
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome_id in outcome_order {
@@ -166,48 +157,32 @@ pub async fn build_streamer_message(
         });
     }
 
-    // We expect `shards_outcomes` to be empty by this time: outcomes for shards
-    // the indexer streams were consumed by the per-chunk loop above, and
-    // `fetch_block_new_chunks` surfaces epoch-lookup errors.
+    // By this point every shard the indexer streams has had its outcomes
+    // consumed by the per-chunk loop above. Any leftover in `shards_outcomes` is
+    // an outcome for a shard whose chunk was not streamed, which we can only
+    // observe in two situations:
+    //   (a) the indexer's `ShardTracker` excludes a shard the node itself
+    //       tracked (the node has the outcomes but the chunk was not streamed);
+    //   (b) the post-resharding edge case where a stale shard id is no longer
+    //       part of the new layout.
     //
-    // Leftovers can still occur when the indexer's `ShardTracker` excludes a
-    // shard the node itself tracked (so the node has its outcomes but the chunk
-    // was not streamed), or for the post-resharding edge case where a stale
-    // shard id is no longer part of the new layout. We surface the receipt
-    // execution outcomes for such shards.
+    // Both are unexpected and would require a proper fix to surface correctly
+    // (reliably classifying transaction vs receipt outcomes, aligning the
+    // indexer's `ShardTracker` with the shards the node tracked, and handling
+    // the stale-shard-id case in the per-chunk loop). For now we log
+    // a warning so the indexer operator knows something is off.
     //
-    // TODO: eliminate leftovers entirely. This requires addressing both cases
-    // above: (a) aligning the indexer's `ShardTracker` with the set of shards
-    // the node actually tracked so no tracked-shard outcomes are missed, and
-    // (b) handling the post-resharding stale-shard-id case in the per-chunk
-    // loop instead of here.
-    for (shard_id, outcomes) in shards_outcomes {
-        let Ok(shard_index) = protocol_config_view.shard_layout.get_shard_index(shard_id) else {
-            continue;
-        };
-        for outcome in outcomes {
-            let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
-            let Some(receipt) = receipt else {
-                // No receipt: either a transaction outcome (never has one), or a receipt outcome
-                // whose receipt is missing from the store (re-indexing pre-#14981 blocks, or corruption).
-                // TODO: SuccessReceiptId is not tx-specific (cross-contract calls have it too);
-                // classify by matching execution_outcome.id against the shard chunk's tx hashes to avoid
-                // silently dropping the latter.
-                if !matches!(
-                    execution_outcome.outcome.status,
-                    near_primitives::views::ExecutionStatusView::SuccessReceiptId(_)
-                ) {
-                    return Err(FailedToFetchData::String(format!(
-                        "missing receipt for execution outcome {} in block {} (leftover shard {})",
-                        execution_outcome.id, block.header.hash, shard_id,
-                    )));
-                }
-                continue;
-            };
-            indexer_shards[shard_index]
-                .receipt_execution_outcomes
-                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
-        }
+    // TODO: eliminate leftovers entirely by addressing (a) and (b) above
+    // and emitting these outcomes through the per-chunk loop.
+    if !shards_outcomes.is_empty() {
+        let leftover_outcomes: usize = shards_outcomes.values().map(Vec::len).sum();
+        tracing::warn!(
+            target: INDEXER,
+            block_hash = %block.header.hash,
+            leftover_shards = ?shards_outcomes.keys().collect::<Vec<_>>(),
+            leftover_outcomes,
+            "execution outcomes left after streaming all chunks; they are not included in the streamer message",
+        );
     }
 
     Ok(StreamerMessage { block, shards: indexer_shards })
@@ -279,44 +254,6 @@ async fn node_is_ready(client: &IndexerClientFetcher) -> bool {
     }
 }
 
-/// Validates the result of [`build_streamer_message`], returning `Some` on success.
-///
-/// On error returns `None`, signalling the caller to retry the same height (rather
-/// than advancing past it and dropping the block). While the node is still syncing
-/// the error is expected (e.g. an epoch lookup not yet available after a restart,
-/// see #15867), so the attempt counter is reset and we retry indefinitely. Once the
-/// node is fully synced a persistent failure is a real inconsistency: it is counted
-/// and, past `MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS`, we panic rather than stall silently.
-async fn sanitize_streamer_message(
-    client: &IndexerClientFetcher,
-    block_height: BlockHeight,
-    streamer_message: Result<StreamerMessage, FailedToFetchData>,
-    attempts: &mut u32,
-) -> Option<StreamerMessage> {
-    let err = match streamer_message {
-        Ok(streamer_message) => {
-            *attempts = 0;
-            return Some(streamer_message);
-        }
-        Err(err) => err,
-    };
-
-    if !node_is_ready(client).await {
-        *attempts = 0;
-        tracing::warn!(target: INDEXER, ?block_height, ?err, "failed to build streamer message while the node is syncing, retrying the same height");
-        return None;
-    }
-
-    *attempts += 1;
-    tracing::error!(target: INDEXER, ?block_height, ?err, attempts = *attempts, "failed to build streamer message, retrying the same height");
-    if *attempts >= MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS {
-        panic!(
-            "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
-        );
-    }
-    None
-}
-
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
 /// compares to already fetched block height and in case it differs fetches new block of given height.
 pub async fn start(
@@ -340,8 +277,9 @@ pub async fn start(
     };
 
     let mut last_synced_block_height: Option<BlockHeight> = None;
-    // Consecutive failed attempts to build a streamer message while the node is
-    // fully synced; reset on success or while the node is syncing.
+    // Consecutive failed attempts to build a streamer message; reset on success.
+    // In `WaitForFullSync` mode it is also reset while the node is syncing (see
+    // `MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS`).
     let mut build_streamer_message_attempts: u32 = 0;
 
     'main: loop {
@@ -401,17 +339,38 @@ pub async fn start(
 
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
-            let streamer_message = sanitize_streamer_message(
-                &client,
-                block_height,
-                streamer_message,
-                &mut build_streamer_message_attempts,
-            )
-            .await;
-            let Some(streamer_message) = streamer_message else {
-                // The error path retries the same height on the next outer
-                // iteration instead of advancing `last_synced_block_height`.
-                break;
+            let streamer_message = match streamer_message {
+                Ok(streamer_message) => {
+                    build_streamer_message_attempts = 0;
+                    streamer_message
+                }
+                Err(err) => {
+                    // When waiting for full sync, a build failure while the node
+                    // is not yet ready is expected (e.g. epoch data not available
+                    // after a restart, see #15867): retry the same height forever
+                    // without counting it against the budget. When streaming while
+                    // syncing the node is ~always "syncing", so that gate would
+                    // make the budget unreachable; there we count every failure so
+                    // a genuinely stuck height eventually surfaces.
+                    let transient_while_syncing = matches!(
+                        indexer_config.await_for_node_synced,
+                        AwaitForNodeSyncedEnum::WaitForFullSync
+                    ) && !node_is_ready(&client).await;
+                    if transient_while_syncing {
+                        build_streamer_message_attempts = 0;
+                        tracing::warn!(target: INDEXER, ?block_height, ?err, "failed to build streamer message while the node is syncing, retrying the same height");
+                    } else {
+                        build_streamer_message_attempts += 1;
+                        tracing::error!(target: INDEXER, ?block_height, ?err, attempts = build_streamer_message_attempts, "failed to build streamer message, retrying the same height");
+                        assert!(
+                            build_streamer_message_attempts < MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS,
+                            "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
+                        );
+                    }
+                    // Retry the same height on the next outer iteration instead of
+                    // advancing `last_synced_block_height`.
+                    break;
+                }
             };
 
             tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");

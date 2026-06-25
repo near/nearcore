@@ -283,14 +283,14 @@ impl ShardTracker {
     /// Masks any `EpochError` from the underlying epoch lookup as `false` (#4936),
     /// which can spuriously report "not tracked" on restart before epoch data is
     /// available. Callers that need to distinguish a real lookup error from
-    /// "definitely not tracked" should use [`Self::cares_about_shard_result`].
+    /// "definitely not tracked" should use [`Self::cares_about_shard_checked`].
     pub fn cares_about_shard(&self, parent_hash: &CryptoHash, shard_id: ShardId) -> bool {
-        self.cares_about_shard_result(parent_hash, shard_id).unwrap_or(false)
+        self.cares_about_shard_checked(parent_hash, shard_id).unwrap_or(false)
     }
 
     /// Like [`Self::cares_about_shard`] but surfaces the epoch-lookup error
     /// instead of masking it as `false`.
-    pub fn cares_about_shard_result(
+    pub fn cares_about_shard_checked(
         &self,
         parent_hash: &CryptoHash,
         shard_id: ShardId,

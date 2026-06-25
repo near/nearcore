@@ -76,46 +76,36 @@ fn test_indexer_local_receipt() {
     assert_eq!(&receipt_execution_outcome.execution_outcome, receipt_outcome);
 }
 
-/// Regression test for the leftover-outcomes loop in `build_streamer_message`
-/// (see https://github.com/near/nearcore/issues/15867, Mode A).
+/// Regression test for #15867 (Mode A): the indexer must not panic when its
+/// `ShardTracker` excludes a shard whose execution outcomes the node produced.
 ///
 /// When a shard's chunk is excluded from `fetch_block_new_chunks`, that shard's
-/// execution outcomes are not consumed by the per-chunk loop and fall into the
-/// leftover loop.
+/// execution outcomes are not consumed by the per-chunk loop in
+/// `build_streamer_message`. Previously such an orphaned outcome reached a path
+/// that unwrapped a `None` receipt and panicked.
 ///
 /// In production a chunk is excluded when `shard_tracker.cares_about_shard`
-/// returns false. But the leftover loop must still
-/// handle a shard the indexer's tracker legitimately excludes without panicking:
-/// transaction outcomes are dropped and the local receipt's execution outcome is preserved.
-/// Here we make that deterministic with a `NoShards` tracker, which routes every outcome
-/// into the leftover loop.
+/// returns false. We make that deterministic with a `NoShards` tracker, which
+/// excludes every shard. The indexer must now produce a streamer message
+/// without panicking; the orphaned outcomes are dropped (and logged via
+/// `warn!`) rather than surfaced, since the excluded shard streams no chunk to
+/// attach them to.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_indexer_local_receipt_orphaned_into_leftover_loop() {
+fn test_indexer_excluded_shard_outcomes_are_dropped() {
     init_test_logger();
 
     let mut env = setup();
     let tx = create_local_tx(&env);
     let submit_tx_height = env.rpc_node().head().height;
-    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
-    let ExecutionStatusView::SuccessReceiptId(receipt_id) =
-        outcome.transaction_outcome.outcome.status
-    else {
-        panic!("failed to convert transaction to receipt");
-    };
-    // Under AccountCostIncrease the function-call receipt also produces a price_surplus
-    // gas-refund receipt addressed to the signer, which shows up as an extra outcome.
-    // It executes in a later block, so it does not affect the single
-    // receipt_execution_outcome the indexer emits at `tx_included_height` below.
-    let extra_refund_outcomes =
-        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
-    assert_eq!(outcome.receipts_outcome.len(), 1 + extra_refund_outcomes);
-    let receipt_outcome = &outcome.receipts_outcome[0];
+    // Run the tx to completion so its local receipt executes before the height
+    // the indexer streams below.
+    env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
 
-    // NoShards tracker => `cares_about_shard` is always false => the local
-    // receipt's execution outcome is never consumed by the per-chunk loop and
-    // falls into the leftover loop in `build_streamer_message`.
+    // NoShards tracker => `cares_about_shard` is always false => no chunk is
+    // streamed and the local receipt's execution outcome is never consumed by
+    // the per-chunk loop in `build_streamer_message`.
     let node_data = &env.node_datas[0];
     let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
     let no_shards_tracker = ShardTracker::new_empty(client.epoch_manager.clone());
@@ -126,15 +116,16 @@ fn test_indexer_local_receipt_orphaned_into_leftover_loop() {
         SyncModeEnum::BlockHeight(tx_included_height),
         no_shards_tracker,
     );
-    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
 
-    // With a NoShards tracker the indexer emits no chunk view, but the receipt
-    // execution outcome must still be present and correctly paired.
-    let indexer_shard = &msg.shards[0];
-    assert_eq!(indexer_shard.receipt_execution_outcomes.len(), 1);
-    let receipt_execution_outcome = &indexer_shard.receipt_execution_outcomes[0];
-    assert_eq!(receipt_execution_outcome.receipt.receipt_id, receipt_id);
-    assert_eq!(&receipt_execution_outcome.execution_outcome, receipt_outcome);
+    // The key regression: building the streamer message must not panic. With a
+    // NoShards tracker the indexer emits no chunk view and no receipt execution
+    // outcomes for the excluded shard - the orphaned outcomes are dropped and
+    // logged instead.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    for indexer_shard in &msg.shards {
+        assert!(indexer_shard.chunk.is_none());
+        assert!(indexer_shard.receipt_execution_outcomes.is_empty());
+    }
 }
 
 /// Test that instant receipts (PromiseYield) are correctly indexed.

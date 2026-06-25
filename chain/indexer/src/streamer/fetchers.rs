@@ -107,7 +107,7 @@ impl IndexerViewClientFetcher {
                 continue;
             }
             let cares_about_shard = shard_tracker
-                .cares_about_shard_result(&block.header.prev_hash, chunk.shard_id)
+                .cares_about_shard_checked(&block.header.prev_hash, chunk.shard_id)
                 .map_err(|err| {
                     FailedToFetchData::String(format!(
                         "failed to determine shard tracking for shard {} at block {}: {err}",
