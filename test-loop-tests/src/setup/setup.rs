@@ -255,6 +255,7 @@ pub fn setup_client(
 
     let head = client.chain.head().unwrap();
     let header_head = client.chain.header_head().unwrap();
+    let chunks_store = storage.split_store.clone().unwrap_or_else(|| storage.hot_store.clone());
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
         validator_signer.clone(),
@@ -263,7 +264,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter.as_sender(),
-        storage.hot_store.chunk_store(),
+        chunks_store.chunk_store(),
         <_>::clone(&head),
         <_>::clone(&header_head),
         Duration::milliseconds(100),

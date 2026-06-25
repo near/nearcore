@@ -353,6 +353,15 @@ impl TestLoopNetworkSharedState {
         guard.account_to_peer_id.get(account_id).unwrap().clone()
     }
 
+    /// Check whether the given account's peer is marked as archival.
+    fn is_account_archival(&self, account_id: &AccountId) -> bool {
+        let guard = self.0.lock();
+        guard
+            .account_to_peer_id
+            .get(account_id)
+            .is_some_and(|peer_id| guard.archival_peer_ids.contains(peer_id))
+    }
+
     fn is_peer_link_disallowed(
         guard: &MutexGuard<TestLoopNetworkSharedStateInner>,
         from: &PeerId,
@@ -733,7 +742,23 @@ fn network_message_to_shards_manager_handler(
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             let route_back = shared_state.generate_route_back(&my_peer_id);
-            let target = target.account_id.unwrap();
+            let original_target = target.account_id.unwrap();
+            // When only_archival is set and the original target account is not archival, route to
+            // an archival node. This mirrors production behavior where the peer manager filters for
+            // archival peers.
+            let target =
+                if target.only_archival && !shared_state.is_account_archival(&original_target) {
+                    shared_state
+                        .accounts()
+                        .iter()
+                        .find(|account| {
+                            **account != my_account_id && shared_state.is_account_archival(account)
+                        })
+                        .cloned()
+                        .unwrap_or_else(|| original_target.clone())
+                } else {
+                    original_target
+                };
             assert!(target != my_account_id, "Sending message to self not supported.");
             shared_state.senders_for_account(&my_account_id, &target).shards_manager_sender.send(
                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
