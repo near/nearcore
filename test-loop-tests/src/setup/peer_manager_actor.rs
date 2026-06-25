@@ -37,7 +37,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, MutexGuard};
-use std::collections::{BTreeMap, BTreeSet, HashSet, btree_map};
+use std::collections::{BTreeMap, BTreeSet, btree_map};
 use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
@@ -236,7 +236,7 @@ struct TestLoopNetworkSharedStateInner {
     // Everything sent using these senders should be dropped.
     drop_events_senders: Arc<OneClientSenders>,
     route_back: BTreeMap<CryptoHash, PeerId>,
-    disallowed_peer_links: BTreeMap<PeerId, HashSet<PeerId>>,
+    disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
     archival_peer_ids: BTreeSet<PeerId>,
 }
 
