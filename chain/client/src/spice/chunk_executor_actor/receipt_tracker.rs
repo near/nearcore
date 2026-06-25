@@ -80,13 +80,7 @@ impl UnverifiedReceiptTracker {
         &mut self,
         chain_store: &ChainStoreAdapter,
     ) -> Result<(), Error> {
-        // Absent on non-spice nodes (seeded only when SPICE is enabled at genesis);
-        // nothing below it to prune then.
-        let final_head = match chain_store.spice_final_execution_head() {
-            Ok(head) => head,
-            Err(Error::DBNotFoundErr(_)) => return Ok(()),
-            Err(err) => return Err(err),
-        };
+        let final_head = chain_store.spice_final_execution_head()?;
         let mut stale = Vec::new();
         for source_block in self.buffer.keys().copied() {
             match chain_store.get_block_header(&source_block) {
