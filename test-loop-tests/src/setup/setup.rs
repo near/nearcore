@@ -519,6 +519,7 @@ pub fn setup_client(
         runtime_adapter.store().chain_store(),
     )));
 
+    let tracked_shards_config = client_config.tracked_shards_config.clone();
     let state_sync_dumper = StateSyncDumper {
         clock: test_loop.clock(),
         client_config,
@@ -614,6 +615,7 @@ pub fn setup_client(
     // Note that this can potentially overwrite an existing client with the same account_id
     // and all new messages would be redirected to the new client.
     network_shared_state.add_client(&node_data);
+    network_shared_state.set_tracked_shards_config(&node_data.account_id, tracked_shards_config);
     if is_archival {
         network_shared_state.mark_archival(&node_data.peer_id);
     }
