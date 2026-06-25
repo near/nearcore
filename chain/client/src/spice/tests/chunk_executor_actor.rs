@@ -767,12 +767,11 @@ fn test_final_execution_head_is_updated_when_tracking_no_shards() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let producer_signer = Arc::new(create_test_signer("producer"));
-    let validator_signer = Arc::new(create_test_signer("validator"));
     let shard_layout = ShardLayout::single_shard();
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&Clock::real())
         .shard_layout(shard_layout.clone())
-        .validators_spec(ValidatorsSpec::desired_roles(&["producer"], &["validator"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["producer"], &[]))
         .build();
 
     let mut actors = [
@@ -782,13 +781,23 @@ fn test_final_execution_head_is_updated_when_tracking_no_shards() {
             shard_layout.shard_uids().collect(),
             outgoing_sc.clone(),
         ),
+        // A node tracking zero shards, modeled as a non-validator so it is
+        // guaranteed to track none — a validator account would be pulled into the
+        // shard's chunk-producers settlement and track it.
         TestActor::new(
             genesis,
-            MutableConfigValue::new(Some(validator_signer), "validator_signer"),
+            MutableConfigValue::new(None, "validator_signer"),
             vec![],
             outgoing_sc,
         ),
     ];
+
+    // Precondition: actor[1] genuinely tracks zero shards.
+    let genesis_hash = *actors[1].chain.genesis_block().hash();
+    assert!(
+        actors[1].actor.shard_tracker.tracked_shard_uids(&genesis_hash).unwrap().is_empty(),
+        "actor[1] must track zero shards for this test to be meaningful",
+    );
 
     execute_blocks_until_final_execution_head_moves(&mut actors, &mut outgoing_rc);
     // Having final execution head updated even when we are tracking no shards is very useful for

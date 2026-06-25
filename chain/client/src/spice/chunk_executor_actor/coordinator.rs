@@ -187,13 +187,13 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let prev_block_hash = *block.header().prev_hash();
         self.reconcile_tracked_shards(&prev_block_hash)?;
-        // TODO(spice): handle a node tracking zero shards (e.g. a `NoShards` light
-        // client). With no executors here, nothing schedules an apply, so the
-        // runtime finalize trigger (`coordinator_post_apply`, fired on apply-done)
-        // never runs and the execution head only advances on the startup disk walk.
-        // The fix is to decouple the finalize trigger from apply-done.
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
+        }
+        // A node tracking zero shards schedules no applies, so the apply-done
+        // finalize trigger never fires; finalize here instead.
+        if self.all_tracked_shards_applied(block_hash)? {
+            self.finalize_block(block_hash)?;
         }
         Ok(())
     }
