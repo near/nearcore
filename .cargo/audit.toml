@@ -6,9 +6,6 @@ ignore = [
     # It cannot be a security liability in production, considering it only provides bindings to the OS X kernel.
     "RUSTSEC-2020-0168",
 
-    # older versions of parking-lot are vulnerable, but used by reed-solomon-erasure.
-    "RUSTSEC-2020-0070",
-
     # proc-macro-error is unmaintained, but hard to replace right now (via dynasm).
     # Follow https://github.com/Kyuuhachi/syn_derive/issues/4
     "RUSTSEC-2024-0370",
@@ -43,7 +40,7 @@ ignore = [
     # flush_async_range/unchecked_advise_range. dynasmrt 2.0 (its only consumer here, via
     # the near-vm singlepass JIT; the wasmtime path does not use dynasmrt) calls none of
     # these, only map_anon/make_exec/make_mut. The fix is in memmap2 >= 0.9.11, unreachable
-    # without upgrading dynasmrt 2.0 -> 3.0, a 260-callsite migration of the x86-64 emitter.
+    # without a breaking dynasmrt 2.0 -> 3.0 upgrade of the x86-64 emitter.
     # TODO: remove this entry when near-vm is deprecated in favor of the wasmtime path.
     "RUSTSEC-2026-0186",
 ]
