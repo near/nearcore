@@ -441,6 +441,7 @@ impl<'a> StoreOpener<'a> {
 
     // Creates the DB if it doesn't exist.
     fn ensure_created(mode: Mode, opener: &DBOpener) -> Result<(), StoreOpenerError> {
+        tracing::debug!(target: "db_opener", path=%opener.path.display(), ?mode, "reading database metadata to check existence");
         let meta = opener.get_metadata()?;
         match meta {
             Some(_) if !mode.must_create() => {
