@@ -614,8 +614,7 @@ pub fn setup_client(
     // Add the client to the network shared state before returning data
     // Note that this can potentially overwrite an existing client with the same account_id
     // and all new messages would be redirected to the new client.
-    network_shared_state.add_client(&node_data);
-    network_shared_state.set_tracked_shards_config(&node_data.account_id, tracked_shards_config);
+    network_shared_state.add_client(&node_data, tracked_shards_config);
     if is_archival {
         network_shared_state.mark_archival(&node_data.peer_id);
     }

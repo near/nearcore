@@ -301,7 +301,7 @@ impl TestLoopNetworkSharedState {
         Self(Arc::new(Mutex::new(inner)))
     }
 
-    pub fn add_client<'a, D>(&self, data: &'a D)
+    pub fn add_client<'a, D>(&self, data: &'a D, tracked_shards_config: TrackedShardsConfig)
     where
         AccountId: From<&'a D>,
         PeerId: From<&'a D>,
@@ -319,7 +319,7 @@ impl TestLoopNetworkSharedState {
         let peer_id = PeerId::from(data);
 
         let mut guard = self.0.lock();
-        guard.account_to_peer_id.insert(account_id, peer_id.clone());
+        guard.account_to_peer_id.insert(account_id.clone(), peer_id.clone());
         guard.senders.insert(
             peer_id,
             Arc::new(OneClientSenders {
@@ -338,12 +338,7 @@ impl TestLoopNetworkSharedState {
                 spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
             }),
         );
-    }
-
-    /// Records the per-account tracked-shards config. Call after `add_client`.
-    pub fn set_tracked_shards_config(&self, account_id: &AccountId, config: TrackedShardsConfig) {
-        let mut guard = self.0.lock();
-        guard.tracked_shards_config.insert(account_id.clone(), config);
+        guard.tracked_shards_config.insert(account_id, tracked_shards_config);
     }
 
     /// Stops processing of requests from `from` peer to `to` peer.
