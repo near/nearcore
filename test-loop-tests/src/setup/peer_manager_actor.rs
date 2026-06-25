@@ -374,9 +374,7 @@ impl TestLoopNetworkSharedState {
 
     /// Returns true if `account_id` is archival and tracks `shard_id` per its
     /// `tracked_shards_config`. Variants that depend on the epoch layout
-    /// (`Accounts`, `Schedule`, `ShadowValidator`) can't be resolved here, so
-    /// this returns false for them — the caller falls back to the original
-    /// target in that case, mirroring production's two-attempt fallback.
+    /// (`Accounts`, `Schedule`, `ShadowValidator`) are not implemented for now.
     fn archival_account_tracks_shard(&self, account_id: &AccountId, shard_id: ShardId) -> bool {
         let guard = self.0.lock();
         let Some(peer_id) = guard.account_to_peer_id.get(account_id) else { return false };
@@ -387,13 +385,12 @@ impl TestLoopNetworkSharedState {
         match config {
             TrackedShardsConfig::AllShards => true,
             TrackedShardsConfig::Shards(uids) => uids.iter().any(|uid| uid.shard_id() == shard_id),
+            TrackedShardsConfig::NoShards => false,
             // Variants that depend on the current epoch layout can't be
-            // resolved without the epoch manager; treat as not-tracking so
-            // the caller falls back to the original target.
-            TrackedShardsConfig::NoShards
-            | TrackedShardsConfig::ShadowValidator(_)
+            // resolved without the epoch manager
+            TrackedShardsConfig::ShadowValidator(_)
             | TrackedShardsConfig::Accounts(_)
-            | TrackedShardsConfig::Schedule(_) => false,
+            | TrackedShardsConfig::Schedule(_) => unimplemented!(),
         }
     }
 
