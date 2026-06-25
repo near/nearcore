@@ -37,7 +37,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, MutexGuard};
-use std::collections::{HashMap, HashSet, hash_map};
+use std::collections::{BTreeMap, BTreeSet, btree_map};
 use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
@@ -127,7 +127,7 @@ pub struct TestLoopPeerManagerActor {
     client_sender: ClientSenderForTestLoopNetwork,
     shared_state: TestLoopNetworkSharedState,
     genesis_id: GenesisId,
-    last_block_headers: HashMap<PeerInfo, BlockHeader>,
+    last_block_headers: BTreeMap<PeerInfo, BlockHeader>,
 }
 
 impl Actor for TestLoopPeerManagerActor {
@@ -140,12 +140,12 @@ impl Actor for TestLoopPeerManagerActor {
 impl Handler<TestLoopNetworkBlockInfo> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: TestLoopNetworkBlockInfo) {
         match self.last_block_headers.entry(msg.peer) {
-            hash_map::Entry::Occupied(entry) => {
+            btree_map::Entry::Occupied(entry) => {
                 if entry.get().height() <= msg.block_header.height() {
                     *entry.into_mut() = msg.block_header;
                 }
             }
-            hash_map::Entry::Vacant(entry) => {
+            btree_map::Entry::Vacant(entry) => {
                 entry.insert(msg.block_header);
             }
         }
@@ -180,7 +180,7 @@ impl TestLoopPeerManagerActor {
             client_sender,
             shared_state: shared_state.clone(),
             genesis_id,
-            last_block_headers: HashMap::new(),
+            last_block_headers: BTreeMap::new(),
         }
     }
 
@@ -231,13 +231,13 @@ impl TestLoopPeerManagerActor {
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
 struct TestLoopNetworkSharedStateInner {
-    account_to_peer_id: HashMap<AccountId, PeerId>,
-    senders: HashMap<PeerId, Arc<OneClientSenders>>,
+    account_to_peer_id: BTreeMap<AccountId, PeerId>,
+    senders: BTreeMap<PeerId, Arc<OneClientSenders>>,
     // Everything sent using these senders should be dropped.
     drop_events_senders: Arc<OneClientSenders>,
-    route_back: HashMap<CryptoHash, PeerId>,
-    disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
-    archival_peer_ids: HashSet<PeerId>,
+    route_back: BTreeMap<CryptoHash, PeerId>,
+    disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
+    archival_peer_ids: BTreeSet<PeerId>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -287,12 +287,12 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
 impl TestLoopNetworkSharedState {
     pub fn new(unreachable_actor_sender: TestLoopSender<UnreachableActor>) -> Self {
         let inner = TestLoopNetworkSharedStateInner {
-            account_to_peer_id: HashMap::new(),
-            senders: HashMap::new(),
+            account_to_peer_id: BTreeMap::new(),
+            senders: BTreeMap::new(),
             drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
-            route_back: HashMap::new(),
-            disallowed_peer_links: HashMap::new(),
-            archival_peer_ids: HashSet::new(),
+            route_back: BTreeMap::new(),
+            disallowed_peer_links: BTreeMap::new(),
+            archival_peer_ids: BTreeSet::new(),
         };
         Self(Arc::new(Mutex::new(inner)))
     }
@@ -345,7 +345,7 @@ impl TestLoopNetworkSharedState {
     /// Allows processing of requests between all peers.
     pub fn allow_all_requests(&self) {
         let mut guard = self.0.lock();
-        guard.disallowed_peer_links = HashMap::new();
+        guard.disallowed_peer_links = BTreeMap::new();
     }
 
     pub(crate) fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
