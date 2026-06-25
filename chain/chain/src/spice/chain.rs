@@ -63,6 +63,7 @@ impl SpiceChainReader {
         &self,
         start_hash: &CryptoHash,
     ) -> Result<Arc<BlockHeader>, Error> {
+        // Absent on non-spice nodes (seeded only when SPICE is enabled at genesis).
         let final_execution_head = self.chain_store.spice_final_execution_head().ok();
         let mut header = self.chain_store.get_block_header(start_hash)?;
         loop {
