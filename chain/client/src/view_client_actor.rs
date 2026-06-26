@@ -732,7 +732,7 @@ impl ViewClientActor {
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
                 ));
             }
-            Ok(TxStatusOutcome::ShardNotTracked { shard_id: target_shard_id })
+            Ok(TxStatusOutcome::DoesNotTrackShard { shard_id: target_shard_id })
         }
     }
 

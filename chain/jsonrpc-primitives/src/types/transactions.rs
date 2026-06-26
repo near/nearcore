@@ -79,7 +79,7 @@ pub enum TimeoutErrorCause {
     Pending { status: Box<RpcTransactionResponse> },
     /// The node does not track the transaction's shard and could not get an answer from a
     /// chunk producer that does before the timeout.
-    ShardNotTracked { shard_id: ShardId },
+    DoesNotTrackShard { shard_id: ShardId },
     /// The node could not produce a usable transaction status before the timeout (for
     /// example a repeated internal error, or no response at all).
     Error { debug_info: String },

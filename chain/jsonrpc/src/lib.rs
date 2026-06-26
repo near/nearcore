@@ -891,23 +891,18 @@ impl JsonRpcHandler {
                 loop {
                     // TODO(optimization): Introduce a view_client method to only get transaction
                     // status without the information about execution outcomes.
-                    match self
-                        .view_client_send(TxStatus {
-                            tx_hash,
-                            signer_account_id: signer_account_id.clone(),
-                            fetch_receipt: false,
-                        })
-                        .await
-                    {
+                    let signer_account_id = signer_account_id.clone();
+                    let request = TxStatus { tx_hash, signer_account_id, fetch_receipt: false };
+                    let tx_status = self.view_client_send(request).await;
+                    match tx_status {
                         // Observed with an execution outcome: the transaction exists.
                         Ok(TxStatusOutcome::Observed(view)) if view.execution_outcome.is_some() => {
                             return Ok(true);
                         }
-                        // Observed without an outcome yet, or shard not tracked (query forwarded):
-                        // keep polling.
-                        Ok(
-                            TxStatusOutcome::Observed(_) | TxStatusOutcome::ShardNotTracked { .. },
-                        ) => {}
+                        // Observed but no outcome yet: keep polling.
+                        Ok(TxStatusOutcome::Observed(_)) => {}
+                        // Shard not tracked; the query was forwarded: keep polling.
+                        Ok(TxStatusOutcome::DoesNotTrackShard { .. }) => {}
                         // Tracked shard, transaction not found: it does not exist.
                         Ok(TxStatusOutcome::NotObserved) => return Ok(false),
                         Err(err) => last_error = Some(err),
@@ -1025,11 +1020,11 @@ impl JsonRpcHandler {
             // We don't track the shard; the view client forwarded the query. `wait_until:
             // NONE` says so immediately; otherwise wait for the forwarded answer and, if it
             // never arrives, time out with the shard recorded.
-            Ok(TxStatusOutcome::ShardNotTracked { shard_id }) => {
+            Ok(TxStatusOutcome::DoesNotTrackShard { shard_id }) => {
                 if *finality == TxExecutionStatus::None {
                     ControlFlow::Break(Err(RpcTransactionError::DoesNotTrackShard))
                 } else {
-                    ControlFlow::Continue(TimeoutErrorCause::ShardNotTracked { shard_id })
+                    ControlFlow::Continue(TimeoutErrorCause::DoesNotTrackShard { shard_id })
                 }
             }
             // Any other error is terminal; surface it directly rather than waiting.
