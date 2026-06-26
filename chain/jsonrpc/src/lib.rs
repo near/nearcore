@@ -57,7 +57,7 @@ use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse, TimeoutErrorReason,
+    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse, TimeoutErrorCause,
     TransactionInfo,
 };
 use near_jsonrpc_primitives::types::view_access_key::{
@@ -350,11 +350,9 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
     pub fn from_network_client_responses(resp: ProcessTxResponse) -> Self {
         match resp {
             ProcessTxResponse::InvalidTx(context) => Self::InvalidTransaction { context },
-            ProcessTxResponse::NoResponse => Self::TimeoutError {
-                reason: TimeoutErrorReason::Error {
-                    debug_info: "no response from the node".to_string(),
-                },
-            },
+            ProcessTxResponse::NoResponse => Self::TimeoutError(TimeoutErrorCause::Error {
+                debug_info: "no response from the node".to_string(),
+            }),
             ProcessTxResponse::DoesNotTrackShard | ProcessTxResponse::RequestRouted => {
                 Self::DoesNotTrackShard
             }
@@ -925,8 +923,8 @@ impl JsonRpcHandler {
                 "timeout: tx_exists method"
             );
             let debug_info = format!("tx_exists timeout, last error: {:?}", last_error);
-            let reason = TimeoutErrorReason::Error { debug_info };
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError { reason }
+            let cause = TimeoutErrorCause::Error { debug_info };
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError(cause)
         })?
     }
 
@@ -944,7 +942,7 @@ impl JsonRpcHandler {
     > {
         // If the request times out before any poll completes we report that we never got a
         // usable status; each poll that keeps us waiting replaces this with a better reason.
-        let mut timeout_reason = TimeoutErrorReason::Error {
+        let mut timeout_error_cause = TimeoutErrorCause::Error {
             debug_info: "the node did not return a transaction status before the request timed out"
                 .to_string(),
         };
@@ -958,7 +956,7 @@ impl JsonRpcHandler {
                 loop {
                     match self.poll_tx_status(&tx_info, &finality, fetch_receipt).await {
                         ControlFlow::Break(outcome) => break outcome,
-                        ControlFlow::Continue(reason) => timeout_reason = reason,
+                        ControlFlow::Continue(reason) => timeout_error_cause = reason,
                     }
                     new_block_watcher.changed().await.map_err(|_| {
                         RpcTransactionError::InternalError {
@@ -970,7 +968,9 @@ impl JsonRpcHandler {
             .await
             // The polling loop returns on its own once it reaches the requested finality or
             // hits a definitive error; only a timeout falls through to `unwrap_or_else`.
-            .unwrap_or_else(|_| self.tx_status_on_timeout(&tx_info, fetch_receipt, timeout_reason))
+            .unwrap_or_else(|_| {
+                self.tx_status_on_timeout(&tx_info, fetch_receipt, timeout_error_cause)
+            })
     }
 
     /// Performs a single `TxStatus` poll for `tx_status_fetch`. Returns `ControlFlow::Break`
@@ -982,7 +982,7 @@ impl JsonRpcHandler {
         tx_info: &TransactionInfo,
         finality: &TxExecutionStatus,
         fetch_receipt: bool,
-    ) -> ControlFlow<Result<RpcTransactionResponse, RpcTransactionError>, TimeoutErrorReason> {
+    ) -> ControlFlow<Result<RpcTransactionResponse, RpcTransactionError>, TimeoutErrorCause> {
         let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
         let request = TxStatus { tx_hash, signer_account_id: account_id.clone(), fetch_receipt };
         match self.view_client_send(request).await {
@@ -992,7 +992,7 @@ impl JsonRpcHandler {
                 if tx_execution_status_meets_expectations(finality, &result.status) {
                     ControlFlow::Break(Ok(result.into()))
                 } else {
-                    ControlFlow::Continue(TimeoutErrorReason::Pending {
+                    ControlFlow::Continue(TimeoutErrorCause::Pending {
                         status: Box::new(result.into()),
                     })
                 }
@@ -1008,7 +1008,7 @@ impl JsonRpcHandler {
                 if *finality == TxExecutionStatus::None {
                     ControlFlow::Break(Err(err))
                 } else {
-                    ControlFlow::Continue(TimeoutErrorReason::NotObserved)
+                    ControlFlow::Continue(TimeoutErrorCause::NotObserved)
                 }
             }
             // Any other error is terminal; surface it directly rather than waiting.
@@ -1030,25 +1030,25 @@ impl JsonRpcHandler {
     }
 
     /// Builds the `TimeoutError` returned when `tx_status_fetch`'s polling loop is cancelled
-    /// by the timeout. The `reason` records why the request did not reach the requested
-    /// finality in time (see `TimeoutErrorReason`), so the caller still has full
+    /// by the timeout. The `cause` records why the request did not reach the requested
+    /// finality in time (see `TimeoutErrorCause`), so the caller still has full
     /// information and can re-poll.
     fn tx_status_on_timeout(
         &self,
         tx_info: &TransactionInfo,
         fetch_receipt: bool,
-        reason: TimeoutErrorReason,
+        cause: TimeoutErrorCause,
     ) -> Result<RpcTransactionResponse, RpcTransactionError> {
         metrics::RPC_TIMEOUT_TOTAL.inc();
         tracing::warn!(
             target: "jsonrpc",
             ?tx_info,
             ?fetch_receipt,
-            ?reason,
+            ?cause,
             timeout = ?self.polling_config.polling_timeout,
             "timeout: tx_status_fetch method"
         );
-        Err(RpcTransactionError::TimeoutError { reason })
+        Err(RpcTransactionError::TimeoutError(cause))
     }
 
     /// Send a transaction idempotently (subsequent send of the same transaction will not cause
