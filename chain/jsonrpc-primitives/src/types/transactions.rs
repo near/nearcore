@@ -54,7 +54,7 @@ pub enum RpcTransactionError {
     #[error("The node reached its limits. Try again later. More details: {debug_info}")]
     InternalError { debug_info: String },
     #[error("Timeout")]
-    TimeoutError { reason: TimeoutErrorReason },
+    TimeoutError(TimeoutErrorCause),
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
@@ -69,8 +69,8 @@ pub struct RpcTransactionResponse {
 /// it did not reach the requested `wait_until` finality within the node's polling timeout.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum TimeoutErrorReason {
+#[serde(tag = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TimeoutErrorCause {
     /// The node never observed the transaction on chain.
     NotObserved,
     /// The transaction was observed but is still pending the requested finality. The
@@ -168,49 +168,46 @@ mod tests {
     /// retain full information and can re-poll for a higher finality.
     #[test]
     fn timeout_error_reports_pending() {
-        let error = RpcTransactionError::TimeoutError {
-            reason: TimeoutErrorReason::Pending {
-                status: Box::new(RpcTransactionResponse {
-                    final_execution_outcome: None,
-                    final_execution_status: TxExecutionStatus::Included,
-                }),
-            },
-        };
+        let error = RpcTransactionError::TimeoutError(TimeoutErrorCause::Pending {
+            status: Box::new(RpcTransactionResponse {
+                final_execution_outcome: None,
+                final_execution_status: TxExecutionStatus::Included,
+            }),
+        });
 
-        // The reason and last-known status survive the conversion to the wire `RpcError`.
+        // The cause and last-known status survive the conversion to the wire `RpcError`.
         let rpc_error: crate::errors::RpcError = error.into();
         let wire = serde_json::to_value(&rpc_error).unwrap();
         assert_eq!(wire["cause"]["name"], "TIMEOUT_ERROR");
-        let reason = &wire["cause"]["info"]["reason"];
-        assert_eq!(reason["pending"]["status"]["final_execution_status"], "INCLUDED");
+        let info = &wire["cause"]["info"];
+        assert_eq!(info["cause"], "PENDING");
+        assert_eq!(info["status"]["final_execution_status"], "INCLUDED");
     }
 
     /// The `NotObserved` reason serializes as a bare tag with no payload.
     #[test]
     fn timeout_error_reports_not_observed() {
-        let error = RpcTransactionError::TimeoutError { reason: TimeoutErrorReason::NotObserved };
+        let error = RpcTransactionError::TimeoutError(TimeoutErrorCause::NotObserved);
         let value = serde_json::to_value(&error).unwrap();
         assert_eq!(value["name"], "TIMEOUT_ERROR");
-        assert_eq!(value["info"]["reason"], "not_observed");
+        assert_eq!(value["info"]["cause"], "NOT_OBSERVED");
     }
 
     /// The error round-trips through serde, including the flattened status carried by
     /// `Pending`.
     #[test]
     fn timeout_error_round_trips() {
-        let error = RpcTransactionError::TimeoutError {
-            reason: TimeoutErrorReason::Pending {
-                status: Box::new(RpcTransactionResponse {
-                    final_execution_outcome: None,
-                    final_execution_status: TxExecutionStatus::Included,
-                }),
-            },
-        };
+        let error = RpcTransactionError::TimeoutError(TimeoutErrorCause::Pending {
+            status: Box::new(RpcTransactionResponse {
+                final_execution_outcome: None,
+                final_execution_status: TxExecutionStatus::Included,
+            }),
+        });
         let json = serde_json::to_string(&error).unwrap();
         let decoded: RpcTransactionError = serde_json::from_str(&json).unwrap();
         assert!(matches!(
             decoded,
-            RpcTransactionError::TimeoutError { reason: TimeoutErrorReason::Pending { .. } }
+            RpcTransactionError::TimeoutError(TimeoutErrorCause::Pending { .. })
         ));
     }
 }
