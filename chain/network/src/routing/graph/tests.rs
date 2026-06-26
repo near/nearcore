@@ -76,7 +76,7 @@ async fn one_edge() {
     let rng = &mut rng;
     let node_key = data::make_secret_key(rng);
     let cfg = test_graph_config(peer_id(&node_key));
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Graph::new(clock.clock(), cfg);
 
     let p1 = data::make_secret_key(rng);
     let e1 = data::make_edge(&node_key, &p1, 1);
@@ -125,7 +125,7 @@ async fn expired_edges() {
         prune_edges_after: Some(110 * SEC),
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg));
+    let g = Graph::new(clock.clock(), cfg);
 
     let p1 = data::make_secret_key(rng);
     let p2 = data::make_secret_key(rng);
