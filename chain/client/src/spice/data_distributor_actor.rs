@@ -65,6 +65,7 @@ use near_store::{TrieDBStorage, TrieStorage};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::io;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -105,9 +106,9 @@ pub(crate) enum Error {
     #[error("data is irrelevant")]
     DataIsIrrelevant(SpiceDataIdentifier),
     #[error("error decoding the data: {0}")]
-    DecodeError(std::io::Error),
+    DecodeError(io::Error),
     #[error("store io error")]
-    StoreIoError(std::io::Error),
+    StoreIoError(io::Error),
     #[error("other error: {0}")]
     Other(&'static str),
 }
@@ -649,7 +650,7 @@ impl SpiceDataDistributorActor {
         &mut self,
         id: &SpiceDataIdentifier,
         commitment: &SpiceDataCommitment,
-        decode_result: Result<SpiceData, std::io::Error>,
+        decode_result: Result<SpiceData, io::Error>,
         total_parts: usize,
         encoded_length: u64,
     ) -> Result<(), Error> {

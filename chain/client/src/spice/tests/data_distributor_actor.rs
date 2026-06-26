@@ -2444,6 +2444,7 @@ fn test_incoming_partial_data_with_recomputed_root_mismatch() {
     // decodes to canonical hash-matching data, but the committed root is no longer canonical.
     let mut boxed_parts: Vec<Box<[u8]>> =
         canonical.parts.iter().map(|part| part.part.clone()).collect();
+    assert!(boxed_parts.len() > 1, "test needs a parity part to corrupt");
     boxed_parts[1] = {
         let mut bytes = boxed_parts[1].to_vec();
         bytes.push(0xff);
@@ -2491,15 +2492,15 @@ fn test_keep_requesting_after_invalid_decode() {
     let data_id = default.id.clone();
 
     let bad_data = "bad data";
-    let mut boxed_parts: Vec<Box<[u8]>> =
-        vec![borsh::to_vec(&bad_data).unwrap().into_boxed_slice()];
-    let data_hash = hash(&borsh::to_vec(&bad_data).unwrap());
+    let encoded = borsh::to_vec(&bad_data).unwrap();
+    let mut boxed_parts: Vec<Box<[u8]>> = vec![encoded.clone().into_boxed_slice()];
+    let data_hash = hash(&encoded);
     let (root, mut proofs) = merklize(&boxed_parts);
     let partial_data = SpicePartialDataBuilder::from_verified(default)
         .commitment(SpiceDataCommitment {
             hash: data_hash,
             root,
-            encoded_length: bad_data.len() as u64,
+            encoded_length: encoded.len() as u64,
         })
         .parts(vec![SpiceDataPart {
             part_ord: 0,
