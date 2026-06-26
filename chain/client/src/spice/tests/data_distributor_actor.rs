@@ -906,7 +906,7 @@ test_invalid_incoming_partial_data! {
         commitment.root = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
     })
-    data_does_not_match_commitment_hash(Error::InvalidCommitmentHash, receipt_proof_incoming_data, default, {
+    data_does_not_match_commitment_hash(Error::RecomputedCommitmentMismatch, receipt_proof_incoming_data, default, {
         let mut commitment = default.commitment.clone();
         commitment.hash = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
@@ -1063,6 +1063,7 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
     let (_genesis, chain) = setup(4, 0);
     let block = latest_block(&chain);
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let data_id = data_into_verified(incoming_data.data.clone()).id;
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
     {
@@ -1089,6 +1090,9 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
             result,
             Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedReceiptFromShardId))
         );
+        // The decoded-but-wrong-shard commitment is dropped while the id keeps waiting.
+        assert!(actor.is_waiting_on_data(&data_id));
+        assert_eq!(actor.num_commitments_waiting_on(&data_id), 0);
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -2469,7 +2473,7 @@ fn test_incoming_partial_data_with_recomputed_root_mismatch() {
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
         result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::RecomputedRootMismatch))
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::RecomputedCommitmentMismatch))
     );
     // The bad commitment is dropped but we keep waiting on the id to request the real data.
     assert!(actor.is_waiting_on_data(&data_id));
@@ -2510,6 +2514,34 @@ fn test_keep_requesting_after_invalid_decode() {
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithBlock(Error::DecodeError(_))));
     // The bad commitment is dropped but we keep waiting on the id to request the real data.
+    assert!(actor.is_waiting_on_data(&data_id));
+    assert_eq!(actor.num_commitments_waiting_on(&data_id), 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_keep_requesting_after_commitment_hash_mismatch() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let default = data_into_verified(incoming_data.data);
+    let data_id = default.id.clone();
+
+    let mut commitment = default.commitment.clone();
+    commitment.hash = CryptoHash::default();
+    let partial_data =
+        SpicePartialDataBuilder::from_verified(default).commitment(commitment).build();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let result = actor.receive_data(partial_data);
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(
+        result,
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::RecomputedCommitmentMismatch))
+    );
+    // A decoded-but-invalid commitment must not linger in the per-id map.
     assert!(actor.is_waiting_on_data(&data_id));
     assert_eq!(actor.num_commitments_waiting_on(&data_id), 0);
 }

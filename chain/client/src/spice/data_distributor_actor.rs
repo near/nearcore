@@ -84,10 +84,8 @@ pub(crate) enum Error {
     InvalidDecodedWitnessBlockHash,
     #[error("part doesn't match commitment root")]
     InvalidCommitmentRoot,
-    #[error("decoded data doesn't match commitment hash")]
-    InvalidCommitmentHash,
-    #[error("recomputed root doesn't match commitment root")]
-    RecomputedRootMismatch,
+    #[error("recomputed commitment doesn't match received commitment")]
+    RecomputedCommitmentMismatch,
     #[error("receipt proof id to_shard_id is invalid")]
     InvalidReceiptToShardId,
     #[error("decoded receipt proof to_shard_id is invalid")]
@@ -622,29 +620,44 @@ impl SpiceDataDistributorActor {
             return Ok(());
         };
 
-        // A bad commitment can still decode (or fail to decode) to data we cannot use. Drop only
-        // the offending commitment so the periodic request loop keeps fetching the real data for
-        // this id from other producers.
-        let data = match decode_result {
-            Ok(data) => data,
-            Err(err) => {
-                self.stop_waiting_on_commitment(&id, &commitment);
-                return Err(Error::DecodeError(err));
-            }
-        };
-
-        let data_hash = hash(&borsh::to_vec(&data).unwrap());
-        if data_hash != commitment.hash {
-            return Err(Error::InvalidCommitmentHash);
+        // A bad commitment can decode (or fail to decode) to data we cannot use. On any failure
+        // drop only the offending commitment so the periodic request loop keeps fetching the real
+        // data for this id from other producers; only a clean accept clears the whole id.
+        if let Err(err) = self.validate_and_forward_decoded(
+            &id,
+            &commitment,
+            decode_result,
+            total_parts,
+            encoded_length,
+        ) {
+            self.stop_waiting_on_commitment(&id, &commitment);
+            return Err(err);
         }
 
-        // Parts can individually verify against commitment.root and decode to hash-matching data
-        // while not being the canonical encoding of that root. Re-encode and require the recomputed
-        // root to match so all correct recipients converge on the same data.
-        let recomputed_root = self.encode_distribution_data(&data, total_parts).commitment.root;
-        if recomputed_root != commitment.root {
-            self.stop_waiting_on_commitment(&id, &commitment);
-            return Err(Error::RecomputedRootMismatch);
+        tracing::debug!(target: "spice_data_distribution", ?id, ?commitment, "decoded data; stop waiting");
+        self.waiting_on_data.remove(&id);
+        self.recently_decoded_data.push(id, ());
+        Ok(())
+    }
+
+    fn validate_and_forward_decoded(
+        &mut self,
+        id: &SpiceDataIdentifier,
+        commitment: &SpiceDataCommitment,
+        decode_result: Result<SpiceData, std::io::Error>,
+        total_parts: usize,
+        encoded_length: u64,
+    ) -> Result<(), Error> {
+        let data = decode_result.map_err(Error::DecodeError)?;
+
+        // Parts can individually verify against commitment.root and decode to data that is not the
+        // canonical encoding of the commitment. Re-encode and require the whole recomputed
+        // commitment to match (hash, root, and encoded_length), so all correct recipients converge
+        // on the same data and the attacker-supplied encoded_length is canonically validated before
+        // it flows downstream. This subsumes a standalone hash check.
+        let recomputed = self.encode_distribution_data(&data, total_parts).commitment;
+        if recomputed != *commitment {
+            return Err(Error::RecomputedCommitmentMismatch);
         }
 
         match data {
@@ -654,17 +667,19 @@ impl SpiceDataDistributorActor {
                 else {
                     return Err(Error::IdAndDataMismatch);
                 };
-                if to_shard_id != receipt_proof.1.to_shard_id {
+                if *to_shard_id != receipt_proof.1.to_shard_id {
                     return Err(Error::InvalidDecodedReceiptToShardId);
                 }
-                if from_shard_id != receipt_proof.1.from_shard_id {
+                if *from_shard_id != receipt_proof.1.from_shard_id {
                     return Err(Error::InvalidDecodedReceiptFromShardId);
                 }
-                self.executor_sender
-                    .send(ExecutorIncomingUnverifiedReceipts { receipt_proof, block_hash });
+                self.executor_sender.send(ExecutorIncomingUnverifiedReceipts {
+                    receipt_proof,
+                    block_hash: *block_hash,
+                });
             }
             SpiceData::StateWitness(witness) => {
-                let SpiceDataIdentifier::Witness { block_hash, shard_id } = &id else {
+                let SpiceDataIdentifier::Witness { block_hash, shard_id } = id else {
                     return Err(Error::IdAndDataMismatch);
                 };
                 let chunk_id = witness.chunk_id();
@@ -683,10 +698,6 @@ impl SpiceDataDistributorActor {
                 );
             }
         }
-
-        tracing::debug!(target: "spice_data_distribution", ?id, ?commitment, "decoded data; stop waiting");
-        self.waiting_on_data.remove(&id);
-        self.recently_decoded_data.push(id, ());
         Ok(())
     }
 
