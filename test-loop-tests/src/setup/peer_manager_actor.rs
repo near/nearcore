@@ -7,6 +7,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
+use near_chain_configs::TrackedShardsConfig;
 use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
@@ -35,7 +36,7 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 use std::sync::Arc;
@@ -238,6 +239,8 @@ struct TestLoopNetworkSharedStateInner {
     route_back: BTreeMap<CryptoHash, PeerId>,
     disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
     archival_peer_ids: BTreeSet<PeerId>,
+    /// Per-account tracked-shards config, populated when a client is added.
+    tracked_shards_config: BTreeMap<AccountId, TrackedShardsConfig>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -293,11 +296,12 @@ impl TestLoopNetworkSharedState {
             route_back: BTreeMap::new(),
             disallowed_peer_links: BTreeMap::new(),
             archival_peer_ids: BTreeSet::new(),
+            tracked_shards_config: BTreeMap::new(),
         };
         Self(Arc::new(Mutex::new(inner)))
     }
 
-    pub fn add_client<'a, D>(&self, data: &'a D)
+    pub fn add_client<'a, D>(&self, data: &'a D, tracked_shards_config: TrackedShardsConfig)
     where
         AccountId: From<&'a D>,
         PeerId: From<&'a D>,
@@ -315,7 +319,7 @@ impl TestLoopNetworkSharedState {
         let peer_id = PeerId::from(data);
 
         let mut guard = self.0.lock();
-        guard.account_to_peer_id.insert(account_id, peer_id.clone());
+        guard.account_to_peer_id.insert(account_id.clone(), peer_id.clone());
         guard.senders.insert(
             peer_id,
             Arc::new(OneClientSenders {
@@ -334,6 +338,7 @@ impl TestLoopNetworkSharedState {
                 spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
             }),
         );
+        guard.tracked_shards_config.insert(account_id, tracked_shards_config);
     }
 
     /// Stops processing of requests from `from` peer to `to` peer.
@@ -351,6 +356,37 @@ impl TestLoopNetworkSharedState {
     pub(crate) fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
         let guard = self.0.lock();
         guard.account_to_peer_id.get(account_id).unwrap().clone()
+    }
+
+    /// Check whether the given account's peer is marked as archival.
+    fn is_account_archival(&self, account_id: &AccountId) -> bool {
+        let guard = self.0.lock();
+        guard
+            .account_to_peer_id
+            .get(account_id)
+            .is_some_and(|peer_id| guard.archival_peer_ids.contains(peer_id))
+    }
+
+    /// Returns true if `account_id` is archival and tracks `shard_id` per its
+    /// `tracked_shards_config`. Variants that depend on the epoch layout
+    /// (`Accounts`, `Schedule`, `ShadowValidator`) are not implemented for now.
+    fn archival_account_tracks_shard(&self, account_id: &AccountId, shard_id: ShardId) -> bool {
+        let guard = self.0.lock();
+        let Some(peer_id) = guard.account_to_peer_id.get(account_id) else { return false };
+        if !guard.archival_peer_ids.contains(peer_id) {
+            return false;
+        }
+        let Some(config) = guard.tracked_shards_config.get(account_id) else { return false };
+        match config {
+            TrackedShardsConfig::AllShards => true,
+            TrackedShardsConfig::Shards(uids) => uids.iter().any(|uid| uid.shard_id() == shard_id),
+            TrackedShardsConfig::NoShards => false,
+            // Variants that depend on the current epoch layout can't be
+            // resolved without the epoch manager
+            TrackedShardsConfig::ShadowValidator(_)
+            | TrackedShardsConfig::Accounts(_)
+            | TrackedShardsConfig::Schedule(_) => unimplemented!(),
+        }
     }
 
     fn is_peer_link_disallowed(
@@ -733,7 +769,28 @@ fn network_message_to_shards_manager_handler(
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             let route_back = shared_state.generate_route_back(&my_peer_id);
-            let target = target.account_id.unwrap();
+            let original_target = target.account_id.unwrap();
+            // When only_archival is set, production's peer manager first tries
+            // archival peers that track the requested shard, and falls back to
+            // the original target account if none does (the second attempt with
+            // `!prefer_peer` in peer_manager_actor.rs sends directly to
+            // `target.account_id`). Mirror that here so an archival-only
+            // routing doesn't drop requests for shards no archival tracks.
+            let target = if target.only_archival
+                && !shared_state.is_account_archival(&original_target)
+            {
+                shared_state
+                    .accounts()
+                    .iter()
+                    .find(|account| {
+                        **account != my_account_id
+                            && shared_state.archival_account_tracks_shard(account, target.shard_id)
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| original_target.clone())
+            } else {
+                original_target
+            };
             assert!(target != my_account_id, "Sending message to self not supported.");
             shared_state.senders_for_account(&my_account_id, &target).shards_manager_sender.send(
                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
