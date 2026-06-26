@@ -161,10 +161,7 @@ fn setup(
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
-    // TODO(spice): Spice execution-certification does not yet support shuffling chunk-producer
-    // shard assignment across epoch boundaries: after the first boundary the prev
-    // block's execution results never get certified (MissingExecutionResults for
-    // all shards) and the chunk executor wedges.
+    // TODO(spice): enable shuffling shard assignment when state sync works with SPICE.
     let shuffle_shard_assignment = !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(shuffle_shard_assignment)

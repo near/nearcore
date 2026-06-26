@@ -850,15 +850,17 @@ impl SpiceDataDistributorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
 
+        // Shards whose chunk we apply (and thus self-endorse) for THIS block: the
+        // shards we care about in the block's own epoch. We must NOT include shards
+        // we only care about NEXT epoch (as `should_apply_chunk(IsCaughtUp, ..)`
+        // would): at an epoch boundary a shard rotating in next epoch has no prev
+        // state yet, so the executor cannot apply it here and produces no endorsement.
+        // Treating it as self-applied would make us skip requesting its witness too, leaving us unable to endorse it at all.
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
                 let prev_hash = block.header().prev_hash();
-                self.shard_tracker.should_apply_chunk(
-                    ApplyChunksMode::IsCaughtUp,
-                    prev_hash,
-                    *shard_id,
-                )
+                self.shard_tracker.cares_about_shard(prev_hash, *shard_id)
             })
             .collect();
 
