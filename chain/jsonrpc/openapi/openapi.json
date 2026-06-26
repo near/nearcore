@@ -20987,7 +20987,7 @@
             "properties": {
               "cause": {
                 "enum": [
-                  "SHARD_NOT_TRACKED"
+                  "DOES_NOT_TRACK_SHARD"
                 ],
                 "type": "string"
               },

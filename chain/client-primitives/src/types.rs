@@ -645,7 +645,7 @@ pub enum TxStatusOutcome {
     NotObserved,
     /// The node does not track the transaction's shard; the query was forwarded
     /// to a chunk producer that does, and no answer is available yet.
-    ShardNotTracked { shard_id: ShardId },
+    DoesNotTrackShard { shard_id: ShardId },
 }
 
 #[derive(Debug)]
