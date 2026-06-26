@@ -59,10 +59,9 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
-    SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
-    TxExecutionStatus, TxStatusView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
@@ -657,8 +656,8 @@ impl ViewClientActor {
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.shard_tracker.cares_about_shard(&head.prev_block_hash, target_shard_id) {
-            match self.chain.get_partial_transaction_result(&tx_hash) {
-                Ok(tx_result) => {
+            match self.chain.get_partial_transaction_result_option(&tx_hash) {
+                Ok(Some(tx_result)) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
@@ -674,36 +673,13 @@ impl ViewClientActor {
                         status,
                     }))
                 }
-                // TODO: `get_partial_transaction_result` returns `DBNotFoundErr` both when the
-                // tx is unknown and when its result is merely incomplete; have it return a
-                // partial result so we don't re-query the store and hardcode a coarse status.
-                Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if let Some(transaction) = self.chain.chain_store.get_transaction(&tx_hash) {
-                        let transaction =
-                            SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
-                        if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
-                            let outcome = FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
-                                FinalExecutionOutcomeView {
-                                    status: FinalExecutionStatus::Started,
-                                    transaction,
-                                    transaction_outcome: tx_outcome.into(),
-                                    receipts_outcome: vec![],
-                                },
-                            );
-                            Ok(TxStatusOutcome::Observed(TxStatusView {
-                                execution_outcome: Some(outcome),
-                                status: TxExecutionStatus::Included,
-                            }))
-                        } else {
-                            Ok(TxStatusOutcome::Observed(TxStatusView {
-                                execution_outcome: None,
-                                status: TxExecutionStatus::Included,
-                            }))
-                        }
-                    } else {
-                        Ok(TxStatusOutcome::NotObserved)
-                    }
-                }
+                // The transaction is in the store (included) but has no execution outcome yet.
+                Ok(None) => Ok(TxStatusOutcome::Observed(TxStatusView {
+                    execution_outcome: None,
+                    status: TxExecutionStatus::Included,
+                })),
+                // The transaction is not in this node's store at all.
+                Err(near_chain::Error::DBNotFoundErr(_)) => Ok(TxStatusOutcome::NotObserved),
                 Err(err) => {
                     tracing::warn!(target: "client", ?err, "error trying to get transaction result");
                     Err(err.into())
