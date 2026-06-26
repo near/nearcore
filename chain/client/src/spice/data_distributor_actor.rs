@@ -3,7 +3,9 @@ use crate::spice::chunk_executor_actor::get_contract_accesses;
 use crate::spice::chunk_executor_actor::get_receipt_proof;
 use crate::spice::chunk_executor_actor::get_witness;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
-use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
+use crate::spice::chunk_validator_actor::{
+    SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
+};
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use itertools::Itertools as _;
@@ -14,6 +16,7 @@ use near_async::futures::DelayedActionRunner;
 use near_async::futures::DelayedActionRunnerExt as _;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
+use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
@@ -42,6 +45,7 @@ use near_primitives::reed_solomon::ReedSolomonEncoderDeserialize;
 use near_primitives::reed_solomon::ReedSolomonPartsTracker;
 use near_primitives::reed_solomon::{ReedSolomonEncoderCache, ReedSolomonEncoderSerialize};
 use near_primitives::sharding::ReceiptProof;
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::partial_data::SpiceDataIdentifier;
 use near_primitives::spice::partial_data::SpiceDataPart;
@@ -57,6 +61,7 @@ use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::StorageError::MissingTrieValue;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -175,6 +180,11 @@ pub struct SpiceDataDistributorActor {
     /// Deduplication cache for contract code requests. Keyed by (chunk, requester)
     /// to avoid redundant storage lookups and network responses for repeated requests.
     processed_contract_code_requests: LruCache<(SpiceChunkId, AccountId), ()>,
+
+    /// Fallback endorsements we already broadcast from a locally recorded result, so we send each
+    /// at most once.
+    /// TODO(spice): re-broadcast until the endorsement appears on chain rather than once.
+    broadcast_own_fallback_endorsements: LruCache<SpiceChunkId, ()>,
 }
 
 struct DistributionData {
@@ -359,6 +369,8 @@ impl SpiceDataDistributorActor {
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
+        const BROADCAST_FALLBACK_ENDORSEMENTS_CACHE_SIZE: NonZeroUsize =
+            NonZeroUsize::new(100).unwrap();
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -378,6 +390,9 @@ impl SpiceDataDistributorActor {
             recently_decoded_data: LruCache::new(RECENTLY_DECODED_DATA_CACHE_SIZE),
             processed_contract_code_requests: LruCache::new(
                 PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE,
+            ),
+            broadcast_own_fallback_endorsements: LruCache::new(
+                BROADCAST_FALLBACK_ENDORSEMENTS_CACHE_SIZE,
             ),
         }
     }
@@ -841,9 +856,8 @@ impl SpiceDataDistributorActor {
 
     // TODO(spice): Implement a state machine to track all the data we produce or may need. This
     // would help make sure that we cannot have and request data at the same time.
-    /// As a non-designated, non-tracking epoch validator, certify overdue chunks via the all-stake
-    /// fallback by pulling each chunk's witness so we can validate and endorse it. Re-evaluated per
-    /// block; once we've endorsed a chunk there's nothing more to do.
+    /// As a non-designated epoch validator, certify overdue chunks via the all-stake fallback:
+    /// broadcast our recorded endorsement, or pull the witness to produce one. Re-evaluated per block.
     fn contribute_fallback_endorsements(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
             return Ok(());
@@ -870,21 +884,64 @@ impl SpiceDataDistributorActor {
             if assignments.contains(me) {
                 continue;
             }
-            // We already endorsed (the witness-validation flow broadcasts once eligible).
-            if self.core_reader.endorsement_exists(&chunk_id.block_hash, chunk_id.shard_id, me) {
-                continue;
-            }
-            // A non-tracker has no result to endorse; pull the witness so it can produce one.
             let tracks_shard = self.shard_tracker.should_apply_chunk(
                 ApplyChunksMode::IsCaughtUp,
                 chunk_block.header().prev_hash(),
                 chunk_id.shard_id,
             );
+
+            if self.core_reader.endorsement_exists(&chunk_id.block_hash, chunk_id.shard_id, me) {
+                // Trackers recorded their endorsement at apply time without broadcasting (not yet
+                // eligible); broadcast now. Non-trackers already broadcast via the witness path.
+                if tracks_shard {
+                    self.broadcast_own_fallback_endorsement(chunk_id, &signer);
+                }
+                continue;
+            }
+            // A tracker that hasn't applied the chunk yet has no result to endorse; it records and
+            // broadcasts once applied. A non-tracker pulls the witness so it can produce one.
             if !tracks_shard {
                 self.start_waiting_on_fallback_witness(chunk_id, &chunk_block, me)?;
             }
         }
         Ok(())
+    }
+
+    /// Rebuild the wire endorsement from our recorded result and broadcast it once, so producers
+    /// can include it in the all-stake fallback tally. The result was persisted when we recorded
+    /// the endorsement at apply time.
+    fn broadcast_own_fallback_endorsement(
+        &mut self,
+        chunk_id: &SpiceChunkId,
+        signer: &ValidatorSigner,
+    ) {
+        if self.broadcast_own_fallback_endorsements.contains(chunk_id) {
+            return;
+        }
+        let Some(stored) = self.core_reader.get_endorsement(
+            &chunk_id.block_hash,
+            chunk_id.shard_id,
+            signer.validator_id(),
+        ) else {
+            return;
+        };
+        let Some(execution_result) =
+            self.core_reader.get_uncertified_execution_result(&stored.execution_result_hash)
+        else {
+            return;
+        };
+        let endorsement = SpiceChunkEndorsement::new(
+            chunk_id.clone(),
+            Arc::unwrap_or_clone(execution_result),
+            signer,
+        );
+        send_spice_chunk_endorsement(
+            endorsement,
+            self.epoch_manager.as_ref(),
+            &self.network_adapter.clone().into_sender(),
+            signer,
+        );
+        self.broadcast_own_fallback_endorsements.put(chunk_id.clone(), ());
     }
 
     /// Pull a chunk's witness (not received by non-designated validators in the initial
