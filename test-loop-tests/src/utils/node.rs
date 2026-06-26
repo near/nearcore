@@ -6,6 +6,7 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
@@ -85,6 +86,12 @@ impl<'a> TestLoopNode<'a> {
     pub fn last_executed_block(&self) -> Arc<Block> {
         let block_hash = self.last_executed().last_block_hash;
         self.block(block_hash)
+    }
+
+    pub fn last_certified_block_header(&self) -> Arc<BlockHeader> {
+        let chain_store = &self.client().chain.chain_store;
+        let head_hash = self.head().last_block_hash;
+        get_last_certified_block_header(chain_store, &head_hash).unwrap()
     }
 
     pub fn block(&self, block_hash: CryptoHash) -> Arc<Block> {
