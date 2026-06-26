@@ -93,16 +93,8 @@ impl SpiceCoreReader {
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id))
+            Ok(get_execution_result_from_store(&self.chain_store, block_header.hash(), shard_id))
         }
-    }
-
-    fn get_execution_result_from_store(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Option<Arc<ChunkExecutionResult>> {
-        get_execution_result_from_store(&self.chain_store, block_hash, shard_id)
     }
 
     /// Returns the list of uncertified chunks as of the given block.
@@ -327,7 +319,8 @@ impl SpiceCoreReader {
                 }
             }
 
-            let Some(execution_result) = self.get_execution_result_from_store(
+            let Some(execution_result) = get_execution_result_from_store(
+                &self.chain_store,
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
             ) else {

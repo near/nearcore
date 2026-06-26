@@ -26,7 +26,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Balance, BlockHeight, Gas, ShardId};
+use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use std::sync::Arc;
@@ -43,6 +43,7 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 // Pin the congestion control parameters so the test doesn't need fixing every
 // time the live parameters change.
 fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
+    // TODO(limited_replayability): Start using congestion control config from latest protocol version.
     #[allow(deprecated)]
     let cc_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
     let cc_config = config_store.get_config(cc_protocol_version);
@@ -82,15 +83,6 @@ fn setup_congestion_env() -> TestLoopEnv {
 }
 
 // ---- low-level helpers operating on the single node (index 0) ----
-
-fn head_height(env: &TestLoopEnv) -> BlockHeight {
-    env.validator().head().height
-}
-
-/// Advance the chain by exactly one block.
-fn produce_one_block(env: &mut TestLoopEnv) {
-    env.validator_runner().run_for_number_of_blocks(1);
-}
 
 /// Submit a transaction to the node's pool synchronously and return the
 /// immediate processing response (does not advance the chain).
@@ -150,7 +142,7 @@ fn head_congestion_control_config(node: &TestLoopNode) -> CongestionControlConfi
     node.client().runtime_adapter.get_runtime_config(protocol_version).congestion_control_config
 }
 
-// ---- transaction builders (mirror the integration-test helpers) ----
+// ---- transaction builders ----
 
 /// A function call with 100 Tgas attached that burns it all (`loop_forever`).
 fn new_fn_call_100tgas(
@@ -358,10 +350,10 @@ fn measure_tx_limit(
     let num_full_congestion = config.max_congestion_incoming_gas.as_teragas() / 100;
     let n = num_full_congestion as f64 * upper_limit_congestion;
     // Account keys created at height H start their nonce at H * 1_000_000.
-    let mut nonce = head_height(&env) * 1_000_000 + 1;
+    let mut nonce = env.validator().head().height * 1_000_000 + 1;
     submit_n_100tgas_fns(&env, n as u32, &mut nonce, &remote_signer);
     submit_n_cheap_fns(&env, 1000, &mut nonce, &local_signer, &dummy_receiver);
-    produce_one_block(&mut env);
+    env.validator_runner().run_for_number_of_blocks(1);
 
     // Produce blocks until all transactions are included.
     let timeout = 1000;
@@ -369,7 +361,7 @@ fn measure_tx_limit(
     let mut remote_tx_included_without_congestion = 0;
     let mut local_tx_included_without_congestion = 0;
     for i in 2..timeout {
-        produce_one_block(&mut env);
+        env.validator_runner().run_for_number_of_blocks(1);
 
         let (remote_num_tx, local_num_tx) = {
             let node = env.validator();
@@ -409,8 +401,8 @@ fn measure_tx_limit(
     // Send more transactions to see how many will be accepted now with congestion.
     submit_n_100tgas_fns(&env, n as u32, &mut nonce, &remote_signer);
     submit_n_cheap_fns(&env, 1000, &mut nonce, &local_signer, &dummy_receiver);
-    produce_one_block(&mut env);
-    produce_one_block(&mut env);
+    env.validator_runner().run_for_number_of_blocks(1);
+    env.validator_runner().run_for_number_of_blocks(1);
     let node = env.validator();
     let remote_tx_included_with_congestion = head_chunk_num_tx(&node, remote_shard_id);
     let local_tx_included_with_congestion = head_chunk_num_tx(&node, contract_shard_id);
@@ -534,7 +526,7 @@ fn test_rpc_client_rejection() {
     // Allow transactions to enter the chain and receipts to arrive at the
     // receiver shard for it to become congested.
     for _ in 0..9 {
-        produce_one_block(&mut env);
+        env.validator_runner().run_for_number_of_blocks(1);
     }
 
     // Check that congestion control rejects new transactions.

@@ -514,15 +514,18 @@ impl ChunkProducer {
                 )?;
                 let trie = trie.recording_reads_new_recorder();
                 let state_update = TrieUpdate::new(trie);
-                let mut prev_block_context =
-                    PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
                 // Per-shard congestion from the last certified block's executed
                 // ChunkExtras, gating tx admission (local gas throttling + filtering
                 // to congested shards).
-                prev_block_context.congestion_info = spice_block_congestion_info(
+                let congestion_info = spice_block_congestion_info(
                     &self.chain,
                     self.epoch_manager.as_ref(),
                     certified_header.as_ref(),
+                )?;
+                let prev_block_context = PrepareTransactionsBlockContext::new(
+                    prev_block,
+                    &*self.epoch_manager,
+                    congestion_info,
                 )?;
                 let mut session =
                     PendingTxSession::new(Arc::clone(&self.pending_transaction_queue), shard_uid);
@@ -553,8 +556,11 @@ impl ChunkProducer {
                     source: near_chain::types::StorageDataSource::Db,
                     state_patch: Default::default(),
                 };
-                let prev_block_context =
-                    PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+                let prev_block_context = PrepareTransactionsBlockContext::new(
+                    prev_block,
+                    &*self.epoch_manager,
+                    prev_block.block_congestion_info(),
+                )?;
                 (
                     self.runtime_adapter.prepare_transactions(
                         storage_config,
@@ -774,6 +780,7 @@ impl ChunkProducer {
             prev_block_context: PrepareTransactionsBlockContext::new(
                 prev_block,
                 &*self.epoch_manager,
+                prev_block.block_congestion_info(),
             )?,
         };
 
