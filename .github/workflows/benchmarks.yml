@@ -41,6 +41,7 @@ jobs:
         with:
           tool: just
 
+      - uses: ./.github/actions/install-clang
       - name: Build neard
         run:
           cargo build --release --features tx_generator --config .cargo/config.profiling.toml
