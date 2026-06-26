@@ -134,6 +134,8 @@ fn test_deterministic_state_init_via_meta_tx() {
 /// validation. The exploit is prevented by a following `validate_receipt` check
 /// when the meta transaction is unpacked.
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_meta_tx_receiver_check_pre_fix() {
     let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
     let outcome = try_meta_tx_deterministic_receiver_exploit(fix_version - 1)
@@ -157,6 +159,8 @@ fn test_deterministic_state_init_meta_tx_receiver_check_pre_fix() {
 /// With `FixDelegatedDeterministicStateInit` in place, the exploit should
 /// already be caught at the first tx validation.
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_meta_tx_receiver_check() {
     let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
     let err = try_meta_tx_deterministic_receiver_exploit(fix_version)
