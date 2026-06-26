@@ -313,7 +313,7 @@ okapi = { git = "https://github.com/near/near-okapi-fork.git", rev = "fd7de89e13
 object_store = { version = "0.13", features = ["gcp"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.30", features = ["trace"] }
-opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.30", default-features = false, features = ["grpc-tonic", "trace"] }
 opentelemetry-semantic-conventions = "0.30"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
