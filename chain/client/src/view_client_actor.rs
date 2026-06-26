@@ -668,10 +668,8 @@ impl ViewClientActor {
                     } else {
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(tx_result)
                     };
-                    Ok(TxStatusOutcome::Observed(TxStatusView {
-                        execution_outcome: Some(res),
-                        status,
-                    }))
+                    let tx_status_view = TxStatusView { execution_outcome: Some(res), status };
+                    Ok(TxStatusOutcome::Observed(tx_status_view))
                 }
                 // The transaction is in the store (included) but has no execution outcome yet.
                 Ok(None) => Ok(TxStatusOutcome::Observed(TxStatusView {
@@ -1677,14 +1675,13 @@ impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewCl
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
         let tx_status = self.get_tx_status(tx_hash, signer_account_id, false);
-        // TODO: the forwarded `TxStatusResponse` only carries the outcome, so the rest of
-        // `tx_status` (status, `NotObserved`) is dropped. Enrich the response so a forwarded
-        // query can relay a definitive "not observed" instead of going silent on the RPC node.
-        let outcome = match tx_status {
-            Ok(TxStatusOutcome::Observed(view)) => view.execution_outcome,
-            _ => None,
+        let Ok(TxStatusOutcome::Observed(view)) = tx_status else {
+            return None;
         };
-        outcome.map(|result| Box::new(result.into_outcome()))
+        let Some(result) = view.execution_outcome else {
+            return None;
+        };
+        Some(Box::new(result.into_outcome()))
     }
 }
 

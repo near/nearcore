@@ -68,9 +68,7 @@ impl RpcFrom<TxStatusError> for RpcTransactionError {
                 Self::UnknownTransaction { requested_transaction_hash }
             }
             TxStatusError::InternalError(debug_info) => Self::InternalError { debug_info },
-            TxStatusError::TimeoutError => Self::TimeoutError(TimeoutErrorCause::Error {
-                debug_info: "the node timed out fetching the transaction status".to_string(),
-            }),
+            TxStatusError::TimeoutError => Self::TimeoutError(TimeoutErrorCause::timed_out()),
         }
     }
 }
