@@ -93,17 +93,8 @@ impl SpiceCoreReader {
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id))
+            Ok(get_execution_result_from_store(&self.chain_store, block_header.hash(), shard_id))
         }
-    }
-
-    fn get_execution_result_from_store(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Option<Arc<ChunkExecutionResult>> {
-        let key = get_execution_results_key(block_hash, shard_id);
-        self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
 
     /// Returns the list of uncertified chunks as of the given block.
@@ -328,7 +319,8 @@ impl SpiceCoreReader {
                 }
             }
 
-            let Some(execution_result) = self.get_execution_result_from_store(
+            let Some(execution_result) = get_execution_result_from_store(
+                &self.chain_store,
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
             ) else {
@@ -714,6 +706,20 @@ impl SpiceCoreReader {
         }
         Ok(result)
     }
+}
+
+/// Reads the certified chunk execution result for `(block_hash, shard_id)` from
+/// `DBCol::execution_results`, as written by the spice core writer. Returns
+/// `None` when absent (e.g. the chunk is not yet certified). Does not
+/// special-case genesis; callers that need genesis results should go through
+/// [`SpiceCoreReader`].
+pub(crate) fn get_execution_result_from_store(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Option<Arc<ChunkExecutionResult>> {
+    let key = get_execution_results_key(block_hash, shard_id);
+    chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
 }
 
 fn get_uncertified_chunks(

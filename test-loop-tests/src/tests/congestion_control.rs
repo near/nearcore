@@ -202,8 +202,7 @@ fn do_call_contract(
             )
         })
         .collect_vec();
-    // Poll each tx to completion with generous deadline rather than checking after a fixed duration.
-    // All calls land on the contract's (congested) shard and
-    // drain slowly through congestion backpressure.
+    // Poll each tx to completion. All calls land on the contract's congested shard
+    // and drain slowly through backpressure, hence the generous deadline.
     run_txs_parallel_on(&mut env.test_loop, rpc_id, txs, &env.node_datas, Duration::seconds(60));
 }
