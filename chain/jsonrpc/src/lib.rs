@@ -946,42 +946,41 @@ impl JsonRpcHandler {
     > {
         // If the request times out before any poll completes we report that we never got a
         // usable status; each poll that keeps us waiting replaces this with a better reason.
-        let mut timeout_error_cause = TimeoutErrorCause::Error {
-            debug_info: "the node did not return a transaction status before the request timed out"
-                .to_string(),
+        let mut timeout_error_cause = TimeoutErrorCause::timed_out();
+
+        let poll_tx_status = async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+            let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
+            loop {
+                match self.check_tx_status(&tx_info, &finality, fetch_receipt).await {
+                    ControlFlow::Break(outcome) => break outcome,
+                    ControlFlow::Continue(reason) => timeout_error_cause = reason,
+                }
+                new_block_watcher.changed().await.map_err(|_| {
+                    RpcTransactionError::InternalError {
+                        debug_info: "block notification channel closed".to_string(),
+                    }
+                })?;
+            }
         };
 
+        // The polling loop returns on its own once it reaches the requested finality or hits a
+        // definitive error; only a timeout falls through to `unwrap_or_else`.
         self.clock
-            .timeout(self.polling_config.polling_timeout, async {
-                // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
-                let mut new_block_watcher = self.block_notification_watcher.clone();
-                new_block_watcher.mark_unchanged();
-
-                loop {
-                    match self.poll_tx_status(&tx_info, &finality, fetch_receipt).await {
-                        ControlFlow::Break(outcome) => break outcome,
-                        ControlFlow::Continue(reason) => timeout_error_cause = reason,
-                    }
-                    new_block_watcher.changed().await.map_err(|_| {
-                        RpcTransactionError::InternalError {
-                            debug_info: "block notification channel closed".to_string(),
-                        }
-                    })?;
-                }
-            })
+            .timeout(self.polling_config.polling_timeout, poll_tx_status)
             .await
-            // The polling loop returns on its own once it reaches the requested finality or
-            // hits a definitive error; only a timeout falls through to `unwrap_or_else`.
             .unwrap_or_else(|_| {
                 self.tx_status_on_timeout(&tx_info, fetch_receipt, timeout_error_cause)
             })
     }
 
-    /// Performs a single `TxStatus` poll for `tx_status_fetch`. Returns `ControlFlow::Break`
+    /// Runs a single `TxStatus` check for the `poll_tx_status` loop. Returns `ControlFlow::Break`
     /// with the final response/error once the transaction reaches the requested `finality`
     /// or hits a definitive error, or `ControlFlow::Continue` with the reason to report if
     /// the request ultimately times out.
-    async fn poll_tx_status(
+    async fn check_tx_status(
         &self,
         tx_info: &TransactionInfo,
         finality: &TxExecutionStatus,
@@ -1004,7 +1003,7 @@ impl JsonRpcHandler {
             // Tracked shard, transaction not on chain. Fail fast if we can prove it invalid;
             // `wait_until: NONE` reports it unknown immediately, otherwise we keep waiting.
             Ok(TxStatusOutcome::NotObserved) => {
-                if let Err(context) = self.validate_tx(tx_info).await {
+                if let Err(context) = self.detect_invalid_tx(tx_info).await {
                     return ControlFlow::Break(Err(RpcTransactionError::InvalidTransaction {
                         context,
                     }));
@@ -1032,12 +1031,11 @@ impl JsonRpcHandler {
         }
     }
 
-    /// Validates the transaction when we were handed the full signed transaction (rather
-    /// than just its hash), so the caller can fail fast on an invalid transaction instead
-    /// of polling for one that will never appear on chain. Returns `Err(context)` when the
-    /// transaction is known to be invalid, or `Ok(())` when it is valid or we cannot check
-    /// it (we only have its hash).
-    async fn validate_tx(&self, tx_info: &TransactionInfo) -> Result<(), InvalidTxError> {
+    /// Detects an invalid transaction when we were handed the full signed transaction (rather
+    /// than just its hash), so the caller can fail fast instead of polling for one that will
+    /// never appear on chain. Returns `Err(context)` when the transaction is known to be
+    /// invalid, or `Ok(())` when it is valid or we cannot check it (we only have its hash).
+    async fn detect_invalid_tx(&self, tx_info: &TransactionInfo) -> Result<(), InvalidTxError> {
         let Some(tx) = tx_info.to_signed_tx() else { return Ok(()) };
         match self.send_tx_internal(tx.clone(), true).await {
             Ok(ProcessTxResponse::InvalidTx(context)) => Err(context),

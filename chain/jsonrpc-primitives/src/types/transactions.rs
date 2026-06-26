@@ -85,6 +85,17 @@ pub enum TimeoutErrorCause {
     Error { debug_info: String },
 }
 
+impl TimeoutErrorCause {
+    /// Standardized cause for a plain timeout: the node could not produce a usable transaction
+    /// status before its polling timeout, with no more specific reason (`NotObserved`,
+    /// `Pending`, `DoesNotTrackShard`) to report.
+    pub fn timed_out() -> Self {
+        Self::Error {
+            debug_info: "the node timed out before returning a transaction status".to_string(),
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcBroadcastTxSyncResponse {
