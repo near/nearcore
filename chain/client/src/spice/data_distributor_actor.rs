@@ -575,6 +575,10 @@ impl SpiceDataDistributorActor {
         // TODO(spice): Check that encoded_length isn't too large.
         let encoded_length = commitment.encoded_length;
         let total_parts = producers.len();
+        // TODO(spice): Bound the number of commitments tracked per id and evict stale entries. A
+        // misbehaving producer can otherwise grow this map: entries are created before the per-part
+        // merkle check below (a failed check leaves an empty entry behind), and valid commitments
+        // that never gather enough parts to decode are never dropped.
         let entry = data_parts.entry(commitment.clone()).or_insert_with(|| {
             let encoder = self.rs_encoders.entry(total_parts);
             DataPartsEntry {
