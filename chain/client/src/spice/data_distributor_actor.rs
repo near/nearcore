@@ -575,10 +575,12 @@ impl SpiceDataDistributorActor {
         // TODO(spice): Check that encoded_length isn't too large.
         let encoded_length = commitment.encoded_length;
         let total_parts = producers.len();
-        // TODO(spice): Bound the number of commitments tracked per id and evict stale entries. A
-        // misbehaving producer can otherwise grow this map: entries are created before the per-part
-        // merkle check below (a failed check leaves an empty entry behind), and valid commitments
-        // that never gather enough parts to decode are never dropped.
+        // TODO(spice): Bound this per-id commitment map; a misbehaving producer can grow it
+        // unboundedly. (a) entries are created before the per-part merkle check below, so a failed
+        // check leaves an empty entry behind: verify proofs before or_insert_with. (b) valid
+        // commitments that never gather enough parts to decode are never dropped: needs a per-id cap
+        // and an eviction signal (entries carry no age today, e.g. tie to head-driven pruning or to
+        // corroboration by multiple producers).
         let entry = data_parts.entry(commitment.clone()).or_insert_with(|| {
             let encoder = self.rs_encoders.entry(total_parts);
             DataPartsEntry {
@@ -624,9 +626,8 @@ impl SpiceDataDistributorActor {
             return Ok(());
         };
 
-        // A bad commitment can decode (or fail to decode) to data we cannot use. On any failure
-        // drop only the offending commitment so the periodic request loop keeps fetching the real
-        // data for this id from other producers; only a clean accept clears the whole id.
+        // On any failure drop only this commitment and keep the id, so the request loop keeps
+        // fetching from other producers; only a clean accept clears the whole id.
         if let Err(err) = self.validate_and_forward_decoded(
             &id,
             &commitment,
@@ -654,11 +655,11 @@ impl SpiceDataDistributorActor {
     ) -> Result<(), Error> {
         let data = decode_result.map_err(Error::DecodeError)?;
 
-        // Parts can individually verify against commitment.root and decode to data that is not the
-        // canonical encoding of the commitment. Re-encode and require the whole recomputed
-        // commitment to match (hash, root, and encoded_length), so all correct recipients converge
-        // on the same data and the attacker-supplied encoded_length is canonically validated before
-        // it flows downstream. This subsumes a standalone hash check.
+        // Parts can individually verify against commitment.root yet decode to data that is not the
+        // canonical encoding of the commitment. Require the recomputed commitment to match (hash,
+        // root, and encoded_length) so the decoded data is the canonical encoding of the received
+        // commitment and the attacker-supplied encoded_length is validated before it flows
+        // downstream.
         let recomputed = self.encode_distribution_data(&data, total_parts).commitment;
         if recomputed != *commitment {
             return Err(Error::RecomputedCommitmentMismatch);

@@ -906,7 +906,7 @@ test_invalid_incoming_partial_data! {
         commitment.root = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
     })
-    data_does_not_match_commitment_hash(Error::RecomputedCommitmentMismatch, receipt_proof_incoming_data, default, {
+    data_does_not_match_commitment(Error::RecomputedCommitmentMismatch, receipt_proof_incoming_data, default, {
         let mut commitment = default.commitment.clone();
         commitment.hash = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
