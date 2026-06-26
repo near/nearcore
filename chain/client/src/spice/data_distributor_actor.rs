@@ -1259,14 +1259,26 @@ impl SpiceDataDistributorActor {
             chunk_id.shard_id,
             block_header.height(),
         )?;
+        // Designated validators may always request; a non-designated epoch validator may once the
+        // chunk is past the fallback window, since it then needs the code to endorse via the
+        // all-stake fallback.
         if !assignments.contains(&requester) {
-            tracing::warn!(
-                target: "spice_data_distribution",
-                ?chunk_id,
-                ?requester,
-                "contract code request from non-chunk-validator"
-            );
-            return Ok(());
+            let head = self.chain_store.head()?;
+            let eligible = fallback_eligible(
+                &self.chain_store,
+                head.height + 1,
+                &head.last_block_hash,
+                &chunk_id,
+            )?;
+            if !eligible {
+                tracing::warn!(
+                    target: "spice_data_distribution",
+                    ?chunk_id,
+                    ?requester,
+                    "contract code request from non-chunk-validator"
+                );
+                return Ok(());
+            }
         }
 
         // Deduplicate repeated requests from the same requester for the same chunk.

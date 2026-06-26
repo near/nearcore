@@ -65,6 +65,9 @@ pub struct SharedState {
     /// List of drop conditions that apply to all nodes in the network.
     pub drop_conditions: Vec<DropCondition>,
     pub load_memtries_for_tracked_shards: bool,
+    /// When set, every node uses a no-op compiled contract cache so validators
+    /// must request contract code instead of reusing a precompiled copy.
+    pub disable_compiled_contract_cache: bool,
     /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,
     /// Archive-wide config for cloud archival nodes. Defaults to
