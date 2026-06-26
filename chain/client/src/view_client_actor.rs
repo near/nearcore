@@ -28,7 +28,7 @@ use near_client_primitives::types::{
     GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
     GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError, TxStatusOutcome,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -648,7 +648,7 @@ impl ViewClientActor {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-    ) -> Result<TxStatusView, TxStatusError> {
+    ) -> Result<TxStatusOutcome, TxStatusError> {
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
             // https://github.com/near/nearcore/issues/9545
@@ -656,12 +656,9 @@ impl ViewClientActor {
             if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
                 request_manager.tx_status_requests.pop(&tx_hash);
                 let status = self.get_tx_execution_status(&res)?;
-                return Ok(TxStatusView {
-                    execution_outcome: Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
-                        res,
-                    )),
-                    status,
-                });
+                let execution_outcome =
+                    Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res));
+                return Ok(TxStatusOutcome::Observed(TxStatusView { execution_outcome, status }));
             }
         }
 
@@ -683,8 +680,14 @@ impl ViewClientActor {
                     } else {
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(tx_result)
                     };
-                    Ok(TxStatusView { execution_outcome: Some(res), status })
+                    Ok(TxStatusOutcome::Observed(TxStatusView {
+                        execution_outcome: Some(res),
+                        status,
+                    }))
                 }
+                // TODO: `get_partial_transaction_result` returns `DBNotFoundErr` both when the
+                // tx is unknown and when its result is merely incomplete; have it return a
+                // partial result so we don't re-query the store and hardcode a coarse status.
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
                     if let Some(transaction) = self.chain.chain_store.get_transaction(&tx_hash) {
                         let transaction =
@@ -698,18 +701,18 @@ impl ViewClientActor {
                                     receipts_outcome: vec![],
                                 },
                             );
-                            Ok(TxStatusView {
+                            Ok(TxStatusOutcome::Observed(TxStatusView {
                                 execution_outcome: Some(outcome),
                                 status: TxExecutionStatus::Included,
-                            })
+                            }))
                         } else {
-                            Ok(TxStatusView {
+                            Ok(TxStatusOutcome::Observed(TxStatusView {
                                 execution_outcome: None,
                                 status: TxExecutionStatus::Included,
-                            })
+                            }))
                         }
                     } else {
-                        Err(TxStatusError::MissingTransaction(tx_hash))
+                        Ok(TxStatusOutcome::NotObserved)
                     }
                 }
                 Err(err) => {
@@ -740,7 +743,7 @@ impl ViewClientActor {
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
                 ));
             }
-            Ok(TxStatusView { execution_outcome: None, status: TxExecutionStatus::None })
+            Ok(TxStatusOutcome::ShardNotTracked { shard_id: target_shard_id })
         }
     }
 
@@ -890,8 +893,8 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
     }
 }
 
-impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActor {
-    fn handle(&mut self, msg: TxStatus) -> Result<TxStatusView, TxStatusError> {
+impl Handler<TxStatus, Result<TxStatusOutcome, TxStatusError>> for ViewClientActor {
+    fn handle(&mut self, msg: TxStatus) -> Result<TxStatusOutcome, TxStatusError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
@@ -1711,13 +1714,15 @@ impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewCl
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        if let Ok(Some(result)) =
-            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
-        {
-            Some(Box::new(result.into_outcome()))
-        } else {
-            None
-        }
+        let tx_status = self.get_tx_status(tx_hash, signer_account_id, false);
+        // TODO: the forwarded `TxStatusResponse` only carries the outcome, so the rest of
+        // `tx_status` (status, `NotObserved`) is dropped. Enrich the response so a forwarded
+        // query can relay a definitive "not observed" instead of going silent on the RPC node.
+        let outcome = match tx_status {
+            Ok(TxStatusOutcome::Observed(view)) => view.execution_outcome,
+            _ => None,
+        };
+        outcome.map(|result| Box::new(result.into_outcome()))
     }
 }
 

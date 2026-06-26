@@ -1,5 +1,5 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 use serde_json::Value;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -77,6 +77,9 @@ pub enum TimeoutErrorCause {
     /// last-known status is included so the caller can re-poll for a higher finality.
     /// Boxed to keep `RpcTransactionError` small (it is the `Err` type of many RPC results).
     Pending { status: Box<RpcTransactionResponse> },
+    /// The node does not track the transaction's shard and could not get an answer from a
+    /// chunk producer that does before the timeout.
+    ShardNotTracked { shard_id: ShardId },
     /// The node could not produce a usable transaction status before the timeout (for
     /// example a repeated internal error, or no response at all).
     Error { debug_info: String },
