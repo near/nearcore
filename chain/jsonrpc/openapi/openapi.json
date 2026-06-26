@@ -20841,6 +20841,25 @@
             "type": "object"
           },
           {
+            "description": "The node does not track the transaction's shard and could not get an answer from a\nchunk producer that does before the timeout.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "SHARD_NOT_TRACKED"
+                ],
+                "type": "string"
+              },
+              "shard_id": {
+                "$ref": "#/components/schemas/ShardId"
+              }
+            },
+            "required": [
+              "cause",
+              "shard_id"
+            ],
+            "type": "object"
+          },
+          {
             "description": "The node could not produce a usable transaction status before the timeout (for\nexample a repeated internal error, or no response at all).",
             "properties": {
               "cause": {

@@ -20,6 +20,7 @@ use near_client::{
     GetReceiptToTx, GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock,
     GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse,
     Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus, TxStatusError,
+    TxStatusOutcome,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -95,7 +96,7 @@ use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
     StateChangeKindView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    TxExecutionStatus, TxStatusView,
+    TxExecutionStatus,
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
@@ -468,7 +469,7 @@ pub struct ViewClientSenderForRpc(
     AsyncSender<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>>,
     AsyncSender<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorInfoError>>,
     AsyncSender<ClientQuery, Result<QueryResponse, QueryError>>,
-    AsyncSender<TxStatus, Result<TxStatusView, TxStatusError>>,
+    AsyncSender<TxStatus, Result<TxStatusOutcome, TxStatusError>>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
 );
 
@@ -881,51 +882,59 @@ impl JsonRpcHandler {
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         let mut last_error: Option<RpcTransactionError> = None;
-        self.clock.timeout(self.polling_config.polling_timeout, async {
-            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
-            let mut new_block_watcher = self.block_notification_watcher.clone();
-            new_block_watcher.mark_unchanged();
+        self.clock
+            .timeout(self.polling_config.polling_timeout, async {
+                // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+                let mut new_block_watcher = self.block_notification_watcher.clone();
+                new_block_watcher.mark_unchanged();
 
-            loop {
-                // TODO(optimization): Introduce a view_client method to only get transaction
-                // status without the information about execution outcomes.
-                match self.view_client_send(
-                    TxStatus {
-                        tx_hash,
-                        signer_account_id: signer_account_id.clone(),
-                        fetch_receipt: false,
-                    })
-                    .await
-                {
-                    Ok(status) => {
-                        if let Some(_) = status.execution_outcome {
+                loop {
+                    // TODO(optimization): Introduce a view_client method to only get transaction
+                    // status without the information about execution outcomes.
+                    match self
+                        .view_client_send(TxStatus {
+                            tx_hash,
+                            signer_account_id: signer_account_id.clone(),
+                            fetch_receipt: false,
+                        })
+                        .await
+                    {
+                        // Observed with an execution outcome: the transaction exists.
+                        Ok(TxStatusOutcome::Observed(view)) if view.execution_outcome.is_some() => {
                             return Ok(true);
                         }
+                        // Observed without an outcome yet, or shard not tracked (query forwarded):
+                        // keep polling.
+                        Ok(
+                            TxStatusOutcome::Observed(_) | TxStatusOutcome::ShardNotTracked { .. },
+                        ) => {}
+                        // Tracked shard, transaction not found: it does not exist.
+                        Ok(TxStatusOutcome::NotObserved) => return Ok(false),
+                        Err(err) => last_error = Some(err),
                     }
-                    Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
-                        ..
-                    }) => {
-                        return Ok(false);
-                    }
-                    Err(err) => last_error = Some(err),
+                    new_block_watcher.changed().await.map_err(|_| {
+                        RpcTransactionError::InternalError {
+                            debug_info: "Block notification channel closed".to_string(),
+                        }
+                    })?;
                 }
-                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
-            }
-        })
-        .await
-        .map_err(|_| {
-            metrics::RPC_TIMEOUT_TOTAL.inc();
-            tracing::warn!(
-                target: "jsonrpc",
-                ?tx_hash,
-                ?signer_account_id,
-                ?last_error,
-                "timeout: tx_exists method"
-            );
-            let debug_info = format!("tx_exists timeout, last error: {:?}", last_error);
-            let cause = TimeoutErrorCause::Error { debug_info };
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError(cause)
-        })?
+            })
+            .await
+            .map_err(|_| {
+                metrics::RPC_TIMEOUT_TOTAL.inc();
+                tracing::warn!(
+                    target: "jsonrpc",
+                    ?tx_hash,
+                    ?signer_account_id,
+                    ?last_error,
+                    "timeout: tx_exists method"
+                );
+                let debug_info = format!("tx_exists timeout, last error: {:?}", last_error);
+                let cause = TimeoutErrorCause::Error { debug_info };
+                near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError(
+                    cause,
+                )
+            })?
     }
 
     /// Return status of the given transaction
@@ -986,29 +995,41 @@ impl JsonRpcHandler {
         let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
         let request = TxStatus { tx_hash, signer_account_id: account_id.clone(), fetch_receipt };
         match self.view_client_send(request).await {
-            Ok(result) => {
-                // Stop as soon as we reach the requested finality; otherwise the transaction
-                // is on its way but not there yet, so keep polling, remembering how far it got.
-                if tx_execution_status_meets_expectations(finality, &result.status) {
-                    ControlFlow::Break(Ok(result.into()))
+            // The node tracks the shard and observed the transaction. Stop once it reaches
+            // the requested finality; otherwise keep polling, remembering how far it got.
+            Ok(TxStatusOutcome::Observed(view)) => {
+                if tx_execution_status_meets_expectations(finality, &view.status) {
+                    ControlFlow::Break(Ok(view.into()))
                 } else {
                     ControlFlow::Continue(TimeoutErrorCause::Pending {
-                        status: Box::new(result.into()),
+                        status: Box::new(view.into()),
                     })
                 }
             }
-            // Not recorded on chain (yet). If we were handed the signed transaction we can
-            // detect an invalid one right away; otherwise only `wait_until: NONE` asks us to
-            // stop now instead of waiting for it to appear.
-            Err(err @ RpcTransactionError::UnknownTransaction { .. }) => {
+            // Tracked shard, transaction not on chain. Fail fast if we can prove it invalid;
+            // `wait_until: NONE` reports it unknown immediately, otherwise we keep waiting.
+            Ok(TxStatusOutcome::NotObserved) => {
                 if let Err(context) = self.validate_tx(tx_info).await {
-                    let error = RpcTransactionError::InvalidTransaction { context };
-                    return ControlFlow::Break(Err(error));
+                    return ControlFlow::Break(Err(RpcTransactionError::InvalidTransaction {
+                        context,
+                    }));
                 }
                 if *finality == TxExecutionStatus::None {
-                    ControlFlow::Break(Err(err))
+                    ControlFlow::Break(Err(RpcTransactionError::UnknownTransaction {
+                        requested_transaction_hash: tx_hash,
+                    }))
                 } else {
                     ControlFlow::Continue(TimeoutErrorCause::NotObserved)
+                }
+            }
+            // We don't track the shard; the view client forwarded the query. `wait_until:
+            // NONE` says so immediately; otherwise wait for the forwarded answer and, if it
+            // never arrives, time out with the shard recorded.
+            Ok(TxStatusOutcome::ShardNotTracked { shard_id }) => {
+                if *finality == TxExecutionStatus::None {
+                    ControlFlow::Break(Err(RpcTransactionError::DoesNotTrackShard))
+                } else {
+                    ControlFlow::Continue(TimeoutErrorCause::ShardNotTracked { shard_id })
                 }
             }
             // Any other error is terminal; surface it directly rather than waiting.

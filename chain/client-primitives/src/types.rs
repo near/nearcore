@@ -9,7 +9,7 @@ use near_primitives::types::{
 };
 use near_primitives::views::{
     EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
-    StateChangesRequestView, StateSyncStatusView, SyncStatusView,
+    StateChangesRequestView, StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -624,6 +624,19 @@ pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
     pub fetch_receipt: bool,
+}
+
+/// Outcome of the transaction status lookup, including either the status or
+/// full context on why the status is unavailable.
+#[derive(Debug)]
+pub enum TxStatusOutcome {
+    /// The node tracks the transaction's shard and observed it.
+    Observed(TxStatusView),
+    /// The node tracks the shard but has not seen the transaction on chain.
+    NotObserved,
+    /// The node does not track the transaction's shard; the query was forwarded
+    /// to a chunk producer that does, and no answer is available yet.
+    ShardNotTracked { shard_id: ShardId },
 }
 
 #[derive(Debug)]
