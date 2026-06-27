@@ -54,8 +54,7 @@ impl<'a> PrepareContext<'a> {
 
     /// “Early” preparation.
     ///
-    /// Must happen before the finite-wasm analysis and is applicable to NearVm just as much as it is
-    /// applicable to other runtimes.
+    /// Must happen before the finite-wasm analysis and is applicable to all runtimes.
     ///
     /// This will validate the module, normalize the memories within, apply limits.
     fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
@@ -125,7 +124,7 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::MemorySection(reader) => {
                     // We do not want to include the implicit memory anymore as we normalized it by
-                    // importing the memory instead in NearVm.
+                    // importing the memory instead.
                     self.ensure_import_section();
                     self.before_memory_section = false;
                     self.validator
@@ -402,19 +401,6 @@ pub(crate) fn prepare_contract(
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
-    match kind {
-        VMKind::NearVm => {
-            if let Some(max_size) = config.limit_config.max_instrumented_code_size {
-                if lightly_steamed.len() as u64 > max_size {
-                    tracing::debug!(target: "vm", size=lightly_steamed.len(), ?kind, "instrumented code too large");
-                    return Err(PrepareError::InstrumentedCodeTooLarge);
-                }
-            }
-            return Ok(lightly_steamed);
-        }
-        VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
-    }
-
     let analysis = finite_wasm_6::Analysis::new()
         .with_stack(SimpleMaxStackCfg)
         .with_gas(SimpleGasCostCfg {
@@ -469,7 +455,6 @@ pub(crate) fn prepare_contract(
     Ok(res)
 }
 
-// TODO: refactor to avoid copy-paste with the ones currently defined in near_vm_runner
 struct SimpleMaxStackCfg;
 
 impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {

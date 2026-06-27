@@ -10,7 +10,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
 #[cfg(not(windows))]
-use near_primitives_core::version::ProtocolFeature;
 use parking_lot::Mutex;
 #[cfg(not(windows))]
 use rand::Rng as _;
@@ -33,9 +32,9 @@ use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 #[cfg(not(windows))]
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
-#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+#[cfg(feature = "wasmtime_vm")]
 // FIXME(ProtocolSchema): this isn't really part of the protocol schema??
 #[derive(Debug, Clone, BorshSerialize, near_schema_checker_lib::ProtocolSchema)]
 enum ContractCacheKey {
@@ -51,7 +50,7 @@ enum ContractCacheKey {
     },
 }
 
-#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+#[cfg(feature = "wasmtime_vm")]
 pub(crate) fn get_contract_cache_key(
     code_hash: CryptoHash,
     config: &Config,
@@ -74,7 +73,7 @@ pub(crate) fn get_contract_cache_key(
 /// Use this to compare two configs without enumerating cache-key inputs by
 /// hand — adding a new field to [`ContractCacheKey`] flows through here
 /// automatically.
-#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+#[cfg(feature = "wasmtime_vm")]
 pub fn config_cache_key_signature(config: Arc<Config>) -> CryptoHash {
     let vm_kind = config.vm_kind;
     let runtime = vm_kind
@@ -483,91 +482,6 @@ impl FilesystemContractRuntimeCache {
         Ok(cache)
     }
 
-    /// Remove cache files whose last-modification time is older than `max_age`,
-    /// i.e. files compiled more than `max_age` ago. Returns the number of
-    /// files removed.
-    pub fn evict_files_older_than(&self, max_age: std::time::Duration) -> usize {
-        let Ok(now_since_epoch) = SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
-            tracing::warn!(target: "vm", "system clock issue; skipping age-based cleanup");
-            return 0;
-        };
-        let Some(cutoff) = now_since_epoch.checked_sub(max_age) else {
-            return 0;
-        };
-        let cutoff_secs = cutoff.as_secs() as i64;
-
-        let dir = match Dir::read_from(&self.state.dir) {
-            Ok(dir) => dir,
-            Err(err) => {
-                tracing::warn!(
-                    target: "vm",
-                    err = &err as &dyn std::error::Error,
-                    "failed to read contract cache directory; skipping age-based cleanup",
-                );
-                return 0;
-            }
-        };
-
-        let mut removed = 0usize;
-        // Keys whose files we unlinked, so we can drop them from the on-disk
-        // index afterwards and keep its weight accounting honest.
-        let mut removed_keys: Vec<CryptoHash> = Vec::new();
-        for entry in dir {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(err) => {
-                    tracing::warn!(
-                        target: "vm",
-                        err = &err as &dyn std::error::Error,
-                        "failed to read contract cache directory entry; skipping age-based cleanup",
-                    );
-                    continue;
-                }
-            };
-            let filename_bytes = entry.file_name().to_bytes();
-            if filename_bytes == b"." || filename_bytes == b".." {
-                continue;
-            }
-            if !entry.file_type().is_file() {
-                continue;
-            }
-
-            let stat = match statat(&self.state.dir, entry.file_name(), AtFlags::empty()) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-
-            if (stat.st_mtime as i64) >= cutoff_secs {
-                continue;
-            }
-
-            match unlinkat(&self.state.dir, entry.file_name(), AtFlags::empty()) {
-                Ok(()) => {
-                    removed += 1;
-                    if let Some(key) =
-                        entry.file_name().to_str().ok().and_then(|s| CryptoHash::from_str(s).ok())
-                    {
-                        removed_keys.push(key);
-                    }
-                }
-                Err(Errno::NOENT) => {}
-                Err(err) => tracing::warn!(
-                    target: "vm",
-                    file_name = ?entry.file_name(),
-                    err = &err as &dyn std::error::Error,
-                    "failed to remove old contract cache file",
-                ),
-            }
-        }
-        if !removed_keys.is_empty() {
-            let mut index = self.state.disk_index.lock();
-            for key in removed_keys {
-                index.remove(&key);
-            }
-        }
-        removed
-    }
-
     /// Stamp `key`'s on-disk file with the current access time, leaving its
     /// modification time untouched. Best-effort: failures are logged and dropped.
     fn refresh_disk_atime(&self, key: &CryptoHash) {
@@ -859,20 +773,6 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         }
     }
 
-    fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
-        // Sweep at the wasmtime-VM cutover
-        if new_protocol_version == ProtocolFeature::Wasmtime.protocol_version() {
-            const MAX_AGE: std::time::Duration = std::time::Duration::from_hours(24);
-            let removed = self.evict_files_older_than(MAX_AGE);
-            tracing::info!(
-                target: "vm",
-                new_protocol_version,
-                removed,
-                "swept contract cache after protocol-version update",
-            );
-        }
-    }
-
     fn touch(&self, key: &CryptoHash) {
         // Promote in the in-memory LRU and check if on-disk atime refresh is needed.
         let needs_refresh = {
@@ -1035,16 +935,6 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
     fn clear(&mut self) {
         self.current_weight = 0;
         self.cache.clear();
-    }
-
-    /// Drop `key` from the index if present, reclaiming its tracked weight.
-    /// Used to keep the index consistent when a file is removed out-of-band
-    /// (e.g. the protocol-version sweep unlinks directly on disk).
-    #[cfg_attr(windows, allow(dead_code))]
-    fn remove(&mut self, key: &K) {
-        if let Some((weight, _)) = self.cache.pop(key) {
-            self.current_weight -= weight;
-        }
     }
 
     fn contains(&self, key: &K) -> bool {
