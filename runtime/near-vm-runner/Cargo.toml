@@ -29,7 +29,6 @@ parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand.workspace = true
-rayon.workspace = true
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 serde.workspace = true

@@ -5366,7 +5366,6 @@ dependencies = [
  "prefix-sum-vec",
  "prometheus",
  "rand 0.8.5",
- "rayon",
  "ripemd",
  "rustix",
  "serde",
