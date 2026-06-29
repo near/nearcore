@@ -45,10 +45,6 @@ use {
     near_primitives::epoch_manager::EpochConfigStore,
 };
 
-/// Marker file written inside the hot store directory to signal that the data
-/// directory should be wiped on the next startup for epoch sync re-bootstrap.
-const EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME: &str = ".EPOCH_SYNC_DATA_RESET";
-
 /// Signal received by the shutdown handler.
 #[derive(Debug)]
 enum ShutdownSignal {
@@ -582,12 +578,10 @@ impl RunCmd {
             }
         }
 
-        // Resolve the hot store path from config (before config is moved).
-        let hot_store_path = home_dir
-            .join(near_config.config.store.path.as_deref().unwrap_or_else(|| Path::new("data")));
-
-        // Check for epoch sync data reset marker from a previous run.
-        check_epoch_sync_data_reset_marker(&hot_store_path, near_config.client_config.archive);
+        // Resolve the hot store path from config (before config is moved). The
+        // data reset marker from a previous run is checked inside
+        // `start_with_config_and_synchronization`, before the store is opened.
+        let hot_store_path = nearcore::epoch_sync_reset::hot_store_path(home_dir, &near_config);
 
         let (tx_crash, mut rx_crash) = broadcast::channel::<ShutdownReason>(16);
         let (tx_config_update, rx_config_update) =
@@ -643,7 +637,7 @@ impl RunCmd {
             let needs_restart =
                 matches!(&sig, ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset));
             if needs_restart {
-                write_epoch_sync_data_reset_marker(&hot_store_path);
+                nearcore::epoch_sync_reset::write_epoch_sync_data_reset_marker(&hot_store_path);
             }
 
             tracing::warn!(target: "neard", ?sig, "stopping, this may take a few minutes");
@@ -658,76 +652,12 @@ impl RunCmd {
             // Re-exec after shutting down actors. We skip RocksDB shutdown since
             // the data directory will be wiped on the next startup anyway.
             if needs_restart {
-                exec_restart();
+                nearcore::epoch_sync_reset::exec_restart();
             }
         });
         tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
-}
-
-/// Checks for the epoch sync data reset marker and deletes the data directory if found.
-/// Archival nodes skip deletion to prevent accidental data loss.
-fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
-    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    if !marker_path.exists() {
-        return;
-    }
-    if is_archival {
-        tracing::warn!(target: "neard", "epoch sync data reset marker found but node is archival, ignoring");
-    } else {
-        tracing::info!(target: "neard", ?hot_store_path, "epoch sync data reset marker found, deleting data directory");
-        std::fs::remove_dir_all(hot_store_path)
-            .expect("failed to delete data directory for epoch sync reset");
-    }
-}
-
-/// Writes the epoch sync data reset marker file inside the hot store directory.
-/// On next startup, this marker signals that the data directory should be wiped.
-fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
-    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    // Ensure the data directory exists (it should, since we're running).
-    std::fs::create_dir_all(hot_store_path)
-        .expect("failed to create data directory for reset marker");
-    std::fs::write(&marker_path, b"").expect("failed to write epoch sync reset marker");
-    // Fsync the marker file and the parent directory to ensure the directory
-    // entry is durably persisted (fsync on the file alone is not sufficient
-    // on all filesystems).
-    std::fs::File::open(&marker_path)
-        .and_then(|f| f.sync_all())
-        .expect("failed to fsync reset marker file");
-    std::fs::File::open(hot_store_path)
-        .and_then(|d| d.sync_all())
-        .expect("failed to fsync hot store directory");
-    tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
-}
-
-/// On non-unix platforms, exec is not available.
-#[cfg(not(unix))]
-fn exec_restart() {
-    tracing::warn!(
-        target: "neard",
-        "automatic restart after epoch sync data reset is not supported on this platform, \
-         please restart manually"
-    );
-}
-
-/// Re-execs the current process with the same arguments.
-/// On success, this function never returns (the process image is replaced).
-#[cfg(unix)]
-fn exec_restart() {
-    use std::env::{args_os, current_exe};
-    use std::os::unix::process::CommandExt;
-    use std::process::Command;
-
-    let binary = current_exe().expect("failed to determine current executable path");
-    let args: Vec<_> = args_os().skip(1).collect();
-
-    tracing::info!(target: "neard", ?binary, ?args, "restarting process after epoch sync data reset");
-
-    // exec() replaces the process image. If it returns, it failed.
-    let err = Command::new(&binary).args(&args).exec();
-    panic!("failed to exec {:?}: {}", binary, err);
 }
 
 #[cfg(not(unix))]

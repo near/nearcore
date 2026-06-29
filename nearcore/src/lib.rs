@@ -68,6 +68,7 @@ pub mod dyn_config;
 #[cfg(feature = "json_rpc")]
 pub mod entity_debug;
 mod entity_debug_serializer;
+pub mod epoch_sync_reset;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
@@ -392,6 +393,36 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    // If a previous run requested an epoch sync data reset, wipe the data
+    // directory before opening the store so the node re-bootstraps from genesis.
+    let hot_store_path = epoch_sync_reset::hot_store_path(home_dir, &config);
+    epoch_sync_reset::clear_data_dir_if_reset_marker_present(
+        &hot_store_path,
+        config.client_config.archive,
+    );
+
+    // Opt-in via `epoch_sync.automatic_data_reset`: when the caller provides no
+    // shutdown signal (e.g. an indexer started through `start_with_config`),
+    // install a handler that performs the wipe-and-restart, so a stale embedded
+    // node can self-heal instead of looping on epoch sync forever. Callers that
+    // provide their own signal (e.g. neard) keep handling the reset themselves.
+    let shutdown_signal = match shutdown_signal {
+        Some(tx) => {
+            if config.client_config.epoch_sync.automatic_data_reset {
+                tracing::warn!(
+                    target: "epoch_sync_reset",
+                    "epoch_sync.automatic_data_reset is set but a shutdown_signal was provided; \
+                     leaving EpochSyncDataReset handling to the caller"
+                );
+            }
+            Some(tx)
+        }
+        None if config.client_config.epoch_sync.automatic_data_reset => {
+            Some(epoch_sync_reset::spawn_automatic_reset_handler(hot_store_path))
+        }
+        None => None,
+    };
+
     let storage = open_storage(home_dir, &config)?;
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;

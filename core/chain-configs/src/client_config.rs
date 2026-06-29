@@ -425,6 +425,17 @@ pub struct EpochSyncConfig {
     #[serde(with = "near_time::serde_duration_as_std")]
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub timeout_for_epoch_sync: Duration,
+    /// What to do when epoch sync classifies this node as "stale" (its stored
+    /// data is too far behind to apply an epoch sync proof in place) and asks
+    /// for a data reset. The reset wipes the data directory and re-bootstraps
+    /// from genesis. The `neard` binary performs this itself by handling the
+    /// `EpochSyncDataReset` shutdown signal. Embedders that do not handle that
+    /// signal (e.g. indexers started via `start_with_config`) would otherwise
+    /// loop on epoch sync forever; set this to `true` to have nearcore perform
+    /// the wipe-and-restart automatically. Defaults to `false` so existing
+    /// consumers are unaffected.
+    #[serde(default)]
+    pub automatic_data_reset: bool,
 }
 
 fn default_epoch_sync_horizon_num_epochs() -> u64 {
@@ -439,6 +450,7 @@ impl Default for EpochSyncConfig {
             // the GC period (typically 5 epochs) to be able to do header sync.
             epoch_sync_horizon_num_epochs: default_epoch_sync_horizon_num_epochs(),
             timeout_for_epoch_sync: Duration::seconds(60),
+            automatic_data_reset: false,
         }
     }
 }
