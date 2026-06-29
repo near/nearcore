@@ -460,6 +460,7 @@ impl SpiceCoreReader {
             &SpiceChunkId,
             HashMap<ChunkExecutionResultHash, HashMap<&AccountId, Signature>>,
         > = HashMap::new();
+        let mut endorsed_chunk_accounts: HashSet<(&SpiceChunkId, &AccountId)> = HashSet::new();
         let mut block_execution_results = HashMap::new();
         let mut max_endorsed_height_created = HashMap::new();
 
@@ -468,12 +469,8 @@ impl SpiceCoreReader {
                 SpiceCoreStatement::Endorsement(endorsement) => {
                     let chunk_id = endorsement.chunk_id();
                     let account_id = endorsement.account_id();
-                    // TODO(spice): reject more than one endorsement per (chunk, account),
-                    // regardless of result hash. The dup check below is per result hash and
-                    // `waiting_on_endorsements` is not updated mid-loop, so a validator can
-                    // equivocate (endorse two results for one chunk) and count toward both.
-                    // Checking contents of waiting_on_endorsements makes sure that
-                    // chunk_id and account_id are valid.
+                    // Membership in waiting_on_endorsements also validates that chunk_id and
+                    // account_id are valid.
                     if !waiting_on_endorsements.contains(&(chunk_id, account_id)) {
                         return Err(InvalidCoreStatement {
                             index,
@@ -496,19 +493,21 @@ impl SpiceCoreReader {
                         return Err(InvalidCoreStatement { index, reason: "invalid signature" });
                     };
 
-                    if in_block_endorsements
-                        .entry(chunk_id)
-                        .or_default()
-                        .entry(signed_data.execution_result_hash.clone())
-                        .or_default()
-                        .insert(account_id, signature.clone())
-                        .is_some()
-                    {
+                    // Reject more than one endorsement per (chunk, account) regardless of result
+                    // hash, so an equivocating validator cannot count toward two results.
+                    if !endorsed_chunk_accounts.insert((chunk_id, account_id)) {
                         return Err(InvalidCoreStatement {
                             index,
                             reason: "duplicate endorsement",
                         });
                     }
+
+                    in_block_endorsements
+                        .entry(chunk_id)
+                        .or_default()
+                        .entry(signed_data.execution_result_hash.clone())
+                        .or_default()
+                        .insert(account_id, signature.clone());
                 }
                 SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
                     if block_execution_results.insert(chunk_id, (execution_result, index)).is_some()
