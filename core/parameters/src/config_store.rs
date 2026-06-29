@@ -24,8 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (46, include_config!("46.yaml")),
-    (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
     (50, include_config!("50.yaml")),
     // max_gas_burnt increased to 300 TGas

@@ -294,6 +294,7 @@ mod versioned_witness_tests {
         PartialEncodedStateWitnessV2::new(
             EpochId(CryptoHash::default()),
             chunk_header,
+            CryptoHash::hash_bytes(b"prev_prev_block"),
             0,
             b"data".to_vec(),
             4,

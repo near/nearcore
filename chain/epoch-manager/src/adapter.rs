@@ -24,6 +24,13 @@ use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+/// Height distance from a chunk's grandparent anchor to the chunk, absent
+/// skipped slots: a chunk anchored at block `A` is nominally at height
+/// `A.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`. The writer
+/// (`save_chunk_producers_for_header`) samples at this offset, and witness
+/// validation uses it as the anchor-implied minimum chunk height.
+pub const CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET: BlockHeight = 2;
+
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
 /// prefer the former whenever possible. The latter is for legacy tests.
@@ -521,21 +528,83 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
-    /// Hash-based chunk producer lookup. When EarlyKickout is enabled for the
-    /// block's epoch, reads from the ChunkProducers DB column and errors on
-    /// miss. Otherwise falls back to deterministic computation.
+    /// Grandparent anchor of a chunk whose parent is `prev_block_hash`:
+    /// `block_info(prev_block_hash).prev_hash()`. Returns `None` when the chunk
+    /// has no real grandparent — the parent is the genesis block, or the chunk
+    /// is a genesis chunk (`prev_block_hash == CryptoHash::default()`) — in
+    /// which case producer resolution falls back to the canonical sampler.
+    fn grandparent_anchor(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, EpochError> {
+        if prev_block_hash == &CryptoHash::default() {
+            return Ok(None);
+        }
+        let prev_block_info = self.get_block_info(prev_block_hash)?;
+        if prev_block_info.is_genesis() {
+            return Ok(None);
+        }
+        Ok(Some(*prev_block_info.prev_hash()))
+    }
+
+    /// Anchored chunk producer lookup (cross-epoch-anchor rule).
     ///
-    /// Only safe to call when `prev_block_hash` is guaranteed to have been
-    /// processed (registered with the epoch manager via `add_validator_proposals`
-    /// and written to the ChunkProducers DB column via `save_chunk_producers_for_header`).
+    /// When EarlyKickout is enabled for the chunk's epoch and `anchor` (the
+    /// chunk's grandparent block) is in the same epoch as the chunk, reads the
+    /// producer from the ChunkProducers DB column keyed by the anchor and
+    /// errors on miss. Otherwise — feature off, no anchor (low height), or the
+    /// anchor belongs to a previous epoch (first <=2 blocks of an epoch, where
+    /// the kickout blacklist is provably empty) — samples canonically from the
+    /// chunk's own epoch at `height_created`.
+    ///
+    /// Errors with `MissingBlock` when the anchor block has not been processed
+    /// (node is two or more blocks behind the chunk).
+    ///
+    /// This cross-epoch-anchor rule is the canonical statement; the kickout
+    /// aggregator (`EpochManager::anchored_chunk_producers_for_aggregator`)
+    /// mirrors it and must stay in lockstep so stats track the producers
+    /// consensus actually resolved.
     // TODO(early-kickout): once dynamic sampling ships and the DB may
     // diverge from computation (blacklisted producers excluded), consider adding
     // a lenient variant with computation fallback for non-critical paths.
-    fn get_chunk_producer_info_db(
+    fn get_chunk_producer_info_anchored(
+        &self,
+        anchor: Option<&CryptoHash>,
+        chunk_epoch_id: &EpochId,
+        height_created: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError>;
+
+    /// Anchored chunk producer lookup for the chunk built on `prev_block_hash`:
+    /// derives the chunk's epoch, height and grandparent anchor from the parent
+    /// block, then resolves via [`Self::get_chunk_producer_info_anchored`].
+    ///
+    /// Only safe to call when `prev_block_hash` has been processed (registered
+    /// with the epoch manager via `add_validator_proposals`).
+    fn get_chunk_producer_info_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<ValidatorStake, EpochError>;
+    ) -> Result<ValidatorStake, EpochError> {
+        let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        // Read the parent `BlockInfo` once for both height and anchor (the standalone
+        // `grandparent_anchor` would re-read it); this is a hot signature-verification path.
+        let prev_block_info = self.get_block_info(prev_block_hash)?;
+        let height_created = prev_block_info.height() + 1;
+        // Mirrors `grandparent_anchor`: no real grandparent for a genesis chunk
+        // (`prev == default`) or when the parent is the genesis block.
+        let anchor = if prev_block_hash == &CryptoHash::default() || prev_block_info.is_genesis() {
+            None
+        } else {
+            Some(*prev_block_info.prev_hash())
+        };
+        self.get_chunk_producer_info_anchored(
+            anchor.as_ref(),
+            &chunk_epoch_id,
+            height_created,
+            shard_id,
+        )
+    }
 
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
@@ -977,19 +1046,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
 
-    fn get_chunk_producer_info_db(
+    fn get_chunk_producer_info_anchored(
         &self,
-        prev_block_hash: &CryptoHash,
+        anchor: Option<&CryptoHash>,
+        chunk_epoch_id: &EpochId,
+        height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        // Check the protocol version of the block's OWN epoch (not the chunk's
-        // epoch). The DB entry was written when prev_block was processed, using
-        // the block's epoch version. At epoch boundaries the chunk's epoch may
-        // have EarlyKickout enabled while the parent block's epoch didn't.
-        // For genesis chunks (prev_block_hash = default), get_epoch_id returns
-        // the genesis epoch — the DB entry is saved during genesis init.
-        // When EarlyKickout is enabled for the block's epoch, read from the
-        // ChunkProducers DB column (strict — errors on miss).
+        // Gate on the CHUNK's epoch. At epoch boundaries where the anchor's
+        // epoch predates EarlyKickout activation, the cross-epoch arm below
+        // routes to the canonical sampler — no DB entry is needed there.
         // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
         // One option is a large RocksDB memtable for this column.
         #[cfg(feature = "nightly")]
@@ -999,26 +1065,36 @@ impl EpochManagerAdapter for EpochManagerHandle {
             use near_store::DBCol;
             use near_store::adapter::StoreAdapter;
 
-            let block_epoch_id = self.get_epoch_id(prev_block_hash)?;
-            let block_protocol_version = self.get_epoch_protocol_version(&block_epoch_id)?;
-            if ProtocolFeature::EarlyKickout.enabled(block_protocol_version) {
-                let epoch_manager = self.read();
-                let key = get_block_shard_id(prev_block_hash, shard_id);
-                return match epoch_manager
-                    .store
-                    .store_ref()
-                    .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-                {
-                    Some(validator) => Ok(validator),
-                    None => Err(EpochError::ChunkProducerNotInDB(*prev_block_hash, shard_id)),
-                };
+            let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
+            if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
+                // `CryptoHash::default()` means no grandparent (chunk at genesis
+                // or genesis + 1).
+                if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
+                    // Errors with MissingBlock when the anchor is unprocessed.
+                    let anchor_epoch_id = self.get_epoch_id(anchor)?;
+                    if &anchor_epoch_id == chunk_epoch_id {
+                        let epoch_manager = self.read();
+                        let key = get_block_shard_id(anchor, shard_id);
+                        return match epoch_manager
+                            .store
+                            .store_ref()
+                            .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                        {
+                            Some(validator) => Ok(validator),
+                            None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
+                        };
+                    }
+                    // Anchor in a previous epoch: the chunk is within the first
+                    // <=2 blocks of its epoch, where the kickout blacklist is
+                    // provably empty — the canonical sampler is exact.
+                }
             }
         }
-        // Feature not enabled for prev_block's epoch — fall back to computation.
-        let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let block_info = self.get_block_info(prev_block_hash)?;
-        let height = block_info.height() + 1;
-        let cpk = ChunkProductionKey { epoch_id: chunk_epoch_id, height_created: height, shard_id };
+        #[cfg(not(feature = "nightly"))]
+        let _ = anchor;
+        // Feature off, no anchor, or cross-epoch anchor — canonical sampling
+        // from the chunk's own epoch.
+        let cpk = ChunkProductionKey { epoch_id: *chunk_epoch_id, height_created, shard_id };
         self.get_chunk_producer_info(&cpk)
     }
 

@@ -1,4 +1,5 @@
 use crate::Block;
+use crate::spice::core::get_execution_result_from_store;
 use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter};
 use crate::update_shard::NewChunkResult;
 use near_chain_primitives::Error;
@@ -11,8 +12,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ProcessedReceipt, ProcessedReceiptMetadata, ReceiptSource, ReceiptToTxInfo,
 };
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::{BlockExecutionResults, BlockHeight, ShardId};
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{StoreUpdate, WrappedTrieChanges};
@@ -234,6 +236,53 @@ pub fn build_spice_apply_chunk_block_context(
     ))
 }
 
+/// Per-shard congestion info for transaction admission, from `block_header`'s
+/// executed `ChunkExtra`s (typically the last certified block). Each shard is
+/// read via [`spice_shard_congestion_info`], so it works without tracking every
+/// shard; shards neither tracked nor yet certified are omitted.
+pub fn spice_block_congestion_info(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_header: &BlockHeader,
+) -> Result<BlockCongestionInfo, Error> {
+    let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
+    let mut result = BTreeMap::new();
+    for shard_id in shard_layout.shard_ids() {
+        if let Some(extended) =
+            spice_shard_congestion_info(chain_store, &shard_layout, block_header, shard_id)
+        {
+            result.insert(shard_id, extended);
+        }
+    }
+    Ok(BlockCongestionInfo::new(result))
+}
+
+/// Congestion info for a single shard from `block_header`'s executed `ChunkExtra`,
+/// for transaction admission. Prefers the locally executed `ChunkExtra`, falling
+/// back to the chain-wide certified result in `DBCol::execution_results` (like
+/// `SpiceCoreReader::get_trusted_chunk_extra`), so it works without tracking the
+/// shard. Returns `None` when the shard is neither tracked nor yet certified.
+/// `missed_chunks_count` is 0 (see `build_block_congestion_info`). Prefer this
+/// over [`spice_block_congestion_info`] when only one shard's entry is needed.
+pub fn spice_shard_congestion_info(
+    chain_store: &ChainStoreAdapter,
+    shard_layout: &ShardLayout,
+    block_header: &BlockHeader,
+    shard_id: ShardId,
+) -> Option<ExtendedCongestionInfo> {
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+    let chunk_store = chain_store.chunk_store();
+    let congestion_info =
+        if let Ok(chunk_extra) = chunk_store.get_chunk_extra(block_header.hash(), &shard_uid) {
+            chunk_extra.congestion_info()
+        } else {
+            get_execution_result_from_store(chain_store, block_header.hash(), shard_id)?
+                .chunk_extra
+                .congestion_info()
+        };
+    Some(ExtendedCongestionInfo::new(congestion_info, 0))
+}
+
 fn build_block_bandwidth_requests(
     block_header: &BlockHeader,
     prev_block_execution_results: &BlockExecutionResults,
@@ -242,8 +291,11 @@ fn build_block_bandwidth_requests(
     let shard_layout = epoch_manager.get_shard_layout(&block_header.epoch_id())?;
     let prev_block_hash = block_header.prev_hash();
     let mut result = BTreeMap::new();
-    // TODO(spice-resharding): double-check if shards for block or prev_block should be
-    // used as keys.
+    // Keyed by this block's shards (consumed when applying its chunks); the
+    // prev-block mapping only locates the source execution result, keyed by the
+    // prev block's shard layout.
+    // TODO(spice-resharding): across a resharding boundary both children map to the
+    // same parent and inherit its requests unsplit. See dynamic_resharding.md.
     for shard_id in shard_layout.shard_ids() {
         let (_, prev_block_shard_id, _) =
             epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
@@ -268,8 +320,11 @@ fn build_block_congestion_info(
     let shard_layout = epoch_manager.get_shard_layout(&block_header.epoch_id())?;
     let prev_block_hash = block_header.prev_hash();
     let mut result = BTreeMap::new();
-    // TODO(spice-resharding): double-check if shards for block or prev_block should be
-    // used as keys.
+    // Keyed by this block's shards (consumed when applying its chunks); the
+    // prev-block mapping only locates the source execution result, keyed by the
+    // prev block's shard layout.
+    // TODO(spice-resharding): across a resharding boundary both children map to the
+    // same parent and inherit its congestion info unsplit. See dynamic_resharding.md.
     for shard_id in shard_layout.shard_ids() {
         let (_, prev_block_shard_id, _) =
             epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
@@ -278,6 +333,8 @@ fn build_block_congestion_info(
             .get(&prev_block_shard_id)
             .expect("block execution result should contain execution results for all shards");
         let congestion_info = prev_shard_execution_result.chunk_extra.congestion_info();
+        // Always 0: missing chunks apply as empty new chunks, so shards never
+        // stall (see chunk_executor_actor.rs); no missed-chunk backpressure.
         let missed_chunks_count = 0;
         result.insert(shard_id, ExtendedCongestionInfo::new(congestion_info, missed_chunks_count));
     }

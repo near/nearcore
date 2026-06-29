@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
 use near_chain_primitives::error::Error;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
 use near_primitives::errors::{EpochError, InvalidTxError};
@@ -1829,12 +1829,15 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_stop_height = Some(height);
     }
 
-    /// Pre-computes and persists chunk producer assignments for the block following `header`.
+    /// Pre-computes and persists chunk producer assignments anchored at `header`.
     ///
-    /// For each shard in the epoch after `header`, samples the chunk producer at
-    /// height `header.height() + 1` and writes it to `DBCol::ChunkProducers` keyed by
-    /// `(header.hash(), shard_id)`. This makes historical chunk producer lookups
-    /// available from the DB without recomputation.
+    /// `header` is the grandparent anchor of the chunks these rows resolve: for
+    /// each shard in the epoch after `header`, samples the chunk producer at
+    /// height `header.height() + 2` (the height of a chunk whose grandparent is
+    /// `header`, absent skips) and writes it to `DBCol::ChunkProducers` keyed by
+    /// `(header.hash(), shard_id)`. Sampling uses the epoch after `header`; a
+    /// chunk in a later epoch never reads this row (the cross-epoch arm of
+    /// `get_chunk_producer_info_anchored` routes it to the canonical sampler).
     ///
     /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
     pub fn save_chunk_producers_for_header(
@@ -1846,11 +1849,11 @@ impl<'a> ChainStoreUpdate<'a> {
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(());
         }
-        let prev_block_hash = header.hash();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let anchor_hash = header.hash();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(anchor_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let height = header.height() + 1;
+        let height = header.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 
         for shard_id in shard_layout.shard_ids() {
             if let Some(validator_id) =
@@ -1859,39 +1862,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 let validator_stake = epoch_info.get_validator(validator_id);
                 self.chain_store_cache_update
                     .chunk_producers
-                    .insert((*prev_block_hash, shard_id), validator_stake);
-            }
-        }
-        Ok(())
-    }
-
-    /// Save chunk producers for genesis chunks which have
-    /// prev_block_hash = CryptoHash::default(). This is called once during
-    /// genesis init so that get_chunk_producer_info_db works for genesis chunks.
-    ///
-    /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
-    pub fn save_genesis_chunk_producers(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        protocol_version: ProtocolVersion,
-        genesis_height: BlockHeight,
-    ) -> Result<(), Error> {
-        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
-            return Ok(());
-        }
-        let default_hash = CryptoHash::default();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&default_hash)?;
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-
-        for shard_id in shard_layout.shard_ids() {
-            if let Some(validator_id) =
-                epoch_info.sample_chunk_producer(&shard_layout, shard_id, genesis_height)
-            {
-                let validator_stake = epoch_info.get_validator(validator_id);
-                self.chain_store_cache_update
-                    .chunk_producers
-                    .insert((default_hash, shard_id), validator_stake);
+                    .insert((*anchor_hash, shard_id), validator_stake);
             }
         }
         Ok(())
