@@ -461,6 +461,18 @@ impl PerShardChunkExecutor {
                     &new_chunk_result,
                     outgoing_receipts_root,
                 );
+            } else if self
+                .epoch_manager
+                .get_validator_by_account_id(&epoch_id, my_signer.validator_id())
+                .is_ok()
+            {
+                // Non-designated epoch validator: record for the all-stake fallback.
+                self.record_own_fallback_endorsement(
+                    &block,
+                    &my_signer,
+                    &new_chunk_result,
+                    outgoing_receipts_root,
+                );
             }
 
             // Distribute witness and receipts if we are the chunk producer for the shard.
@@ -484,6 +496,23 @@ impl PerShardChunkExecutor {
         Ok(receipt_proofs)
     }
 
+    fn build_chunk_endorsement(
+        &self,
+        block: &Block,
+        my_signer: &ValidatorSigner,
+        new_chunk_result: &NewChunkResult,
+        outgoing_receipts_root: CryptoHash,
+    ) -> SpiceChunkEndorsement {
+        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let execution_result =
+            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
+        SpiceChunkEndorsement::new(
+            SpiceChunkId { block_hash: *block.hash(), shard_id: shard_uid.shard_id() },
+            execution_result,
+            my_signer,
+        )
+    }
+
     fn send_chunk_endorsement(
         &self,
         block: &Block,
@@ -491,20 +520,35 @@ impl PerShardChunkExecutor {
         new_chunk_result: &NewChunkResult,
         outgoing_receipts_root: CryptoHash,
     ) {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
-        let shard_id = shard_uid.shard_id();
-        let execution_result =
-            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
-        let endorsement = SpiceChunkEndorsement::new(
-            SpiceChunkId { block_hash: *block.hash(), shard_id },
-            execution_result,
+        let endorsement = self.build_chunk_endorsement(
+            block,
             my_signer,
+            new_chunk_result,
+            outgoing_receipts_root,
         );
         send_spice_chunk_endorsement(
             endorsement.clone(),
             self.epoch_manager.as_ref(),
             &self.network_adapter.clone().into_sender(),
             my_signer,
+        );
+        self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
+    }
+
+    // Record our endorsement locally without broadcasting: the chunk isn't fallback-eligible yet so
+    // peers would reject it; the distributor broadcasts it from the stored result once overdue.
+    fn record_own_fallback_endorsement(
+        &self,
+        block: &Block,
+        my_signer: &ValidatorSigner,
+        new_chunk_result: &NewChunkResult,
+        outgoing_receipts_root: CryptoHash,
+    ) {
+        let endorsement = self.build_chunk_endorsement(
+            block,
+            my_signer,
+            new_chunk_result,
+            outgoing_receipts_root,
         );
         self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
     }

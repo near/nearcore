@@ -58,6 +58,32 @@ pub fn chunk_endorsement_dropper_by_hash(
     })
 }
 
+/// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk, so chunks
+/// can only certify via the all-stake fallback. Non-designated endorsements pass through.
+pub fn spice_designated_endorsement_dropper(
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
+    Box::new(move |request| {
+        let NetworkRequests::SpiceChunkEndorsement(_target, endorsement) = &request else {
+            return HandlerResult::Unhandled(request);
+        };
+        let Ok(block_info) = epoch_manager.get_block_info(endorsement.block_hash()) else {
+            return HandlerResult::Unhandled(request);
+        };
+        let Ok(assignments) = epoch_manager.get_chunk_validator_assignments(
+            block_info.epoch_id(),
+            endorsement.shard_id(),
+            block_info.height(),
+        ) else {
+            return HandlerResult::Unhandled(request);
+        };
+        if assignments.contains(endorsement.account_id()) {
+            return HandlerResult::Handled(NetworkResponses::NoResponse);
+        }
+        HandlerResult::Unhandled(request)
+    })
+}
+
 /// Handler to drop all network messages containing chunk endorsements sent
 /// from a given chunk-validator account.
 pub fn chunk_endorsement_dropper(

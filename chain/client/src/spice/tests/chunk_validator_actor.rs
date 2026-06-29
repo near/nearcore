@@ -357,17 +357,17 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
 
     let (spawner, tasks_rc) = FakeSpawner::new();
 
+    let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
     let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        validator_signer.clone(),
         core_reader.clone(),
         noop().into_sender(),
         noop().into_sender(),
     )));
     let core_writer_sender =
         Sender::from_fn(move |message| core_writer_actor.write().handle(message));
-
-    let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
     let mut actor = TestActor {
         actor: SpiceChunkValidatorActor::new(
             runtime.store().clone(),

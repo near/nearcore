@@ -177,6 +177,7 @@ impl TestActor {
         let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
             runtime.store().chain_store(),
             epoch_manager.clone(),
+            validator_signer.clone(),
             core_reader(&chain),
             noop().into_sender(),
             noop().into_sender(),

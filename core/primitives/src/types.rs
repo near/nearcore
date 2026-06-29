@@ -1381,6 +1381,18 @@ pub struct SpiceUncertifiedChunkInfo {
     pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
     pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+    /// Non-designated endorsements already on chain, accumulated for the all-stake fallback.
+    pub present_fallback_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+}
+
+impl SpiceUncertifiedChunkInfo {
+    /// All endorsements already on chain for this chunk: designated (`present_endorsements`) and
+    /// non-designated (`present_fallback_endorsements`).
+    pub fn all_present_endorsements(
+        &self,
+    ) -> impl Iterator<Item = &(AccountId, SpiceStoredVerifiedEndorsement)> {
+        self.present_endorsements.iter().chain(&self.present_fallback_endorsements)
+    }
 }
 
 /// Keeps the current status of a single yield/resume operation. Before yielding and after executing

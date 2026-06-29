@@ -1,9 +1,9 @@
-use crate::spice::core::SpiceCoreReader;
+use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment, fallback_eligible};
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
+use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::Error;
-use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_primitives::block::Block;
@@ -15,7 +15,8 @@ use near_primitives::spice::chunk_endorsement::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ChunkExecutionResult, ChunkExecutionResultHash, EpochId, ShardId, SpiceChunkId,
+    AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, EpochId, ShardId,
+    SpiceChunkId,
 };
 use near_primitives::utils::{
     get_endorsements_key, get_execution_results_key, get_uncertified_execution_results_key,
@@ -46,6 +47,7 @@ pub struct SpiceCoreWriterActor {
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    validator_signer: MutableValidatorSigner,
     chunk_executor_sender: Sender<ExecutionResultEndorsed>,
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     // Endorsements that arrived before the relevant block, so cannot be fully validated yet.
@@ -74,6 +76,7 @@ impl SpiceCoreWriterActor {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        validator_signer: MutableValidatorSigner,
         core_reader: SpiceCoreReader,
         chunk_executor_sender: Sender<ExecutionResultEndorsed>,
         spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
@@ -83,6 +86,7 @@ impl SpiceCoreWriterActor {
             core_reader,
             chain_store,
             epoch_manager,
+            validator_signer,
             chunk_executor_sender,
             spice_chunk_validator_sender,
             pending_endorsements: SyncLruCache::new(PENDING_ENDORSEMENT_CACHE_SIZE.into()),
@@ -140,15 +144,52 @@ impl SpiceCoreWriterActor {
         Ok(())
     }
 
+    /// Whether `chunk_id`'s stored endorsements certify `result_hash`: by 2/3 of its designated
+    /// assignment, or, once fallback-eligible, by 2/3 of total epoch stake. `endorsers` seeds it.
+    fn endorsed_by_designated_or_fallback(
+        &self,
+        chunk_id: &SpiceChunkId,
+        result_hash: &ChunkExecutionResultHash,
+        carrying_height: BlockHeight,
+        carrying_prev_hash: &CryptoHash,
+        endorsers: HashSet<AccountId>,
+    ) -> Result<bool, Error> {
+        let chunk_block = self.chain_store.get_block_header(&chunk_id.block_hash)?;
+        let epoch_id = chunk_block.epoch_id();
+        let designated = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_id.shard_id,
+            chunk_block.height(),
+        )?;
+        if self.core_reader.reaches_endorsement_threshold(
+            chunk_id,
+            result_hash,
+            &designated,
+            endorsers.clone(),
+        ) {
+            return Ok(true);
+        }
+        if !fallback_eligible(&self.chain_store, carrying_height, carrying_prev_hash, chunk_id)? {
+            return Ok(false);
+        }
+        let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;
+        Ok(self.core_reader.reaches_endorsement_threshold(
+            chunk_id,
+            result_hash,
+            &all_validators,
+            endorsers,
+        ))
+    }
+
     fn record_chunk_endorsements_with_block(
         &self,
         block: &Block,
         endorsements: Vec<SpiceVerifiedEndorsement>,
     ) -> Result<StoreUpdate, Error> {
         let mut store_update = self.chain_store.store().store_update();
-        let mut endorsements_by_unique_result: HashMap<
+        let mut endorsers_by_unique_result: HashMap<
             (&SpiceChunkId, ChunkExecutionResultHash),
-            HashMap<&AccountId, Signature>,
+            HashSet<AccountId>,
         > = HashMap::new();
         let mut execution_results: HashMap<ChunkExecutionResultHash, &ChunkExecutionResult> =
             HashMap::new();
@@ -164,41 +205,22 @@ impl SpiceCoreWriterActor {
                 &endorsement.to_stored(),
             ));
             let execution_result_hash = endorsement.execution_result().compute_hash();
-            endorsements_by_unique_result
+            endorsers_by_unique_result
                 .entry((chunk_id, execution_result_hash.clone()))
                 .or_default()
-                .insert(endorsement.account_id(), endorsement.signature().clone());
+                .insert(endorsement.account_id().clone());
             execution_results.insert(execution_result_hash, endorsement.execution_result());
         }
 
-        for ((chunk_id, chunk_execution_result_hash), mut signatures) in
-            endorsements_by_unique_result
-        {
-            let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-                &block.header().epoch_id(),
-                chunk_id.shard_id,
-                block.header().height(),
-            )?;
-
-            for (account_id, _) in chunk_validator_assignments.assignments() {
-                if signatures.contains_key(account_id) {
-                    continue;
-                }
-                let Some(stored_endorsement) =
-                    self.get_endorsement(&chunk_id.block_hash, chunk_id.shard_id, &account_id)
-                else {
-                    continue;
-                };
-                if stored_endorsement.execution_result_hash != chunk_execution_result_hash {
-                    continue;
-                }
-                signatures.insert(account_id, stored_endorsement.signature);
-            }
-
-            let endorsement_state =
-                chunk_validator_assignments.compute_endorsement_state(signatures);
-
-            if !endorsement_state.is_endorsed {
+        let head = self.chain_store.head()?;
+        for ((chunk_id, chunk_execution_result_hash), endorsers) in endorsers_by_unique_result {
+            if !self.endorsed_by_designated_or_fallback(
+                chunk_id,
+                &chunk_execution_result_hash,
+                head.height + 1,
+                &head.last_block_hash,
+                endorsers,
+            )? {
                 continue;
             }
 
@@ -216,17 +238,6 @@ impl SpiceCoreWriterActor {
         }
 
         return Ok(store_update);
-    }
-
-    fn get_endorsement(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-        account_id: &AccountId,
-    ) -> Option<SpiceStoredVerifiedEndorsement> {
-        self.chain_store
-            .store()
-            .get_ser(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
     }
 
     fn get_execution_result_from_store(
@@ -263,10 +274,33 @@ impl SpiceCoreWriterActor {
             block.header().height(),
         )?;
 
-        if !chunk_validator_assignments.contains(endorsement.account_id()) {
-            return Err(InvalidSpiceEndorsementError::EndorsementIsNotRelevant);
+        if chunk_validator_assignments.contains(endorsement.account_id()) {
+            return Ok(());
         }
 
+        // Our own endorsement is trustworthy by construction (we executed the chunk). Keep it even
+        // before eligibility so the fallback can broadcast it once overdue; inert in the tally until.
+        if self
+            .validator_signer
+            .get()
+            .is_some_and(|signer| signer.validator_id() == endorsement.account_id())
+        {
+            return Ok(());
+        }
+
+        // All-stake fallback: past the fallback window any epoch validator's endorsement is relevant.
+        // Gate ingest on eligibility as of head so only overdue chunks accept the wider set.
+        let head = self.chain_store.head().map_err(InvalidSpiceEndorsementError::NearChainError)?;
+        let eligible = fallback_eligible(
+            &self.chain_store,
+            head.height + 1,
+            &head.last_block_hash,
+            endorsement.chunk_id(),
+        )
+        .map_err(InvalidSpiceEndorsementError::NearChainError)?;
+        if !eligible {
+            return Err(InvalidSpiceEndorsementError::EndorsementIsNotRelevant);
+        }
         Ok(())
     }
 
@@ -446,9 +480,9 @@ impl SpiceCoreWriterActor {
     fn record_block_core_statements(&self, block: &Block) -> Result<StoreUpdate, Error> {
         let mut store_update = self.chain_store.store().store_update();
 
-        let mut endorsements_by_unique_result: HashMap<
+        let mut endorsers_by_unique_result: HashMap<
             (&SpiceChunkId, ChunkExecutionResultHash),
-            HashMap<&AccountId, Signature>,
+            HashSet<AccountId>,
         > = HashMap::new();
         let mut in_block_execution_results: HashSet<&SpiceChunkId> = HashSet::new();
         for core_statement in block.spice_core_statements() {
@@ -464,10 +498,10 @@ impl SpiceCoreWriterActor {
                         account_id,
                         &stored_endorsement,
                     ));
-                    endorsements_by_unique_result
+                    endorsers_by_unique_result
                         .entry((chunk_id, stored_endorsement.execution_result_hash))
                         .or_default()
-                        .insert(endorsement.account_id(), stored_endorsement.signature);
+                        .insert(endorsement.account_id().clone());
                 }
                 SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
                     store_update.merge(self.save_execution_result(
@@ -479,9 +513,7 @@ impl SpiceCoreWriterActor {
                 }
             };
         }
-        for ((chunk_id, chunk_execution_result_hash), mut signatures) in
-            endorsements_by_unique_result
-        {
+        for ((chunk_id, chunk_execution_result_hash), endorsers) in endorsers_by_unique_result {
             if in_block_execution_results.contains(chunk_id) {
                 continue;
             }
@@ -495,29 +527,13 @@ impl SpiceCoreWriterActor {
                 continue;
             }
 
-            let endorsement_block = self.chain_store.get_block(&chunk_id.block_hash)?;
-            let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-                &endorsement_block.header().epoch_id(),
-                chunk_id.shard_id,
-                endorsement_block.header().height(),
-            )?;
-            for (account_id, _) in chunk_validator_assignments.assignments() {
-                if signatures.contains_key(account_id) {
-                    continue;
-                }
-                let Some(stored_endorsement) =
-                    self.get_endorsement(&chunk_id.block_hash, chunk_id.shard_id, &account_id)
-                else {
-                    continue;
-                };
-                if stored_endorsement.execution_result_hash != chunk_execution_result_hash {
-                    continue;
-                }
-                signatures.insert(account_id, stored_endorsement.signature);
-            }
-            let endorsement_state =
-                chunk_validator_assignments.compute_endorsement_state(signatures);
-            if endorsement_state.is_endorsed {
+            if self.endorsed_by_designated_or_fallback(
+                chunk_id,
+                &chunk_execution_result_hash,
+                block.header().height(),
+                block.header().prev_hash(),
+                endorsers,
+            )? {
                 let execution_result = self.get_uncertified_execution_result(&chunk_execution_result_hash)
                     .expect("for each endorsement we should save corresponding uncertified execution result");
                 store_update.merge(self.save_execution_result(
