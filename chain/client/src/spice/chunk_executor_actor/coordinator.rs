@@ -308,19 +308,7 @@ impl ChunkExecutorActor {
     }
 
     fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
-        let start_block = match self.chain_store.spice_final_execution_head() {
-            Ok(final_execution_head) => final_execution_head.last_block_hash,
-            Err(Error::DBNotFoundErr(_)) => {
-                let final_head_hash = self.chain_store.final_head()?.last_block_hash;
-                let mut header = self.chain_store.get_block_header(&final_head_hash)?;
-                // TODO(spice): Stop searching on the first non-spice block.
-                while !header.is_genesis() {
-                    header = self.chain_store.get_block_header(header.prev_hash())?;
-                }
-                *header.hash()
-            }
-            Err(err) => return Err(err),
-        };
+        let start_block = self.chain_store.spice_final_execution_head()?.last_block_hash;
 
         // Park every block above the final execution head into its tracked shards'
         // executors and try to drain. A freshly-started node catches up from disk;

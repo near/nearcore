@@ -1,12 +1,9 @@
-//! Spice-native test: congestion control and bandwidth scheduling must keep
-//! working while chunk execution lags block production, which is the defining
-//! property of spice. Under spice the congestion/bandwidth inputs are not in the
-//! chunk headers; they are reconstructed from the previous block's executed
-//! `ChunkExtra` (the same compact, certified data a stateless validator has, see
-//! `build_spice_apply_chunk_block_context`). This test drives a multi-shard
-//! workload with an artificial endorsement-propagation delay so that execution
-//! provably trails consensus, and asserts that backpressure accrues and
-//! bandwidth requests are generated in that lagging regime.
+//! Spice-native test: congestion control and bandwidth scheduling under lagging
+//! execution (the defining property of spice). Drives a multi-shard workload with
+//! an artificial endorsement-propagation delay so execution provably trails
+//! consensus, and asserts backpressure accrues and the bandwidth scheduler runs in
+//! that regime. Congestion/bandwidth come from the previous block's executed
+//! `ChunkExtra` (see `build_spice_apply_chunk_block_context`).
 
 use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
@@ -80,14 +77,11 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
     let contract_shard_uid =
         ShardUId::new(shard_layout.version(), shard_layout.account_id_to_shard_id(&contract_id));
 
-    // Drive until every tx is final, observing along the way that execution lags
-    // block production, that the congested shard accrues backpressure, and that
-    // the bandwidth scheduler runs and records its output — all read from the
-    // executed ChunkExtras (the data a stateless validator has, not headers).
-    //
-    // This workload only burns gas, so outgoing buffers stay below
-    // `base_bandwidth` and the scheduler legitimately emits no non-empty
-    // bandwidth *requests*. Bandwidth behaviour under heavy cross-shard traffic is covered by
+    // Drive until every tx is final, recording from the executed ChunkExtras that
+    // execution lags consensus, the congested shard accrues backpressure, and the
+    // bandwidth scheduler runs. This workload only burns gas, so outgoing buffers
+    // stay below `base_bandwidth` and the scheduler emits no non-empty bandwidth
+    // *requests* — that is covered by
     // `ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts`.
     let mut max_lag: u64 = 0;
     let mut max_delayed_gas: u128 = 0;

@@ -7,6 +7,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
+use near_chain_configs::TrackedShardsConfig;
 use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
@@ -35,9 +36,9 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 use parking_lot::{Mutex, MutexGuard};
-use std::collections::{HashMap, HashSet, hash_map};
+use std::collections::{BTreeMap, BTreeSet, btree_map};
 use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
@@ -127,7 +128,7 @@ pub struct TestLoopPeerManagerActor {
     client_sender: ClientSenderForTestLoopNetwork,
     shared_state: TestLoopNetworkSharedState,
     genesis_id: GenesisId,
-    last_block_headers: HashMap<PeerInfo, BlockHeader>,
+    last_block_headers: BTreeMap<PeerInfo, BlockHeader>,
 }
 
 impl Actor for TestLoopPeerManagerActor {
@@ -140,12 +141,12 @@ impl Actor for TestLoopPeerManagerActor {
 impl Handler<TestLoopNetworkBlockInfo> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: TestLoopNetworkBlockInfo) {
         match self.last_block_headers.entry(msg.peer) {
-            hash_map::Entry::Occupied(entry) => {
+            btree_map::Entry::Occupied(entry) => {
                 if entry.get().height() <= msg.block_header.height() {
                     *entry.into_mut() = msg.block_header;
                 }
             }
-            hash_map::Entry::Vacant(entry) => {
+            btree_map::Entry::Vacant(entry) => {
                 entry.insert(msg.block_header);
             }
         }
@@ -180,7 +181,7 @@ impl TestLoopPeerManagerActor {
             client_sender,
             shared_state: shared_state.clone(),
             genesis_id,
-            last_block_headers: HashMap::new(),
+            last_block_headers: BTreeMap::new(),
         }
     }
 
@@ -231,13 +232,15 @@ impl TestLoopPeerManagerActor {
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
 struct TestLoopNetworkSharedStateInner {
-    account_to_peer_id: HashMap<AccountId, PeerId>,
-    senders: HashMap<PeerId, Arc<OneClientSenders>>,
+    account_to_peer_id: BTreeMap<AccountId, PeerId>,
+    senders: BTreeMap<PeerId, Arc<OneClientSenders>>,
     // Everything sent using these senders should be dropped.
     drop_events_senders: Arc<OneClientSenders>,
-    route_back: HashMap<CryptoHash, PeerId>,
-    disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
-    archival_peer_ids: HashSet<PeerId>,
+    route_back: BTreeMap<CryptoHash, PeerId>,
+    disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
+    archival_peer_ids: BTreeSet<PeerId>,
+    /// Per-account tracked-shards config, populated when a client is added.
+    tracked_shards_config: BTreeMap<AccountId, TrackedShardsConfig>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -287,17 +290,18 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
 impl TestLoopNetworkSharedState {
     pub fn new(unreachable_actor_sender: TestLoopSender<UnreachableActor>) -> Self {
         let inner = TestLoopNetworkSharedStateInner {
-            account_to_peer_id: HashMap::new(),
-            senders: HashMap::new(),
+            account_to_peer_id: BTreeMap::new(),
+            senders: BTreeMap::new(),
             drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
-            route_back: HashMap::new(),
-            disallowed_peer_links: HashMap::new(),
-            archival_peer_ids: HashSet::new(),
+            route_back: BTreeMap::new(),
+            disallowed_peer_links: BTreeMap::new(),
+            archival_peer_ids: BTreeSet::new(),
+            tracked_shards_config: BTreeMap::new(),
         };
         Self(Arc::new(Mutex::new(inner)))
     }
 
-    pub fn add_client<'a, D>(&self, data: &'a D)
+    pub fn add_client<'a, D>(&self, data: &'a D, tracked_shards_config: TrackedShardsConfig)
     where
         AccountId: From<&'a D>,
         PeerId: From<&'a D>,
@@ -315,7 +319,7 @@ impl TestLoopNetworkSharedState {
         let peer_id = PeerId::from(data);
 
         let mut guard = self.0.lock();
-        guard.account_to_peer_id.insert(account_id, peer_id.clone());
+        guard.account_to_peer_id.insert(account_id.clone(), peer_id.clone());
         guard.senders.insert(
             peer_id,
             Arc::new(OneClientSenders {
@@ -334,6 +338,7 @@ impl TestLoopNetworkSharedState {
                 spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
             }),
         );
+        guard.tracked_shards_config.insert(account_id, tracked_shards_config);
     }
 
     /// Stops processing of requests from `from` peer to `to` peer.
@@ -345,12 +350,43 @@ impl TestLoopNetworkSharedState {
     /// Allows processing of requests between all peers.
     pub fn allow_all_requests(&self) {
         let mut guard = self.0.lock();
-        guard.disallowed_peer_links = HashMap::new();
+        guard.disallowed_peer_links = BTreeMap::new();
     }
 
     pub(crate) fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
         let guard = self.0.lock();
         guard.account_to_peer_id.get(account_id).unwrap().clone()
+    }
+
+    /// Check whether the given account's peer is marked as archival.
+    fn is_account_archival(&self, account_id: &AccountId) -> bool {
+        let guard = self.0.lock();
+        guard
+            .account_to_peer_id
+            .get(account_id)
+            .is_some_and(|peer_id| guard.archival_peer_ids.contains(peer_id))
+    }
+
+    /// Returns true if `account_id` is archival and tracks `shard_id` per its
+    /// `tracked_shards_config`. Variants that depend on the epoch layout
+    /// (`Accounts`, `Schedule`, `ShadowValidator`) are not implemented for now.
+    fn archival_account_tracks_shard(&self, account_id: &AccountId, shard_id: ShardId) -> bool {
+        let guard = self.0.lock();
+        let Some(peer_id) = guard.account_to_peer_id.get(account_id) else { return false };
+        if !guard.archival_peer_ids.contains(peer_id) {
+            return false;
+        }
+        let Some(config) = guard.tracked_shards_config.get(account_id) else { return false };
+        match config {
+            TrackedShardsConfig::AllShards => true,
+            TrackedShardsConfig::Shards(uids) => uids.iter().any(|uid| uid.shard_id() == shard_id),
+            TrackedShardsConfig::NoShards => false,
+            // Variants that depend on the current epoch layout can't be
+            // resolved without the epoch manager
+            TrackedShardsConfig::ShadowValidator(_)
+            | TrackedShardsConfig::Accounts(_)
+            | TrackedShardsConfig::Schedule(_) => unimplemented!(),
+        }
     }
 
     fn is_peer_link_disallowed(
@@ -733,7 +769,28 @@ fn network_message_to_shards_manager_handler(
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             let route_back = shared_state.generate_route_back(&my_peer_id);
-            let target = target.account_id.unwrap();
+            let original_target = target.account_id.unwrap();
+            // When only_archival is set, production's peer manager first tries
+            // archival peers that track the requested shard, and falls back to
+            // the original target account if none does (the second attempt with
+            // `!prefer_peer` in peer_manager_actor.rs sends directly to
+            // `target.account_id`). Mirror that here so an archival-only
+            // routing doesn't drop requests for shards no archival tracks.
+            let target = if target.only_archival
+                && !shared_state.is_account_archival(&original_target)
+            {
+                shared_state
+                    .accounts()
+                    .iter()
+                    .find(|account| {
+                        **account != my_account_id
+                            && shared_state.archival_account_tracks_shard(account, target.shard_id)
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| original_target.clone())
+            } else {
+                original_target
+            };
             assert!(target != my_account_id, "Sending message to self not supported.");
             shared_state.senders_for_account(&my_account_id, &target).shards_manager_sender.send(
                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {

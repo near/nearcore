@@ -299,8 +299,8 @@ Prometheus metrics covering the dynamic resharding pipeline, by stage.
 
 - `near_dynamic_resharding_shard_memory_usage{shard_uid}` -- trie-cost memory usage of the shard, i.e. the value compared against the split threshold. The main leading indicator of an upcoming split. Exported from `check_dynamic_resharding`, so it updates only near epoch ends (and not during the resharding cooldown); between updates it holds the last epoch-end snapshot.
 - `near_dynamic_resharding_memory_usage_threshold`, `near_dynamic_resharding_min_child_memory_usage`, `near_dynamic_resharding_max_number_of_shards` -- the active `DynamicReshardingConfig` thresholds, so dashboards can compute `usage / threshold` without hardcoding values. Same update cadence as above.
-- `near_dynamic_resharding_proposed_split_{left,right}_memory{shard_uid}` -- balance of the currently proposed split, both 0 when no split is proposed. Mirrors `ChunkExtra.proposed_split`; exported on every tracked chunk apply.
-- `near_dynamic_resharding_proposed_split_info{shard_uid, boundary_account}` -- info-style metric (value 1) carrying the proposed boundary account; join on `shard_uid`.
+- `near_dynamic_resharding_proposed_split_{left,right}_memory{shard_uid}` -- trie-cost balance of the last proposed split. A proposal appears only in the single boundary-block chunk, so the gauges are **latched** (they persist the last proposed split rather than resetting to 0 on the next chunk); no series until a split has been proposed for the shard.
+- `near_dynamic_resharding_proposed_split_info{shard_uid, boundary_account}` -- info-style metric (value 1) carrying the proposed boundary account; latched per shard alongside the memory gauges (the series for an old boundary is removed when the boundary changes).
 - `near_dynamic_resharding_find_split_errors_total{shard_uid}` -- failures to compute the trie split for a shard during chunk application. **Alert on > 0**: the shard won't be proposed for resharding and the failure warrants investigation.
 
 ### Selection and consensus (`chain/epoch-manager/`, `chain/chain/src/validate.rs`)
@@ -311,10 +311,10 @@ Prometheus metrics covering the dynamic resharding pipeline, by stage.
 
 ### Preparation in epoch N+1 (memtrie preload, `core/store/`)
 
-- `near_memtrie_background_load_status{shard_uid}` -- 0 none, 1 loading, 2 awaiting finalization, 3 applying delta catch-up, 4 done. Alert on being stuck at 1 (load should take ~30s) or 3.
+- `near_memtrie_background_load_status{shard_uid}` -- 0 none, 1 loading, 2 awaiting finalization, 3 applying delta catch-up, 4 done, 5 already loaded (preload no-op: the parent memtrie was already in memory). 4 and 5 both mean the memtrie is ready -- a shard may transition 4->5 at a later epoch boundary. Alert on being stuck at 1 (load should take ~30s) or 3.
 - `near_memtrie_background_load_retries_total{shard_uid}` -- failed load attempts; the node panics after the max retries, so alert on the first one.
 - `near_memtrie_background_load_duration_seconds{shard_uid, stage}` -- histogram, `stage` is `load` or `catchup`; catch-up runs synchronously in block postprocessing.
-- `near_memtrie_catchup_deltas{shard_uid}` -- number of deltas applied during catch-up after the last background memtrie load.
+- `near_memtrie_background_load_deltas{shard_uid}` -- number of flat-state deltas that accumulated and were applied while loading the memtrie during the last background load (the bulk applied by the loader thread; grows with how long the load took and the block rate). The brief finalization catch-up afterwards is not counted.
 - `near_flat_head_holds{shard_uid}` -- active holds preventing the flat head from advancing. A leaked hold causes unbounded delta growth (symptom: rising `near_flat_storage_distance_to_head`).
 
 ### Execution (`chain/chain/src/resharding/`)

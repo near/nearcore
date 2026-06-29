@@ -621,6 +621,8 @@ fn transfer_to(receiver: AccountId) -> ScenarioTx {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_create_account() {
     // A single `CreateAccount` action creating a fresh sub-account of the actor.
     run_cost_test(
@@ -638,6 +640,8 @@ fn test_create_account() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_function_call() {
     // A single function call; creates no account, so cost is identical before and after.
     run_cost_test(
@@ -650,6 +654,8 @@ fn test_function_call() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transfer_to_named_account() {
     // Transfer to an existing named account; no account is created, so cost is unchanged.
     run_cost_test(
@@ -659,6 +665,8 @@ fn test_transfer_to_named_account() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transfer_creating_near_implicit_account() {
     // Transfer to a non-existent NEAR-implicit account, which creates it.
     run_cost_test(
@@ -668,6 +676,8 @@ fn test_transfer_creating_near_implicit_account() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transfer_to_existing_near_implicit_account() {
     // Transfer to a NEAR-implicit account that already exists (pre-created in setup), so no
     // account is created and no creation charge applies.
@@ -685,6 +695,8 @@ fn test_transfer_to_existing_near_implicit_account() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transfer_creating_eth_implicit_account() {
     // Transfer to a non-existent ETH-implicit account, which creates it.
     run_cost_test(
@@ -694,6 +706,8 @@ fn test_transfer_creating_eth_implicit_account() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_create_account_then_failing_call() {
     // `CreateAccount` followed by a `FunctionCall` on the new (contract-less) account, which
     // fails - rolling back the whole receipt, so the account is NOT created and no creation
@@ -714,6 +728,8 @@ fn test_create_account_then_failing_call() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_create_account_then_successful_call() {
     // `CreateAccount`, point the new account at the global contract with `UseGlobalContract`,
     // then call a method on it that succeeds. The account is created (charge applies); using a
@@ -743,6 +759,8 @@ fn test_create_account_then_successful_call() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_create_two_accounts_via_call_promise() {
     // A single `call_promise` function call that spawns two promises, each creating a new
     // sub-account of the contract. Two accounts are created, so the creation charge applies
@@ -774,6 +792,8 @@ fn test_create_two_accounts_via_call_promise() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_creating_account() {
     // A `DeterministicStateInit` action that creates a new (zero-balance) deterministic account.
     run_cost_test(
@@ -789,6 +809,8 @@ fn test_deterministic_state_init_creating_account() {
 }
 
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_to_existing_account() {
     // `DeterministicStateInit` on a deterministic account that already exists (pre-created in
     // setup). Re-initialization creates no account, so no creation charge applies.

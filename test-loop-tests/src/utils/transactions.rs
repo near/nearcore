@@ -260,9 +260,8 @@ pub fn run_txs_parallel(
     run_txs_parallel_on(test_loop, &node_datas[0].account_id, txs, node_datas, maximum_duration);
 }
 
-/// Like `run_txs_parallel`, but submits and polls transactions against the node
-/// identified by `rpc_id`. Use this when the first node doesn't track all shards
-/// (otherwise transaction results may not be observable there).
+/// Like `run_txs_parallel`, but runs against the node identified by `rpc_id` — use
+/// when the first node doesn't track all shards, so tx results are observable.
 pub fn run_txs_parallel_on(
     test_loop: &mut TestLoopV2,
     rpc_id: &AccountId,

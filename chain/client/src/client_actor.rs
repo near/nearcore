@@ -777,11 +777,19 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
     fn handle(&mut self, msg: SpanWrapped<Status>) -> Result<StatusResponse, StatusError> {
         let msg = msg.span_unwrap();
         let head = self.client.chain.head()?;
+        let protocol_version = self
+            .client
+            .epoch_manager
+            .get_epoch_protocol_version(&head.epoch_id)
+            .into_chain_error()?;
         // For spice, walk back to find the latest executed block for the status
-        // response, since the consensus head may not be executed yet.
-        // In non-spice, this is just the head block as all blocks are considered executed.
-        let head_header =
-            self.spice_chain_reader.find_first_executed_ancestor(&head.last_block_hash)?;
+        // response, since the consensus head may not be executed yet. In non-spice,
+        // all blocks are considered executed, so the head block is the latest executed.
+        let head_header = if ProtocolFeature::Spice.enabled(protocol_version) {
+            self.spice_chain_reader.find_first_executed_ancestor(&head.last_block_hash)?
+        } else {
+            self.client.chain.get_block_header(&head.last_block_hash)?
+        };
         let latest_block_time = head_header.raw_timestamp();
         let head_protocol_version = self
             .client
