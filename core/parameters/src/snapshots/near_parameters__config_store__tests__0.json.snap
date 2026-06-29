@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -200,7 +199,7 @@ snapshot_kind: text
       "bls12381_p2_decompress_element": 300000000000000
     },
     "grow_mem_cost": 1,
-    "regular_op_cost": 2207874,
+    "regular_op_cost": 822756,
     "linear_op_base_cost": 300000000000000,
     "linear_op_unit_cost": 300000000000000,
     "vm_kind": "<REDACTED>",
@@ -241,6 +240,7 @@ snapshot_kind: text
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
+      "max_functions_number_per_contract": 10000,
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,

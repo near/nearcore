@@ -149,7 +149,7 @@ action_gas_key_nonce_write_base: {
 }
 
 # Smart contract dynamic gas costs
-wasm_regular_op_cost: 2_207_874
+wasm_regular_op_cost: 822_756
 wasm_linear_op_base_cost: 300_000_000_000_000
 wasm_linear_op_unit_cost: 300_000_000_000_000
 wasm_grow_mem_cost: 1
@@ -268,6 +268,7 @@ max_length_storage_key: 4_194_304
 max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
+max_functions_number_per_contract: 10_000
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
