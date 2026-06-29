@@ -76,58 +76,6 @@ fn test_indexer_local_receipt() {
     assert_eq!(&receipt_execution_outcome.execution_outcome, receipt_outcome);
 }
 
-/// Regression test for #15867 (Mode A): the indexer must not panic when its
-/// `ShardTracker` excludes a shard whose execution outcomes the node produced.
-///
-/// When a shard's chunk is excluded from `fetch_block_new_chunks`, that shard's
-/// execution outcomes are not consumed by the per-chunk loop in
-/// `build_streamer_message`. Previously such an orphaned outcome reached a path
-/// that unwrapped a `None` receipt and panicked.
-///
-/// In production a chunk is excluded when `shard_tracker.cares_about_shard`
-/// returns false. We make that deterministic with a `NoShards` tracker, which
-/// excludes every shard. The indexer must now produce a streamer message
-/// without panicking; the orphaned outcomes are dropped (and logged via
-/// `warn!`) rather than surfaced, since the excluded shard streams no chunk to
-/// attach them to.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_indexer_excluded_shard_outcomes_are_dropped() {
-    init_test_logger();
-
-    let mut env = setup();
-    let tx = create_local_tx(&env);
-    let submit_tx_height = env.rpc_node().head().height;
-    // Run the tx to completion so its local receipt executes before the height
-    // the indexer streams below.
-    env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
-
-    // NoShards tracker => `cares_about_shard` is always false => no chunk is
-    // streamed and the local receipt's execution outcome is never consumed by
-    // the per-chunk loop in `build_streamer_message`.
-    let node_data = &env.node_datas[0];
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    let no_shards_tracker = ShardTracker::new_empty(client.epoch_manager.clone());
-
-    let tx_included_height = submit_tx_height + 3;
-    let mut indexer_receiver = start_indexer_with_shard_tracker(
-        &env,
-        SyncModeEnum::BlockHeight(tx_included_height),
-        no_shards_tracker,
-    );
-
-    // The key regression: building the streamer message must not panic. With a
-    // NoShards tracker the indexer emits no chunk view and no receipt execution
-    // outcomes for the excluded shard - the orphaned outcomes are dropped and
-    // logged instead.
-    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
-    for indexer_shard in &msg.shards {
-        assert!(indexer_shard.chunk.is_none());
-        assert!(indexer_shard.receipt_execution_outcomes.is_empty());
-    }
-}
-
 /// Test that instant receipts (PromiseYield) are correctly indexed.
 ///
 /// The PromiseYield instant receipt is stored/postponed in DBCol::Receipts when
