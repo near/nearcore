@@ -2243,9 +2243,6 @@ impl Chain {
         }
 
         let tries = self.runtime_adapter.get_tries();
-        // `spawn_background_memtrie_loading_for_shard` is itself a no-op when the
-        // memtrie is already loaded (it records `AlreadyLoaded`), so we always
-        // call it rather than short-circuiting here.
         tracing::info!(
             target: "memtrie",
             ?parent_shard_uid,
