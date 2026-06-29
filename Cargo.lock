@@ -4563,7 +4563,6 @@ dependencies = [
  "near-store",
  "nearcore",
  "node-runtime",
- "parking_lot 0.12.1",
  "rocksdb",
  "tokio",
  "tracing",

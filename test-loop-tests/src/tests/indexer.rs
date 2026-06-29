@@ -8,6 +8,7 @@ use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_indexer::{
     AwaitForNodeSyncedEnum, IndexerConfig, IndexerExecutionOutcomeWithReceipt, StreamerMessage,
     SyncModeEnum, start,
@@ -455,6 +456,17 @@ fn setup() -> TestLoopEnv {
 
 fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<StreamerMessage> {
     let node_data = &env.node_datas[0];
+    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
+    let shard_tracker = client.shard_tracker.clone();
+    start_indexer_with_shard_tracker(env, sync_mode, shard_tracker)
+}
+
+fn start_indexer_with_shard_tracker(
+    env: &TestLoopEnv,
+    sync_mode: SyncModeEnum,
+    shard_tracker: ShardTracker,
+) -> mpsc::Receiver<StreamerMessage> {
+    let node_data = &env.node_datas[0];
     let indexer_config = IndexerConfig {
         home_dir: NodeExecutionData::homedir(&env.shared_state.tempdir, &node_data.identifier),
         sync_mode,
@@ -463,8 +475,6 @@ fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<S
         validate_genesis: false,
     };
 
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    let shard_tracker = client.shard_tracker.clone();
     let store_config =
         StoreConfig { path: Some(indexer_config.home_dir.clone()), ..Default::default() };
     let (sender, receiver) = tokio::sync::mpsc::channel(100);
