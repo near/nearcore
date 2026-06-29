@@ -2242,14 +2242,10 @@ impl Chain {
         }
 
         let tries = self.runtime_adapter.get_tries();
-        if tries.get_memtries(parent_shard_uid).is_some() {
-            return Ok(());
-        }
-
         tracing::info!(
             target: "memtrie",
             ?parent_shard_uid,
-            "detected upcoming resharding, starting background memtrie load"
+            "detected upcoming resharding, ensuring parent shard memtrie is loaded"
         );
         tries.spawn_background_memtrie_loading_for_shard(
             parent_shard_uid,

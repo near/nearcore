@@ -212,39 +212,36 @@ pub(crate) static DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS: LazyLock<IntCounterVec> 
 static PROPOSED_SPLIT_BOUNDARIES: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(Default::default);
 
-/// Update the proposed-split gauges for a shard to mirror the `proposed_split` value
-/// stored in the latest `ChunkExtra`. `None` is encoded as zero memory gauges and
-/// no info series.
+/// Latch the proposed-split gauges for a shard to the most recently proposed
+/// `TrieSplit`. A proposal is present only in the single boundary-block chunk that
+/// proposes the split, so a `None` (every other block) is ignored rather than
+/// resetting the gauges to zero -- otherwise they would read 0 almost always and be
+/// useless on a dashboard. The last proposed split therefore persists per shard,
+/// mirroring `near_dynamic_resharding_scheduled_epoch_height`.
 pub(crate) fn set_proposed_split_metrics(shard_uid: ShardUId, split: Option<&TrieSplit>) {
+    let Some(split) = split else {
+        return;
+    };
     let shard_uid_label = shard_uid.to_string();
-    let (left_memory, right_memory) =
-        split.map_or((0, 0), |split| (split.left_memory as i64, split.right_memory as i64));
     DYNAMIC_RESHARDING_PROPOSED_SPLIT_LEFT_MEMORY
         .with_label_values(&[&shard_uid_label])
-        .set(left_memory);
+        .set(split.left_memory as i64);
     DYNAMIC_RESHARDING_PROPOSED_SPLIT_RIGHT_MEMORY
         .with_label_values(&[&shard_uid_label])
-        .set(right_memory);
+        .set(split.right_memory as i64);
 
-    let new_boundary = split.map(|split| split.boundary_account.to_string());
+    let new_boundary = split.boundary_account.to_string();
     let mut boundaries = PROPOSED_SPLIT_BOUNDARIES.lock();
-    let old_boundary = boundaries.get(&shard_uid_label);
-    if old_boundary == new_boundary.as_ref() {
+    if boundaries.get(&shard_uid_label) == Some(&new_boundary) {
         return;
     }
-    if let Some(old_boundary) = old_boundary {
+    // Boundary changed for this shard: drop the stale info series before adding the new one.
+    if let Some(old_boundary) = boundaries.get(&shard_uid_label) {
         let _ = DYNAMIC_RESHARDING_PROPOSED_SPLIT_INFO
             .remove_label_values(&[&shard_uid_label, old_boundary]);
     }
-    match new_boundary {
-        Some(boundary) => {
-            DYNAMIC_RESHARDING_PROPOSED_SPLIT_INFO
-                .with_label_values(&[&shard_uid_label, &boundary])
-                .set(1);
-            boundaries.insert(shard_uid_label, boundary);
-        }
-        None => {
-            boundaries.remove(&shard_uid_label);
-        }
-    }
+    DYNAMIC_RESHARDING_PROPOSED_SPLIT_INFO
+        .with_label_values(&[&shard_uid_label, &new_boundary])
+        .set(1);
+    boundaries.insert(shard_uid_label, new_boundary);
 }
