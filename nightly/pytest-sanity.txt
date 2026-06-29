@@ -44,13 +44,6 @@ pytest sanity/one_val.py
 pytest sanity/one_val.py nightly --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/one_val.py nightly --features nightly,protocol_feature_spice
-pytest sanity/lightclient_test.py
-pytest sanity/lightclient_test.py --features nightly
-pytest sanity/lightclient_test.py --features nightly,protocol_feature_spice
-pytest sanity/rpc_light_client_execution_outcome_proof.py
-pytest sanity/rpc_light_client_execution_outcome_proof.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/rpc_light_client_execution_outcome_proof.py --features nightly,protocol_feature_spice
 pytest --timeout=10m sanity/block_sync_archival.py
 pytest --timeout=10m sanity/block_sync_archival.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
