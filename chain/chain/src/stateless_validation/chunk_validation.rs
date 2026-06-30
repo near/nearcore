@@ -2,7 +2,6 @@ use crate::chain::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
     apply_new_chunk, apply_old_chunk,
 };
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
 use crate::resharding::manager::ReshardingManager;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
@@ -19,6 +18,7 @@ use crate::{Chain, ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;

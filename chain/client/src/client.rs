@@ -22,6 +22,7 @@ use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncShardResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
@@ -31,7 +32,6 @@ use near_chain::chain::{
     VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice::core::find_newly_certified_block_hashes;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
