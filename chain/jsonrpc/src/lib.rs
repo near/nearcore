@@ -352,17 +352,16 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
         match resp {
             ProcessTxResponse::InvalidTx(context) => Self::InvalidTransaction { context },
             ProcessTxResponse::InternalError(debug_info) => Self::InternalError { debug_info },
-            ProcessTxResponse::DoesNotTrackShard => Self::DoesNotTrackShard,
-            // The node dropped the transaction without processing it. This only happens for
-            // forwarded transactions, which never reach this direct-send path; surface it as a
-            // server error rather than a misleading timeout.
             ProcessTxResponse::Dropped => Self::InternalError {
                 debug_info: "the node dropped the transaction without a response".to_string(),
             },
-            // ValidTx / RequestRouted are successes the caller handles before calling this;
-            // reaching here is a logic error, so report it instead of silently swallowing it.
-            resp @ (ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted) => {
-                Self::InternalError { debug_info: format!("unexpected success response: {resp:?}") }
+            ProcessTxResponse::DoesNotTrackShard => Self::DoesNotTrackShard,
+            // ValidTx / RequestRouted are successes so this path should not be
+            // reachable. Return internal error to avoid panicking.
+            response @ (ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted) => {
+                Self::InternalError {
+                    debug_info: format!("unexpected success response: {response:?}"),
+                }
             }
         }
     }
@@ -952,7 +951,7 @@ impl JsonRpcHandler {
     > {
         // If the request times out before any poll completes we report that we never got a
         // usable status; each poll that keeps us waiting replaces this with a better reason.
-        let mut timeout_error_cause = TimeoutErrorCause::timed_out();
+        let mut timeout_error_cause = TimeoutErrorCause::default();
 
         let poll_tx_status = async {
             // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
@@ -982,10 +981,13 @@ impl JsonRpcHandler {
             })
     }
 
-    /// Runs a single `TxStatus` check for the `poll_tx_status` loop. Returns `ControlFlow::Break`
-    /// with the final response/error once the transaction reaches the requested `finality`
-    /// or hits a definitive error, or `ControlFlow::Continue` with the reason to report if
-    /// the request ultimately times out.
+    /// Runs a single `TxStatus` check for the `poll_tx_status` loop.
+    ///
+    /// Returns `ControlFlow::Break` with the final response/error once the
+    /// transaction reaches the requested `finality` or hits a definitive error.
+    ///
+    /// Returns `ControlFlow::Continue` with the reason to report if the request
+    /// ultimately times out.
     async fn check_tx_status(
         &self,
         tx_info: &TransactionInfo,

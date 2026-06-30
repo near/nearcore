@@ -651,9 +651,7 @@ pub enum TxStatusOutcome {
 #[derive(Debug)]
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
-    MissingTransaction(CryptoHash),
     InternalError(String),
-    TimeoutError,
 }
 
 impl From<near_chain_primitives::Error> for TxStatusError {
