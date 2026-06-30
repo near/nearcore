@@ -640,7 +640,8 @@ pub struct TxStatus {
 #[derive(Debug)]
 pub enum TxStatusOutcome {
     /// The node tracks the transaction's shard and observed it.
-    Observed(TxStatusView),
+    /// Boxed to keep the enum small (`TxStatusView` is large; the other variants are tiny).
+    Observed(Box<TxStatusView>),
     /// The node tracks the shard but has not seen the transaction on chain.
     NotObserved,
     /// The node does not track the transaction's shard; the query was forwarded

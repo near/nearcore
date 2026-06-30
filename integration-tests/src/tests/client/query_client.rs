@@ -150,7 +150,7 @@ async fn test_execution_outcome_for_chunk() {
     let TxStatusOutcome::Observed(tx_status) = tx_status_outcome else {
         panic!("expected the transaction to be observed");
     };
-    let block_hash = tx_status.into_outcome().unwrap().transaction_outcome.block_hash;
+    let block_hash = (*tx_status).into_outcome().unwrap().transaction_outcome.block_hash;
 
     let mut execution_outcomes_in_block = actor_handles
         .view_client_actor

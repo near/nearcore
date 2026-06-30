@@ -20946,7 +20946,7 @@
         "type": "object"
       },
       "TimeoutErrorCause": {
-        "description": "Explains why a transaction-status request returned a `RpcTransactionError::TimeoutError`:\nit did not reach the requested `wait_until` finality within the node's polling timeout.",
+        "description": "Explains why a transaction status request returned a `RpcTransactionError::TimeoutError`:",
         "oneOf": [
           {
             "description": "The node never observed the transaction on chain.",
@@ -20964,7 +20964,7 @@
             "type": "object"
           },
           {
-            "description": "The transaction was observed but is still pending the requested finality. The\nlast-known status is included so the caller can re-poll for a higher finality.\nBoxed to keep `RpcTransactionError` small (it is the `Err` type of many RPC results).",
+            "description": "The transaction was observed but is still pending the requested finality. The\nlast-known status is included so the caller can re-poll for a higher finality.",
             "properties": {
               "cause": {
                 "enum": [

@@ -657,7 +657,10 @@ impl ViewClientActor {
                 let status = self.get_tx_execution_status(&res)?;
                 let execution_outcome =
                     Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res));
-                return Ok(TxStatusOutcome::Observed(TxStatusView { execution_outcome, status }));
+                return Ok(TxStatusOutcome::Observed(Box::new(TxStatusView {
+                    execution_outcome,
+                    status,
+                })));
             }
         }
 
@@ -680,13 +683,13 @@ impl ViewClientActor {
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(tx_result)
                     };
                     let tx_status_view = TxStatusView { execution_outcome: Some(res), status };
-                    Ok(TxStatusOutcome::Observed(tx_status_view))
+                    Ok(TxStatusOutcome::Observed(Box::new(tx_status_view)))
                 }
                 // The transaction is in the store (included) but has no execution outcome yet.
-                Ok(None) => Ok(TxStatusOutcome::Observed(TxStatusView {
+                Ok(None) => Ok(TxStatusOutcome::Observed(Box::new(TxStatusView {
                     execution_outcome: None,
                     status: TxExecutionStatus::Included,
-                })),
+                }))),
                 // The transaction is not in this node's store at all.
                 Err(near_chain::Error::DBNotFoundErr(_)) => Ok(TxStatusOutcome::NotObserved),
                 Err(err) => {
