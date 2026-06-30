@@ -65,8 +65,7 @@ pub struct RpcTransactionResponse {
     pub final_execution_status: near_primitives::views::TxExecutionStatus,
 }
 
-/// Explains why a transaction-status request returned a `RpcTransactionError::TimeoutError`:
-/// it did not reach the requested `wait_until` finality within the node's polling timeout.
+/// Explains why a transaction status request returned a `RpcTransactionError::TimeoutError`:
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -75,7 +74,6 @@ pub enum TimeoutErrorCause {
     NotObserved,
     /// The transaction was observed but is still pending the requested finality. The
     /// last-known status is included so the caller can re-poll for a higher finality.
-    /// Boxed to keep `RpcTransactionError` small (it is the `Err` type of many RPC results).
     Pending { status: Box<RpcTransactionResponse> },
     /// The node does not track the transaction's shard and could not get an answer from a
     /// chunk producer that does before the timeout.
@@ -86,10 +84,8 @@ pub enum TimeoutErrorCause {
 }
 
 impl TimeoutErrorCause {
-    /// Standardized cause for a plain timeout: the node could not produce a usable transaction
-    /// status before its polling timeout, with no more specific reason (`NotObserved`,
-    /// `Pending`, `DoesNotTrackShard`) to report.
-    pub fn timed_out() -> Self {
+    // A generic timeout error cause when extra context is not available.
+    pub fn default() -> Self {
         Self::Error {
             debug_info: "the node timed out before returning a transaction status".to_string(),
         }
