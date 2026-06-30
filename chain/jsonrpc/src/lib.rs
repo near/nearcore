@@ -959,7 +959,7 @@ impl JsonRpcHandler {
             new_block_watcher.mark_unchanged();
 
             loop {
-                match self.check_tx_status(&tx_info, &finality, fetch_receipt).await {
+                match self.tx_status_fetch_single(&tx_info, &finality, fetch_receipt).await {
                     ControlFlow::Break(outcome) => break outcome,
                     ControlFlow::Continue(reason) => timeout_error_cause = reason,
                 }
@@ -988,7 +988,7 @@ impl JsonRpcHandler {
     ///
     /// Returns `ControlFlow::Continue` with the reason to report if the request
     /// ultimately times out.
-    async fn check_tx_status(
+    async fn tx_status_fetch_single(
         &self,
         tx_info: &TransactionInfo,
         finality: &TxExecutionStatus,
@@ -1039,22 +1039,6 @@ impl JsonRpcHandler {
         }
     }
 
-    /// Detects an invalid transaction when we were handed the full signed transaction (rather
-    /// than just its hash), so the caller can fail fast instead of polling for one that will
-    /// never appear on chain. Returns `Err(context)` when the transaction is known to be
-    /// invalid, or `Ok(())` when it is valid or we cannot check it (we only have its hash).
-    async fn detect_invalid_tx(&self, tx_info: &TransactionInfo) -> Result<(), InvalidTxError> {
-        let Some(tx) = tx_info.to_signed_tx() else { return Ok(()) };
-        match self.send_tx_internal(tx.clone(), true).await {
-            Ok(ProcessTxResponse::InvalidTx(context)) => Err(context),
-            _ => Ok(()),
-        }
-    }
-
-    /// Builds the `TimeoutError` returned when `tx_status_fetch`'s polling loop is cancelled
-    /// by the timeout. The `cause` records why the request did not reach the requested
-    /// finality in time (see `TimeoutErrorCause`), so the caller still has full
-    /// information and can re-poll.
     fn tx_status_on_timeout(
         &self,
         tx_info: &TransactionInfo,
@@ -1071,6 +1055,18 @@ impl JsonRpcHandler {
             "timeout: tx_status_fetch method"
         );
         Err(RpcTransactionError::TimeoutError(cause))
+    }
+
+    /// Detects an invalid transaction when we were handed the full signed transaction (rather
+    /// than just its hash), so the caller can fail fast instead of polling for one that will
+    /// never appear on chain. Returns `Err(context)` when the transaction is known to be
+    /// invalid, or `Ok(())` when it is valid or we cannot check it (we only have its hash).
+    async fn detect_invalid_tx(&self, tx_info: &TransactionInfo) -> Result<(), InvalidTxError> {
+        let Some(tx) = tx_info.to_signed_tx() else { return Ok(()) };
+        match self.send_tx_internal(tx.clone(), true).await {
+            Ok(ProcessTxResponse::InvalidTx(context)) => Err(context),
+            _ => Ok(()),
+        }
     }
 
     /// Send a transaction idempotently (subsequent send of the same transaction will not cause
