@@ -1,0 +1,79 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]  # When PR is ready for review (not draft)
+  issue_comment:
+    types: [created]  # Listen for @claude mentions in PR comments
+
+jobs:
+  claude-review:
+    # Run if: (PR opened/ready AND not draft) OR @claude review in PR comment
+    if: |
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       (contains(github.event.comment.body, '@claude review') ||
+        contains(github.event.comment.body, '@claude code review')))
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: symlink fix workaround
+        run: |
+          # see https://github.com/anthropics/claude-code-action/issues/1205#issuecomment-4248704481
+          rm CLAUDE.md
+          cp AGENTS.md CLAUDE.md
+
+      - name: Fetch PR Comments Context
+        id: fetch-comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: .github/scripts/fetch-pr-comments.sh
+
+      - name: Build review prompt
+        id: build-prompt
+        run: |
+          DELIM="PROMPT_EOF_$(uuidgen)"
+          {
+            echo "REVIEW_PROMPT<<$DELIM"
+            echo '<pr_context>'
+            echo "REPO: ${{ github.repository }}"
+            echo "PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}"
+            echo 'LANGUAGE: Rust'
+            echo '</pr_context>'
+            echo ''
+            echo '<existing_discussions>'
+            cat /tmp/pr_comments_context.txt
+            echo '</existing_discussions>'
+            echo ''
+            echo '<review_instructions>'
+            cat .github/PROMPTS/pr-review.prompt.md
+            echo '</review_instructions>'
+            echo "$DELIM"
+          } >> "$GITHUB_ENV"
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@2cc1ac1331eac7a6a96d716dd204dd2888d0fcd2 # main @ Claude Code 2.1.128 / Agent SDK 0.2.128 (needed for --effort xhigh)
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ env.REVIEW_PROMPT }}
+          claude_args: >-
+            --model claude-opus-4-7
+            --effort xhigh
+            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
