@@ -351,13 +351,19 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
     pub fn from_network_client_responses(resp: ProcessTxResponse) -> Self {
         match resp {
             ProcessTxResponse::InvalidTx(context) => Self::InvalidTransaction { context },
-            ProcessTxResponse::NoResponse => Self::TimeoutError(TimeoutErrorCause::Error {
-                debug_info: "no response from the node".to_string(),
-            }),
-            ProcessTxResponse::DoesNotTrackShard | ProcessTxResponse::RequestRouted => {
-                Self::DoesNotTrackShard
+            ProcessTxResponse::InternalError(debug_info) => Self::InternalError { debug_info },
+            ProcessTxResponse::DoesNotTrackShard => Self::DoesNotTrackShard,
+            // The node dropped the transaction without processing it. This only happens for
+            // forwarded transactions, which never reach this direct-send path; surface it as a
+            // server error rather than a misleading timeout.
+            ProcessTxResponse::Dropped => Self::InternalError {
+                debug_info: "the node dropped the transaction without a response".to_string(),
+            },
+            // ValidTx / RequestRouted are successes the caller handles before calling this;
+            // reaching here is a logic error, so report it instead of silently swallowing it.
+            resp @ (ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted) => {
+                Self::InternalError { debug_info: format!("unexpected success response: {resp:?}") }
             }
-            internal_error => Self::InternalError { debug_info: format!("{:?}", internal_error) },
         }
     }
 }

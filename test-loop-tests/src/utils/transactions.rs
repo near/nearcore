@@ -460,7 +460,7 @@ impl TransactionRunner {
             }
         };
         let res = match process_tx_response {
-            ProcessTxResponse::NoResponse => panic!("NoResponse indicates an error"),
+            ProcessTxResponse::Dropped => panic!("transaction was dropped"),
             ProcessTxResponse::RequestRouted | // Ok, transaction forwarded to a validator node
             ProcessTxResponse::ValidTx => TxProcessingResult::Ok,
             ProcessTxResponse::InvalidTx(err) => match err {
@@ -472,6 +472,7 @@ impl TransactionRunner {
             ProcessTxResponse::DoesNotTrackShard => {
                 panic!("Transaction submitted to a node that doesn't track the shard")
             }
+            ProcessTxResponse::InternalError(err) => panic!("process_tx failed: {err}"),
         };
         Some(res)
     }
