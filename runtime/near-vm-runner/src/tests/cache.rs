@@ -131,7 +131,7 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-#[cfg(all(feature = "wasmtime", target_arch = "x86_64"))]
+#[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
 fn test_wasmtime_artifact_output_stability() {
     use crate::prepare;
     use crate::wasmtime_runner::WasmtimeVM;
