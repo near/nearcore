@@ -1,11 +1,11 @@
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
