@@ -1001,10 +1001,10 @@ impl JsonRpcHandler {
             // the requested finality; otherwise keep polling, remembering how far it got.
             Ok(TxStatusOutcome::Observed(view)) => {
                 if tx_execution_status_meets_expectations(finality, &view.status) {
-                    ControlFlow::Break(Ok(view.into()))
+                    ControlFlow::Break(Ok((*view).into()))
                 } else {
                     ControlFlow::Continue(TimeoutErrorCause::Pending {
-                        status: Box::new(view.into()),
+                        status: Box::new((*view).into()),
                     })
                 }
             }
