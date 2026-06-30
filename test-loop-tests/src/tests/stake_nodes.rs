@@ -507,7 +507,6 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_inflation() {
     init_test_logger();
 
