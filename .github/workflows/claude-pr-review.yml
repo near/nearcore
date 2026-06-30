@@ -33,8 +33,8 @@ jobs:
       - name: symlink fix workaround
         run: |
           # see https://github.com/anthropics/claude-code-action/issues/1205#issuecomment-4248704481
-          rm CLAUDE.md
-          cp AGENTS.md CLAUDE.md
+          rm -f CLAUDE.md
+          cp -f AGENTS.md CLAUDE.md
 
       - name: Fetch PR Comments Context
         id: fetch-comments
