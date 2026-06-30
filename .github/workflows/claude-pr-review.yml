@@ -43,7 +43,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
-        run: .github/scripts/fetch-pr-comments.sh
+        run: bash .github/scripts/fetch-pr-comments.sh
 
       - name: Build review prompt
         id: build-prompt
