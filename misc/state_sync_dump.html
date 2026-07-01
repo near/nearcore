@@ -141,24 +141,22 @@
                 <div id="content" class="content">
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
-<h1 id="experimental-dump-state-to-external-storage"><a class="header" href="#experimental-dump-state-to-external-storage">Experimental: Dump State to External Storage</a></h1>
+<h1 id="dump-state-to-external-storage"><a class="header" href="#dump-state-to-external-storage">Dump State to External Storage</a></h1>
 <h2 id="purpose"><a class="header" href="#purpose">Purpose</a></h2>
-<p><a href="../architecture/how/sync.html#step-2-state-sync-normal-node">State Sync</a> is being
-reworked.</p>
-<p>A new version is available for experimental use. This version gets state parts
-from external storage. The following kinds of external storage are supported:</p>
+<p>A node can dump the state of every epoch to external storage. The following
+kinds of external storage are supported:</p>
 <ul>
 <li>Local filesystem</li>
 <li>Google Cloud Storage</li>
 <li>Amazon S3</li>
 </ul>
-<p>A new version of decentralized state sync is work in progress.</p>
+<p>Note: consuming state parts from external storage (centralized state sync) has
+been removed — nodes now always sync state from peers
+(<a href="../architecture/how/sync.html#step-2-state-sync-normal-node">State Sync</a>). Only
+the dump side documented here remains, for archival and state-distribution
+tooling.</p>
 <h2 id="how-to"><a class="header" href="#how-to">How-to</a></h2>
-<p>neard release <code>1.36.0-rc.1</code> adds an experimental option to sync state from
-external storage.</p>
-<p>See <a href="state_sync_from_external_storage.html">how-to</a> how to configure your node to
-State Sync from External Storage.</p>
-<p>In case you would like to manage your own dumps of State, keep reading.</p>
+<p>To manage your own dumps of state, keep reading.</p>
 <h3 id="google-cloud-storage"><a class="header" href="#google-cloud-storage">Google Cloud Storage</a></h3>
 <p>To enable Google Cloud Storage as your external storage, add this to your
 <code>config.json</code> file:</p>

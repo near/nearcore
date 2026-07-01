@@ -250,8 +250,6 @@ cannot have gaps.</p>
 epoch, state parts become unavailable from peers. When the node detects this
 (the network tip is more than one epoch ahead of the sync hash), it triggers
 the same data-reset-and-restart flow used for stale nodes.</p>
-<p>See <a href="../../misc/state_sync_from_external_storage.html">how-to</a> to learn how to
-configure your node for state sync from external storage (GCS, S3).</p>
 <h4 id="step-4-block-sync"><a class="header" href="#step-4-block-sync">Step 4: block sync</a></h4>
 <p>The final step downloads and applies blocks from the sync point to the network
 tip. Header sync runs alongside block sync on every tick. Block sync requests
