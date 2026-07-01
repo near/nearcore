@@ -27,6 +27,12 @@ use std::sync::Arc;
 /// and far below the 512 MiB peer-frame cap.
 const MAX_TRANSACTION_SIZE_BYTES: usize = 16 * MIB as usize;
 
+/// Upper bound on the Borsh-encoded size of a peer-supplied routed-message body,
+/// enforced before it is deserialized so a maliciously inflated payload (e.g. a
+/// `ForwardTx` carrying an oversized delegate action) cannot exhaust node memory
+/// at decode time.
+const MAX_ROUTED_MESSAGE_SIZE_BYTES: usize = 64 * MIB as usize;
+
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRoutingTableUpdateError {
     #[error("edges {0}")]
@@ -459,7 +465,10 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .map_err(Self::Error::Transaction)?,
             ),
             ProtoMT::Routed(r) => {
-                let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
+                // Bound the decode-time allocation: see `MAX_ROUTED_MESSAGE_SIZE_BYTES`.
+                let msg: RoutedMessageV1 =
+                    try_from_slice_with_limit(&r.borsh, MAX_ROUTED_MESSAGE_SIZE_BYTES)
+                        .map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body);
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
@@ -567,7 +576,9 @@ impl TryFrom<&proto::RoutedMessageV3> for RoutedMessageV3 {
             target: try_from_required(&x.target).map_err(Self::Error::Target)?,
             author: try_from_required(&x.author).map_err(Self::Error::Author)?,
             ttl: x.ttl as u8,
-            body: TieredMessageBody::try_from_slice(&x.borsh_body).map_err(Self::Error::Body)?,
+            // Bound the decode-time allocation: see `MAX_ROUTED_MESSAGE_SIZE_BYTES`.
+            body: try_from_slice_with_limit(&x.borsh_body, MAX_ROUTED_MESSAGE_SIZE_BYTES)
+                .map_err(Self::Error::Body)?,
             signature: try_from_optional(&x.signature)
                 .map_err(|e| Self::Error::Signature(ParseRequiredError::Other(e)))?,
             created_at: x.created_at,
@@ -585,7 +596,7 @@ mod tests {
     /// A normally-sized transaction passes the network size gate and round-trips
     /// through the proto conversion; an oversized body is rejected before it is
     /// Borsh-decoded, so the inflated nested-action `Vec` is never materialized
-    /// at decode time (NEAP-621).
+    /// at decode time.
     #[test]
     fn transaction_size_gate() {
         let mut rng = make_rng(89028037453);
@@ -604,6 +615,37 @@ mod tests {
             PeerMessage::try_from(&proto).expect_err("oversized transaction must be rejected");
         assert!(
             matches!(err, ParsePeerMessageError::Transaction(_)),
+            "unexpected error variant: {err:?}"
+        );
+        assert!(err.to_string().contains("exceeds"), "unexpected error: {err}");
+    }
+
+    /// A normally-sized routed message decodes, while an oversized borsh body is
+    /// rejected before it is Borsh-decoded, so a `ForwardTx` (or any routed
+    /// payload) carrying an inflated delegate action is never materialized at
+    /// decode time.
+    #[test]
+    fn routed_message_size_gate() {
+        use crate::network_protocol::T2MessageBody;
+
+        let mut rng = make_rng(89028037453);
+        let tx = data::make_signed_transaction(&mut rng);
+        let body = TieredMessageBody::T2(Box::new(T2MessageBody::ForwardTx(tx)));
+        let msg = PeerMessage::Routed(Box::new(data::make_routed_message(&mut rng, body)));
+        let proto: proto::PeerMessage = (&msg).into();
+        PeerMessage::try_from(&proto).expect("normally-sized routed message must decode");
+
+        let proto = proto::PeerMessage {
+            message_type: Some(ProtoMT::Routed(proto::RoutedMessage {
+                borsh: vec![0u8; MAX_ROUTED_MESSAGE_SIZE_BYTES + 1],
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let err =
+            PeerMessage::try_from(&proto).expect_err("oversized routed message must be rejected");
+        assert!(
+            matches!(err, ParsePeerMessageError::Routed(_)),
             "unexpected error variant: {err:?}"
         );
         assert!(err.to_string().contains("exceeds"), "unexpected error: {err}");
