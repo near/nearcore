@@ -143,6 +143,8 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::keccak256_byte => Cost::Keccak256Byte,
         ExtCosts::keccak512_base => Cost::Keccak512Base,
         ExtCosts::keccak512_byte => Cost::Keccak512Byte,
+        ExtCosts::sha3_256_base => Cost::Sha3256Base,
+        ExtCosts::sha3_256_byte => Cost::Sha3256Byte,
         ExtCosts::ripemd160_base => Cost::Ripemd160Base,
         ExtCosts::ripemd160_block => Cost::Ripemd160Block,
         ExtCosts::ecrecover_base => Cost::EcrecoverBase,

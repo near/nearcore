@@ -253,6 +253,8 @@ pub struct VMConfigView {
     pub one_yocto_on_promise: bool,
     /// See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).
     pub p256_verify_host_fn: bool,
+    /// See [VMConfig::sha3_256_host_fn](crate::vm::Config::sha3_256_host_fn).
+    pub sha3_256_host_fn: bool,
     /// See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).
     pub yield_with_id_host_fns: bool,
     /// See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).
@@ -296,6 +298,7 @@ impl From<crate::vm::Config> for VMConfigView {
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
+            sha3_256_host_fn: config.sha3_256_host_fn,
             yield_with_id_host_fns: config.yield_with_id_host_fns,
             chain_id_host_fn: config.chain_id_host_fn,
             bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
@@ -361,6 +364,11 @@ pub struct ExtCostsConfigView {
     pub keccak512_base: Gas,
     /// Cost of getting sha256 per byte
     pub keccak512_byte: Gas,
+
+    /// Cost of getting sha3-256 base
+    pub sha3_256_base: Gas,
+    /// Cost of getting sha3-256 per byte
+    pub sha3_256_byte: Gas,
 
     /// Cost of getting ripemd160 base
     pub ripemd160_base: Gas,
@@ -537,6 +545,8 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             keccak256_byte: config.gas_cost(ExtCosts::keccak256_byte),
             keccak512_base: config.gas_cost(ExtCosts::keccak512_base),
             keccak512_byte: config.gas_cost(ExtCosts::keccak512_byte),
+            sha3_256_base: config.gas_cost(ExtCosts::sha3_256_base),
+            sha3_256_byte: config.gas_cost(ExtCosts::sha3_256_byte),
             ripemd160_base: config.gas_cost(ExtCosts::ripemd160_base),
             ripemd160_block: config.gas_cost(ExtCosts::ripemd160_block),
             ed25519_verify_base: config.gas_cost(ExtCosts::ed25519_verify_base),
@@ -644,6 +654,8 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::keccak256_byte => view.keccak256_byte,
                 ExtCosts::keccak512_base => view.keccak512_base,
                 ExtCosts::keccak512_byte => view.keccak512_byte,
+                ExtCosts::sha3_256_base => view.sha3_256_base,
+                ExtCosts::sha3_256_byte => view.sha3_256_byte,
                 ExtCosts::ripemd160_base => view.ripemd160_base,
                 ExtCosts::ripemd160_block => view.ripemd160_block,
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,

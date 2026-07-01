@@ -174,6 +174,9 @@ wasm_keccak256_base: 5_879_491_275
 wasm_keccak256_byte: 21_471_105
 wasm_keccak512_base: 5_811_388_236
 wasm_keccak512_byte: 36_649_701
+# SHA3-256 shares the keccak-f permutation, so it reuses the keccak256 costs.
+wasm_sha3_256_base: 5_879_491_275
+wasm_sha3_256_byte: 21_471_105
 wasm_ripemd160_base: 853_675_086
 wasm_ripemd160_block: 680_107_584
 wasm_ecrecover_base: 278_821_988_457
@@ -282,6 +285,7 @@ reftypes_bulk_memory: false
 gas_key_host_fns: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
+sha3_256_host_fn: false
 yield_with_id_host_fns: false
 chain_id_host_fn: false
 bls12381_not_in_group_fix: false

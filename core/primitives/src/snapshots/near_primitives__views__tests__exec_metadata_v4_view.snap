@@ -1,6 +1,5 @@
 ---
 source: core/primitives/src/views.rs
-assertion_line: 3106
 expression: view
 snapshot_kind: text
 ---
@@ -381,6 +380,16 @@ snapshot_kind: text
       "cost_category": "WASM_HOST_COST",
       "cost": "SHA256_BYTE",
       "gas_used": "16"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "SHA3_256_BASE",
+      "gas_used": "88"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "SHA3_256_BYTE",
+      "gas_used": "89"
     },
     {
       "cost_category": "WASM_HOST_COST",

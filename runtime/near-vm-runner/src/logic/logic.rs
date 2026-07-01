@@ -1629,6 +1629,32 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         )
     }
 
+    /// Hashes the given value using sha3-256 (FIPS-202) and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3_256_base + sha3_256_byte * num_bytes`
+    pub fn sha3_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.result_state.gas_counter.pay_base(sha3_256_base)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
+        self.result_state.gas_counter.pay_per(sha3_256_byte, value.len() as u64)?;
+
+        use sha3::Digest;
+
+        let value_hash = sha3::Sha3_256::digest(&value);
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            &value_hash[..],
+        )
+    }
+
     /// Hashes the given value using RIPEMD-160 and returns it into `register_id`.
     ///
     /// # Errors
