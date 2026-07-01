@@ -9,7 +9,6 @@ use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
-#[cfg(not(windows))]
 use parking_lot::Mutex;
 #[cfg(not(windows))]
 use rand::Rng as _;
