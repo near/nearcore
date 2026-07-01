@@ -43,6 +43,7 @@ extern "C" {
     // # Context API #
     // ###############
     fn current_account_id(register_id: u64);
+    #[cfg(feature = "latest_protocol")]
     fn chain_id(register_id: u64);
     fn signer_account_id(register_id: u64);
     fn signer_account_pk(register_id: u64);
@@ -339,6 +340,7 @@ ext_test!(ext_predecessor_account_id, predecessor_account_id);
 ext_test!(ext_signer_pk, signer_account_pk);
 ext_test!(ext_signer_id, signer_account_id);
 ext_test!(ext_account_id, current_account_id);
+#[cfg(feature = "latest_protocol")]
 ext_test!(ext_chain_id, chain_id);
 
 ext_test_u128!(ext_account_balance, account_balance);
