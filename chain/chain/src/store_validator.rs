@@ -11,7 +11,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ProcessedReceiptMetadata;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
@@ -314,6 +314,17 @@ impl StoreValidator {
                         col,
                     );
                 }
+                DBCol::OutgoingReceipts => {
+                    let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
+                    let receipts: Vec<Receipt> = BorshDeserialize::try_from_slice(value_ref)?;
+                    // Spice counts these produced-receipt bodies toward the Receipts refcount.
+                    self.check(
+                        &validate::outgoing_receipt_bodies_exist_in_receipts,
+                        &(block_hash, shard_id),
+                        receipts.as_slice(),
+                        col,
+                    );
+                }
                 DBCol::Transactions => {
                     let (_value, rc) = refcount::decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
@@ -359,12 +370,12 @@ impl StoreValidator {
         }
 
         // Main loop.
-        // Custom sort: PartialChunks and ProcessedReceiptIds must be
-        // validated before Receipts so that receipt refcounts are fully
+        // Custom sort: PartialChunks, ProcessedReceiptIds and OutgoingReceipts
+        // must be validated before Receipts so that receipt refcounts are fully
         // populated before we check them against the Receipts column.
         let mut cols: Vec<DBCol> = DBCol::iter().collect();
         cols.sort_by_key(|col| match col {
-            DBCol::PartialChunks | DBCol::ProcessedReceiptIds => 0,
+            DBCol::PartialChunks | DBCol::ProcessedReceiptIds | DBCol::OutgoingReceipts => 0,
             other => 1 + other.into_usize(),
         });
         for col in cols {

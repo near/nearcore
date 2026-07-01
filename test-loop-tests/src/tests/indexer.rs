@@ -42,8 +42,6 @@ fn test_indexer_basic() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_local_receipt() {
     init_test_logger();
 
@@ -92,8 +90,6 @@ fn test_indexer_local_receipt() {
 /// the GC test only checks that the receipt is *stored*, while this test needs
 /// the callback to *execute* so the indexer has an outcome to index.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_instant_receipt() {
     init_test_logger();
 
@@ -191,8 +187,6 @@ fn test_indexer_instant_receipt() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_delayed_local_receipt() {
     init_test_logger();
 
@@ -212,7 +206,9 @@ fn test_indexer_delayed_local_receipt() {
     let last_tx_outcome = env
         .validator_runner()
         .run_until_outcome_available(last_tx.get_hash(), Duration::seconds(2));
-    let last_tx_included_height = env.validator().head().height;
+    // Under spice the consensus head runs ahead of execution, so the height at
+    // which the outcome actually landed is the execution head, not `head()`.
+    let last_tx_executed_height = env.validator().last_executed().height;
     let ExecutionStatus::SuccessReceiptId(last_tx_receipt_id) =
         last_tx_outcome.outcome_with_id.outcome.status
     else {
@@ -221,8 +217,8 @@ fn test_indexer_delayed_local_receipt() {
     let last_tx_receipt_outcome = env
         .validator_runner()
         .run_until_outcome_available(last_tx_receipt_id, Duration::seconds(2));
-    let last_tx_receipt_executed_height = env.validator().head().height;
-    assert_eq!(last_tx_receipt_executed_height, last_tx_included_height + 2);
+    let last_tx_receipt_executed_height = env.validator().last_executed().height;
+    assert_eq!(last_tx_receipt_executed_height, last_tx_executed_height + 2);
 
     let mut indexer_receiver =
         start_indexer(&env, SyncModeEnum::BlockHeight(last_tx_receipt_executed_height));
@@ -245,8 +241,6 @@ fn test_indexer_delayed_local_receipt() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_failed_local_tx() {
     init_test_logger();
 
@@ -280,8 +274,6 @@ fn test_indexer_failed_local_tx() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_deploy_contract_local_tx() {
     init_test_logger();
     let mut env = setup();
@@ -291,7 +283,9 @@ fn test_indexer_deploy_contract_local_tx() {
     // that actually contains the tx; back off by that amount to land on the tx block.
     let extra_refund_block =
         if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
-    let deploy_contract_height = env.validator().head().height - extra_refund_block;
+    // Under spice the consensus head runs ahead of execution; the deploy block is
+    // tracked by the execution head, not `head()`.
+    let deploy_contract_height = env.validator().last_executed().height - extra_refund_block;
 
     let mut indexer_receiver =
         start_indexer(&env, SyncModeEnum::BlockHeight(deploy_contract_height));
@@ -319,8 +313,6 @@ fn test_indexer_deploy_contract_local_tx() {
 /// new metadata variant exists to surface, since the receiver account is
 /// `user_account` but the actually-executed code lives at the global hash.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_global_contract_function_call_metadata() {
     init_test_logger();
 
@@ -390,8 +382,6 @@ fn test_indexer_global_contract_function_call_metadata() {
 /// that the indexer returns receipt execution outcomes in the same order
 /// as the corresponding transactions, which is the execution order.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_receipt_execution_outcomes_order() {
     init_test_logger();
 
@@ -406,9 +396,11 @@ fn test_indexer_receipt_execution_outcomes_order() {
     // Wait for all transactions to be included and local receipts executed.
     let last_tx = txs.last().unwrap();
     env.validator_runner().run_until_outcome_available(last_tx.get_hash(), Duration::seconds(5));
-    let tx_included_height = env.validator().head().height;
+    // Under spice the consensus head runs ahead of execution; the txs land in the
+    // block tracked by the execution head, not `head()`.
+    let tx_executed_height = env.validator().last_executed().height;
 
-    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(tx_included_height));
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(tx_executed_height));
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     let indexer_shard = &msg.shards[0];
     let indexer_chunk = indexer_shard.chunk.as_ref().unwrap();
