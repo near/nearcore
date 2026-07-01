@@ -594,7 +594,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 85;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 /// Returns the effective protocol version to use for processing a request.
 ///
