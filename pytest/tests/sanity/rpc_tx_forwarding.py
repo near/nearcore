@@ -28,10 +28,6 @@ nodes = start_cluster(
                                     "secs": 2,
                                     "nanos": 0
                                 },
-                                "state_sync_external_backoff": {
-                                    "secs": 2,
-                                    "nanos": 0
-                                },
                             }
                         },
                         1: {
@@ -42,10 +38,6 @@ nodes = start_cluster(
                                     "nanos": 0
                                 },
                                 "state_sync_p2p_timeout": {
-                                    "secs": 2,
-                                    "nanos": 0
-                                },
-                                "state_sync_external_backoff": {
                                     "secs": 2,
                                     "nanos": 0
                                 },
@@ -62,10 +54,6 @@ nodes = start_cluster(
                                     "secs": 2,
                                     "nanos": 0
                                 },
-                                "state_sync_external_backoff": {
-                                    "secs": 2,
-                                    "nanos": 0
-                                },
                             }
                         },
                         3: {
@@ -76,10 +64,6 @@ nodes = start_cluster(
                                     "nanos": 0
                                 },
                                 "state_sync_p2p_timeout": {
-                                    "secs": 2,
-                                    "nanos": 0
-                                },
-                                "state_sync_external_backoff": {
                                     "secs": 2,
                                     "nanos": 0
                                 },

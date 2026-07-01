@@ -113,7 +113,7 @@ impl StateSync {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         network_adapter: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-        external_timeout: Duration,
+        block_request_timeout: Duration,
         p2p_timeout: Duration,
         retry_backoff: Duration,
         sync_config: &StateSyncConfig,
@@ -121,7 +121,6 @@ impl StateSync {
         future_spawner: Arc<dyn FutureSpawner>,
         catchup: bool,
     ) -> Self {
-        let block_request_timeout = external_timeout;
         let peer_source_state =
             Arc::new(Mutex::new(StateSyncDownloadSourcePeerSharedState::default()));
         let peer_source = Arc::new(StateSyncDownloadSourcePeer {
@@ -137,7 +136,7 @@ impl StateSync {
         let downloader = Arc::new(StateSyncDownloader {
             clock: clock.clone(),
             store: store.clone(),
-            preferred_source: peer_source,
+            source: peer_source,
             header_validation_sender: chain_requests_sender.clone().into_async_sender(),
             runtime: runtime.clone(),
             retry_backoff,

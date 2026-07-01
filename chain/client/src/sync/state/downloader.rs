@@ -27,7 +27,7 @@ use tracing::Instrument;
 pub(super) struct StateSyncDownloader {
     pub clock: Clock,
     pub store: Store,
-    pub preferred_source: Arc<dyn StateSyncDownloadSource>,
+    pub source: Arc<dyn StateSyncDownloadSource>,
     pub header_validation_sender:
         AsyncSender<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
@@ -49,7 +49,7 @@ impl StateSyncDownloader {
     ) -> BoxFuture<'_, Result<ShardStateSyncResponseHeader, near_chain::Error>> {
         let store = self.store.clone();
         let validation_sender = self.header_validation_sender.clone();
-        let preferred_source = self.preferred_source.clone();
+        let source = self.source.clone();
         let task_tracker = self.task_tracker.clone();
         let clock = self.clock.clone();
         let retry_backoff = self.retry_backoff;
@@ -64,7 +64,7 @@ impl StateSyncDownloader {
 
             let attempt = || {
                 async {
-                    let header = preferred_source
+                    let header = source
                         .download_shard_header(shard_id, sync_hash, handle.clone(), cancel.clone())
                         .await?;
                     // We cannot validate the header with just a Store. We need the Chain, so we queue it up
@@ -146,7 +146,7 @@ impl StateSyncDownloader {
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
         let runtime_adapter = self.runtime.clone();
-        let preferred_source = self.preferred_source.clone();
+        let source = self.source.clone();
         let clock = self.clock.clone();
         let task_tracker = self.task_tracker.clone();
         let retry_backoff = self.retry_backoff;
@@ -162,7 +162,7 @@ impl StateSyncDownloader {
             }
 
             let attempt = || async {
-                let part = preferred_source
+                let part = source
                     .download_shard_part(
                         shard_id,
                         sync_hash,
