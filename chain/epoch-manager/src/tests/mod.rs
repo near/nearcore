@@ -3925,8 +3925,8 @@ fn test_aggregator_skip_anchor_uses_anchor_height() {
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
 
     // `h[4]`'s anchor is `h[3].prev == h[1]` (height 1), but its chunk height is
-    // `h[3].height + 1 == 4`. Dropping `h[1]`'s row forces the fallback: the fix
-    // samples at `anchor.height + 2 == 3`; the old code sampled at chunk height 4.
+    // `h[3].height + 1 == 4`. Dropping `h[1]`'s row forces the fallback, which
+    // samples at `anchor.height + 2 == 3`, not at chunk height 4.
     assert_eq!(&h[1], em.get_block_info(&h[1]).unwrap().epoch_first_block());
     {
         let mut update = em.store.store_ref().store_update();
@@ -3936,7 +3936,7 @@ fn test_aggregator_skip_anchor_uses_anchor_height() {
         update.commit();
     }
 
-    // The test only discriminates the fix where `sample(3) != sample(4)`.
+    // The test only discriminates when `sample(3) != sample(4)`.
     let discriminating = shard_layout.shard_ids().any(|shard_id| {
         epoch_info.sample_chunk_producer(&shard_layout, shard_id, 3)
             != epoch_info.sample_chunk_producer(&shard_layout, shard_id, 4)
@@ -3951,7 +3951,7 @@ fn test_aggregator_skip_anchor_uses_anchor_height() {
 
     // Counted blocks resolve to: h[1] -> sample(1) (genesis-parent None arm),
     // h[3] -> sample(2) (anchor h[0] seeded), h[4] -> sample(3) (anchor h[1]
-    // absent -> fallback at anchor.height + 2). The old code gave h[4] sample(4).
+    // absent -> fallback at anchor.height + 2).
     for shard_id in shard_layout.shard_ids() {
         let stats = &aggregator.shard_tracker[&shard_id];
         let mut expected: HashMap<ValidatorId, u64> = HashMap::new();
