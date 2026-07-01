@@ -16,11 +16,12 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use near_primitives::utils::get_block_shard_id;
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::BTreeMap;
 
 /// Earlier value of each key changed in one block. `None` = key did not exist.
-/// One entry per key, sorted by trie key byte order, so the serialized blob bytes
-/// are deterministic.
-pub type InverseStateChanges = Vec<(TrieKey, Option<Vec<u8>>)>;
+/// A `BTreeMap` keeps entries ordered by key, so the serialized blob bytes are
+/// deterministic across writers.
+pub type InverseStateChanges = BTreeMap<TrieKey, Option<Vec<u8>>>;
 
 /// Versioned container for shard-related data stored in the cloud archive.
 /// This is for a single block height (taken from the file path).
