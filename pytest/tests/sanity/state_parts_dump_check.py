@@ -10,7 +10,6 @@
 import pathlib
 import sys
 import re
-import tempfile
 from itertools import islice, takewhile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -19,65 +18,11 @@ import key
 from utils import poll_blocks, poll_epochs
 from cluster import BaseNode, init_cluster, spin_up_node, load_config
 import transaction
+import state_sync_lib
 from configured_logger import logger
 
 EPOCH_LENGTH = 50
 NUM_SHARDS = 4
-
-
-# The state-parts dump-check tool is specific to centralized (external-storage)
-# state sync, so this test keeps its own external-storage config rather than
-# using the decentralized (peer-to-peer) helper in state_sync_lib. This test and
-# the tool it exercises are removed together in a later PR.
-# Returns a pair of configs:
-#   - config_dump: dumps state parts to a local directory (the tool monitors it).
-#   - config_sync: reads state parts from that directory via external storage.
-def get_external_storage_state_sync_configs():
-    state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
-    config_dump = {
-        "state_sync": {
-            "dump": {
-                "location": {
-                    "Filesystem": {
-                        "root_dir": state_parts_dir
-                    }
-                },
-                "iteration_delay": {
-                    "secs": 0,
-                    "nanos": 100000000
-                },
-            }
-        },
-        "store.state_snapshot_config.state_snapshot_type": "Enabled",
-        "tracked_shards_config": 'AllShards'
-    }
-    config_sync = {
-        "consensus.state_sync_external_timeout": {
-            "secs": 0,
-            "nanos": 500000000
-        },
-        "consensus.state_sync_p2p_timeout": {
-            "secs": 0,
-            "nanos": 500000000
-        },
-        "consensus.state_sync_external_backoff": {
-            "secs": 0,
-            "nanos": 500000000
-        },
-        "state_sync": {
-            "sync": {
-                "ExternalStorage": {
-                    "location": {
-                        "Filesystem": {
-                            "root_dir": state_parts_dir
-                        }
-                    }
-                }
-            }
-        },
-        "tracked_shards_config": 'AllShards',
-    }
-    return (config_dump, config_sync)
 
 
 def get_dump_check_metrics(target):
@@ -111,7 +56,8 @@ def create_account(node: BaseNode, account_id: str, nonce):
 
 
 def main():
-    node_config_dump, node_config = get_external_storage_state_sync_configs()
+    node_config_dump, node_config = state_sync_lib.get_external_storage_state_sync_configs(
+    )
     config = load_config()
     genesis_config_changes = [["epoch_length", EPOCH_LENGTH]]
     client_config_changes = {
