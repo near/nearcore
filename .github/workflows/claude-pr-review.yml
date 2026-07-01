@@ -30,6 +30,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
         with:
+          # On pull_request events checkout defaults to the PR merge ref. On
+          # issue_comment (@claude review) events it defaults to the base
+          # branch, so Read/Grep would see base code instead of the PR — pin it
+          # to the PR merge ref explicitly.
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || '' }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -65,7 +70,7 @@ jobs:
             echo '</existing_discussions>'
             echo ''
             echo '<review_instructions>'
-            cat .github/PROMPTS/pr-review.prompt.md
+            cat .claude/skills/pr-review/SKILL.md
             echo '</review_instructions>'
             echo "$DELIM"
           } >> "$GITHUB_ENV"
@@ -80,6 +85,6 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: ${{ env.REVIEW_PROMPT }}
           claude_args: >-
-            --model claude-opus-4-7
+            --model opus
             --effort xhigh
             --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
