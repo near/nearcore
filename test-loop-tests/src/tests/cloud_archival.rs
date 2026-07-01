@@ -1470,7 +1470,6 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
 /// every new-layout shard's state both inside the resharding gap (reached by
 /// inverse walk) and at the snapshot (reached by forward replay).
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO(cloud_archival): un-ignore when resharding support is implemented.
 #[ignore]
 fn test_cloud_archival_resharding_gap_inverse_walk() {

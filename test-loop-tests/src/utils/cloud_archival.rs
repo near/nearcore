@@ -96,10 +96,10 @@ pub fn run_until_one_epoch_after_resharding(
     let resharding_block_height = epoch_manager.get_block_info(&resharding_block).unwrap().height();
     let new_epoch_first_height = epoch_manager.get_block_info(&epoch_first).unwrap().height();
 
-    run_node_until(env, archival_id, resharding_block_height + epoch_length);
+    // Advance one epoch from the resharding epoch's first produced block so the
+    // resharding epoch fully elapses and its sync_hash gets recorded.
+    run_node_until(env, archival_id, new_epoch_first_height + epoch_length);
 
-    // The resharding epoch's sync_hash is recorded by the time the chain is a
-    // full epoch past it.
     let node = env.node_for_account(archival_id);
     let chain_store = node.client().chain.chain_store().store().chain_store();
     let sync_hash = chain_store
