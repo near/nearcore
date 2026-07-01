@@ -10,11 +10,17 @@ use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource,
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use near_primitives::utils::get_block_shard_id;
 use near_schema_checker_lib::ProtocolSchema;
+
+/// Earlier value of each key changed in one block. `None` = key did not exist.
+/// One entry per key, sorted by trie key byte order, so the serialized blob bytes
+/// are deterministic.
+pub type InverseStateChanges = Vec<(TrieKey, Option<Vec<u8>>)>;
 
 /// Versioned container for shard-related data stored in the cloud archive.
 /// This is for a single block height (taken from the file path).
@@ -274,6 +280,13 @@ impl ShardData {
         match self {
             ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.outgoing_receipts),
             ShardData::V1(ShardDataV1::Carried(_)) => None,
+        }
+    }
+
+    // TODO(cloud_archival): return the stored field once the writer attaches it.
+    pub fn inverse_state_changes(&self) -> Option<&InverseStateChanges> {
+        match self {
+            ShardData::V1(_) => None,
         }
     }
 }

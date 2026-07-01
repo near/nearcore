@@ -51,6 +51,15 @@ pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_heig
 pub struct ReshardingInfo {
     /// The last block of the epoch before the split.
     pub resharding_block_height: BlockHeight,
+    /// The resharding epoch's first block, a produced block inside the gap.
+    pub new_epoch_first_height: BlockHeight,
+    /// The resharding epoch's sync_hash block height: the reader's snapshot
+    /// anchor, above the gap the inverse walk must cover.
+    pub sync_block_height: BlockHeight,
+    /// Shard UIds of the pre-split layout.
+    pub base_shard_uids: Vec<ShardUId>,
+    /// Shard UIds of the post-split layout.
+    pub new_shard_uids: Vec<ShardUId>,
     /// The shard the resharding removes.
     pub parent_shard: ShardId,
     /// One of the new child shards.
@@ -77,6 +86,7 @@ pub fn run_until_one_epoch_after_resharding(
         timeout,
     );
     let node = env.node_for_account(archival_id);
+    let resharding_epoch_id = node.head().epoch_id;
     let epoch_manager = &node.client().epoch_manager;
     let head = node.head().last_block_hash;
     // Follow prev_hash to the old epoch's last block; it can sit below
@@ -84,16 +94,37 @@ pub fn run_until_one_epoch_after_resharding(
     let epoch_first = *epoch_manager.get_block_info(&head).unwrap().epoch_first_block();
     let resharding_block = *epoch_manager.get_block_info(&epoch_first).unwrap().prev_hash();
     let resharding_block_height = epoch_manager.get_block_info(&resharding_block).unwrap().height();
+    let new_epoch_first_height = epoch_manager.get_block_info(&epoch_first).unwrap().height();
 
     run_node_until(env, archival_id, resharding_block_height + epoch_length);
 
+    // The resharding epoch's sync_hash is recorded by the time the chain is a
+    // full epoch past it.
+    let node = env.node_for_account(archival_id);
+    let chain_store = node.client().chain.chain_store().store().chain_store();
+    let sync_hash = chain_store
+        .get_current_epoch_sync_hash(&resharding_epoch_id)
+        .expect("resharding epoch sync_hash recorded one epoch past the split");
+    let sync_block_height = chain_store.get_block_header(&sync_hash).unwrap().height();
+
+    let base_shard_uids: Vec<ShardUId> = base_layout.shard_uids().collect();
+    let new_shard_uids: Vec<ShardUId> = new_layout.shard_uids().collect();
     let parent_shard = base_layout.account_id_to_shard_id(boundary);
     let child_shard = new_layout.account_id_to_shard_id(boundary);
     let carried_shard = base_layout
         .shard_ids()
         .find(|shard_id| *shard_id != parent_shard)
         .expect("layout has a shard other than the resharding parent");
-    ReshardingInfo { resharding_block_height, parent_shard, child_shard, carried_shard }
+    ReshardingInfo {
+        resharding_block_height,
+        new_epoch_first_height,
+        sync_block_height,
+        base_shard_uids,
+        new_shard_uids,
+        parent_shard,
+        child_shard,
+        carried_shard,
+    }
 }
 
 fn execute_future<F: Future>(fut: F) -> F::Output {
@@ -396,12 +427,7 @@ pub fn bootstrap_reader(
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
-    let tries = ShardTries::new(
-        store.trie_store(),
-        TrieConfig::default(),
-        FlatStorageManager::new(store.flat_store()),
-        StateSnapshotConfig::Disabled,
-    );
+    let tries = build_shard_tries(&store);
 
     // TODO(cloud_archival): support resharding; the shard layout can change
     // between the snapshot epoch and the target, which this loop assumes constant.
@@ -458,7 +484,22 @@ pub fn bootstrap_reader(
     }
 }
 
-fn has_state_root(tries: &ShardTries, shard_uid: ShardUId, state_root: CryptoHash) -> bool {
+/// Builds a `ShardTries` over `store` with state snapshots disabled.
+pub(crate) fn build_shard_tries(store: &Store) -> ShardTries {
+    ShardTries::new(
+        store.trie_store(),
+        TrieConfig::default(),
+        FlatStorageManager::new(store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    )
+}
+
+/// Whether `state_root` resolves to a reachable root node in `shard_uid`'s trie.
+pub(crate) fn has_state_root(
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    state_root: CryptoHash,
+) -> bool {
     let trie = tries.get_trie_for_shard(shard_uid, state_root);
     trie.retrieve_root_node().is_ok()
 }
