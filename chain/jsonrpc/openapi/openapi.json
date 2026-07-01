@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.11"
+    "version": "1.2.12"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -17877,6 +17877,9 @@
           },
           {
             "properties": {
+              "info": {
+                "$ref": "#/components/schemas/TimeoutErrorCause"
+              },
               "name": {
                 "enum": [
                   "TIMEOUT_ERROR"
@@ -17885,7 +17888,8 @@
               }
             },
             "required": [
-              "name"
+              "name",
+              "info"
             ],
             "type": "object"
           }
@@ -20798,6 +20802,83 @@
           "peer_id"
         ],
         "type": "object"
+      },
+      "TimeoutErrorCause": {
+        "description": "Explains why a transaction status request returned a `RpcTransactionError::TimeoutError`:",
+        "oneOf": [
+          {
+            "description": "The node never observed the transaction on chain.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "NOT_OBSERVED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The transaction was observed but is still pending the requested finality. The\nlast-known status is included so the caller can re-poll for a higher finality.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "PENDING"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/RpcTransactionResponse"
+              }
+            },
+            "required": [
+              "cause",
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The node does not track the transaction's shard and could not get an answer from a\nchunk producer that does before the timeout.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "DOES_NOT_TRACK_SHARD"
+                ],
+                "type": "string"
+              },
+              "shard_id": {
+                "$ref": "#/components/schemas/ShardId"
+              }
+            },
+            "required": [
+              "cause",
+              "shard_id"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The node could not produce a usable transaction status before the timeout (for\nexample a repeated internal error, or no response at all).",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "ERROR"
+                ],
+                "type": "string"
+              },
+              "debug_info": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "debug_info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "TrackedShardsConfig": {
         "description": "Describes the expected behavior of the node regarding shard tracking.\nIf the node is an active validator, it will also track the shards it is responsible for as a validator.",

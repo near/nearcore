@@ -5,6 +5,7 @@
 ### Protocol Changes
 
 ### Non-protocol Changes
+* Transaction-status timeouts (`tx`, `EXPERIMENTAL_tx_status`, and `send_tx`/`broadcast_tx_commit` with `wait_until`) now carry a `reason` in the `TIMEOUT_ERROR`: `pending` (with the last-known status), `not_observed`, or `error`. Previously the timeout gave no detail.
 
 ## [2.13.0]
 
