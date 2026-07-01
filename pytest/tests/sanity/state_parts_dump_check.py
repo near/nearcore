@@ -56,7 +56,8 @@ def create_account(node: BaseNode, account_id: str, nonce):
 
 
 def main():
-    node_config_dump, node_config = state_sync_lib.get_state_sync_configs_pair()
+    configs = state_sync_lib.get_external_storage_state_sync_configs()
+    node_config_dump, node_config = configs
     config = load_config()
     genesis_config_changes = [["epoch_length", EPOCH_LENGTH]]
     client_config_changes = {
