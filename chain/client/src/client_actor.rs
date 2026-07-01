@@ -1815,6 +1815,15 @@ impl ClientActor {
         self.info_helper.update_sync_requirements_metrics(sync.to_metrics_string());
 
         match sync {
+            // A non-validator follower with no eligible peers cannot know whether it
+            // is caught up: a peer's height is unknown until it gossips a `Block`, so
+            // `highest_height_peers` is transiently empty right after connecting.
+            // Declaring `NoSync` here would report `syncing = false` while still near
+            // genesis and wedge downstream indexers; keep waiting instead. Validators
+            // are unaffected — they may legitimately run peerless (e.g. a single-node
+            // network) and must leave the syncing state to produce blocks. (near/mpc#3623)
+            SyncRequirement::NoPeers if self.client.validator_signer.get().is_none() => {}
+
             SyncRequirement::AlreadyCaughtUp { .. }
             | SyncRequirement::NoPeers
             | SyncRequirement::AdvHeaderSyncDisabled => {
