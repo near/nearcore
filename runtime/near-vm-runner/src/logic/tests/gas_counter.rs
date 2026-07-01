@@ -8,7 +8,6 @@ use crate::tests::test_vm_config;
 use expect_test::expect;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::version::ProtocolFeature;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -988,7 +987,6 @@ fn write_test_pk(logic: &mut TestVMLogic) -> MemSlice {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_memory_copy_aggregate_accounting() {
     test_builder()
         .wat(
@@ -1001,15 +999,9 @@ fn test_memory_copy_aggregate_accounting() {
             )"#,
         )
         .gas(Gas::from_gigagas(10))
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 146947416 used gas 146947416
-        "#]]]);
+        "#]]);
 
     test_builder()
         .wat(
@@ -1022,20 +1014,13 @@ fn test_memory_copy_aggregate_accounting() {
             )"#,
         )
         .gas(Gas::from_gigagas(10))
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
         // Gas use here should be roughly double that of the test above!
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 167516316 used gas 167516316
-        "#]]]);
+        "#]]);
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_memory_copy_full_memory() {
     test_builder()
         .wat(
@@ -1057,19 +1042,12 @@ fn test_memory_copy_full_memory() {
             )"#,
         )
         .gas(Gas::MAX)
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071613848301 used gas 276071613848301
-        "#]]]);
+        "#]]);
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_memory_copy_full_memory_out_of_gas() {
     test_builder()
         .wat(
@@ -1094,14 +1072,8 @@ fn test_memory_copy_full_memory_out_of_gas() {
         )
         .gas(Gas::from_teragas(300))
         .max_gas_burnt(Gas::from_teragas(300))
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 300000000000000 used gas 300000000000000
             Err: Exceeded the maximum amount of gas allowed to burn per contract.
-        "#]]]);
+        "#]]);
 }
