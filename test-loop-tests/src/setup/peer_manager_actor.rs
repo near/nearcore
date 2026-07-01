@@ -798,7 +798,7 @@ fn network_message_to_partial_witness_handler(
 
 /// Handles state sync network messages: snapshot host advertisements and
 /// state part/header requests. State sync uses routed messages in production
-/// that can traverse multiple hops, so we bypass peer blocklists via
+/// that can traverse multiple hops, so we bypass the peer blocklist via
 /// `senders_for_peer_direct` to simulate this relay behavior.
 fn network_message_to_state_sync_handler(
     my_account_id: &AccountId,
