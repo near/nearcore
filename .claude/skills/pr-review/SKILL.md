@@ -5,6 +5,8 @@ argument-hint: [pr-number]
 allowed-tools: Read, Grep, Glob, Bash
 ---
 
+<!-- cspell:words zeroization -->
+
 You are reviewing a Rust pull request. Produce a thorough, actionable review using the structure below.
 
 **Target PR:** $ARGUMENTS
