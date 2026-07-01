@@ -358,7 +358,6 @@ pub(crate) const SCHEMAS_TO_REMOVE_REQUIRED_FROM: &[&str] = &[
     "CloudArchivalWriterConfig",
     "StateSyncConfig",
     "DumpConfig",
-    "ExternalStorageConfig",
     "SyncConcurrency",
     "EpochSyncConfig",
     "ChunkDistributionNetworkConfig",
@@ -643,7 +642,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.2.11".to_string(),
+            version: "1.2.12".to_string(),
             ..Default::default()
         },
         paths: all_paths,

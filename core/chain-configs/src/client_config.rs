@@ -30,14 +30,6 @@ pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 /// Default number of epochs for which we keep store data
 pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
-/// Default number of concurrent requests to external storage to fetch state parts.
-pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u8 = 25;
-pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u8 = 5;
-
-/// The default number of attempts to obtain a state part from peers in the network
-/// before giving up and downloading it from external storage.
-pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
-
 /// We haven't observed meaningful gains from higher compression levels. Even `-5` produced a result close to
 /// levels 1–3. Therefore we keep 1 as the default.
 pub const DEFAULT_STATE_PARTS_COMPRESSION_LEVEL: i32 = 1;
@@ -170,37 +162,6 @@ impl GCConfig {
     }
 }
 
-fn default_num_concurrent_requests() -> u8 {
-    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
-}
-
-fn default_num_concurrent_requests_during_catchup() -> u8 {
-    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
-}
-
-fn default_external_storage_fallback_threshold() -> u64 {
-    DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ExternalStorageConfig {
-    /// Location of state parts.
-    pub location: ExternalStorageLocation,
-    /// When fetching state parts from external storage, throttle fetch requests
-    /// to this many concurrent requests.
-    #[serde(default = "default_num_concurrent_requests")]
-    pub num_concurrent_requests: u8,
-    /// During catchup, the node will use a different number of concurrent requests
-    /// to reduce the performance impact of state sync.
-    #[serde(default = "default_num_concurrent_requests_during_catchup")]
-    pub num_concurrent_requests_during_catchup: u8,
-    /// The number of attempts the node will make to obtain a part from peers in
-    /// the network before it fetches from external storage.
-    #[serde(default = "default_external_storage_fallback_threshold")]
-    pub external_storage_fallback_threshold: u64,
-}
-
 /// Supported external storage backends and their minimal config.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -325,10 +286,6 @@ pub enum SyncConfig {
     /// Syncs state from the peers without reading anything from external storage.
     #[default]
     Peers,
-    /// Expects parts to be available in external storage.
-    ///
-    /// Usually as a fallback after some number of attempts to use peers.
-    ExternalStorage(ExternalStorageConfig),
 }
 
 impl SyncConfig {
@@ -394,22 +351,6 @@ pub struct StateSyncConfig {
     /// Zstd compression level for state parts.
     #[serde(default = "default_state_parts_compression_level")]
     pub parts_compression_lvl: i32,
-}
-
-impl StateSyncConfig {
-    /// Deprecated: cloud state sync is deprecated. Use peer-based state sync instead.
-    pub fn gcs_with_bucket(bucket: String) -> Self {
-        Self {
-            sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: ExternalStorageLocation::GCS { bucket },
-                num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
-                num_concurrent_requests_during_catchup:
-                    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
-                external_storage_fallback_threshold: DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD,
-            }),
-            ..Default::default()
-        }
-    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -546,10 +487,6 @@ pub fn default_state_sync_p2p_timeout() -> Duration {
 
 pub fn default_state_sync_retry_backoff() -> Duration {
     Duration::seconds(1)
-}
-
-pub fn default_state_sync_external_backoff() -> Duration {
-    Duration::seconds(60)
 }
 
 pub fn default_chunk_wait_mult() -> Rational32 {
@@ -729,7 +666,7 @@ pub struct ClientConfig {
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
-    /// How long to wait for a response from centralized state sync
+    /// How long to wait for a state sync block request response
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_external_timeout: Duration,
     /// How long to wait for a response from p2p state sync
@@ -738,9 +675,6 @@ pub struct ClientConfig {
     /// How long to wait after a failed state sync request
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_retry_backoff: Duration,
-    /// Additional waiting period after a failed request to external storage
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_backoff: Duration,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.

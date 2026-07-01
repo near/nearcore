@@ -5097,28 +5097,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-state-parts-dump-check"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "axum",
- "borsh",
- "clap",
- "near-chain-configs",
- "near-client",
- "near-external-storage",
- "near-jsonrpc",
- "near-o11y",
- "near-primitives",
- "near-primitives-core",
- "near-store",
- "nearcore",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "near-stdx"
 version = "0.0.0"
 
@@ -5561,7 +5539,6 @@ dependencies = [
  "near-replay-archive-tool",
  "near-replay-tool",
  "near-state-parts",
- "near-state-parts-dump-check",
  "near-store",
  "near-undo-block",
  "nearcore",

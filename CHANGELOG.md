@@ -5,6 +5,7 @@
 ### Protocol Changes
 
 ### Non-protocol Changes
+* Removed centralized (external-storage) state sync. Nodes now always sync state from peers, which has been the default for a long time. **Breaking config change:** `state_sync.sync` no longer accepts `ExternalStorage`; a node whose `config.json` still sets `"state_sync": {"sync": {"ExternalStorage": ... }}` will fail to start. Remove the `state_sync.sync` block (peer-based sync is the default) before upgrading. The deprecated `--state-sync-bucket` flag and the `state-parts-dump-check` tool are also removed. Dumping state to external storage (`state_sync.dump`) is unchanged.
 
 ## [2.13.0]
 

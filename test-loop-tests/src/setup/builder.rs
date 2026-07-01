@@ -653,7 +653,6 @@ impl<'a> NodeStateBuilder<'a> {
         client_config.state_sync_external_timeout = Duration::milliseconds(100);
         client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
-        client_config.state_sync_external_backoff = Duration::milliseconds(100);
 
         if !archive {
             client_config.state_sync.sync = SyncConfig::Peers;

@@ -89,7 +89,6 @@ members = [
     "tools/replay",
     "tools/restaked",
     "tools/state-parts",
-    "tools/state-parts-dump-check",
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
@@ -278,7 +277,6 @@ near-replay-tool = { path = "tools/replay" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
-near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" }
 near-schema-checker-core = { path = "core/schema-checker/schema-checker-core" }
