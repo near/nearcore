@@ -289,7 +289,6 @@ impl ClientConfig {
             state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::seconds(10),

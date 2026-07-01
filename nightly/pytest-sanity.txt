@@ -48,10 +48,6 @@ pytest --timeout=10m sanity/block_sync_archival.py
 pytest --timeout=10m sanity/block_sync_archival.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/block_sync_archival.py --features nightly,protocol_feature_spice
-pytest sanity/state_parts_dump_check.py
-pytest sanity/state_parts_dump_check.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/state_parts_dump_check.py --features nightly,protocol_feature_spice
 pytest sanity/catchup_flat_storage_deletions.py
 pytest sanity/catchup_flat_storage_deletions.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
