@@ -397,6 +397,39 @@ pub fn snapshots_sanity_check(
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
+/// Asserts the resharding epoch took a state snapshot for every new-layout shard
+/// even though its epoch height is off the snapshot cadence.
+pub fn assert_resharding_epoch_snapshot_forced(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+    info: &ReshardingInfo,
+    snapshot_every_n_epochs: u64,
+) {
+    let cloud_storage = get_cloud_storage(env, archival_id);
+    let store = get_hot_store(env, archival_id);
+    let node = env.node_for_account(archival_id);
+    let epoch_manager = &node.client().epoch_manager;
+
+    let gap_block_hash =
+        store.chain_store().get_block_hash_by_height(info.new_epoch_first_height).unwrap();
+    let resharding_epoch_id = epoch_manager.get_epoch_id(&gap_block_hash).unwrap();
+    let resharding_epoch_height =
+        epoch_manager.get_epoch_info(&resharding_epoch_id).unwrap().epoch_height();
+    assert_ne!(
+        resharding_epoch_height % snapshot_every_n_epochs,
+        0,
+        "test needs the resharding epoch off the snapshot cadence"
+    );
+    for &shard_uid in &info.new_shard_uids {
+        let state_header = execute_future(cloud_storage.retrieve_state_header(
+            resharding_epoch_height,
+            resharding_epoch_id,
+            shard_uid.shard_id(),
+        ));
+        assert!(state_header.is_ok(), "resharding epoch snapshot forced for {shard_uid}");
+    }
+}
+
 /// Bootstraps a reader node by downloading blocks from cloud and applying
 /// state sync to reconstruct the state at `target_block_height`.
 pub fn bootstrap_reader(
