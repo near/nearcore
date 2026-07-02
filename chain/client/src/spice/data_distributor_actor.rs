@@ -84,8 +84,8 @@ pub(crate) enum Error {
     InvalidDecodedWitnessBlockHash,
     #[error("part doesn't match commitment root")]
     InvalidCommitmentRoot,
-    #[error("decoded data doesn't match commitment hash")]
-    InvalidCommitmentHash,
+    #[error("recomputed commitment doesn't match received commitment")]
+    RecomputedCommitmentMismatch,
     #[error("receipt proof id to_shard_id is invalid")]
     InvalidReceiptToShardId,
     #[error("decoded receipt proof to_shard_id is invalid")]
@@ -575,15 +575,21 @@ impl SpiceDataDistributorActor {
         // TODO(spice): Check that encoded_length isn't too large.
         let encoded_length = commitment.encoded_length;
         let total_parts = producers.len();
+        // TODO(spice): Bound this per-id commitment map; a misbehaving producer can grow it
+        // unboundedly. (a) entries are created before the per-part merkle check below, so a failed
+        // check leaves an empty entry behind: verify proofs before or_insert_with. (b) valid
+        // commitments that never gather enough parts to decode are never dropped: needs a per-id cap
+        // and an eviction signal (entries carry no age today, e.g. tie to head-driven pruning or to
+        // corroboration by multiple producers).
         let entry = data_parts.entry(commitment.clone()).or_insert_with(|| {
             let encoder = self.rs_encoders.entry(total_parts);
             DataPartsEntry {
                 tracker: ReedSolomonPartsTracker::new(encoder, encoded_length as usize),
             }
         });
-        let mut decoded = false;
+        let mut decode_result = None;
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
-            if decoded {
+            if decode_result.is_some() {
                 break;
             }
             if !verify_path_with_index(
@@ -609,67 +615,107 @@ impl SpiceDataDistributorActor {
                         "verification with merkle_proof passed, but part_ord is still invalid",
                     ));
                 }
-                reed_solomon::InsertPartResult::Decoded(Ok(data)) => {
-                    decoded = true;
-                    let data_hash = hash(&borsh::to_vec(&data).unwrap());
-                    if data_hash != commitment.hash {
-                        return Err(Error::InvalidCommitmentHash);
-                    }
-                    match data {
-                        SpiceData::ReceiptProof(receipt_proof) => {
-                            let SpiceDataIdentifier::ReceiptProof {
-                                block_hash,
-                                from_shard_id,
-                                to_shard_id,
-                            } = id
-                            else {
-                                return Err(Error::IdAndDataMismatch);
-                            };
-                            if to_shard_id != receipt_proof.1.to_shard_id {
-                                return Err(Error::InvalidDecodedReceiptToShardId);
-                            }
-                            if from_shard_id != receipt_proof.1.from_shard_id {
-                                return Err(Error::InvalidDecodedReceiptFromShardId);
-                            }
-                            self.executor_sender.send(ExecutorIncomingUnverifiedReceipts {
-                                receipt_proof,
-                                block_hash,
-                            });
-                        }
-                        SpiceData::StateWitness(witness) => {
-                            let SpiceDataIdentifier::Witness { block_hash, shard_id } = &id else {
-                                return Err(Error::IdAndDataMismatch);
-                            };
-                            let chunk_id = witness.chunk_id();
-                            if &chunk_id.shard_id != shard_id {
-                                return Err(Error::InvalidDecodedWitnessShardId);
-                            }
-                            if &chunk_id.block_hash != block_hash {
-                                return Err(Error::InvalidDecodedWitnessBlockHash);
-                            }
-                            self.witness_validator_sender.send(
-                                SpiceChunkStateWitnessMessage {
-                                    witness: *witness,
-                                    raw_witness_size: encoded_length as usize,
-                                }
-                                .span_wrap(),
-                            );
-                        }
-                    }
-                }
-                reed_solomon::InsertPartResult::Decoded(Err(err)) => {
-                    return Err(Error::DecodeError(err));
+                reed_solomon::InsertPartResult::Decoded(result) => {
+                    decode_result = Some(result);
                 }
             }
         }
-        if decoded {
-            // TODO(spice): Handle the possibility of receiving invalid data in
-            // which case we would need to keep requesting it.
-            tracing::debug!(target: "spice_data_distribution", ?id, ?commitment, "decoded data; stop waiting");
-            self.waiting_on_data.remove(&id);
-            self.recently_decoded_data.push(id, ());
+
+        // Not enough parts yet; keep the accumulated parts and wait for more.
+        let Some(decode_result) = decode_result else {
+            return Ok(());
+        };
+
+        // On any failure drop only this commitment and keep the id, so the request loop keeps
+        // fetching from other producers; only a clean accept clears the whole id.
+        if let Err(err) = self.validate_and_forward_decoded(
+            &id,
+            &commitment,
+            decode_result,
+            total_parts,
+            encoded_length,
+        ) {
+            self.stop_waiting_on_commitment(&id, &commitment);
+            return Err(err);
+        }
+
+        tracing::debug!(target: "spice_data_distribution", ?id, ?commitment, "decoded data; stop waiting");
+        self.waiting_on_data.remove(&id);
+        self.recently_decoded_data.push(id, ());
+        Ok(())
+    }
+
+    fn validate_and_forward_decoded(
+        &mut self,
+        id: &SpiceDataIdentifier,
+        commitment: &SpiceDataCommitment,
+        decode_result: Result<SpiceData, std::io::Error>,
+        total_parts: usize,
+        encoded_length: u64,
+    ) -> Result<(), Error> {
+        let data = decode_result.map_err(Error::DecodeError)?;
+
+        // Parts can individually verify against commitment.root yet decode to data that is not the
+        // canonical encoding of the commitment. Require the recomputed commitment to match (hash,
+        // root, and encoded_length) so the decoded data is the canonical encoding of the received
+        // commitment and the attacker-supplied encoded_length is validated before it flows
+        // downstream.
+        let recomputed = self.encode_distribution_data(&data, total_parts).commitment;
+        if recomputed != *commitment {
+            return Err(Error::RecomputedCommitmentMismatch);
+        }
+
+        match data {
+            SpiceData::ReceiptProof(receipt_proof) => {
+                let SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } =
+                    id
+                else {
+                    return Err(Error::IdAndDataMismatch);
+                };
+                if *to_shard_id != receipt_proof.1.to_shard_id {
+                    return Err(Error::InvalidDecodedReceiptToShardId);
+                }
+                if *from_shard_id != receipt_proof.1.from_shard_id {
+                    return Err(Error::InvalidDecodedReceiptFromShardId);
+                }
+                self.executor_sender.send(ExecutorIncomingUnverifiedReceipts {
+                    receipt_proof,
+                    block_hash: *block_hash,
+                });
+            }
+            SpiceData::StateWitness(witness) => {
+                let SpiceDataIdentifier::Witness { block_hash, shard_id } = id else {
+                    return Err(Error::IdAndDataMismatch);
+                };
+                let chunk_id = witness.chunk_id();
+                if &chunk_id.shard_id != shard_id {
+                    return Err(Error::InvalidDecodedWitnessShardId);
+                }
+                if &chunk_id.block_hash != block_hash {
+                    return Err(Error::InvalidDecodedWitnessBlockHash);
+                }
+                self.witness_validator_sender.send(
+                    SpiceChunkStateWitnessMessage {
+                        witness: *witness,
+                        raw_witness_size: encoded_length as usize,
+                    }
+                    .span_wrap(),
+                );
+            }
         }
         Ok(())
+    }
+
+    /// Drops a single bad commitment for an id while leaving the id in `waiting_on_data`, so the
+    /// request loop keeps fetching the correct data from other producers.
+    fn stop_waiting_on_commitment(
+        &mut self,
+        id: &SpiceDataIdentifier,
+        commitment: &SpiceDataCommitment,
+    ) {
+        if let Some(data_parts) = self.waiting_on_data.get_mut(id) {
+            data_parts.remove(commitment);
+        }
     }
 
     fn is_data_known(&self, me: &AccountId, block: &Block, id: &SpiceDataIdentifier) -> bool {
@@ -834,6 +880,16 @@ impl SpiceDataDistributorActor {
     #[cfg(test)]
     pub(crate) fn pending_partial_data_size(&self) -> usize {
         self.pending_partial_data.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_waiting_on_data(&self, id: &SpiceDataIdentifier) -> bool {
+        self.waiting_on_data.contains_key(id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn num_commitments_waiting_on(&self, id: &SpiceDataIdentifier) -> usize {
+        self.waiting_on_data.get(id).map_or(0, |commitments| commitments.len())
     }
 
     // TODO(spice): Implement a state machine to track all the data we produce or may need. This

@@ -906,7 +906,7 @@ test_invalid_incoming_partial_data! {
         commitment.root = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
     })
-    data_does_not_match_commitment_hash(Error::InvalidCommitmentHash, receipt_proof_incoming_data, default, {
+    data_does_not_match_commitment(Error::RecomputedCommitmentMismatch, receipt_proof_incoming_data, default, {
         let mut commitment = default.commitment.clone();
         commitment.hash = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
@@ -1063,6 +1063,7 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
     let (_genesis, chain) = setup(4, 0);
     let block = latest_block(&chain);
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let data_id = data_into_verified(incoming_data.data.clone()).id;
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
     {
@@ -1089,6 +1090,9 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
             result,
             Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedReceiptFromShardId))
         );
+        // The decoded-but-wrong-shard commitment is dropped while the id keeps waiting.
+        assert!(actor.is_waiting_on_data(&data_id));
+        assert_eq!(actor.num_commitments_waiting_on(&data_id), 0);
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -2404,4 +2408,141 @@ fn test_contract_code_request_happy_path() {
     assert_eq!(decoded_contracts.len(), 1);
     assert_eq!(&*decoded_contracts[0].0, contract_bytes.as_slice());
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_incoming_partial_data_with_recomputed_root_mismatch() {
+    // Needs at least two producers for the from_shard so a parity part exists to corrupt.
+    let (genesis, chain) = setup(4, 0);
+    let block = latest_block(&chain);
+    let recipient_chain = new_chain(&chain, &genesis);
+
+    let receipt_proof = new_test_receipt_proof(&block);
+    let mut store_update = chain.chain_store.store().store_update();
+    save_receipt_proof(&mut store_update, block.hash(), &receipt_proof);
+    store_update.commit();
+
+    let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
+    let (_incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let data_id = SpiceDataIdentifier::ReceiptProof {
+        block_hash: *block.hash(),
+        from_shard_id: receipt_proof.1.from_shard_id,
+        to_shard_id: receipt_proof.1.to_shard_id,
+    };
+
+    // Obtain the canonical commitment together with all parts from the producer.
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut producer_actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+    producer_actor
+        .handle(SpicePartialDataRequest { data_id: data_id.clone(), requester: recipient.clone() });
+    let (canonical_data, _recipients) =
+        drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
+    let canonical = data_into_verified(canonical_data);
+
+    // Corrupt a parity part (not needed to decode part 0) and re-merklize. The data part still
+    // decodes to canonical hash-matching data, but the committed root is no longer canonical.
+    let mut boxed_parts: Vec<Box<[u8]>> =
+        canonical.parts.iter().map(|part| part.part.clone()).collect();
+    assert!(boxed_parts.len() > 1, "test needs a parity part to corrupt");
+    boxed_parts[1] = {
+        let mut bytes = boxed_parts[1].to_vec();
+        bytes.push(0xff);
+        bytes.into_boxed_slice()
+    };
+    let (tampered_root, tampered_proofs) = merklize(&boxed_parts);
+    assert_ne!(tampered_root, canonical.commitment.root);
+
+    let data_part = SpiceDataPart {
+        part_ord: 0,
+        part: canonical.parts[0].part.clone(),
+        merkle_proof: tampered_proofs[0].clone(),
+    };
+    let tampered_commitment = SpiceDataCommitment {
+        hash: canonical.commitment.hash,
+        root: tampered_root,
+        encoded_length: canonical.commitment.encoded_length,
+    };
+    let partial_data = SpicePartialDataBuilder::from_verified(canonical)
+        .commitment(tampered_commitment)
+        .parts(vec![data_part])
+        .build();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &recipient_chain, &recipient);
+    let result = actor.receive_data(partial_data);
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(
+        result,
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::RecomputedCommitmentMismatch))
+    );
+    // The bad commitment is dropped but we keep waiting on the id to request the real data.
+    assert!(actor.is_waiting_on_data(&data_id));
+    assert_eq!(actor.num_commitments_waiting_on(&data_id), 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_keep_requesting_after_invalid_decode() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let default = data_into_verified(incoming_data.data);
+    let data_id = default.id.clone();
+
+    let bad_data = "bad data";
+    let encoded = borsh::to_vec(&bad_data).unwrap();
+    let mut boxed_parts: Vec<Box<[u8]>> = vec![encoded.clone().into_boxed_slice()];
+    let data_hash = hash(&encoded);
+    let (root, mut proofs) = merklize(&boxed_parts);
+    let partial_data = SpicePartialDataBuilder::from_verified(default)
+        .commitment(SpiceDataCommitment {
+            hash: data_hash,
+            root,
+            encoded_length: encoded.len() as u64,
+        })
+        .parts(vec![SpiceDataPart {
+            part_ord: 0,
+            part: boxed_parts.swap_remove(0),
+            merkle_proof: proofs.swap_remove(0),
+        }])
+        .build();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let result = actor.receive_data(partial_data);
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithBlock(Error::DecodeError(_))));
+    // The bad commitment is dropped but we keep waiting on the id to request the real data.
+    assert!(actor.is_waiting_on_data(&data_id));
+    assert_eq!(actor.num_commitments_waiting_on(&data_id), 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_keep_requesting_after_commitment_hash_mismatch() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+
+    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
+    let default = data_into_verified(incoming_data.data);
+    let data_id = default.id.clone();
+
+    let mut commitment = default.commitment.clone();
+    commitment.hash = CryptoHash::default();
+    let partial_data =
+        SpicePartialDataBuilder::from_verified(default).commitment(commitment).build();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let result = actor.receive_data(partial_data);
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(
+        result,
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::RecomputedCommitmentMismatch))
+    );
+    // A decoded-but-invalid commitment must not linger in the per-id map.
+    assert!(actor.is_waiting_on_data(&data_id));
+    assert_eq!(actor.num_commitments_waiting_on(&data_id), 0);
 }
