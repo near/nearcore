@@ -214,7 +214,6 @@ impl TestEnv {
             )
             .unwrap()
             .commit();
-        epoch_manager.read().seed_chunk_producers_for_test(&genesis_hash);
         Self {
             epoch_manager,
             runtime,
@@ -387,7 +386,6 @@ impl TestEnv {
             )
             .unwrap()
             .commit();
-        self.epoch_manager.read().seed_chunk_producers_for_test(&new_hash);
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
@@ -906,7 +904,6 @@ fn test_state_sync() {
             )
             .unwrap()
             .commit();
-        new_env.epoch_manager.read().seed_chunk_producers_for_test(&cur_hash);
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
         new_env.head.prev_block_hash = prev_hash;

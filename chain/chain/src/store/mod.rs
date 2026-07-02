@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
 use near_chain_primitives::error::Error;
-use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
 use near_primitives::errors::{EpochError, InvalidTxError};
@@ -29,7 +29,6 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
@@ -38,7 +37,6 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -48,7 +46,6 @@ use near_store::{
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
     StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
-use near_vm_runner::logic::ProtocolVersion;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
@@ -1053,7 +1050,6 @@ pub(crate) struct ChainStoreCacheUpdate {
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
-    chunk_producers: HashMap<(CryptoHash, ShardId), ValidatorStake>,
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -1829,45 +1825,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_stop_height = Some(height);
     }
 
-    /// Pre-computes and persists chunk producer assignments anchored at `header`.
-    ///
-    /// `header` is the grandparent anchor of the chunks these rows resolve: for
-    /// each shard in the epoch after `header`, samples the chunk producer at
-    /// height `header.height() + 2` (the height of a chunk whose grandparent is
-    /// `header`, absent skips) and writes it to `DBCol::ChunkProducers` keyed by
-    /// `(header.hash(), shard_id)`. Sampling uses the epoch after `header`; a
-    /// chunk in a later epoch never reads this row (the cross-epoch arm of
-    /// `get_chunk_producer_info_anchored` routes it to the canonical sampler).
-    ///
-    /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
-    pub fn save_chunk_producers_for_header(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        header: &BlockHeader,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), Error> {
-        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
-            return Ok(());
-        }
-        let anchor_hash = header.hash();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(anchor_hash)?;
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let height = header.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-
-        for shard_id in shard_layout.shard_ids() {
-            if let Some(validator_id) =
-                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
-            {
-                let validator_stake = epoch_info.get_validator(validator_id);
-                self.chain_store_cache_update
-                    .chunk_producers
-                    .insert((*anchor_hash, shard_id), validator_stake);
-            }
-        }
-        Ok(())
-    }
-
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -2099,17 +2056,6 @@ impl<'a> ChainStoreUpdate<'a> {
             for (receipt_id, info) in &self.chain_store_cache_update.receipt_to_tx {
                 store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
             }
-        }
-
-        #[cfg(feature = "nightly")]
-        for ((block_hash, shard_id), validator_stake) in
-            &self.chain_store_cache_update.chunk_producers
-        {
-            store_update.insert_ser(
-                DBCol::ChunkProducers,
-                &get_block_shard_id(block_hash, *shard_id),
-                validator_stake,
-            );
         }
 
         for (block_hash, refcount) in &self.chain_store_cache_update.block_refcounts {

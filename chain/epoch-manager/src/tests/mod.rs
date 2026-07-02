@@ -519,21 +519,18 @@ fn test_validator_reward_one_validator() {
             rng_seed,
         )
         .unwrap();
-    epoch_manager.seed_chunk_producers_for_test(&h[0]);
     epoch_manager
         .record_block_info(
             block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
-    epoch_manager.seed_chunk_producers_for_test(&h[1]);
     epoch_manager
         .record_block_info(
             block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
-    epoch_manager.seed_chunk_producers_for_test(&h[2]);
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
@@ -934,7 +931,6 @@ fn test_expected_chunks() {
             )
             .unwrap()
             .commit();
-        epoch_manager.read().seed_chunk_producers_for_test(curr_block);
         prev_block = *curr_block;
 
         if epoch_id != initial_epoch_id {
@@ -1019,7 +1015,6 @@ fn test_expected_chunks_prev_block_not_produced() {
                 )
                 .unwrap()
                 .commit();
-            epoch_manager.read().seed_chunk_producers_for_test(curr_block);
             prev_block = *curr_block;
         }
         if epoch_id != initial_epoch_id {
@@ -1566,8 +1561,6 @@ fn test_chunk_producer_kickout() {
                 rng_seed,
             )
             .unwrap();
-        // Uncommitted record, but inline aggregation still reads the anchor row.
-        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -1643,8 +1636,6 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 rng_seed,
             )
             .unwrap();
-        // Uncommitted record, but inline aggregation still reads the anchor row.
-        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -1756,7 +1747,6 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 rng_seed,
             )
             .unwrap();
-        em.read().seed_chunk_producers_for_test(curr_block);
     }
 
     let last_epoch_info =
@@ -2357,7 +2347,6 @@ fn test_final_block_consistency() {
         )
         .unwrap()
         .commit();
-    epoch_manager.seed_chunk_producers_for_test(&h[5]);
     let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
 }
@@ -3458,7 +3447,6 @@ fn test_possible_epochs_of_height_around_tip() {
             num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
-        epoch_manager.read().seed_chunk_producers_for_test(&h[i]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3523,7 +3511,6 @@ fn test_possible_epochs_of_height_around_tip() {
             num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
-        epoch_manager.read().seed_chunk_producers_for_test(&h[i]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3752,7 +3739,6 @@ fn record_seeded_block(
     )
     .unwrap()
     .commit();
-    em.seed_chunk_producers_for_test(&hash);
 }
 
 /// Records the consecutive chain `h` (`h[0]` genesis) and seeds each anchor row.

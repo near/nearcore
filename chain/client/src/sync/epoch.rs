@@ -292,6 +292,14 @@ impl EpochSync {
         *first_block_info_in_epoch.epoch_id_mut() = *last_header.epoch_id();
 
         store_update.epoch_store_update().set_block_info(&first_block_info_in_epoch);
+        // The epoch-sync first block bypasses `record_block_info`, so seed its
+        // ChunkProducers rows here in the same update. The consensus reader
+        // hard-errors on a missing same-epoch anchor, and this block is the
+        // grandparent anchor for chunks at epoch-start + 2.
+        epoch_manager.seed_chunk_producers_after_epoch_sync(
+            &mut store_update.epoch_store_update(),
+            &first_block_info_in_epoch,
+        )?;
         store_update.chain_store_update().set_block_ordinal(
             proof.current_epoch.partial_merkle_tree_for_first_block.size(),
             last_header.hash(),

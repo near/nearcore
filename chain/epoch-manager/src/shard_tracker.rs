@@ -701,8 +701,6 @@ mod tests {
             )
             .unwrap()
             .commit();
-        // Seed once: `record_blocks` funnels through here.
-        epoch_manager.seed_chunk_producers_for_test(&cur_h);
     }
 
     // Simulates block production over the given height range using the specified protocol version and block hashes.
