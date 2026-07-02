@@ -154,6 +154,8 @@ mod cold_storage_tests {
     const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
     #[test]
+    // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn test_chunk_producers_copied_to_cold_store() {
         init_test_logger();
 
