@@ -1478,7 +1478,6 @@ fn test_cloud_archival_writer_resharding_on_batch_boundary() {
 /// resharding gap window. At the default batch size the gap sits in the batch
 /// that straddles the resharding boundary.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO(cloud_archival): un-ignore when the writer attaches inverse state changes.
 #[ignore]
 fn test_cloud_archival_writer_resharding_inverse_deltas() {
@@ -1501,7 +1500,6 @@ fn test_cloud_archival_writer_resharding_inverse_deltas() {
 /// The writer still attaches inverse state changes at `batch_size` 1, where the
 /// resharding boundary and the first gap block fall in separate batches.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO(cloud_archival): un-ignore when the writer attaches inverse state changes.
 #[ignore]
 fn test_cloud_archival_writer_resharding_inverse_deltas_batch_size_1() {
