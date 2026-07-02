@@ -4,6 +4,7 @@ use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, Tip};
 use near_primitives::chains::{MAINNET, TESTNET};
@@ -115,6 +116,7 @@ impl Chain {
     pub(crate) fn save_genesis_block_and_chunks(
         epoch_manager: &dyn EpochManagerAdapter,
         runtime_adapter: &dyn RuntimeAdapter,
+        shard_tracker: &ShardTracker,
         chain_store: &mut ChainStore,
         genesis: &Block,
         genesis_chunks: &[ShardChunk],
@@ -166,7 +168,13 @@ impl Chain {
         let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
         let genesis_epoch_id = genesis.header().epoch_id();
         let mut tmp_store_update = store_update.store().store_update();
-        for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
+
+        // Skip untracked shards so state-sync owns them if added to the config later.
+        for shard_uid in
+            epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids().filter(|shard_uid| {
+                shard_tracker.cares_about_shard(genesis.hash(), shard_uid.shard_id())
+            })
+        {
             flat_storage_manager.set_flat_storage_for_genesis(
                 &mut tmp_store_update.flat_store_update(),
                 shard_uid,
