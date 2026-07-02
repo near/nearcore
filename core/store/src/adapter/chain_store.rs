@@ -485,6 +485,13 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         );
     }
 
+    /// Increments the refcount of the receipt body in the `DBCol::Receipts`
+    /// rc-column, keyed by receipt hash, so the receipt stays fetchable by id.
+    pub fn save_receipt(&mut self, receipt: &Receipt) {
+        let bytes = borsh::to_vec(receipt).expect("borsh cannot fail");
+        self.store_update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
+    }
+
     /// Writes the `ProcessedReceiptIds` metadata index and increments the
     /// refcount of each processed `Receipt` (the `DBCol::Receipts` rc-column).
     /// The caller builds `metadata` (including any `ReceiptToTxGc` markers gated

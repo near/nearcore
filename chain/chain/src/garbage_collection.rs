@@ -652,8 +652,14 @@ impl<'a> ChainStoreUpdate<'a> {
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
+        let is_spice_block = ProtocolFeature::Spice.enabled(
+            epoch_manager.get_epoch_protocol_version(epoch_id).expect("epoch id must exist"),
+        );
         for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
+            if is_spice_block {
+                self.gc_spice_outgoing_receipt_bodies(&block_hash, shard_id);
+            }
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_processed_receipt_ids(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
@@ -846,6 +852,9 @@ impl<'a> ChainStoreUpdate<'a> {
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
+        let is_spice_block = ProtocolFeature::Spice.enabled(
+            epoch_manager.get_epoch_protocol_version(epoch_id).expect("epoch id must exist"),
+        );
         for shard_id in shard_layout.shard_ids() {
             let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
@@ -854,6 +863,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::TrieChanges, &block_shard_id);
 
             // delete Receipts
+            if is_spice_block {
+                self.gc_spice_outgoing_receipt_bodies(&block_hash, shard_id);
+            }
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_processed_receipt_ids(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
@@ -1000,6 +1012,16 @@ impl<'a> ChainStoreUpdate<'a> {
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
         self.merge(store_update);
+    }
+
+    /// Matching decrement for the `DBCol::Receipts` refcount the spice executor
+    /// bumps per produced receipt; non-spice balances via the partial-chunk GC.
+    /// Must run before `gc_outgoing_receipts` deletes the `OutgoingReceipts` it reads.
+    fn gc_spice_outgoing_receipt_bodies(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
+        let Ok(receipts) = self.get_outgoing_receipts(block_hash, shard_id) else { return };
+        for receipt in receipts.iter() {
+            self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+        }
     }
 
     fn gc_processed_receipt_ids(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {

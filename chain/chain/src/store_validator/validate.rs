@@ -12,6 +12,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction}
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_primitives::version::ProtocolFeature;
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY, TAIL_KEY, TrieChanges,
 };
@@ -296,6 +297,39 @@ pub(crate) fn partial_chunk_receipts_exist_in_receipts(
             // This is verified later when we verify the Receipts column.
             *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
         }
+    }
+    Ok(())
+}
+
+/// Spice analog of `partial_chunk_receipts_exist_in_receipts`: spice's produced
+/// receipts are referenced via `DBCol::OutgoingReceipts`, not a partial chunk, so
+/// count those toward the receipt refcount. No-op for non-spice blocks.
+pub(crate) fn outgoing_receipt_bodies_exist_in_receipts(
+    sv: &mut StoreValidator,
+    key: &(CryptoHash, ShardId),
+    receipts: &[Receipt],
+) -> Result<(), StoreValidatorError> {
+    let (block_hash, _shard_id) = key;
+    // A consistent store GCs OutgoingReceipts alongside its block, so a missing
+    // header (or epoch) shouldn't happen here; skip rather than error if it does.
+    let Some(header) = sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, block_hash.as_ref())
+    else {
+        return Ok(());
+    };
+    let Ok(protocol_version) = sv.epoch_manager.get_epoch_protocol_version(header.epoch_id())
+    else {
+        return Ok(());
+    };
+    if !ProtocolFeature::Spice.enabled(protocol_version) {
+        return Ok(());
+    }
+    for receipt in receipts {
+        unwrap_or_err_db!(
+            sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt.receipt_id().as_bytes()),
+            "OutgoingReceipts has {:?} but it doesn't exist in Receipts column",
+            receipt
+        );
+        *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
     }
     Ok(())
 }

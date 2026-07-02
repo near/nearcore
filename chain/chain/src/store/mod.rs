@@ -2140,8 +2140,7 @@ impl<'a> ChainStoreUpdate<'a> {
 }
 
 fn save_receipt(store_update: &mut StoreUpdate, receipt: &Receipt) {
-    let bytes = borsh::to_vec(&receipt).expect("borsh cannot fail");
-    store_update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
+    store_update.chain_store_update().save_receipt(receipt);
 }
 
 #[cfg(test)]
