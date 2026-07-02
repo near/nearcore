@@ -531,7 +531,6 @@ fn test_memory_grow() {
 #[test]
 fn test_memory_grow_1_page_gas() {
     test_builder()
-        .only_wasmtime()
         .wat(
             r#"
 (module
@@ -550,7 +549,6 @@ fn test_memory_grow_1_page_gas() {
 #[test]
 fn test_memory_grow_10_pages_gas() {
     test_builder()
-        .only_wasmtime()
         .wat(
             r#"
 (module
@@ -569,7 +567,6 @@ fn test_memory_grow_10_pages_gas() {
 #[test]
 fn test_table_grow_1_element_gas() {
     test_builder()
-        .only_wasmtime()
         .wat(
             r#"
 (module
@@ -588,7 +585,6 @@ fn test_table_grow_1_element_gas() {
 #[test]
 fn test_table_grow_10_elements_gas() {
     test_builder()
-        .only_wasmtime()
         .wat(
             r#"
 (module

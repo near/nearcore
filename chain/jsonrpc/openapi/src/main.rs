@@ -358,7 +358,6 @@ pub(crate) const SCHEMAS_TO_REMOVE_REQUIRED_FROM: &[&str] = &[
     "CloudArchivalWriterConfig",
     "StateSyncConfig",
     "DumpConfig",
-    "ExternalStorageConfig",
     "SyncConcurrency",
     "EpochSyncConfig",
     "ChunkDistributionNetworkConfig",

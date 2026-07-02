@@ -4,9 +4,9 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
-    assert_reader_writer_parity, bootstrap_reader, check_account_balance,
+    assert_reader_writer_parity, bootstrap_reader, build_shard_tries, check_account_balance,
     check_data_at_height_for_shards, gc_and_heads_sanity_checks, get_cloud_head, get_cloud_storage,
-    get_writer_handle, run_node_until, run_until_one_epoch_after_resharding,
+    get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
     simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
 };
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
@@ -30,10 +30,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::db::cloud_shard_head_key;
-use near_store::flat::FlatStorageManager;
-use near_store::{
-    DBCol, KeyForStateChanges, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
-};
+use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -1340,12 +1337,7 @@ fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
     h.bootstrap_reader(start, target);
 
     let store = h.reader_store();
-    let tries = ShardTries::new(
-        store.trie_store(),
-        TrieConfig::default(),
-        FlatStorageManager::new(store.flat_store()),
-        StateSnapshotConfig::Disabled,
-    );
+    let tries = build_shard_tries(&store);
 
     // For each height read the block, take dropped_shard's chunk header
     // `prev_state_root` as the state at that height for that shard, and check
@@ -1365,9 +1357,8 @@ fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
             );
         }
         let state_root = chunk_header.prev_state_root();
-        let trie = tries.get_trie_for_shard(dropped_shard_uid, state_root);
         assert!(
-            trie.retrieve_root_node().is_ok(),
+            has_state_root(&tries, dropped_shard_uid, state_root),
             "state unreachable for shard {dropped_shard} at h={h_check}"
         );
     }
@@ -1472,4 +1463,47 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
     match CloudArchiveHarness::default_shard_layout() {
         ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) | ShardLayout::V3(_) => {}
     }
+}
+
+/// Bootstraps a reader across a resharding boundary and asserts the reader trie
+/// holds every base (old-layout) shard's state at the resharding block, and
+/// every new-layout shard's state both inside the resharding gap (reached by
+/// inverse walk) and at the snapshot (reached by forward replay).
+#[test]
+// TODO(cloud_archival): un-ignore when resharding support is implemented.
+#[ignore]
+fn test_cloud_archival_resharding_gap_inverse_walk() {
+    let boundary_account: AccountId = "boundary".parse().unwrap();
+    let mut h = CloudArchiveHarness::builder().with_resharding(boundary_account).build();
+
+    let r = h.run_until_one_epoch_after_resharding();
+    let checkpoints: [(&str, BlockHeight, &[ShardUId]); 3] = [
+        ("base (old layout)", r.resharding_block_height, r.base_shard_uids.as_slice()),
+        ("new layout (gap)", r.new_epoch_first_height, r.new_shard_uids.as_slice()),
+        ("new layout (snapshot)", r.sync_block_height, r.new_shard_uids.as_slice()),
+    ];
+
+    h.bootstrap_reader(r.resharding_block_height, r.sync_block_height);
+
+    let reader_tries = build_shard_tries(&h.reader_store());
+    // Expected state roots are the writer's own chunk extras; each must resolve
+    // to a reachable root in the reader trie.
+    for (label, height, shard_uids) in checkpoints {
+        let block_hash = h.writer_store().chain_store().get_block_hash_by_height(height).unwrap();
+        for uid in shard_uids {
+            let state_root = *h
+                .writer_store()
+                .chunk_store()
+                .get_chunk_extra(&block_hash, uid)
+                .unwrap()
+                .state_root();
+            assert!(
+                has_state_root(&reader_tries, *uid, state_root),
+                "{label} shard {uid} state at h={height} unreachable in reader trie"
+            );
+        }
+    }
+
+    h.kill_reader();
+    h.shutdown();
 }

@@ -5,7 +5,7 @@ pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData};
 pub use crate::archive::cloud_storage::bucket_config::BucketConfig;
 pub use crate::archive::cloud_storage::epoch_data::EpochData;
 pub use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
-pub use crate::archive::cloud_storage::shards::{ShardBatch, ShardData};
+pub use crate::archive::cloud_storage::shards::{InverseStateChanges, ShardBatch, ShardData};
 use near_external_storage::ExternalConnection;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};

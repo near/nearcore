@@ -4403,7 +4403,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// This is meant for use in tests and implementation of VMs only. Implementations of host
     /// functions should be using `pay_*` functions instead.
     // TODO(wasmtime): remove once legacy VMLogic test path is fully retired.
-    #[cfg(any(test, all(feature = "near_vm", target_arch = "x86_64")))]
+    #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.result_state.gas_counter

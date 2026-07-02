@@ -127,7 +127,9 @@ pub mod col {
     ];
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, BorshDeserialize, BorshSerialize, ProtocolSchema,
+)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum GlobalContractCodeIdentifier {
@@ -165,7 +167,9 @@ impl From<GlobalContractIdentifier> for GlobalContractCodeIdentifier {
 }
 
 /// Describes the key of a specific key-value record in a state trie.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, BorshDeserialize, BorshSerialize, ProtocolSchema,
+)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum TrieKey {

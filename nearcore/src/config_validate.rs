@@ -1,5 +1,5 @@
 use crate::config::Config;
-use near_chain_configs::{DumpConfig, ExternalStorageLocation, SyncConfig};
+use near_chain_configs::{DumpConfig, ExternalStorageLocation};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
@@ -31,7 +31,6 @@ impl<'a> ConfigValidator<'a> {
 
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
-        self.warn_deprecated_centralized_state_sync();
         self.validate_cloud_archival_config();
         self.validate_cold_store_config();
         self.validate_state_sync_config();
@@ -90,28 +89,6 @@ impl<'a> ConfigValidator<'a> {
                 "'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}."
             );
             self.validation_errors.push_config_semantics_error(error_message);
-        }
-    }
-
-    fn warn_deprecated_centralized_state_sync(&self) {
-        let Some(state_sync) = &self.config.state_sync else {
-            return;
-        };
-
-        if state_sync.dump.is_some() {
-            tracing::warn!(
-                target: "config",
-                "centralized state sync is deprecated and will be removed in a future release. \
-                 'state_sync.dump' configuration will stop being supported."
-            );
-        }
-        if matches!(state_sync.sync, SyncConfig::ExternalStorage(_)) {
-            tracing::warn!(
-                target: "config",
-                "centralized state sync is deprecated and will be removed in a future release. \
-                 'state_sync.sync.ExternalStorage' configuration will stop being supported. \
-                 Please migrate to peer-based state sync (\"Peers\")."
-            );
         }
     }
 
@@ -176,43 +153,6 @@ impl<'a> ConfigValidator<'a> {
                 state_sync.parts_compression_lvl,
             );
             self.validation_errors.push_config_semantics_error(error_message);
-        }
-        match &state_sync.sync {
-            SyncConfig::Peers => {}
-            SyncConfig::ExternalStorage(config) => {
-                match &config.location {
-                    ExternalStorageLocation::S3 { bucket, region } => {
-                        if bucket.is_empty() || region.is_empty() {
-                            let error_message = format!(
-                                "'config.state_sync.sync.ExternalStorage.location.S3.bucket' and 'config.state_sync.sync.ExternalStorage.location.S3.region' need to be specified when 'config.state_sync.sync.ExternalStorage.location.S3' is present."
-                            );
-                            self.validation_errors.push_config_semantics_error(error_message);
-                        }
-                    }
-                    ExternalStorageLocation::Filesystem { root_dir } => {
-                        if root_dir.as_path() == Path::new("") {
-                            let error_message = format!(
-                                "'config.state_sync.sync.ExternalStorage.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.Filesystem' is present."
-                            );
-                            self.validation_errors.push_config_semantics_error(error_message);
-                        }
-                    }
-                    ExternalStorageLocation::GCS { bucket } => {
-                        if bucket.is_empty() {
-                            let error_message = format!(
-                                "'config.state_sync.sync.ExternalStorage.location.GCS.bucket' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.GCS' is present."
-                            );
-                            self.validation_errors.push_config_semantics_error(error_message);
-                        }
-                    }
-                }
-                if config.num_concurrent_requests == 0 {
-                    let error_message = format!(
-                        "'config.state_sync.sync.ExternalStorage.num_concurrent_requests' needs to be greater than 0"
-                    );
-                    self.validation_errors.push_config_semantics_error(error_message);
-                }
-            }
         }
     }
 

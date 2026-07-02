@@ -327,7 +327,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedIncreaseMaxCongestionMissedChunks,
 
-    Wasmtime,
+    #[deprecated]
+    _DeprecatedWasmtime,
     #[deprecated]
     _DeprecatedSaturatingFloatToInt,
     #[deprecated]
@@ -550,7 +551,7 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedYieldResumeImprovements
             | ProtocolFeature::_DeprecatedEthImplicitGlobalContract
             | ProtocolFeature::_DeprecatedInstantDeleteAccount => 83,
-            ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::_DeprecatedWasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
             | ProtocolFeature::FixDelegatedDeterministicStateInit
@@ -593,7 +594,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 83;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 /// Returns the effective protocol version to use for processing a request.
 ///
