@@ -101,15 +101,24 @@ impl IndexerViewClientFetcher {
         shard_tracker: &ShardTracker,
     ) -> Result<Vec<ChunkView>, FailedToFetchData> {
         tracing::debug!(target: INDEXER, height = block.header.height,  "fetch chunks for block");
-        let mut futures: futures::stream::FuturesUnordered<_> = block
-            .chunks
-            .iter()
-            .filter(|chunk| {
-                shard_tracker.cares_about_shard(&block.header.prev_hash, chunk.shard_id)
-                    && chunk.is_new_chunk(block.header.height)
-            })
-            .map(|chunk| self.fetch_single_chunk(chunk.chunk_hash))
-            .collect();
+        let mut futures = futures::stream::FuturesUnordered::new();
+        for chunk in &block.chunks {
+            if !chunk.is_new_chunk(block.header.height) {
+                continue;
+            }
+            let cares_about_shard = shard_tracker
+                .cares_about_shard_checked(&block.header.prev_hash, chunk.shard_id)
+                .map_err(|err| {
+                    FailedToFetchData::String(format!(
+                        "failed to determine shard tracking for shard {} at block {}: {err}",
+                        chunk.shard_id, block.header.hash,
+                    ))
+                })?;
+            if !cares_about_shard {
+                continue;
+            }
+            futures.push(self.fetch_single_chunk(chunk.chunk_hash));
+        }
         let mut chunks = Vec::<ChunkView>::with_capacity(futures.len());
         while let Some(chunk) = futures.next().await {
             chunks.push(chunk?);

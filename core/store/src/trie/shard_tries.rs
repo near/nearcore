@@ -8,8 +8,9 @@ use crate::trie::TrieRefcountAddition;
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::{apply_deltas_to_memtries, load_trie_from_flat_state_and_delta};
 use crate::trie::mem::metrics::{
-    MEMTRIE_BACKGROUND_LOAD_DURATION, MEMTRIE_BACKGROUND_LOAD_RETRIES, MEMTRIE_CATCHUP_DELTAS,
-    MemtrieBackgroundLoadStatus, reset_background_load_status, set_background_load_status,
+    MEMTRIE_BACKGROUND_LOAD_DELTAS, MEMTRIE_BACKGROUND_LOAD_DURATION,
+    MEMTRIE_BACKGROUND_LOAD_RETRIES, MemtrieBackgroundLoadStatus, reset_background_load_status,
+    set_background_load_status,
 };
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
@@ -36,8 +37,9 @@ use tracing::instrument;
 /// Result of a background memtrie loading: the loaded memtries and the
 /// flat_head height from which the base state was loaded. The height is needed
 /// so that the finalization catch-up pass can skip deltas already incorporated
-/// into the base state.
-type MemtrieLoadingResult = (MemTries, BlockHeight);
+/// into the base state. The third element is the number of deltas the loader
+/// applied during the background load (reported via `near_memtrie_background_load_deltas`).
+type MemtrieLoadingResult = (MemTries, BlockHeight, usize);
 type MemtrieLoadingReceiver = crossbeam::channel::Receiver<MemtrieLoadingResult>;
 type MemtrieLoadingEntry = (MemtrieLoadingReceiver, FlatHeadHold);
 
@@ -471,7 +473,7 @@ impl ShardTries {
         parallelize: bool,
     ) -> Result<(), StorageError> {
         tracing::info!(target: "memtrie", ?shard_uid, "loading trie to memory for shard");
-        let (memtries, _) = load_trie_from_flat_state_and_delta(
+        let (memtries, _, _) = load_trie_from_flat_state_and_delta(
             &self.0.store.store(),
             *shard_uid,
             state_root,
@@ -553,6 +555,9 @@ impl ShardTries {
         spawner: &dyn AsyncComputationSpawner,
     ) {
         if self.get_memtries(shard_uid).is_some() {
+            // No load needed: surface the no-op so the gauge reflects "already
+            // loaded" instead of leaving no series (or a stale None).
+            set_background_load_status(&shard_uid, MemtrieBackgroundLoadStatus::AlreadyLoaded);
             return;
         }
         let mut pending = self.0.memtries_loading.lock();
@@ -686,14 +691,18 @@ impl ShardTries {
     fn handle_memtrie_loading_result(
         &self,
         shard_uid: ShardUId,
-        (mut memtries, base_height): MemtrieLoadingResult,
+        (mut memtries, base_height, deltas_during_load): MemtrieLoadingResult,
     ) {
         set_background_load_status(&shard_uid, MemtrieBackgroundLoadStatus::CatchingUp);
         let start = Instant::now();
-        let (_, num_deltas) =
-            apply_deltas_to_memtries(&self.0.store.store(), shard_uid, &mut memtries, base_height)
-                .expect("failed to apply deltas to memtries during catch-up");
-        MEMTRIE_CATCHUP_DELTAS.with_label_values(&[&shard_uid.to_string()]).set(num_deltas as i64);
+        apply_deltas_to_memtries(&self.0.store.store(), shard_uid, &mut memtries, base_height)
+            .expect("failed to apply deltas to memtries during catch-up");
+        // Report the deltas that accumulated and were applied during the background
+        // load itself (the meaningful bulk), not the tiny finalization tail applied
+        // just above (which is essentially always ~2 and uninformative).
+        MEMTRIE_BACKGROUND_LOAD_DELTAS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(deltas_during_load as i64);
         MEMTRIE_BACKGROUND_LOAD_DURATION
             .with_label_values(&[shard_uid.to_string().as_str(), "catchup"])
             .observe(start.elapsed().as_secs_f64());

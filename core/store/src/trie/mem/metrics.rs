@@ -34,6 +34,7 @@ pub static MEMTRIE_NUM_LOOKUPS: LazyLock<IntCounter> = LazyLock::new(|| {
 
 /// Values of the `near_memtrie_background_load_status` gauge.
 #[derive(Clone, Copy)]
+#[repr(i64)]
 pub enum MemtrieBackgroundLoadStatus {
     /// No background load activity for the shard.
     None = 0,
@@ -45,13 +46,16 @@ pub enum MemtrieBackgroundLoadStatus {
     CatchingUp = 3,
     /// The memtrie has been finalized and inserted into the active map.
     Done = 4,
+    /// Background preload was a no-op because the memtrie was already loaded.
+    AlreadyLoaded = 5,
 }
 
 pub static MEMTRIE_BACKGROUND_LOAD_STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_memtrie_background_load_status",
         "Status of background memtrie loading: 0 - none, 1 - loading, \
-         2 - awaiting finalization, 3 - applying delta catch-up, 4 - done",
+         2 - awaiting finalization, 3 - applying delta catch-up, 4 - done, \
+         5 - already loaded (preload no-op)",
         &["shard_uid"],
     )
     .unwrap()
@@ -86,11 +90,11 @@ pub static MEMTRIE_BACKGROUND_LOAD_DURATION: LazyLock<HistogramVec> = LazyLock::
     .unwrap()
 });
 
-pub static MEMTRIE_CATCHUP_DELTAS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+pub static MEMTRIE_BACKGROUND_LOAD_DELTAS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
-        "near_memtrie_catchup_deltas",
-        "Number of flat state deltas applied during catch-up after the last background \
-         memtrie load",
+        "near_memtrie_background_load_deltas",
+        "Number of flat state deltas that accumulated and were applied while loading \
+         the memtrie during the last background load",
         &["shard_uid"],
     )
     .unwrap()

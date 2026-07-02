@@ -108,26 +108,6 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
     }
 }
 
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-impl From<WasmFeatures> for near_vm_types::Features {
-    fn from(f: crate::features::WasmFeatures) -> Self {
-        Self {
-            mutable_global: true,
-            reference_types: f.reftypes_bulk_memory,
-            bulk_memory: f.reftypes_bulk_memory,
-
-            sign_extension: SIGN_EXTENSION,
-            threads: THREADS,
-            simd: SIMD,
-            multi_value: MULTI_VALUE,
-            tail_call: TAIL_CALL,
-            multi_memory: MULTI_MEMORY,
-            memory64: MEMORY64,
-            exceptions: EXCEPTIONS,
-        }
-    }
-}
-
 #[cfg(feature = "wasmtime_vm")]
 impl From<WasmFeatures> for wasmtime::Config {
     fn from(_: WasmFeatures) -> Self {

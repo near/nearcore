@@ -23,14 +23,12 @@ enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
-memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
 p256.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand.workspace = true
-rayon.workspace = true
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 serde.workspace = true
@@ -59,13 +57,6 @@ near-schema-checker-lib.workspace = true
 
 bytesize.workspace = true
 
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-near-vm-compiler = { workspace = true, optional = true }
-near-vm-compiler-singlepass = { workspace = true, optional = true }
-near-vm-engine = { workspace = true, optional = true }
-near-vm-types = { workspace = true, optional = true }
-near-vm-vm = { workspace = true, optional = true }
-
 [dev-dependencies]
 arbitrary.workspace = true
 ark-bls12-381.workspace = true
@@ -88,15 +79,6 @@ wat.workspace = true
 [features]
 default = ["wasmtime_vm"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
-near_vm = [
-    "near-vm-compiler",
-    "near-vm-compiler-singlepass",
-    "near-vm-engine",
-    "near-vm-types",
-    "near-vm-vm",
-    "memoffset",
-    "prepare",
-]
 prepare = [
     "finite-wasm",
     "finite-wasm-6",
@@ -106,8 +88,6 @@ prepare = [
     "prefix-sum-vec",
     "metrics",
 ]
-
-no_cpu_compatibility_checks = []
 
 metrics = ["prometheus", "near-o11y"]
 

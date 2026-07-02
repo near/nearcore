@@ -1,28 +1,23 @@
-# Experimental: Dump State to External Storage
+# Dump State to External Storage
 
 ## Purpose
 
-[State Sync](../architecture/how/sync.md#step-2-state-sync-normal-node) is being
-reworked.
-
-A new version is available for experimental use. This version gets state parts
-from external storage. The following kinds of external storage are supported:
+A node can dump the state of every epoch to external storage. The following
+kinds of external storage are supported:
 
 * Local filesystem
 * Google Cloud Storage
 * Amazon S3
 
-A new version of decentralized state sync is work in progress.
+Note: consuming state parts from external storage (centralized state sync) has
+been removed — nodes now always sync state from peers
+([State Sync](../architecture/how/sync.md#step-2-state-sync-normal-node)). Only
+the dump side documented here remains, for archival and state-distribution
+tooling.
 
 ## How-to
 
-neard release `1.36.0-rc.1` adds an experimental option to sync state from
-external storage.
-
-See [how-to](state_sync_from_external_storage.md) how to configure your node to
-State Sync from External Storage.
-
-In case you would like to manage your own dumps of State, keep reading.
+To manage your own dumps of state, keep reading.
 
 ### Google Cloud Storage
 

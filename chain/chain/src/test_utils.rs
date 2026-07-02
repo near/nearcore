@@ -1,13 +1,14 @@
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -64,7 +65,12 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let chain_genesis = ChainGenesis::new(&genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+        store.clone(),
+        &genesis.config,
+        epoch_config_store,
+    );
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());

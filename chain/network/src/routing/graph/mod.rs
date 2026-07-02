@@ -5,13 +5,12 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use ::time::ext::InstantExt as _;
 use arc_swap::ArcSwap;
-use near_async::messaging::{Actor, CanSendAsync, Handler};
-use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::time;
 use near_async::time::Clock;
-use near_async::{new_owned_multithread_actor, time};
 use near_primitives::network::PeerId;
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
@@ -344,31 +343,25 @@ pub(crate) struct Graph {
     snapshot: ArcSwap<GraphSnapshot>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
     pub routing_table: RoutingTableView,
-    updater: MultithreadRuntimeHandle<GraphActor>,
+    inner: Mutex<Inner>,
+    clock: Clock,
 }
 
 impl Graph {
     pub fn new(clock: Clock, config: GraphConfig) -> Arc<Self> {
-        Arc::new_cyclic(|weak| {
-            let weak = weak.clone();
-            let updater = new_owned_multithread_actor(1, move || GraphActor {
-                clock: clock.clone(),
-                graph: weak.clone(),
-                inner: Inner {
-                    graph: bfs::Graph::new(config.node_id.clone(), config.max_graph_peers),
-                    config: config.clone(),
-                    edges: Default::default(),
-                    peer_reachable_at: HashMap::new(),
-                    edge_source: HashMap::new(),
-                    source_edge_count: HashMap::new(),
-                },
-            });
-            Self {
-                routing_table: RoutingTableView::new(),
-                unreliable_peers: ArcSwap::default(),
-                snapshot: ArcSwap::default(),
-                updater,
-            }
+        Arc::new(Self {
+            routing_table: RoutingTableView::new(),
+            unreliable_peers: ArcSwap::default(),
+            snapshot: ArcSwap::default(),
+            inner: Mutex::new(Inner {
+                graph: bfs::Graph::new(config.node_id.clone(), config.max_graph_peers),
+                config,
+                edges: Default::default(),
+                peer_reachable_at: HashMap::new(),
+                edge_source: HashMap::new(),
+                source_edge_count: HashMap::new(),
+            }),
+            clock,
         })
     }
 
@@ -395,37 +388,19 @@ impl Graph {
     /// node. The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we accept all the edges verified so
     /// far and return an error only afterwards.
-    pub async fn update(&self, edges: Vec<EdgesWithSource>) -> (Vec<Edge>, Vec<bool>) {
-        self.updater.send_async(UpdateEdges(edges)).await.unwrap()
-    }
-}
-
-struct GraphActor {
-    clock: Clock,
-    graph: Weak<Graph>,
-    inner: Inner,
-}
-
-impl Actor for GraphActor {}
-
-#[derive(Debug)]
-struct UpdateEdges(Vec<EdgesWithSource>);
-
-impl Handler<UpdateEdges, (Vec<Edge>, Vec<bool>)> for GraphActor {
-    fn handle(&mut self, msg: UpdateEdges) -> (Vec<Edge>, Vec<bool>) {
+    pub fn update(&self, edges: Vec<EdgesWithSource>) -> (Vec<Edge>, Vec<bool>) {
+        let mut inner = self.inner.lock();
         let mut new_edges = vec![];
         let mut oks = vec![];
-        for es in msg.0 {
-            let (es, ok) = self.inner.add_edges(&self.clock, es);
+        for es in edges {
+            let (es, ok) = inner.add_edges(&self.clock, es);
             oks.push(ok);
             new_edges.extend(es);
         }
-        if let Some(graph) = self.graph.upgrade() {
-            let snapshot = self.inner.update(&self.clock, &graph.unreliable_peers.load());
-            let snapshot = Arc::new(snapshot);
-            graph.routing_table.update(snapshot.next_hops.clone(), snapshot.distances.clone());
-            graph.snapshot.store(snapshot);
-        }
+        let snapshot = inner.update(&self.clock, &self.unreliable_peers.load());
+        let snapshot = Arc::new(snapshot);
+        self.routing_table.update(snapshot.next_hops.clone(), snapshot.distances.clone());
+        self.snapshot.store(snapshot);
         (new_edges, oks)
     }
 }

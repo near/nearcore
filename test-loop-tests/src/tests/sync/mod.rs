@@ -2,6 +2,7 @@ mod continuous_epoch_sync;
 mod epoch_sync;
 mod far_horizon;
 mod gc;
+mod migration_epoch_sync_proof;
 mod near_horizon;
 mod state_sync;
 mod sync_then_catchup;

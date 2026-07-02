@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 futures.workspace = true
-parking_lot.workspace = true
 rocksdb.workspace = true
 tokio.workspace = true
 tracing.workspace = true

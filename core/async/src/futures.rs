@@ -159,3 +159,18 @@ impl AsyncComputationSpawner for StdThreadAsyncComputationSpawner {
         std::thread::Builder::new().name(name.to_owned()).spawn(f).expect("failed to spawn thread");
     }
 }
+
+/// `AsyncComputationSpawner` backed by the global rayon thread pool. Used in
+/// production; testloop substitutes a spawner that runs the closure on the
+/// testloop event thread instead.
+///
+/// Preserves the caller's `tracing::dispatcher` across the rayon hop so spans
+/// don't disappear from spawned work.
+pub struct RayonAsyncComputationSpawner;
+
+impl AsyncComputationSpawner for RayonAsyncComputationSpawner {
+    fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
+        let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
+        rayon::spawn(move || tracing::dispatcher::with_default(&dispatcher, f))
+    }
+}

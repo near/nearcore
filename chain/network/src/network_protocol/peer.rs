@@ -20,6 +20,8 @@ use std::str::FromStr;
     Eq,
     PartialEq,
     Hash,
+    PartialOrd,
+    Ord,
     ProtocolSchema,
 )]
 pub struct PeerInfo {

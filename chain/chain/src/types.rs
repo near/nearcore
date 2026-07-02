@@ -501,13 +501,17 @@ pub struct PrepareTransactionsBlockContext {
 }
 
 impl PrepareTransactionsBlockContext {
-    pub fn new(prev_block: &Block, epoch_manager: &dyn EpochManagerAdapter) -> Result<Self, Error> {
+    pub fn new(
+        prev_block: &Block,
+        epoch_manager: &dyn EpochManagerAdapter,
+        congestion_info: BlockCongestionInfo,
+    ) -> Result<Self, Error> {
         let header = prev_block.header();
         Ok(Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
             next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
-            congestion_info: prev_block.block_congestion_info(),
+            congestion_info,
         })
     }
 }

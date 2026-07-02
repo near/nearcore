@@ -93,17 +93,8 @@ impl SpiceCoreReader {
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id))
+            Ok(get_execution_result_from_store(&self.chain_store, block_header.hash(), shard_id))
         }
-    }
-
-    fn get_execution_result_from_store(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Option<Arc<ChunkExecutionResult>> {
-        let key = get_execution_results_key(block_hash, shard_id);
-        self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
 
     /// Returns the list of uncertified chunks as of the given block.
@@ -328,7 +319,8 @@ impl SpiceCoreReader {
                 }
             }
 
-            let Some(execution_result) = self.get_execution_result_from_store(
+            let Some(execution_result) = get_execution_result_from_store(
+                &self.chain_store,
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
             ) else {
@@ -468,6 +460,7 @@ impl SpiceCoreReader {
             &SpiceChunkId,
             HashMap<ChunkExecutionResultHash, HashMap<&AccountId, Signature>>,
         > = HashMap::new();
+        let mut endorsed_chunk_accounts: HashSet<(&SpiceChunkId, &AccountId)> = HashSet::new();
         let mut block_execution_results = HashMap::new();
         let mut max_endorsed_height_created = HashMap::new();
 
@@ -476,12 +469,8 @@ impl SpiceCoreReader {
                 SpiceCoreStatement::Endorsement(endorsement) => {
                     let chunk_id = endorsement.chunk_id();
                     let account_id = endorsement.account_id();
-                    // TODO(spice): reject more than one endorsement per (chunk, account),
-                    // regardless of result hash. The dup check below is per result hash and
-                    // `waiting_on_endorsements` is not updated mid-loop, so a validator can
-                    // equivocate (endorse two results for one chunk) and count toward both.
-                    // Checking contents of waiting_on_endorsements makes sure that
-                    // chunk_id and account_id are valid.
+                    // Membership in waiting_on_endorsements also validates that chunk_id and
+                    // account_id are valid.
                     if !waiting_on_endorsements.contains(&(chunk_id, account_id)) {
                         return Err(InvalidCoreStatement {
                             index,
@@ -504,19 +493,21 @@ impl SpiceCoreReader {
                         return Err(InvalidCoreStatement { index, reason: "invalid signature" });
                     };
 
-                    if in_block_endorsements
-                        .entry(chunk_id)
-                        .or_default()
-                        .entry(signed_data.execution_result_hash.clone())
-                        .or_default()
-                        .insert(account_id, signature.clone())
-                        .is_some()
-                    {
+                    // Reject more than one endorsement per (chunk, account) regardless of result
+                    // hash, so an equivocating validator cannot count toward two results.
+                    if !endorsed_chunk_accounts.insert((chunk_id, account_id)) {
                         return Err(InvalidCoreStatement {
                             index,
                             reason: "duplicate endorsement",
                         });
                     }
+
+                    in_block_endorsements
+                        .entry(chunk_id)
+                        .or_default()
+                        .entry(signed_data.execution_result_hash.clone())
+                        .or_default()
+                        .insert(account_id, signature.clone());
                 }
                 SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
                     if block_execution_results.insert(chunk_id, (execution_result, index)).is_some()
@@ -714,6 +705,20 @@ impl SpiceCoreReader {
         }
         Ok(result)
     }
+}
+
+/// Reads the certified chunk execution result for `(block_hash, shard_id)` from
+/// `DBCol::execution_results`, as written by the spice core writer. Returns
+/// `None` when absent (e.g. the chunk is not yet certified). Does not
+/// special-case genesis; callers that need genesis results should go through
+/// [`SpiceCoreReader`].
+pub(crate) fn get_execution_result_from_store(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Option<Arc<ChunkExecutionResult>> {
+    let key = get_execution_results_key(block_hash, shard_id);
+    chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
 }
 
 fn get_uncertified_chunks(

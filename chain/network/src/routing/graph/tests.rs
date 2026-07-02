@@ -27,14 +27,14 @@ fn test_graph_config(node_id: PeerId) -> GraphConfig {
 }
 
 impl Graph {
-    async fn simple_update(self: &Arc<Self>, edges: Vec<Edge>) {
+    fn simple_update(self: &Arc<Self>, edges: Vec<Edge>) {
         let edges = EdgesWithSource::Local(edges);
-        assert_eq!(vec![true], self.update(vec![edges]).await.1);
+        assert_eq!(vec![true], self.update(vec![edges]).1);
     }
 
-    async fn remote_update(self: &Arc<Self>, source: PeerId, edges: Vec<Edge>) -> Vec<bool> {
+    fn remote_update(self: &Arc<Self>, source: PeerId, edges: Vec<Edge>) -> Vec<bool> {
         let edges = EdgesWithSource::Remote { edges, source };
-        self.update(vec![edges]).await.1
+        self.update(vec![edges]).1
     }
 
     fn check(&self, want_mem: &[Edge]) {
@@ -76,7 +76,7 @@ async fn one_edge() {
     let rng = &mut rng;
     let node_key = data::make_secret_key(rng);
     let cfg = test_graph_config(peer_id(&node_key));
-    let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
+    let g = Graph::new(clock.clock(), cfg);
 
     let p1 = data::make_secret_key(rng);
     let e1 = data::make_edge(&node_key, &p1, 1);
@@ -84,23 +84,23 @@ async fn one_edge() {
 
     tracing::info!(target:"test", "add an active edge, update rt with pruning");
     // NOOP, since p1 is reachable.
-    g.simple_update(vec![e1.clone()]).await;
+    g.simple_update(vec![e1.clone()]);
     g.check(std::slice::from_ref(&e1));
 
     tracing::info!(target:"test", "override with an inactive edge");
-    g.simple_update(vec![e1v2.clone()]).await;
+    g.simple_update(vec![e1v2.clone()]);
     g.check(std::slice::from_ref(&e1v2));
 
     tracing::info!(target:"test", "after 2s, simple_update rt with pruning unreachable for 3s");
     // NOOP, since p1 is unreachable for 2s.
     clock.advance(2 * SEC);
-    g.simple_update(vec![]).await;
+    g.simple_update(vec![]);
     g.check(std::slice::from_ref(&e1v2));
 
     tracing::info!(target:"test", "update rt with pruning unreachable for 1s");
     // p1 should be moved to DB.
     clock.advance(2 * SEC);
-    g.simple_update(vec![]).await;
+    g.simple_update(vec![]);
     g.check(&[]);
 }
 
@@ -125,7 +125,7 @@ async fn expired_edges() {
         prune_edges_after: Some(110 * SEC),
         ..test_graph_config(peer_id(&node_key))
     };
-    let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
+    let g = Graph::new(clock.clock(), cfg);
 
     let p1 = data::make_secret_key(rng);
     let p2 = data::make_secret_key(rng);
@@ -137,42 +137,42 @@ async fn expired_edges() {
     let fresh_e2 = data::make_edge(&node_key, &p2, to_active_nonce(now));
 
     tracing::info!(target:"test", "add an active edge");
-    g.simple_update(vec![e1.clone(), old_e2.clone()]).await;
-    g.check(&[e1.clone(), old_e2.clone()]);
+    g.simple_update(vec![e1.clone(), old_e2.clone()]);
+    g.check(&[e1.clone(), old_e2]);
     tracing::info!(target:"test", "update rt with pruning");
     // e1 should stay - as it is fresh, but old_e2 should be removed.
     clock.advance(40 * SEC);
-    g.simple_update(vec![]).await;
+    g.simple_update(vec![]);
     g.check(std::slice::from_ref(&e1));
 
     tracing::info!(target:"test", "adding 'still old' edge to e2 should fail");
     // (as it is older than the last prune_edges_older_than)
-    g.simple_update(vec![still_old_e2.clone()]).await;
+    g.simple_update(vec![still_old_e2]);
     g.check(std::slice::from_ref(&e1));
 
     tracing::info!(target:"test", "but adding the fresh edge should work");
-    g.simple_update(vec![fresh_e2.clone()]).await;
-    g.check(&[e1.clone(), fresh_e2.clone()]);
+    g.simple_update(vec![fresh_e2.clone()]);
+    g.check(&[e1, fresh_e2]);
 
     tracing::info!(target:"test", "advance so that the edge is 'too old' and should be removed");
     clock.advance(100 * SEC);
-    g.simple_update(vec![]).await;
+    g.simple_update(vec![]);
     g.check(&[]);
 
     tracing::info!(target:"test", "let's create a removal edge");
     let e1v2 = data::make_edge(&node_key, &p1, to_active_nonce(clock.now_utc()))
         .remove_edge(peer_id(&p1), &p1);
-    g.simple_update(vec![e1v2.clone()]).await;
+    g.simple_update(vec![e1v2.clone()]);
     g.check(std::slice::from_ref(&e1v2));
 
     // Advance time a bit. The edge should stay.
     clock.advance(20 * SEC);
-    g.simple_update(vec![]).await;
+    g.simple_update(vec![]);
     g.check(std::slice::from_ref(&e1v2));
 
     // Advance time a lot. The edge should be pruned.
     clock.advance(100 * SEC);
-    g.simple_update(vec![]).await;
+    g.simple_update(vec![]);
     g.check(&[]);
 }
 
@@ -213,7 +213,7 @@ async fn source_cap_enforced() {
             data::make_edge(&node_key, &k, 1)
         })
         .collect();
-    g.remote_update(source, edges).await;
+    g.remote_update(source, edges);
 
     let snapshot = g.load();
     assert_eq!(
@@ -255,13 +255,13 @@ async fn source_cap_allows_updates() {
     let e3 = data::make_edge(&node_key, &k3, 1);
 
     // Fill source to cap.
-    g.remote_update(source.clone(), vec![e1.clone(), e2.clone(), e3.clone()]).await;
+    g.remote_update(source.clone(), vec![e1.clone(), e2, e3]);
     let snapshot = g.load();
     assert_eq!(snapshot.edges.len(), 3);
 
     // Update existing edge (higher nonce) — should succeed even though source is at cap.
     let e1_updated = data::make_edge(&node_key, &k1, 3);
-    g.remote_update(source, vec![e1_updated.clone()]).await;
+    g.remote_update(source, vec![e1_updated]);
     let snapshot = g.load();
     // Edge count stays the same (update, not new key).
     assert_eq!(snapshot.edges.len(), 3);
@@ -295,7 +295,7 @@ async fn source_cap_accumulates_across_messages() {
             data::make_edge(&node_key, &k, 1)
         })
         .collect();
-    g.remote_update(source.clone(), edges1).await;
+    g.remote_update(source.clone(), edges1);
     assert_eq!(g.load().edges.len(), 3, "first batch should be fully accepted");
 
     // Second message: send 3 more edges from the same source (total would be 6 > cap=5).
@@ -305,7 +305,7 @@ async fn source_cap_accumulates_across_messages() {
             data::make_edge(&node_key, &k, 1)
         })
         .collect();
-    g.remote_update(source, edges2).await;
+    g.remote_update(source, edges2);
     assert_eq!(
         g.load().edges.len(),
         max_per_source,
@@ -341,7 +341,7 @@ async fn global_edge_cap() {
                 data::make_edge(&node_key, &k, 1)
             })
             .collect();
-        g.remote_update(source, edges).await;
+        g.remote_update(source, edges);
     }
 
     let snapshot = g.load();
@@ -381,7 +381,7 @@ async fn global_peer_cap() {
             data::make_edge(&node_key, &k, 1)
         })
         .collect();
-    g.remote_update(source, edges).await;
+    g.remote_update(source, edges);
 
     let snapshot = g.load();
     // 3 edges fit (3 new peers + 1 existing = 4 = max), 4th edge would need 5 > 4.
@@ -416,7 +416,7 @@ async fn local_edges_obey_global_caps() {
             data::make_edge(&node_key, &k, 1)
         })
         .collect();
-    g.simple_update(edges).await;
+    g.simple_update(edges);
 
     let snapshot = g.load();
     assert_eq!(
@@ -455,7 +455,7 @@ async fn limit_drops_are_non_punitive() {
             data::make_edge(&node_key, &k, 1)
         })
         .collect();
-    let oks = g.remote_update(source, edges).await;
+    let oks = g.remote_update(source, edges);
 
     // ok must be true: limit drops are non-punitive.
     assert_eq!(oks, vec![true], "limit drops must not set ok=false");
@@ -497,19 +497,19 @@ async fn source_budget_recovery_after_prune() {
             data::make_edge(&node_key, &k, to_active_nonce(now))
         })
         .collect();
-    g.remote_update(source.clone(), edges).await;
+    g.remote_update(source.clone(), edges);
     assert_eq!(g.load().edges.len(), 3);
 
     // A 4th edge should be rejected (source cap reached).
     let extra_key = data::make_secret_key(rng);
     let extra_edge = data::make_edge(&node_key, &extra_key, to_active_nonce(now));
-    g.remote_update(source.clone(), vec![extra_edge]).await;
+    g.remote_update(source.clone(), vec![extra_edge]);
     assert_eq!(g.load().edges.len(), 3, "4th edge should be rejected");
 
     // Advance time so old edges get pruned.
     clock.advance(time::Duration::seconds(120));
     // Trigger a pruning pass by sending an empty local update.
-    g.simple_update(vec![]).await;
+    g.simple_update(vec![]);
     assert_eq!(g.load().edges.len(), 0, "all old edges should be pruned");
 
     // Now the same source should be able to introduce new edge keys again.
@@ -520,7 +520,7 @@ async fn source_budget_recovery_after_prune() {
             data::make_edge(&node_key, &k, to_active_nonce(fresh_now))
         })
         .collect();
-    g.remote_update(source, new_edges).await;
+    g.remote_update(source, new_edges);
     assert_eq!(
         g.load().edges.len(),
         max_per_source,
