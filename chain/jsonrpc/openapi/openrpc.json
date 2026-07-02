@@ -12459,10 +12459,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "sha3_256_host_fn": {
-            "description": "See [VMConfig::sha3_256_host_fn](crate::vm::Config::sha3_256_host_fn).",
-            "type": "boolean"
-          },
           "storage_get_mode": {
             "allOf": [
               {
