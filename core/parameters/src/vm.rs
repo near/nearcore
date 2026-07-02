@@ -204,11 +204,14 @@ pub struct Config {
     /// Enable the `FixContractLoadingCost` protocol feature.
     pub fix_contract_loading_cost: bool,
 
+    /// Enable the `FixContractLoadingError` protocol feature: charge the
+    /// contract-loading fee and finalize as a gas-bearing abort (instead of a
+    /// zero-gas nop) when a compiled module fails to load at
+    /// `Module::deserialize`.
+    pub fix_contract_loading_error: bool,
+
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
-
-    /// Enable using global contract for ETH implicit accounts.
-    pub eth_implicit_global_contract: bool,
 
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
@@ -233,6 +236,16 @@ pub struct Config {
     /// Whether to enable the promise_yield_create_with_id and
     /// promise_yield_resume_with_yield_id host functions.
     pub yield_with_id_host_fns: bool,
+
+    /// Whether to enable the chain_id host function (NEP-638).
+    pub chain_id_host_fn: bool,
+
+    /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
+    /// functions. These points lie on the curve but outside the G1/G2
+    /// subgroup; previously the host function returned an error for them,
+    /// now they are handled correctly as required by NEP-488. All other
+    /// inputs were already handled correctly.
+    pub bls12381_not_in_group_fix: bool,
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
@@ -263,11 +276,12 @@ impl Config {
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
-        self.eth_implicit_global_contract = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
         self.yield_with_id_host_fns = true;
+        self.chain_id_host_fn = true;
+        self.bls12381_not_in_group_fix = true;
     }
 }
 

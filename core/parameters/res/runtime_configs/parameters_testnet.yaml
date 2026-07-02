@@ -12,6 +12,8 @@ gas_refund_penalty: {
   denominator: 100,
 }
 min_gas_refund_penalty: 0
+min_gas_purchase_price: 0
+account_creation_charge: 0
 
 # Stateless validation config
 main_storage_proof_size_soft_limit: 4_294_967_295
@@ -40,14 +42,14 @@ action_receipt_creation: {
   execution: 108_059_500_000,
 }
 data_receipt_creation_base: {
-  send_sir: 4_697_339_419_375,
-  send_not_sir: 4_697_339_419_375,
-  execution: 4_697_339_419_375,
+  send_sir: 36_486_732_312,
+  send_not_sir: 36_486_732_312,
+  execution: 36_486_732_312,
 }
 data_receipt_creation_per_byte: {
-  send_sir: 59_357_464,
-  send_not_sir: 59_357_464,
-  execution: 59_357_464,
+  send_sir: 17_212_011,
+  send_not_sir: 17_212_011,
+  execution: 17_212_011,
 }
 action_create_account: {
   send_sir: 99_607_375_000,
@@ -147,7 +149,7 @@ action_gas_key_nonce_write_base: {
 }
 
 # Smart contract dynamic gas costs
-wasm_regular_op_cost: 3_856_371
+wasm_regular_op_cost: 2_207_874
 wasm_linear_op_base_cost: 300_000_000_000_000
 wasm_linear_op_unit_cost: 300_000_000_000_000
 wasm_grow_mem_cost: 1
@@ -174,7 +176,7 @@ wasm_keccak512_base: 5_811_388_236
 wasm_keccak512_byte: 36_649_701
 wasm_ripemd160_base: 853_675_086
 wasm_ripemd160_block: 680_107_584
-wasm_ecrecover_base: 3_365_369_625_000
+wasm_ecrecover_base: 278_821_988_457
 wasm_ed25519_verify_base: 210_000_000_000
 wasm_ed25519_verify_byte: 9_000_000
 wasm_p256_verify_base: 1_300_000_000_000
@@ -271,9 +273,9 @@ max_yield_payload_size: 1_024 # kiB
 
 flat_storage_reads: false
 fix_contract_loading_cost: false
-vm_kind: Wasmer0
+fix_contract_loading_error: false
+vm_kind: Wasmer2
 eth_implicit_accounts: false
-eth_implicit_global_contract: false
 discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
@@ -281,6 +283,8 @@ gas_key_host_fns: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
 yield_with_id_host_fns: false
+chain_id_host_fn: false
+bls12381_not_in_group_fix: false
 
 # TODO What should be the config for testnet?
 
@@ -323,6 +327,8 @@ global_contract_storage_amount_per_byte: 999999999999999999999999999 yN
 
 deploy_global_contract_execution_base: 0
 deploy_global_contract_execution_per_byte: 0
+
+ml_dsa_65_verification_cost: 0
 
 action_use_global_contract: {
   send_sir: 999_999_999_999_999,

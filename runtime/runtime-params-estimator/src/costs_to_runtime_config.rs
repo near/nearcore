@@ -43,6 +43,8 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         witness_config: latest_runtime_config.witness_config,
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
         use_state_stored_receipt: latest_runtime_config.use_state_stored_receipt,
+        min_gas_purchase_price: latest_runtime_config.min_gas_purchase_price,
+        account_creation_charge: latest_runtime_config.account_creation_charge,
     };
     Ok(res)
 }

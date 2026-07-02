@@ -1,6 +1,7 @@
-use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
+use near_parameters::{Fee, ParameterCost, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
 use near_primitives::types::{Balance, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::{Rng, RngCore, thread_rng};
 
 pub fn random_config() -> RuntimeConfig {
@@ -29,7 +30,26 @@ pub fn random_config() -> RuntimeConfig {
             min_gas_refund_penalty: Gas::from_gas(rng.next_u64()),
             deploy_global_contract_execution_base: rng.next_u64() % 1_000_000,
             deploy_global_contract_execution_per_byte: rng.next_u64() % 1_000,
+            signature_verification_costs: enum_map::enum_map! {
+                // Independently random gas and compute to exercise the
+                // compute != gas case.
+                _ => ParameterCost::new(
+                    Gas::from_gas(rng.next_u64() % 1_000_000_000),
+                    rng.next_u64() % 1_000_000_000,
+                )
+            },
         }),
+        // `min_gas_purchase_price` only takes effect once `AccountCostIncrease` is enabled; keep
+        // it zero otherwise so the config matches the real stable config.
+        min_gas_purchase_price: if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+            Balance::from_yoctonear(rng.next_u64() as u128 % 1000)
+        } else {
+            Balance::ZERO
+        },
+        // The fees above are tiny random numbers, set account_creation_charge to zero so that the
+        // invariant `min_gas_purchase_price * create_account.exec >= account_creation_charge`
+        // always holds.
+        account_creation_charge: Balance::ZERO,
         ..RuntimeConfig::test()
     }
 }

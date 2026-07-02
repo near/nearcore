@@ -1,4 +1,9 @@
 use crate::Error;
+use crate::runtime::metrics::{
+    DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS, DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS,
+    DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD, DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE,
+    DYNAMIC_RESHARDING_SHARD_MEMORY_USAGE, set_proposed_split_metrics,
+};
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, HasContract,
@@ -7,13 +12,9 @@ use crate::types::{
     StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
-use near_async::thread_pool::{contract_compilation_pool, contract_warming_pool};
+use near_async::thread_pool::{background_runtime_tasks, contract_compilation_pool};
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{
-    GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig,
-    default_contract_cache_warming_max_item_count,
-    default_contract_cache_warming_pool_thread_count,
-};
+use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -25,7 +26,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
-use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig, ShardLayoutConfig};
+use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
@@ -105,22 +106,11 @@ pub struct RuntimeOptions {
     pub is_cloud_archival_writer: bool,
     /// Persist receipt-to-transaction origin mappings to disk.
     pub save_receipt_to_tx: bool,
-    /// Number of worker threads in the contract cache-warming pool. `0` disables warming (no pool created);
-    pub contract_cache_warming_pool_thread_count: usize,
-    /// Maximum number of warming submissions allowed to sit in the pool's
-    /// queue at once.  `0` disables warming (every submission rejects silently).
-    pub contract_cache_warming_max_item_count: usize,
 }
 
 impl Default for RuntimeOptions {
     fn default() -> Self {
-        Self {
-            is_cloud_archival_writer: false,
-            save_receipt_to_tx: true,
-            contract_cache_warming_pool_thread_count:
-                default_contract_cache_warming_pool_thread_count(),
-            contract_cache_warming_max_item_count: default_contract_cache_warming_max_item_count(),
-        }
+        Self { is_cloud_archival_writer: false, save_receipt_to_tx: true }
     }
 }
 
@@ -139,16 +129,7 @@ impl NightshadeRuntime {
         state_parts_compression_lvl: i32,
         options: RuntimeOptions,
     ) -> Arc<Self> {
-        let RuntimeOptions {
-            is_cloud_archival_writer,
-            save_receipt_to_tx,
-            contract_cache_warming_pool_thread_count,
-            contract_cache_warming_max_item_count,
-        } = options;
-        node_runtime::cache_warming::init_warming(node_runtime::cache_warming::WarmingConfig {
-            thread_count: contract_cache_warming_pool_thread_count,
-            max_item_count: contract_cache_warming_max_item_count,
-        });
+        let RuntimeOptions { is_cloud_archival_writer, save_receipt_to_tx } = options;
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
@@ -309,6 +290,11 @@ impl NightshadeRuntime {
             block_height,
             prev_block_hash,
         )?;
+        if apply_reason == ApplyChunkReason::UpdateTrackedShard
+            && ProtocolFeature::DynamicResharding.enabled(current_protocol_version)
+        {
+            set_proposed_split_metrics(shard_uid, proposed_split.as_ref());
+        }
 
         tracing::debug!(
             target: "runtime",
@@ -619,9 +605,13 @@ impl NightshadeRuntime {
         }
 
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         match check_dynamic_resharding(shard_trie, shard_id, shard_layout, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
+                DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS
+                    .with_label_values(&[&shard_uid.to_string()])
+                    .inc();
                 tracing::error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed");
                 Ok(None)
             }
@@ -719,14 +709,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_shard_limit(&self, protocol_version: ProtocolVersion) -> NumShards {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_config = epoch_manager.get_epoch_config(protocol_version);
-        match epoch_config.shard_layout_config {
-            ShardLayoutConfig::Static { shard_layout } => shard_layout.num_shards(),
-            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => {
-                dynamic_resharding_config.max_number_of_shards
-            }
-        }
+        self.epoch_manager.read().get_epoch_config(protocol_version).max_num_shards()
     }
 
     fn validate_tx(
@@ -781,7 +764,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
+        let (signer, access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
@@ -815,11 +798,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             match verify_and_charge_tx_ephemeral(
                 runtime_config,
                 &signer,
-                &mut access_key,
+                &access_key,
                 &tx,
                 &cost,
                 block_height,
-                current_protocol_version,
                 pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
@@ -989,7 +971,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
-                if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
+                if total_size.saturating_add(tx_peek.size_for_limits(protocol_version))
+                    > size_limit as u64
+                {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
@@ -1065,12 +1049,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let nonce_index = validated_tx.nonce().nonce_index();
-                let (account, key_entry) = signer_overlay.get_or_load_entry_mut(
+                let Some((account, key_entry)) = signer_overlay.get_or_load_entry_mut(
                     &state_update,
                     validated_tx.signer_id(),
                     validated_tx.public_key(),
                     nonce_index,
-                )?;
+                )?
+                else {
+                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction whose signer state is missing");
+                    rejected_invalid_tx += 1;
+                    continue;
+                };
 
                 // Check pending transaction queue constraints.
                 let has_contract =
@@ -1104,7 +1093,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
                         account,
-                        &mut key_entry.access_key,
+                        &key_entry.access_key,
                         current_nonce,
                         validated_tx.to_tx(),
                         &cost,
@@ -1115,11 +1104,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
                         account,
-                        &mut key_entry.access_key,
+                        &key_entry.access_key,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
-                        protocol_version,
                         &pending_constraints,
                     )
                 };
@@ -1132,7 +1120,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
-                        total_size += validated_tx.get_size();
+                        total_size += validated_tx.size_for_limits(protocol_version);
                         prepared_transactions.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;
@@ -1633,22 +1621,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn on_protocol_version_update(&self, new_protocol_version: ProtocolVersion) {
         let cache = self.compiled_contract_cache.handle();
         let job = move || cache.on_protocol_version_update(new_protocol_version);
-        match contract_warming_pool() {
-            Some(pool) => pool.spawn_boxed(Box::new(job)),
-            None => {
-                if let Err(err) = std::thread::Builder::new()
-                    .name("contract-cache-pv-update".to_string())
-                    .spawn(job)
-                {
-                    tracing::warn!(
-                        target: "runtime",
-                        err = &err as &dyn std::error::Error,
-                        new_protocol_version,
-                        "failed to spawn contract cache protocol-version-update thread; skipping",
-                    );
-                }
-            }
-        }
+        background_runtime_tasks().spawn_boxed(Box::new(job));
     }
 
     fn precompile_contracts(
@@ -1692,15 +1665,12 @@ fn peek_nonce_for_gap_check(
     account_id: &AccountId,
     public_key: &PublicKey,
     nonce_index: Option<NonceIndex>,
-) -> Result<Option<Nonce>, Error> {
+) -> Result<Option<Nonce>, StorageError> {
     let throwaway_trie = trie.recording_reads_new_recorder();
     if let Some(idx) = nonce_index {
         get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)
-            .map_err(|_| Error::InvalidTransactions)
     } else {
-        let access_key = get_access_key(&throwaway_trie, account_id, public_key)
-            .map_err(|_| Error::InvalidTransactions)?;
-        Ok(access_key.map(|ak| ak.nonce))
+        Ok(get_access_key(&throwaway_trie, account_id, public_key)?.map(|ak| ak.nonce))
     }
 }
 
@@ -1760,6 +1730,16 @@ fn check_dynamic_resharding(
     shard_layout: ShardLayout,
     config: &DynamicReshardingConfig,
 ) -> Result<Option<TrieSplit>, FindSplitError> {
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let mem_usage = total_mem_usage(shard_trie)?;
+
+    DYNAMIC_RESHARDING_SHARD_MEMORY_USAGE
+        .with_label_values(&[&shard_uid.to_string()])
+        .set(mem_usage as i64);
+    DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD.set(config.memory_usage_threshold as i64);
+    DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE.set(config.min_child_memory_usage as i64);
+    DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS.set(config.max_number_of_shards as i64);
+
     if shard_layout.num_shards() >= config.max_number_of_shards {
         return Ok(None);
     }
@@ -1771,7 +1751,7 @@ fn check_dynamic_resharding(
         return Ok(None);
     }
 
-    if total_mem_usage(shard_trie)? < config.memory_usage_threshold {
+    if mem_usage < config.memory_usage_threshold {
         return Ok(None);
     }
     let trie_split = find_trie_split(shard_trie)?;

@@ -17,10 +17,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 fn test_caches_compilation_error() {
     with_vm_variants(|vm_kind: VMKind| {
         let config = Arc::new(test_vm_config(Some(vm_kind)));
-        // The cache is currently properly implemented only for NearVM
+        // The cache is currently properly implemented only for Wasmtime
         match vm_kind {
-            VMKind::NearVm | VMKind::Wasmtime => {}
-            VMKind::Wasmer0 | VMKind::Wasmer2 => return,
+            VMKind::Wasmtime => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => return,
         }
         let cache = MockContractRuntimeCache::default();
         let code = [42; 1000];
@@ -59,8 +59,8 @@ fn test_does_not_cache_io_error() {
     with_vm_variants(|vm_kind: VMKind| {
         let config = Arc::new(test_vm_config(Some(vm_kind)));
         match vm_kind {
-            VMKind::NearVm | VMKind::Wasmtime => {}
-            VMKind::Wasmer0 | VMKind::Wasmer2 => return,
+            VMKind::Wasmtime => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => return,
         }
 
         let code = near_test_contracts::trivial_contract();
@@ -131,89 +131,7 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-fn test_near_vm_artifact_output_stability() {
-    use crate::near_vm_runner::NearVM;
-    use crate::prepare;
-    use near_vm_compiler::{CpuFeature, Target};
-    // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
-    // changes (and only then the hashes here).
-    //
-    // Note that this test is a best-effort fish net. Some changes that should modify the hash will
-    // fall through the cracks here, but hopefully it should catch most of the fish just fine.
-    let seeds = [2, 3, 5, 7, 11, 13, 17];
-    let prepared_hashes = [
-        // See the above comment if you want to change this
-        1542805699164428223,
-        11788457774104175832,
-        3048319894555017963,
-        18191640889921116230,
-        15894836194951303355,
-        5539952618394824567,
-        3355749080719995433,
-    ];
-    let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
-    let compiled_hashes = [
-        // See the above comment if you want to change this
-        14334640818099302233,
-        3088822364801994455,
-        9323816103508019335,
-        10991511583726085305,
-        9651246307898204416,
-        14836449607610025008,
-        16100465623403894777,
-    ];
-    let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
-    for seed in seeds {
-        let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
-
-        let mut config = test_vm_config(Some(VMKind::NearVm));
-        config.reftypes_bulk_memory = false; // NearVM cannot support this feature.
-        let prepared_code =
-            prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
-        let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
-        got_prepared_hashes.push(this_hash);
-        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
-            std::fs::write(format!("prepared{}", this_hash), prepared_code).unwrap();
-        }
-
-        let mut features = CpuFeature::set();
-        features.insert(CpuFeature::AVX);
-        let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
-        let target = Target::new(triple, features);
-        let vm = NearVM::new_for_target(config.into(), target);
-        let artifact = vm.compile_uncached(&contract).unwrap();
-        let serialized = artifact.serialize().unwrap();
-        let this_hash = crate::utils::stable_hash(&serialized);
-        got_compiled_hashes.push(this_hash);
-
-        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
-            let _ = std::fs::write(format!("artifact{}", this_hash), serialized);
-        }
-    }
-    // These asserts have failed as a result of some change and the following text describes what
-    // the implications of the change.
-    //
-    // May need a protocol version change, and definitely wants a `near_vm_runner::VM_CONFIG`
-    // version update too, as below. Maybe something else too.
-    assert!(
-        got_prepared_hashes == prepared_hashes,
-        "contract preparation hashes have changed to {:#?}",
-        got_prepared_hashes
-    );
-    // In this case you will need to adjust the `near_vm_runner::VM_CONFIG` version so that the
-    // cached contracts are evicted from the contract cache.
-    assert!(
-        got_compiled_hashes == compiled_hashes,
-        "VM output hashes have changed to {:#?}",
-        got_compiled_hashes
-    );
-    // Once it has been confirmed that these steps have been done, the expected hashes in this test
-    // can be adjusted.
-}
-
-#[test]
-#[cfg(all(feature = "wasmtime", target_arch = "x86_64"))]
+#[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
 fn test_wasmtime_artifact_output_stability() {
     use crate::prepare;
     use crate::wasmtime_runner::WasmtimeVM;

@@ -287,6 +287,51 @@
         "title": "AccessKeyView",
         "type": "object"
       },
+      "AccountContractView": {
+        "description": "RPC view of a non-empty [`AccountContract`]. The `AccountContract::None`\nvariant is represented externally as a JSON `null` via `Option`, so this\nenum only carries the three \"contract is present\" cases. Serializes as\nan externally-tagged object:\n\n- `Local(hash)` → `{\"local\": \"<CryptoHash>\"}`\n- `GlobalHash(hash)` → `{\"global_hash\": \"<CryptoHash>\"}`\n- `GlobalAccountId(id)` → `{\"global_account_id\": \"<AccountId>\"}`\n\nMirrors [`AccountContract`] 1:1 (minus `None`) so consumers can preserve\nthe distinction between a global-by-hash and global-by-account contract\nwithout descending into a nested identifier.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "local": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "local"
+            ],
+            "title": "Local",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "global_hash"
+            ],
+            "title": "GlobalHash",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "global_account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            },
+            "required": [
+              "global_account_id"
+            ],
+            "title": "GlobalAccountId",
+            "type": "object"
+          }
+        ],
+        "title": "AccountContractView"
+      },
       "AccountCreationConfigView": {
         "description": "The structure describes configuration for creation of new accounts.",
         "properties": {
@@ -1143,6 +1188,38 @@
             ],
             "title": "GasKeyBalanceTooHigh",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "DelegateAction nonce index is outside the gas key's nonce range",
+            "properties": {
+              "DelegateActionInvalidNonceIndex": {
+                "properties": {
+                  "nonce_index": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "num_nonces": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce_index",
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DelegateActionInvalidNonceIndex"
+            ],
+            "title": "DelegateActionInvalidNonceIndex",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -1346,6 +1423,31 @@
               "Delegate"
             ],
             "title": "Delegate",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DelegateV2": {
+                "properties": {
+                  "delegate_action": {
+                    "$ref": "#/components/schemas/VersionedDelegateActionPayload"
+                  },
+                  "signature": {
+                    "$ref": "#/components/schemas/Signature"
+                  }
+                },
+                "required": [
+                  "delegate_action",
+                  "signature"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DelegateV2"
+            ],
+            "title": "DelegateV2",
             "type": "object"
           },
           {
@@ -2362,6 +2464,15 @@
             ],
             "description": "Signature of the block producer."
           },
+          "spice_chunk_endorsement_stats": {
+            "items": {
+              "$ref": "#/components/schemas/SpiceChunkEndorsementStats"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "timestamp": {
             "description": "Legacy json number. Should not be used.",
             "format": "uint64",
@@ -3175,6 +3286,66 @@
         "title": "DelegateAction",
         "type": "object"
       },
+      "DelegateActionV2": {
+        "description": "Delegate action with gas key support: `nonce` selects either the access\nkey's nonce or one of a gas key's parallel nonces by index, mirroring\n`TransactionV1`.",
+        "properties": {
+          "actions": {
+            "description": "List of actions to be executed.",
+            "items": {
+              "$ref": "#/components/schemas/NonDelegateAction"
+            },
+            "type": "array"
+          },
+          "max_block_height": {
+            "description": "The maximal height of the block in the blockchain below which the given DelegateActionV2 is valid.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TransactionNonce"
+              }
+            ],
+            "description": "Nonce of the signing key, advanced when this action is processed. For\na gas key it also selects which of the parallel nonces to advance."
+          },
+          "public_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "Public key used to sign this delegated action."
+          },
+          "receiver_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "Receiver of the delegated actions."
+          },
+          "sender_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "Signer of the delegated actions"
+          }
+        },
+        "required": [
+          "sender_id",
+          "receiver_id",
+          "actions",
+          "nonce",
+          "max_block_height",
+          "public_key"
+        ],
+        "title": "DelegateActionV2",
+        "type": "object"
+      },
       "DeleteAccountAction": {
         "properties": {
           "beneficiary_id": {
@@ -3436,6 +3607,23 @@
       },
       "ExecutionMetadataView": {
         "properties": {
+          "contracts": {
+            "description": "One entry per action in the receipt (V4+ only): the contract attached\nto the receiver account immediately before that action ran. The inner\n`Option` is `Some` (a tagged contract object) when the account had a\ncontract and `None` (rendered as JSON `null`) when it did not (e.g. an\naccount with no code, or one that did not yet exist). The outer\n`Option` is `None` for older metadata versions.",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AccountContractView"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "gas_profile": {
             "items": {
               "$ref": "#/components/schemas/CostGasUsed"
@@ -4233,43 +4421,6 @@
           }
         },
         "title": "ExtCostsConfigView",
-        "type": "object"
-      },
-      "ExternalStorageConfig": {
-        "properties": {
-          "external_storage_fallback_threshold": {
-            "default": 3,
-            "description": "The number of attempts the node will make to obtain a part from peers in\nthe network before it fetches from external storage.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "location": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ExternalStorageLocation"
-              }
-            ],
-            "description": "Location of state parts."
-          },
-          "num_concurrent_requests": {
-            "default": 25,
-            "description": "When fetching state parts from external storage, throttle fetch requests\nto this many concurrent requests.",
-            "format": "uint8",
-            "maximum": 255,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "num_concurrent_requests_during_catchup": {
-            "default": 5,
-            "description": "During catchup, the node will use a different number of concurrent requests\nto reduce the performance impact of state sync.",
-            "format": "uint8",
-            "maximum": 255,
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "title": "ExternalStorageConfig",
         "type": "object"
       },
       "ExternalStorageLocation": {
@@ -5881,6 +6032,16 @@
           {
             "const": "DepositWithFunctionCall",
             "description": "Having a deposit with a function call action is not allowed with a function call access key.",
+            "type": "string"
+          },
+          {
+            "const": "DelegateActionRequiresNonGasKey",
+            "description": "Gas keys track nonces per index in dedicated storage, which a plain\naccess key nonce does not select, so a gas key must sign a `DelegateV2`\nwith a gas key nonce instead.",
+            "type": "string"
+          },
+          {
+            "const": "DelegateActionRequiresGasKey",
+            "description": "A delegate action with a gas key nonce must be signed by a gas key.",
             "type": "string"
           }
         ],
@@ -8005,18 +8166,6 @@
               }
             ]
           },
-          "contract_cache_warming_max_item_count": {
-            "description": "Max warming submissions allowed in the pool's queue. Submissions\nover the cap bump `near_contract_cache_warming_dropped_total`. `0`\ndisables warming (same as setting\n`contract_cache_warming_pool_thread_count` to 0).",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "contract_cache_warming_pool_thread_count": {
-            "description": "Number of worker threads in the contract cache-warming pool. The\npool runs at the lowest realtime priority of any near pool, so the\nthreads yield to chunk application and witness work. Setting this\nto 0 disables warming (the pool is never instantiated). See\n[`contract_cache_warming_max_item_count`] for the other disable knob.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
           "disable_tx_routing": {
             "description": "If true, the node won't forward transactions to next the chunk producers.",
             "type": "boolean"
@@ -8294,19 +8443,8 @@
             ],
             "description": "Options for syncing state."
           },
-          "state_sync_external_backoff": {
-            "description": "Additional waiting period after a failed request to external storage",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
-          },
           "state_sync_external_timeout": {
-            "description": "How long to wait for a response from centralized state sync",
+            "description": "How long to wait for a state sync block request response",
             "items": {
               "format": "uint64",
               "minimum": 0,
@@ -10291,6 +10429,15 @@
       "RuntimeConfigView": {
         "description": "View that preserves JSON format of the runtime config.",
         "properties": {
+          "account_creation_charge": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "How much creating an account should cost in NEAR. Taken into account when burning gas for\naccount creation."
+          },
           "account_creation_config": {
             "allOf": [
               {
@@ -10306,6 +10453,15 @@
               }
             ],
             "description": "The configuration for congestion control."
+          },
+          "min_gas_purchase_price": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "Minimum price at which the gas attached to a receipt is purchased. The price at which it is\nburned might be lower, in which case the difference is refunded after execution."
           },
           "storage_amount_per_byte": {
             "allOf": [
@@ -10379,6 +10535,14 @@
               }
             ],
             "description": "Describes the cost of creating a data receipt, `DataReceipt`."
+          },
+          "ml_dsa_65_verification_cost": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Describes the extra cost of verifying an ML-DSA-65 signature above the\ncost of verifying the standard signature types."
           },
           "pessimistic_gas_price_inflation_ratio": {
             "description": "Pessimistic gas price inflation ratio.",
@@ -10775,6 +10939,27 @@
           "is_double_sign"
         ],
         "title": "SlashedValidator",
+        "type": "object"
+      },
+      "SpiceChunkEndorsementStats": {
+        "description": "Per-validator chunk endorsement stats accumulated over a spice epoch,\nindexed by the current epoch's validator id. Carried on the last block of\nthe epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.",
+        "properties": {
+          "expected": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "produced": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "produced",
+          "expected"
+        ],
+        "title": "SpiceChunkEndorsementStats",
         "type": "object"
       },
       "StakeAction": {
@@ -11793,20 +11978,6 @@
             "const": "Peers",
             "description": "Syncs state from the peers without reading anything from external storage.",
             "type": "string"
-          },
-          {
-            "additionalProperties": false,
-            "description": "Expects parts to be available in external storage.\n\nUsually as a fallback after some number of attempts to use peers.",
-            "properties": {
-              "ExternalStorage": {
-                "$ref": "#/components/schemas/ExternalStorageConfig"
-              }
-            },
-            "required": [
-              "ExternalStorage"
-            ],
-            "title": "ExternalStorage",
-            "type": "object"
           }
         ],
         "title": "SyncConfig"
@@ -11910,6 +12081,66 @@
           }
         ],
         "title": "TrackedShardsConfig"
+      },
+      "TransactionNonce": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Simple nonce without index, used by ordinary access keys",
+            "properties": {
+              "Nonce": {
+                "properties": {
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Nonce"
+            ],
+            "title": "Nonce",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Nonce with index, used by gas keys",
+            "properties": {
+              "GasKeyNonce": {
+                "properties": {
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "nonce_index": {
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "nonce",
+                  "nonce_index"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyNonce"
+            ],
+            "title": "GasKeyNonce",
+            "type": "object"
+          }
+        ],
+        "title": "TransactionNonce"
       },
       "TransferAction": {
         "properties": {
@@ -12066,16 +12297,20 @@
       },
       "VMConfigView": {
         "properties": {
+          "bls12381_not_in_group_fix": {
+            "description": "See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).",
+            "type": "boolean"
+          },
+          "chain_id_host_fn": {
+            "description": "See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).",
+            "type": "boolean"
+          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"
           },
           "eth_implicit_accounts": {
             "description": "See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).",
-            "type": "boolean"
-          },
-          "eth_implicit_global_contract": {
-            "description": "See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).",
             "type": "boolean"
           },
           "ext_costs": {
@@ -12463,6 +12698,41 @@
           "commit"
         ],
         "title": "Version",
+        "type": "object"
+      },
+      "VersionedDelegateActionPayload": {
+        "description": "Versions of the delegate action carried by `Action::DelegateV2`. New\nversions add a variant here rather than a new `Action` variant. The variant\nis part of the signed payload, so a signature can't be ambiguous across\nversions.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V2": {
+                "$ref": "#/components/schemas/DelegateActionV2"
+              }
+            },
+            "required": [
+              "V2"
+            ],
+            "title": "V2",
+            "type": "object"
+          }
+        ],
+        "title": "VersionedDelegateActionPayload"
+      },
+      "VersionedSignedDelegateAction": {
+        "properties": {
+          "delegate_action": {
+            "$ref": "#/components/schemas/VersionedDelegateActionPayload"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        },
+        "required": [
+          "delegate_action",
+          "signature"
+        ],
+        "title": "VersionedSignedDelegateAction",
         "type": "object"
       },
       "WasmTrap": {

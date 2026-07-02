@@ -1,6 +1,5 @@
 use crate::runtime_group_tools::RuntimeGroup;
 use near_crypto::InMemorySigner;
-#[cfg(feature = "nightly")]
 use near_primitives::account::GasKeyInfo;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
@@ -54,7 +53,7 @@ fn test_simple_func_call() {
         actions,
         a0, Action::FunctionCall(_function_call_action), {}
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 // single promise, no callback (A->B)
@@ -108,7 +107,7 @@ fn test_single_promise_no_callback() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -118,7 +117,7 @@ fn test_single_promise_no_callback() {
         assert_eq!(function_call_action.gas, GAS_2);
         assert!(function_call_action.deposit.is_zero());
     });
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 // single promise with callback (A->B=>C)
@@ -180,7 +179,7 @@ fn test_single_promise_with_callback() {
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let data_id;
 
@@ -195,7 +194,7 @@ fn test_single_promise_with_callback() {
         assert_eq!(function_call_action.gas, GAS_2);
         assert!(function_call_action.deposit.is_zero());
     });
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
@@ -209,7 +208,7 @@ fn test_single_promise_with_callback() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 // two promises, no callbacks (A->B->C)
@@ -271,7 +270,7 @@ fn test_two_promises_no_callbacks() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -283,7 +282,7 @@ fn test_two_promises_no_callbacks() {
         }
     );
     let [r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -294,7 +293,7 @@ fn test_two_promises_no_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 // two promises, with two callbacks (A->B->C=>D=>E) where call to E is initialized by completion of D.
@@ -376,7 +375,7 @@ fn test_two_promises_with_two_callbacks() {
     let [r1, cb1, refunds @ ..] = &receipts else {
         panic!("Incorrect number of produced receipts")
     };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -390,7 +389,7 @@ fn test_two_promises_with_two_callbacks() {
     let [r2, cb2, refunds @ ..] = &receipts else {
         panic!("Incorrect number of produced receipts")
     };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -401,7 +400,7 @@ fn test_two_promises_with_two_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 
     let receipts = &*assert_receipts!(group, "near_2" => cb2 @ "near_4",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -412,7 +411,7 @@ fn test_two_promises_with_two_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => cb1 @ "near_5",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -423,7 +422,7 @@ fn test_two_promises_with_two_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 // Batch actions tests
@@ -481,7 +480,7 @@ fn test_single_promise_no_callback_batch() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -492,7 +491,7 @@ fn test_single_promise_no_callback_batch() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 // single promise with callback (A->B=>C) with batch actions
@@ -560,7 +559,7 @@ fn test_single_promise_with_callback_batch() {
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let data_id;
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
@@ -575,7 +574,7 @@ fn test_single_promise_with_callback_batch() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
@@ -589,7 +588,7 @@ fn test_single_promise_with_callback_batch() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 #[test]
@@ -643,7 +642,7 @@ fn test_simple_transfer() {
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
 
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -654,7 +653,7 @@ fn test_simple_transfer() {
         }
     );
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 }
 
 #[test]
@@ -715,7 +714,7 @@ fn test_create_account_with_transfer_and_full_key() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -733,7 +732,7 @@ fn test_create_account_with_transfer_and_full_key() {
     );
 
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 }
 
 #[test]
@@ -834,7 +833,7 @@ fn test_account_factory() {
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let data_id;
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
@@ -868,7 +867,7 @@ fn test_account_factory() {
     );
     let [r3, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
@@ -883,7 +882,7 @@ fn test_account_factory() {
     );
     let [r4, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_2" => r3 @ "near_0",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -894,7 +893,7 @@ fn test_account_factory() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 
     let receipts = &*assert_receipts!(group, "near_2" => r4 @ "near_1",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -906,7 +905,7 @@ fn test_account_factory() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert_eq!(receipts, [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 }
 
 #[test]
@@ -997,7 +996,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
 
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1029,7 +1028,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
 
     let [r2, r3, refunds @ ..] = &receipts else { panic!("must have 2 outgoing receipts") };
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_3" => r2 @ "near_0",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1041,7 +1040,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }
     );
     // For gas price difference
-    assert_eq!(receipts[..], [], "refund should have been avoided");
+    group.assert_gas_refunds(&receipts[..]);
 
     // last receipt is refund for deleted account balance, going to near_2
     assert_refund!(group, r3 @ "near_2");
@@ -1104,7 +1103,7 @@ fn test_transfer_64len_hex() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
     ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1115,7 +1114,7 @@ fn test_transfer_64len_hex() {
        }
     );
 
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 }
 
 #[test]
@@ -1181,7 +1180,7 @@ fn test_create_transfer_64len_hex_fail() {
     println!("receipts: {:?}", receipts);
 
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1199,7 +1198,7 @@ fn test_create_transfer_64len_hex_fail() {
     assert_refund!(group, deposit_refund @ "near_1");
 
     // For gas price difference
-    assert_eq!(refunds, [], "refund should have been avoided");
+    group.assert_gas_refunds(&refunds[..]);
 }
 
 // redirect the balance refund using `promise_refund_to`
@@ -1272,7 +1271,8 @@ fn test_refund_to() {
             assert_eq!(function_call_action.method_name, "call_promise");
         }
     );
-    let [r1] = &receipts else { panic!("Incorrect number of produced receipts") };
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    group.assert_gas_refunds(&refunds[..]);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1284,16 +1284,20 @@ fn test_refund_to() {
             assert_eq!(function_call_action.method_name, "non_existing_function");
         }
     );
-    let [deposit_refund] = &receipts else { panic!("Incorrect number of produced receipts") };
+    // The redirected deposit refund (to `near_3`) is emitted first; any trailing receipt is the
+    // gas refund for executing this receipt.
+    let [deposit_refund, refunds @ ..] = &receipts else {
+        panic!("Incorrect number of produced receipts")
+    };
+    group.assert_gas_refunds(&refunds[..]);
 
     // This is the redirected refund
     assert_refund!(group, deposit_refund @ "near_3");
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn test_create_account_add_gas_key_full_access() {
-    let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
+    let group = RuntimeGroup::new(3, 2, near_test_contracts::rs_contract());
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
     let signer_new_account = group.signers[2].clone();
@@ -1372,10 +1376,9 @@ fn test_create_account_add_gas_key_full_access() {
     );
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn test_create_account_add_gas_key_function_call() {
-    let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
+    let group = RuntimeGroup::new(3, 2, near_test_contracts::rs_contract());
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
     let signer_new_account = group.signers[2].clone();

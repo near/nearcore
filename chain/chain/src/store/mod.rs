@@ -4,15 +4,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
 use near_chain_primitives::error::Error;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{
-    ProcessedReceipt, ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo,
-};
+use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -35,8 +33,7 @@ use near_primitives::types::{
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
-    to_timestamp,
+    get_block_shard_id, get_outcome_id_block_hash_rev, index_to_bytes, to_timestamp,
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
@@ -54,7 +51,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::sync::Arc;
-use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
+use utils::{
+    check_transaction_validity_period, compute_transaction_validity,
+    early_prepare_txs_check_validity_period,
+};
 
 pub mod latest_witnesses;
 pub mod utils;
@@ -517,17 +517,12 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Vec<bool> {
-        chunk
-            .to_transactions()
-            .into_iter()
-            .map(|signed_tx| {
-                self.check_transaction_validity_period(
-                    prev_block_header,
-                    signed_tx.transaction.block_hash(),
-                )
-                .is_ok()
-            })
-            .collect()
+        compute_transaction_validity(
+            &self.store,
+            self.transaction_validity_period,
+            prev_block_header,
+            chunk,
+        )
     }
 
     /// Builds a closure that checks whether a gapped strict-nonce transaction's
@@ -1042,11 +1037,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
-    processed_receipt_ids: HashMap<(CryptoHash, ShardId), Arc<Vec<ProcessedReceiptMetadata>>>,
-    processed_receipts_to_save: Vec<Receipt>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
-    outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
-    outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
     transactions: HashMap<CryptoHash, Arc<SignedTransaction>>,
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
@@ -1054,7 +1045,6 @@ pub(crate) struct ChainStoreCacheUpdate {
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
-    receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
     chunk_producers: HashMap<(CryptoHash, ShardId), ValidatorStake>,
 }
 
@@ -1341,13 +1331,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
-        if let Some(metadata) =
-            self.chain_store_cache_update.processed_receipt_ids.get(&(*block_hash, shard_id))
-        {
-            Ok(Arc::clone(metadata))
-        } else {
-            self.chain_store.get_processed_receipt_ids(block_hash, shard_id)
-        }
+        self.chain_store.get_processed_receipt_ids(block_hash, shard_id)
     }
 
     /// Get receipts produced for block with given hash.
@@ -1647,30 +1631,6 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
     }
 
-    pub fn save_processed_receipt_ids(
-        &mut self,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-        processed_receipts: Vec<ProcessedReceipt>,
-        receipt_to_tx_ids: Vec<CryptoHash>,
-    ) {
-        let mut metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
-            .iter()
-            .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
-            .collect();
-        if self.chain_store.save_receipt_to_tx {
-            for id in receipt_to_tx_ids {
-                metadata.push(ProcessedReceiptMetadata::new(id, ReceiptSource::ReceiptToTxGc));
-            }
-        }
-        self.chain_store_cache_update
-            .processed_receipts_to_save
-            .extend(processed_receipts.into_iter().map(|pr| pr.receipt));
-        self.chain_store_cache_update
-            .processed_receipt_ids
-            .insert((*hash, shard_id), Arc::new(metadata));
-    }
-
     pub fn save_incoming_receipt(
         &mut self,
         hash: &CryptoHash,
@@ -1678,36 +1638,6 @@ impl<'a> ChainStoreUpdate<'a> {
         receipt_proof: Arc<Vec<ReceiptProof>>,
     ) {
         self.chain_store_cache_update.incoming_receipts.insert((*hash, shard_id), receipt_proof);
-    }
-
-    pub fn save_outcomes_with_proofs(
-        &mut self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-        outcomes: Vec<ExecutionOutcomeWithId>,
-        proofs: Vec<MerklePath>,
-    ) {
-        // The OutcomeIds index is needed for GC of TransactionResultForBlock entries.
-        // ReceiptToTx GC is handled separately via ProcessedReceiptIds.
-        if !self.chain_store.save_tx_outcomes {
-            return;
-        }
-        let mut outcome_ids = Vec::with_capacity(outcomes.len());
-        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
-            outcome_ids.push(outcome_with_id.id);
-            self.chain_store_cache_update.outcomes.insert(
-                (outcome_with_id.id, *block_hash),
-                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
-            );
-        }
-        self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
-    }
-
-    pub fn save_receipt_to_tx(&mut self, receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>) {
-        if !self.chain_store.save_receipt_to_tx {
-            return;
-        }
-        self.chain_store_cache_update.receipt_to_tx.extend(receipt_to_tx);
     }
 
     pub fn save_trie_changes(&mut self, block_hash: CryptoHash, trie_changes: WrappedTrieChanges) {
@@ -1831,12 +1761,15 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_stop_height = Some(height);
     }
 
-    /// Pre-computes and persists chunk producer assignments for the block following `header`.
+    /// Pre-computes and persists chunk producer assignments anchored at `header`.
     ///
-    /// For each shard in the epoch after `header`, samples the chunk producer at
-    /// height `header.height() + 1` and writes it to `DBCol::ChunkProducers` keyed by
-    /// `(header.hash(), shard_id)`. This makes historical chunk producer lookups
-    /// available from the DB without recomputation.
+    /// `header` is the grandparent anchor of the chunks these rows resolve: for
+    /// each shard in the epoch after `header`, samples the chunk producer at
+    /// height `header.height() + 2` (the height of a chunk whose grandparent is
+    /// `header`, absent skips) and writes it to `DBCol::ChunkProducers` keyed by
+    /// `(header.hash(), shard_id)`. Sampling uses the epoch after `header`; a
+    /// chunk in a later epoch never reads this row (the cross-epoch arm of
+    /// `get_chunk_producer_info_anchored` routes it to the canonical sampler).
     ///
     /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
     pub fn save_chunk_producers_for_header(
@@ -1848,11 +1781,11 @@ impl<'a> ChainStoreUpdate<'a> {
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(());
         }
-        let prev_block_hash = header.hash();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let anchor_hash = header.hash();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(anchor_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let height = header.height() + 1;
+        let height = header.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 
         for shard_id in shard_layout.shard_ids() {
             if let Some(validator_id) =
@@ -1861,39 +1794,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 let validator_stake = epoch_info.get_validator(validator_id);
                 self.chain_store_cache_update
                     .chunk_producers
-                    .insert((*prev_block_hash, shard_id), validator_stake);
-            }
-        }
-        Ok(())
-    }
-
-    /// Save chunk producers for genesis chunks which have
-    /// prev_block_hash = CryptoHash::default(). This is called once during
-    /// genesis init so that get_chunk_producer_info_db works for genesis chunks.
-    ///
-    /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
-    pub fn save_genesis_chunk_producers(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        protocol_version: ProtocolVersion,
-        genesis_height: BlockHeight,
-    ) -> Result<(), Error> {
-        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
-            return Ok(());
-        }
-        let default_hash = CryptoHash::default();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&default_hash)?;
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-
-        for shard_id in shard_layout.shard_ids() {
-            if let Some(validator_id) =
-                epoch_info.sample_chunk_producer(&shard_layout, shard_id, genesis_height)
-            {
-                let validator_stake = epoch_info.get_validator(validator_id);
-                self.chain_store_cache_update
-                    .chunk_producers
-                    .insert((default_hash, shard_id), validator_stake);
+                    .insert((*anchor_hash, shard_id), validator_stake);
             }
         }
         Ok(())
@@ -2088,47 +1989,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(block_hash, *shard_id),
                     receipt,
                 );
-            }
-
-            for ((block_hash, shard_id), metadata) in
-                &self.chain_store_cache_update.processed_receipt_ids
-            {
-                store_update.set_ser(
-                    DBCol::ProcessedReceiptIds,
-                    &get_block_shard_id(block_hash, *shard_id),
-                    metadata,
-                );
-            }
-            for receipt in &self.chain_store_cache_update.processed_receipts_to_save {
-                save_receipt(&mut store_update, receipt);
-            }
-        }
-
-        {
-            let _span = tracing::trace_span!(target: "store", "write_outcomes").entered();
-
-            for ((outcome_id, block_hash), outcome_with_proof) in
-                &self.chain_store_cache_update.outcomes
-            {
-                store_update.insert_ser(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(outcome_id, block_hash),
-                    &outcome_with_proof,
-                );
-            }
-            for ((block_hash, shard_id), ids) in &self.chain_store_cache_update.outcome_ids {
-                store_update.set_ser(
-                    DBCol::OutcomeIds,
-                    &get_block_shard_id(block_hash, *shard_id),
-                    &ids,
-                );
-            }
-        }
-
-        {
-            let _span = tracing::trace_span!(target: "store", "write_receipt_to_tx").entered();
-            for (receipt_id, info) in &self.chain_store_cache_update.receipt_to_tx {
-                store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
             }
         }
 

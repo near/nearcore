@@ -5,6 +5,7 @@ use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
+use near_chain::spice::chunk_application::spice_shard_congestion_info;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::PendingConstraints;
 use near_chain::types::RuntimeAdapter;
@@ -176,8 +177,28 @@ impl RpcHandlerActor {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let receiver_shard =
             shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id());
-        let receiver_congestion_info =
-            cur_block.block_congestion_info().get(&receiver_shard).copied();
+        // TODO(spice): get_last_certified_block_header does multiple DB reads
+        // (loading uncertified chunks + block headers). Cache the last certified
+        // block header for the current head, or store the last-certified hash in
+        // chain state so this is O(1).
+        let spice_certified_header = if ProtocolFeature::Spice.enabled(protocol_version) {
+            Some(get_last_certified_block_header(&self.chain_store, &head.last_block_hash)?)
+        } else {
+            None
+        };
+
+        let receiver_congestion_info = if let Some(certified_header) = &spice_certified_header {
+            // Receiver-shard congestion from the last certified block's executed
+            // ChunkExtras, to reject transactions to a congested shard.
+            spice_shard_congestion_info(
+                &self.chain_store,
+                &shard_layout,
+                certified_header.as_ref(),
+                receiver_shard,
+            )
+        } else {
+            cur_block.block_congestion_info().get(&receiver_shard).copied()
+        };
 
         let validated_tx = match self.runtime.validate_tx(
             &shard_layout,
@@ -197,13 +218,8 @@ impl RpcHandlerActor {
 
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
-            // TODO(spice): get_last_certified_block_header does multiple DB reads per
-            // incoming tx (loading uncertified chunks + block headers). Cache the last
-            // certified block header for the current head, or store the last-certified
-            // hash in chain state so this is O(1).
-            let (state_root, constraints) = if ProtocolFeature::Spice.enabled(protocol_version) {
-                let certified_header =
-                    get_last_certified_block_header(&self.chain_store, &head.last_block_hash)?;
+            let (state_root, constraints) = if let Some(certified_header) = &spice_certified_header
+            {
                 let chunk_store = self.chain_store.chunk_store();
                 let root = match chunk_store.get_chunk_extra(certified_header.hash(), &shard_uid) {
                     Ok(chunk_extra) => *chunk_extra.state_root(),

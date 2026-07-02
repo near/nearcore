@@ -375,17 +375,19 @@ impl TestLoopV2 {
             }
         }
         let event_ignored = self.denylisted_identifiers.contains(&event.event.identifier);
-        let start_json = serde_json::to_string(&EventStartLogOutput {
-            current_index: event.id,
-            total_events: self.next_event_index,
-            identifier: event.event.identifier.clone(),
-            current_event: event.event.description,
-            current_time_ms: event.due.whole_milliseconds() as u64,
-            event_ignored,
-        })
-        .unwrap();
-        // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
-        tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
+        if tracing::enabled!(target: "test_loop", tracing::Level::INFO) {
+            let start_json = serde_json::to_string(&EventStartLogOutput {
+                current_index: event.id,
+                total_events: self.next_event_index,
+                identifier: event.event.identifier.clone(),
+                current_event: event.event.description.clone(),
+                current_time_ms: event.due.whole_milliseconds() as u64,
+                event_ignored,
+            })
+            .unwrap();
+            // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
+            tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
+        }
         assert_eq!(self.current_time, event.due);
 
         if !event_ignored {
@@ -400,11 +402,13 @@ impl TestLoopV2 {
         // Push any new events into the queue. Do this before emitting the end log line,
         // so that it contains the correct new total number of events.
         self.queue_received_events();
-        let end_json =
-            serde_json::to_string(&EventEndLogOutput { total_events: self.next_event_index })
-                .unwrap();
-        // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
-        tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_END {}", end_json);
+        if tracing::enabled!(target: "test_loop", tracing::Level::INFO) {
+            let end_json =
+                serde_json::to_string(&EventEndLogOutput { total_events: self.next_event_index })
+                    .unwrap();
+            // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
+            tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_END {}", end_json);
+        }
     }
 
     /// Runs the test loop for the given duration. This function may be called

@@ -252,12 +252,26 @@ pub fn create_chunk(
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
+    // Match the producer: the field is non-empty only on the epoch's last block.
+    let spice_chunk_endorsement_stats = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        client
+            .chain
+            .spice_core_reader
+            .spice_chunk_endorsement_stats_for_next_block(last_block.header(), next_height)
+            .unwrap()
+    } else {
+        Vec::new()
+    };
+    let epoch_sync_data_hash =
+        client.epoch_manager.compute_epoch_sync_data_hash(last_block.hash()).unwrap();
     let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
         .height(next_height)
         .chunks(vec![encoded_chunk.cloned_header()])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut block_merkle_tree)
+        .spice_chunk_endorsement_stats(spice_chunk_endorsement_stats)
+        .epoch_sync_data_hash(epoch_sync_data_hash)
         .build();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
         .map_err(|(err, _)| err)

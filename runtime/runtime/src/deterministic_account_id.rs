@@ -11,7 +11,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_store::{StorageError, TrieUpdate};
-use near_vm_runner::logic::ProtocolVersion;
 
 pub(crate) fn action_deterministic_state_init(
     state_update: &mut TrieUpdate,
@@ -45,7 +44,6 @@ pub(crate) fn action_deterministic_state_init(
             &action.state_init,
             result,
             storage_usage_config,
-            apply_state.current_protocol_version,
         )?;
     }
     if result.result.is_err() {
@@ -123,17 +121,9 @@ fn deploy_deterministic_account(
     state_init: &DeterministicAccountStateInit,
     result: &mut ActionResult,
     storage_usage_config: &StorageUsageConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     // Step 1: set contract code (includes storage usage accounting)
-    use_global_contract(
-        state_update,
-        account_id,
-        account,
-        state_init.code(),
-        current_protocol_version,
-        result,
-    )?;
+    use_global_contract(state_update, account_id, account, state_init.code(), result)?;
     if result.result.is_err() {
         return Ok(());
     }

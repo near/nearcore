@@ -1,5 +1,8 @@
-pub use crate::adapter::EpochManagerAdapter;
-use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
+pub use crate::adapter::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
+use crate::metrics::{
+    DYNAMIC_RESHARDING_SCHEDULED_EPOCH_HEIGHT, PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES,
+    RESHARDING_ASSIGNMENT_STRATEGY,
+};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
 use epoch_info_aggregator::EpochInfoAggregator;
@@ -14,7 +17,7 @@ use near_primitives::epoch_manager::{
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::trie_split::TrieSplit;
@@ -428,6 +431,7 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+        spice_endorsement_tracker: &HashMap<ValidatorId, ValidatorStats>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
@@ -455,6 +459,13 @@ impl EpochManager {
                     chunk_stats.endorsement_stats_mut().expected +=
                         stat.endorsement_stats().expected;
                 }
+            }
+            // On spice epochs endorsements are not embedded per-shard, so the
+            // per-shard tracker above is empty; the endorsement stats come from
+            // the epoch's last block header instead.
+            if let Some(stat) = spice_endorsement_tracker.get(&(i as u64)) {
+                chunk_stats.endorsement_stats_mut().produced += stat.produced;
+                chunk_stats.endorsement_stats_mut().expected += stat.expected;
             }
             total_stake = total_stake.checked_add(v.stake()).unwrap();
             let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
@@ -663,6 +674,24 @@ impl EpochManager {
             *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
+        // On spice epochs, chunk endorsements are accumulated per-validator on
+        // the epoch's last block header rather than embedded per-shard.
+        let spice_endorsement_tracker: HashMap<ValidatorId, ValidatorStats> = last_block_info
+            .spice_chunk_endorsement_stats()
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .map(|(validator_id, stats)| {
+                (
+                    validator_id as ValidatorId,
+                    ValidatorStats {
+                        produced: u64::from(stats.produced),
+                        expected: u64::from(stats.expected),
+                    },
+                )
+            })
+            .collect();
+
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
         let (validator_block_chunk_stats, kickout) = Self::compute_validators_to_reward_and_kickout(
@@ -670,6 +699,7 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
+            &spice_endorsement_tracker,
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);
@@ -735,9 +765,10 @@ impl EpochManager {
         };
 
         // Skip the split if the shard no longer exists in the next layout
-        // (e.g. it was already split in a previous epoch).
+        // (e.g. it was already split in a previous epoch). This should never happen
+        // given the resharding cooldown invariant.
         if !next_shard_layout.shard_ids().any(|id| id == *shard_id) {
-            tracing::info!(
+            tracing::warn!(
                 target: "epoch_manager",
                 ?shard_id,
                 %boundary_account,
@@ -752,6 +783,15 @@ impl EpochManager {
             %boundary_account,
             "dynamic resharding: shard selected for split, deriving new layout"
         );
+        // The layout being derived takes effect two epochs after the one being finalized.
+        // Best-effort: a metrics-only lookup must not fail the layout derivation.
+        if let Ok(epoch_info) = self.get_epoch_info(block_info.epoch_id()) {
+            let scheduled_epoch_height = epoch_info.epoch_height() + 2;
+            let shard_uid = ShardUId::from_shard_id_and_layout(*shard_id, next_shard_layout);
+            DYNAMIC_RESHARDING_SCHEDULED_EPOCH_HEIGHT
+                .with_label_values(&[shard_uid.to_string().as_str(), boundary_account.as_str()])
+                .set(scheduled_epoch_height as i64);
+        }
         let new_layout = next_shard_layout
             .derive_v3(boundary_account.clone(), || {
                 self.get_shard_layout_history(current_protocol_version, None)
@@ -894,6 +934,7 @@ impl EpochManager {
             &next_shard_layout,
             &next_next_shard_layout,
         );
+        RESHARDING_ASSIGNMENT_STRATEGY.with_label_values(&[strategy.metrics_label()]).inc();
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -1906,8 +1947,21 @@ impl EpochManager {
                 Err(e) => return Err(e),
             };
 
+            let chunk_producers = self.anchored_chunk_producers_for_aggregator(
+                &epoch_id,
+                &epoch_info,
+                &shard_layout,
+                &prev_hash,
+                prev_height + 1,
+            );
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
+            aggregator.update_tail(
+                &block_info,
+                &epoch_info,
+                &shard_layout,
+                prev_height,
+                chunk_producers.as_ref(),
+            );
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
@@ -1918,6 +1972,77 @@ impl EpochManager {
 
             cur_hash = prev_hash;
         }))
+    }
+
+    /// Resolve per-shard chunk producers at `height` (the chunk height of the
+    /// block built on `prev_hash`) via the grandparent anchor, mirroring
+    /// `get_chunk_producer_info_anchored` so kickout stats track the producers
+    /// that consensus actually resolved.
+    ///
+    /// Returns `None` when the legacy sampler applies: EarlyKickout off for the
+    /// epoch, no real grandparent (genesis), anchor `BlockInfo` missing (epoch
+    /// sync tail), or anchor in a previous epoch (cross-epoch arm — the
+    /// canonical sampler is exact there since the blacklist is provably empty).
+    fn anchored_chunk_producers_for_aggregator(
+        &self,
+        epoch_id: &EpochId,
+        epoch_info: &EpochInfo,
+        shard_layout: &ShardLayout,
+        prev_hash: &CryptoHash,
+        height: BlockHeight,
+    ) -> Option<HashMap<ShardId, ValidatorId>> {
+        // `DBCol::ChunkProducers` only exists under nightly (as does an enabled
+        // EarlyKickout); stable always uses the legacy sampler.
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_store::DBCol;
+
+            if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
+                return None;
+            }
+            // Missing prev `BlockInfo` is the epoch-sync special case handled by
+            // the caller; resolve that block with the legacy sampler.
+            let prev_block_info = self.get_block_info(prev_hash).ok()?;
+            if prev_block_info.is_genesis() {
+                return None;
+            }
+            let anchor = *prev_block_info.prev_hash();
+            let anchor_block_info = self.get_block_info(&anchor).ok()?;
+            if anchor_block_info.epoch_id() != epoch_id {
+                return None;
+            }
+            let mut chunk_producers = HashMap::new();
+            for shard_id in shard_layout.shard_ids() {
+                let key = get_block_shard_id(&anchor, shard_id);
+                let validator_id = match self
+                    .store
+                    .store_ref()
+                    .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                    .and_then(|stake| epoch_info.get_validator_id(stake.account_id()).copied())
+                {
+                    Some(validator_id) => validator_id,
+                    None => {
+                        // Row absent (writer bug) or account not in the epoch;
+                        // keep aggregation alive with the canonical sample.
+                        tracing::debug!(
+                            target: "epoch_tracker",
+                            ?anchor,
+                            %shard_id,
+                            "chunk producer missing in DB during aggregation, sampling canonically",
+                        );
+                        epoch_info.sample_chunk_producer(shard_layout, shard_id, height)?
+                    }
+                };
+                chunk_producers.insert(shard_id, validator_id);
+            }
+            Some(chunk_producers)
+        }
+        #[cfg(not(feature = "nightly"))]
+        {
+            let _ = (epoch_id, epoch_info, shard_layout, prev_hash, height);
+            None
+        }
     }
 
     /// Get the shard split to include in the block header, if any.

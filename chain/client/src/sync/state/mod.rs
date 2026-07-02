@@ -1,16 +1,13 @@
 pub mod chain_requests;
 mod downloader;
-mod external;
 mod network;
 mod shard;
 mod task_tracker;
 mod util;
 
 use crate::metrics;
-use crate::sync::external::StateSyncConnection;
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
-use external::StateSyncDownloadSourceExternal;
 use futures::future::BoxFuture;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{AsyncSender, IntoAsyncSender};
@@ -18,12 +15,11 @@ use near_async::time::{Clock, Duration, Utc};
 use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{BlockHeader, BlockProcessingArtifact, Chain};
-use near_chain_configs::{ExternalStorageConfig, StateSyncConfig, SyncConcurrency, SyncConfig};
+use near_chain_configs::{StateSyncConfig, SyncConcurrency};
 use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_external_storage::S3AccessConfig;
 use near_network::client::StateResponse;
 use near_network::types::{
     HighestHeightPeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -104,13 +100,6 @@ pub struct StateSync {
 
     /// Concurrency limits.
     concurrency_config: SyncConcurrency,
-
-    /// A minimum delay between attempts for the same state header/part.
-    /// Specifically important in the scenario that a node is configured
-    /// to sync only from external storage (no p2p requests). Usually a
-    /// failure there indicates the file is yet to be uploaded, in which
-    /// case we want to avoid spamming requests aggressively.
-    min_delay_before_reattempt: Duration,
 }
 
 impl StateSync {
@@ -124,17 +113,14 @@ impl StateSync {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         network_adapter: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-        external_timeout: Duration,
+        block_request_timeout: Duration,
         p2p_timeout: Duration,
         retry_backoff: Duration,
-        external_backoff: Duration,
-        chain_id: &str,
         sync_config: &StateSyncConfig,
         chain_requests_sender: ChainSenderForStateSync,
         future_spawner: Arc<dyn FutureSpawner>,
         catchup: bool,
     ) -> Self {
-        let block_request_timeout = external_timeout;
         let peer_source_state =
             Arc::new(Mutex::new(StateSyncDownloadSourcePeerSharedState::default()));
         let peer_source = Arc::new(StateSyncDownloadSourcePeer {
@@ -144,47 +130,13 @@ impl StateSync {
             request_timeout: p2p_timeout,
             state: peer_source_state.clone(),
         }) as Arc<dyn StateSyncDownloadSource>;
-        let (fallback_source, num_attempts_before_fallback, num_concurrent_requests) =
-            if let SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location,
-                num_concurrent_requests,
-                num_concurrent_requests_during_catchup,
-                external_storage_fallback_threshold,
-            }) = &sync_config.sync
-            {
-                let s3_access_config = S3AccessConfig {
-                    timeout: external_timeout.max(Duration::ZERO).unsigned_abs(),
-                    is_readonly: true,
-                };
-                let external = StateSyncConnection::new(location, None, s3_access_config);
-                let num_concurrent_requests = if catchup {
-                    *num_concurrent_requests_during_catchup
-                } else {
-                    *num_concurrent_requests
-                };
-                let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
-                    clock: clock.clone(),
-                    store: store.clone(),
-                    chain_id: chain_id.to_string(),
-                    conn: external,
-                    timeout: external_timeout,
-                }) as Arc<dyn StateSyncDownloadSource>;
-                (
-                    Some(fallback_source),
-                    *external_storage_fallback_threshold as usize,
-                    num_concurrent_requests.min(sync_config.concurrency.peer_downloads),
-                )
-            } else {
-                (None, 0, sync_config.concurrency.peer_downloads)
-            };
 
-        let downloading_task_tracker = TaskTracker::new(usize::from(num_concurrent_requests));
+        let downloading_task_tracker =
+            TaskTracker::new(usize::from(sync_config.concurrency.peer_downloads));
         let downloader = Arc::new(StateSyncDownloader {
             clock: clock.clone(),
             store: store.clone(),
-            preferred_source: peer_source,
-            fallback_source,
-            num_attempts_before_fallback,
+            source: peer_source,
             header_validation_sender: chain_requests_sender.clone().into_async_sender(),
             runtime: runtime.clone(),
             retry_backoff,
@@ -197,15 +149,6 @@ impl StateSync {
             sync_config.concurrency.apply
         };
         let computation_task_tracker = TaskTracker::new(usize::from(num_concurrent_computations));
-
-        let has_fallback = downloader.fallback_source.is_some();
-        let min_delay_before_reattempt = if has_fallback && num_attempts_before_fallback == 0 {
-            // Avoid aggressively checking the external storage for requests which just failed
-            external_backoff
-        } else {
-            // No need to wait if p2p attempts are enabled
-            Duration::ZERO
-        };
 
         Self {
             clock,
@@ -222,7 +165,6 @@ impl StateSync {
             chain_requests_sender,
             shard_syncs: HashMap::new(),
             concurrency_config: sync_config.concurrency,
-            min_delay_before_reattempt,
         }
     }
 
@@ -431,7 +373,6 @@ impl StateSync {
                         cancel.clone(),
                         self.future_spawner.clone(),
                         self.concurrency_config.per_shard,
-                        self.min_delay_before_reattempt,
                     );
                     let (sender, receiver) = oneshot::channel();
 

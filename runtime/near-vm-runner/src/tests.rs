@@ -1,4 +1,5 @@
 mod cache;
+mod chain_id_integration;
 mod compile_errors;
 #[cfg(feature = "prepare")]
 mod fuzzers;
@@ -40,9 +41,6 @@ pub(crate) fn with_vm_variants(runner: impl Fn(VMKind) -> ()) {
 
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
-
-    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-    run(VMKind::NearVm);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {

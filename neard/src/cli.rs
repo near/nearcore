@@ -25,7 +25,6 @@ use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId}
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_replay_tool::ReplayCommand;
 use near_state_parts::cli::StatePartsCommand;
-use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::{Mode, ShardUId};
@@ -160,9 +159,6 @@ impl NeardCmd {
                     &neard_cmd.opts.o11y,
                 )?;
             }
-            NeardSubCommand::StatePartsDumpCheck(cmd) => {
-                cmd.run()?;
-            }
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
@@ -279,9 +275,6 @@ pub(super) enum NeardSubCommand {
     /// Resets the network into a forked network at the given block height and state.
     ForkNetwork(ForkNetworkCommand),
 
-    /// Check completeness of dumped state parts of an epoch
-    StatePartsDumpCheck(StatePartsDumpCheckCommand),
-
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
 
@@ -363,9 +356,6 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Deprecated: cloud state sync is deprecated and will be removed in a future release.
-    #[clap(long, hide = true)]
-    state_sync_bucket: Option<String>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -388,6 +378,26 @@ fn check_release_build(chain: &str) {
                 "running a debug or nightly neard build on this chain is not recommended, ",
                 "consider recompiling with `cargo build -p neard --release`",
             ),
+        );
+    }
+}
+
+/// Panics when attempting to run a mainnet or testnet validator on an
+/// unsupported CPU architecture.
+///
+/// x86_64 is currently the only supported platform for mainnet or testnet
+/// validators. Running a validator on any other architecture (e.g. aarch64/ARM)
+/// risks diverging from the rest of the network, so we refuse to start rather
+/// than risk producing invalid blocks.
+fn check_validator_arch(chain: &str, is_validator: bool) {
+    if !cfg!(target_arch = "x86_64")
+        && is_validator
+        && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
+    {
+        panic!(
+            "running a {chain} validator on the {} architecture is not supported; \
+             validators must run on x86_64",
+            std::env::consts::ARCH
         );
     }
 }
@@ -425,7 +435,6 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-            self.state_sync_bucket.as_deref(),
         )
         .context("Failed to initialize configs")
     }
@@ -492,6 +501,10 @@ impl RunCmd {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
+        check_validator_arch(
+            &near_config.client_config.chain_id,
+            near_config.validator_signer.get().is_some(),
+        );
         check_kernel_params();
 
         // Set current version in client config.

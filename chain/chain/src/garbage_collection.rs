@@ -22,7 +22,7 @@ use near_primitives::utils::{
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::trie_store::maybe_get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
+use near_store::{DBCol, GcPolicy, KeyForStateChanges, ShardTries, ShardUId};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -775,6 +775,7 @@ impl<'a> ChainStoreUpdate<'a> {
             );
         }
         self.gc_col(DBCol::uncertified_chunks(), block_hash.as_ref());
+        self.gc_col(DBCol::spice_endorsement_stats(), block_hash.as_ref());
     }
 
     fn gc_trie_changes(
@@ -1038,191 +1039,18 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn gc_col(&mut self, col: DBCol, key: &[u8]) {
         let mut store_update = self.store().store_update();
-        match col {
-            DBCol::OutgoingReceipts => {
-                panic!("Outgoing receipts must be garbage collected by calling gc_outgoing_receipts");
-            }
-            DBCol::IncomingReceipts => {
+        // Dispatch on the per-column GC policy. `Permanent` and `Other` columns
+        // are never collected through this generic path.
+        match col.gc_policy() {
+            GcPolicy::Delete => {
                 store_update.delete(col, key);
             }
-            DBCol::StateHeaders => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockHeader => {
-                store_update.delete(col, key);
-            }
-            DBCol::Block => {
-                store_update.delete(col, key);
-            }
-            DBCol::NextBlockHashes => {
-                store_update.delete(col, key);
-            }
-            DBCol::ChallengedBlocks => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlocksToCatchup => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateChanges => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockRefCount => {
-                store_update.delete(col, key);
-            }
-            DBCol::Transactions => {
+            GcPolicy::DecrementRefcount => {
                 store_update.decrement_refcount(col, key);
             }
-            DBCol::Receipts => {
-                store_update.decrement_refcount(col, key);
+            GcPolicy::Permanent | GcPolicy::Other => {
+                unreachable!("gc_col called on a column it does not collect: {col:?}");
             }
-            DBCol::Chunks => {
-                store_update.delete(col, key);
-            }
-            DBCol::ChunkExtra => {
-                store_update.delete(col, key);
-            }
-            DBCol::PartialChunks => {
-                store_update.delete(col, key);
-            }
-            DBCol::InvalidChunks => {
-                store_update.delete(col, key);
-            }
-            DBCol::ChunkHashesByHeight => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateParts | DBCol::StatePartsApplied => {
-                store_update.delete(col, key);
-            }
-            DBCol::State => {
-                panic!("Actual gc happens elsewhere, call inc_gc_col_state to increase gc count");
-            }
-            DBCol::TrieChanges => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockPerHeight => {
-                panic!("Must use gc_col_block_per_height method to gc DBCol::BlockPerHeight");
-            }
-            DBCol::TransactionResultForBlock => {
-                store_update.delete(col, key);
-            }
-            DBCol::OutcomeIds => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateDlInfos => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockInfo => {
-                store_update.delete(col, key);
-            }
-            DBCol::ProcessedBlockHeights => {
-                store_update.delete(col, key);
-            }
-            DBCol::HeaderHashesByHeight => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateTransitionData => {
-                store_update.delete(col, key);
-            }
-            DBCol::LatestChunkStateWitnesses => {
-                store_update.delete(col, key);
-            }
-            DBCol::LatestWitnessesByIndex => {
-                store_update.delete(col, key);
-            }
-            DBCol::InvalidChunkStateWitnesses => {
-                store_update.delete(col, key);
-            }
-            DBCol::InvalidWitnessesByIndex => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateSyncNewChunks => {
-                store_update.delete(col, key);
-            }
-            DBCol::ChunkApplyStats => {
-                store_update.delete(col, key);
-            }
-            DBCol::ProcessedReceiptIds => {
-                store_update.delete(col, key);
-            }
-            DBCol::ReceiptToTx => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::ReceiptProofs => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::Witnesses => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::AllNextBlockHashes => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::Endorsements => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::ExecutionResults => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::UncertifiedExecutionResults => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::UncertifiedChunks => {
-                store_update.delete(col, key);
-            }
-            #[cfg(feature = "protocol_feature_spice")]
-            DBCol::ContractAccesses => {
-                store_update.delete(col, key);
-            }
-            DBCol::DbVersion
-            | DBCol::BlockMisc
-            | DBCol::_BlockExtra
-            | DBCol::_GCCount
-            | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
-            | DBCol::_Peers
-            | DBCol::RecentOutboundConnections
-            | DBCol::BlockMerkleTree
-            | DBCol::AccountAnnouncements
-            | DBCol::EpochLightClientBlocks
-            | DBCol::PeerComponent
-            | DBCol::LastComponentNonce
-            | DBCol::ComponentEdges
-            // https://github.com/nearprotocol/nearcore/pull/2952
-            | DBCol::EpochInfo
-            | DBCol::EpochStart
-            | DBCol::EpochValidatorInfo
-            | DBCol::BlockOrdinal
-            | DBCol::_ChunkPerHeightShard
-            | DBCol::_NextBlockWithNewChunk
-            | DBCol::_LastBlockWithNewChunk
-            | DBCol::_TransactionRefCount
-            | DBCol::_TransactionResult
-            | DBCol::StateChangesForSplitStates
-            | DBCol::CachedContractCode
-            | DBCol::FlatState
-            | DBCol::FlatStateChanges
-            | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus
-            | DBCol::EpochSyncProof
-            | DBCol::Misc
-            | DBCol::_ReceiptIdToShardId
-            | DBCol::StateShardUIdMapping
-            // Note that StateSyncHashes should not ever have too many keys in them
-            // because we remove unneeded keys as we add new ones.
-            | DBCol::StateSyncHashes
-            => unreachable!(),
-            // ChunkProducers is not garbage collected. Once dynamic chunk producer
-            // sampling ships, historical assignments cannot be recomputed.
-            // TODO(early-kickout): before moving to stable, add a GC strategy
-            // (e.g. retain only canonical-chain entries or entries within a sliding window)
-            // to prevent unbounded disk growth on long-running nodes.
-            #[cfg(feature = "nightly")]
-            DBCol::ChunkProducers => unreachable!(),
         }
         self.merge(store_update);
     }

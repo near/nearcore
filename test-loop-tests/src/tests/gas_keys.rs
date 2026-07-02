@@ -7,6 +7,7 @@ use near_async::time::Duration;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, FunctionCallPermission};
+use near_primitives::action::delegate::{DelegateActionV2, VersionedSignedDelegateAction};
 use near_primitives::action::{AddKeyAction, DeleteKeyAction, TransferToGasKeyAction};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, ReceiptValidationError, TxExecutionError,
@@ -80,8 +81,6 @@ fn get_gas_key_nonce(
 }
 
 #[test]
-// TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transaction() {
     init_test_logger();
 
@@ -119,7 +118,7 @@ fn test_gas_key_transaction() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(100);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2, // nonce
@@ -177,8 +176,126 @@ fn test_gas_key_transaction() {
 }
 
 #[test]
-// TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_delegate_v2_meta_transaction() {
+    init_test_logger();
+
+    let user_accounts = create_account_ids(["account0", "account1", "account2"]);
+    let initial_balance = Balance::from_near(1_000_000);
+    let gas_price = Balance::from_yoctonear(1);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_accounts(&user_accounts, initial_balance)
+        .gas_prices(gas_price, gas_price)
+        .build();
+
+    let sender = &user_accounts[0]; // owns the gas key and delegates the action
+    let relayer = &user_accounts[1]; // wraps and submits the meta transaction
+    let receiver = &user_accounts[2]; // target of the inner transfer
+    let relayer_signer = create_user_test_signer(relayer);
+    let mut relayer_nonce = 0;
+    let mut next_relayer_nonce = || {
+        relayer_nonce += 1;
+        relayer_nonce
+    };
+
+    // Add a gas key to the sender.
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let num_nonces = 3;
+    let add_key_tx = SignedTransaction::from_actions(
+        1,
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::AddKey(Box::new(AddKeyAction {
+            public_key: gas_key_signer.public_key(),
+            access_key: AccessKey::gas_key_full_access(num_nonces),
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+
+    // Sign a delegate action with the gas key at `nonce_index`, wrapping a
+    // transfer to `receiver`.
+    let nonce_index: NonceIndex = 1;
+    let untouched_nonce_index: NonceIndex = 0;
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+    let untouched_nonce_before =
+        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), untouched_nonce_index);
+    let transfer_amount = Balance::from_near(10);
+    let delegate_action = DelegateActionV2 {
+        sender_id: sender.clone(),
+        receiver_id: receiver.clone(),
+        actions: vec![
+            Action::Transfer(TransferAction { deposit: transfer_amount }).try_into().unwrap(),
+        ],
+        nonce: TransactionNonce::from_nonce_and_index(gas_key_nonce + 1, nonce_index),
+        max_block_height: 1_000_000,
+        public_key: gas_key_signer.public_key(),
+    };
+    let signed_delegate =
+        VersionedSignedDelegateAction::sign(&gas_key_signer, delegate_action.into());
+
+    // The relayer submits it: the outer transaction's receiver is the delegate
+    // sender, who forwards the inner actions.
+    let receiver_balance_before = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let meta_tx = SignedTransaction::from_actions(
+        next_relayer_nonce(),
+        relayer.clone(),
+        sender.clone(),
+        &relayer_signer,
+        vec![Action::DelegateV2(Box::new(signed_delegate.clone()))],
+        block_hash,
+    );
+    let outcome = env.rpc_runner().execute_tx(meta_tx, Duration::seconds(5)).unwrap();
+    assert!(
+        matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "meta transaction failed: {:?}",
+        outcome.status,
+    );
+
+    // Only the chosen nonce index advanced.
+    let updated_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+    assert_eq!(updated_nonce, gas_key_nonce + 1);
+    assert_eq!(
+        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), untouched_nonce_index),
+        untouched_nonce_before,
+    );
+
+    // The inner transfer executed.
+    let receiver_balance_after = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    assert_eq!(
+        receiver_balance_after,
+        receiver_balance_before.checked_add(transfer_amount).unwrap(),
+    );
+
+    // Replaying the same delegate (same gas key nonce) is rejected.
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let replay_tx = SignedTransaction::from_actions(
+        next_relayer_nonce(),
+        relayer.clone(),
+        sender.clone(),
+        &relayer_signer,
+        vec![Action::DelegateV2(Box::new(signed_delegate))],
+        block_hash,
+    );
+    let replay_outcome = env.rpc_runner().execute_tx(replay_tx, Duration::seconds(5)).unwrap();
+    assert!(
+        matches!(
+            replay_outcome.status,
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::DelegateActionInvalidNonce { .. },
+                ..
+            }))
+        ),
+        "expected DelegateActionInvalidNonce on replay, got {:?}",
+        replay_outcome.status,
+    );
+}
+
+#[test]
 fn test_gas_key_refund() {
     init_test_logger();
 
@@ -215,7 +332,7 @@ fn test_gas_key_refund() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(101); // enough to pay for attached 100 TGas + tx cost
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2,
@@ -281,7 +398,6 @@ fn test_gas_key_refund() {
 /// tx directly into the pool and using ProduceWithoutTxVerification mode.
 #[test]
 #[cfg(feature = "test_features")]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_deposit_failed() {
     use near_client::NetworkAdversarialMessage;
     use near_client::client_actor::AdvProduceChunksMode;
@@ -323,7 +439,7 @@ fn test_gas_key_deposit_failed() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(100);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2,
@@ -501,12 +617,12 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
         nonce
     };
 
-    // Deploy the nightly test contract
+    // Deploy the test contract
     let block_hash = env.rpc_node().head().last_block_hash;
     let deploy_tx = SignedTransaction::deploy_contract(
         next_nonce(),
         &account,
-        near_test_contracts::nightly_rs_contract().to_vec(),
+        near_test_contracts::rs_contract().to_vec(),
         &create_user_test_signer(&account),
         block_hash,
     );
@@ -519,7 +635,6 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
 /// Test that a contract can fund a gas key using the
 /// `promise_batch_action_transfer_to_gas_key` host function.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transfer_host_function() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -617,7 +732,6 @@ fn test_gas_key_transfer_host_function() {
 
 /// Test that a contract can create a gas key with full access using the host function.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_full_access_host_function() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -667,7 +781,6 @@ fn test_gas_key_add_full_access_host_function() {
 
 /// Test that a contract can create a gas key with function call permission using the host function.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_function_call_host_function() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -728,7 +841,6 @@ fn test_gas_key_add_function_call_host_function() {
 
 /// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -795,7 +907,6 @@ fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
 
 /// Test creating a gas key via host function, funding it, then using it to send a transaction.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_add_then_fund_then_use() {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
@@ -818,7 +929,7 @@ fn test_gas_key_add_then_fund_then_use() {
     ]));
 
     // Fund the gas key via TransferToGasKey transaction
-    let gas_key_fund_amount = Balance::from_millinear(10);
+    let gas_key_fund_amount = Balance::from_millinear(100);
     setup.run_actions(vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
         public_key: gas_key_signer.public_key(),
         deposit: gas_key_fund_amount,
@@ -912,13 +1023,11 @@ impl GasKeyKind {
 }
 
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_fee_parity_full_access() {
     test_gas_key_fee_parity(GasKeyKind::FullAccess);
 }
 
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_fee_parity_function_call() {
     test_gas_key_fee_parity(GasKeyKind::FunctionCall);
 }

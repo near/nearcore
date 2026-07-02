@@ -180,6 +180,9 @@ fn is_deploy_like_action(action: &Action) -> bool {
         Action::Delegate(signed_delegate) => {
             signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
         }
+        Action::DelegateV2(signed_delegate) => {
+            signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
+        }
         Action::CreateAccount(_)
         | Action::FunctionCall(_)
         | Action::Transfer(_)

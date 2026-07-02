@@ -10,11 +10,18 @@ use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource,
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use near_primitives::utils::get_block_shard_id;
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::BTreeMap;
+
+/// Earlier value of each key changed in one block. `None` = key did not exist.
+/// A `BTreeMap` keeps entries ordered by key, so the serialized blob bytes are
+/// deterministic across writers.
+pub type InverseStateChanges = BTreeMap<TrieKey, Option<Vec<u8>>>;
 
 /// Versioned container for shard-related data stored in the cloud archive.
 /// This is for a single block height (taken from the file path).
@@ -34,6 +41,8 @@ pub enum ShardDataV1 {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct NewChunkData {
+    /// Hash of the containing block.
+    block_hash: CryptoHash,
     /// Read from `DBCol::Chunks`.
     chunk: ShardChunk,
     /// Read from `DBCol::IncomingReceipts`. `None` when no new chunk in
@@ -56,6 +65,8 @@ pub struct NewChunkData {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct CarriedData {
+    /// Hash of the containing block.
+    block_hash: CryptoHash,
     /// Read from `DBCol::ChunkExtra`.
     chunk_extra: ChunkExtra,
     /// Read from `DBCol::ChunkApplyStats`.
@@ -109,6 +120,7 @@ pub fn build_shard_data(
 
     if !chunk_header.is_new_chunk(block_height) {
         return Ok(Some(ShardData::V1(ShardDataV1::Carried(CarriedData {
+            block_hash,
             chunk_extra,
             chunk_apply_stats,
             state_changes,
@@ -123,6 +135,7 @@ pub fn build_shard_data(
     let receipt_to_tx = build_receipt_to_tx(store, &block_hash, shard_id)?;
 
     Ok(Some(ShardData::V1(ShardDataV1::NewChunk(NewChunkData {
+        block_hash,
         chunk,
         incoming_receipts,
         outgoing_receipts,
@@ -213,6 +226,13 @@ fn get_state_changes(
 }
 
 impl ShardData {
+    pub fn block_hash(&self) -> &CryptoHash {
+        match self {
+            ShardData::V1(ShardDataV1::NewChunk(d)) => &d.block_hash,
+            ShardData::V1(ShardDataV1::Carried(d)) => &d.block_hash,
+        }
+    }
+
     pub fn chunk(&self) -> Option<&ShardChunk> {
         match self {
             ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.chunk),
@@ -254,6 +274,20 @@ impl ShardData {
         match self {
             ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.receipt_to_tx),
             ShardData::V1(ShardDataV1::Carried(_)) => None,
+        }
+    }
+
+    pub fn outgoing_receipts(&self) -> Option<&[Receipt]> {
+        match self {
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.outgoing_receipts),
+            ShardData::V1(ShardDataV1::Carried(_)) => None,
+        }
+    }
+
+    // TODO(cloud_archival): return the stored field once the writer attaches it.
+    pub fn inverse_state_changes(&self) -> Option<&InverseStateChanges> {
+        match self {
+            ShardData::V1(_) => None,
         }
     }
 }

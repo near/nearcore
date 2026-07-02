@@ -24,8 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (46, include_config!("46.yaml")),
-    (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
     (50, include_config!("50.yaml")),
     // max_gas_burnt increased to 300 TGas
@@ -61,8 +59,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (83, include_config!("83.yaml")),
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
+    (86, include_config!("86.yaml")),
     (129, include_config!("129.yaml")),
-    (149, include_config!("149.yaml")),
     (155, include_config!("155.yaml")),
 ];
 
@@ -109,6 +107,7 @@ impl RuntimeConfigStore {
                      Error: {err:?}"
                 )
             });
+            initial_config.account_creation_charge = Balance::ZERO;
             let fees = Arc::make_mut(&mut initial_config.fees);
             fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
             store.insert(0, Arc::new(initial_config));
@@ -145,6 +144,7 @@ impl RuntimeConfigStore {
                          version {protocol_version}. Error: {err:?}"
                     )
                 });
+                runtime_config.account_creation_charge = Balance::ZERO;
                 let fees = Arc::make_mut(&mut runtime_config.fees);
                 fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
                 store.insert(*protocol_version, Arc::new(runtime_config));
@@ -349,6 +349,28 @@ mod tests {
         );
     }
 
+    /// The signature-verification cost accepts the `{gas, compute}` form, so
+    /// its compute cost can be set independently of the gas cost.
+    #[test]
+    fn test_signature_verification_compute_cost_override() {
+        use crate::cost::{ParameterCost, SignatureKind};
+
+        let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
+        let mock_diff_str = r#"
+        ml_dsa_65_verification_cost: {
+          old: 0,
+          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+        }
+        "#;
+        base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
+        let modified_config = RuntimeConfig::new(&base_params).unwrap();
+
+        assert_eq!(
+            modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
+            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
+        );
+    }
+
     /// Use snapshot testing to check that the JSON representation of the configurations of each version is unchanged.
     /// If tests fail after an intended change, follow the steps below to update the config files:
     /// 1) Run the following to run tests with cargo insta so it generates all the file differences:
@@ -421,6 +443,7 @@ mod tests {
         let store = RuntimeConfigStore::new(None);
         for (_, config) in &store.store {
             assert!(config.storage_amount_per_byte().is_zero());
+            assert!(config.account_creation_charge.is_zero());
         }
     }
 

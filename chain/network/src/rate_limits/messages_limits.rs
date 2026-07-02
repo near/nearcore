@@ -539,8 +539,15 @@ mod tests {
             4,
             &signer,
         );
-        let v2 =
-            PartialEncodedStateWitnessV2::new(epoch_id, header, 0, b"data".to_vec(), 4, &signer);
+        let v2 = PartialEncodedStateWitnessV2::new(
+            epoch_id,
+            header,
+            CryptoHash::hash_bytes(b"prev_prev_block"),
+            0,
+            b"data".to_vec(),
+            4,
+            &signer,
+        );
         let versioned = VersionedPartialEncodedStateWitness::V2(v2);
 
         let mut rng = make_rng(0xbeef_1234);

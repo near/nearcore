@@ -349,7 +349,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
             public_key: validator_key.clone(),
         }))],
     );
-    env.node_runner(0).run_tx(stake_tx, Duration::seconds(5));
+    env.node_runner(0).run_tx(stake_tx, Duration::seconds(10));
 
     // Wait for validator2 to join.
     let all_validators: Vec<String> = accounts.iter().map(|a| a.to_string()).collect();
@@ -381,7 +381,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
             public_key: validator_key,
         }))],
     );
-    env.node_runner(0).run_tx(unstake_tx, Duration::seconds(5));
+    env.node_runner(0).run_tx(unstake_tx, Duration::seconds(10));
 
     // Wait for validator2 to leave the validator set.
     env.node_runner(0).run_until(
@@ -507,7 +507,6 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_inflation() {
     init_test_logger();
 

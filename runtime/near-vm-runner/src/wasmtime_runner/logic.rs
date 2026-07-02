@@ -59,7 +59,12 @@ macro_rules! bls12381_impl {
                 value_ptr,
                 value_len,
             )?;
-            let res_option = bls12381::$impl_fn_name(&data)?;
+            let version = if ctx.config.bls12381_not_in_group_fix {
+                crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
+            } else {
+                0
+            };
+            let res_option = bls12381::$impl_fn_name(&data, version)?;
 
             if let Some(res) = res_option {
                 ctx.registers.set(
@@ -552,6 +557,26 @@ pub fn current_account_id(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64) -
         &ctx.config.limit_config,
         register_id,
         ctx.context.current_account_id.as_bytes(),
+    )
+}
+
+/// Saves the chain ID of the current chain into the register.
+///
+/// # Errors
+///
+/// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+///
+/// # Cost
+///
+/// `base + write_register_base + write_register_byte * num_bytes`
+pub fn chain_id(ctx: &mut Ctx, _memory: &mut [u8], register_id: u64) -> Result<()> {
+    ctx.result_state.gas_counter.pay_base(base)?;
+    let chain_id = ctx.ext.chain_id();
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.config.limit_config,
+        register_id,
+        chain_id.as_bytes(),
     )
 }
 

@@ -15,7 +15,6 @@ use near_primitives::transaction::{
     Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
@@ -265,18 +264,15 @@ fn check_and_compute_new_allowance(
 /// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
 /// Callers should apply state changes via `VerificationResult::apply` on success.
 ///
-/// Legacy: for pre-`FixAccessKeyAllowanceCharging` protocol versions, the allowance is
-/// mutated on `access_key` before later checks, preserving the historical bug where
-/// failed txs still decrement the allowance. This is the only mutation this function
-/// performs; all other state changes are returned in the `VerificationResult`.
+/// This function performs no mutation; all state changes are returned in the
+/// `VerificationResult`.
 pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
     account: &Account,
-    access_key: &mut AccessKey,
+    access_key: &AccessKey,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
-    protocol_version: ProtocolVersion,
     pending: &PendingConstraints,
 ) -> TxVerdict {
     // It's the caller's responsibility to NOT call this function for transactions with
@@ -332,15 +328,6 @@ pub fn verify_and_charge_tx_ephemeral(
         Ok(a) => a,
         Err(e) => return TxVerdict::Failed(e),
     };
-    // Legacy bug: pre-FixAccessKeyAllowanceCharging protocol versions mutate the allowance
-    // before subsequent checks, causing incorrect allowance decrement on failed txs.
-    // TODO: remove this mutation when the legacy behavior is no longer needed.
-    let fix_allowance = ProtocolFeature::FixAccessKeyAllowanceCharging.enabled(protocol_version);
-    if !fix_allowance {
-        if let Some(new) = new_allowance {
-            access_key.permission.function_call_permission_mut().unwrap().allowance = Some(new);
-        }
-    }
 
     match check_storage_stake(account, new_amount, config) {
         Ok(()) => {}
@@ -678,7 +665,10 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
-    const TESTING_GAS_KEY_BALANCE: Balance = Balance::from_millinear(1);
+    // 10 millinear (was 1). Under AccountCostIncrease the receipt's gas is purchased at
+    // min_gas_purchase_price (1e9 yoctoNEAR/gas), so a 100 Tgas function-call tx costs ~2.4
+    // millinear up-front — 1 millinear is no longer enough to fund the test transaction.
+    const TESTING_GAS_KEY_BALANCE: Balance = Balance::from_millinear(10);
 
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
@@ -897,8 +887,7 @@ mod tests {
             }
         };
 
-        let (signer, mut access_key) = match get_signer_and_access_key(state_update, &validated_tx)
-        {
+        let (signer, access_key) = match get_signer_and_access_key(state_update, &validated_tx) {
             Ok((signer, access_key)) => (signer, access_key),
             Err(err) => {
                 assert_eq!(err, expected_err);
@@ -909,11 +898,10 @@ mod tests {
         let TxVerdict::Failed(err) = verify_and_charge_tx_ephemeral(
             config,
             &signer,
-            &mut access_key,
+            &access_key,
             validated_tx.to_tx(),
             &cost,
             None,
-            current_protocol_version,
             &PendingConstraints::default(),
         ) else {
             panic!("expected Failed verdict");
@@ -956,11 +944,10 @@ mod tests {
             verify_and_charge_tx_ephemeral(
                 config,
                 &signer,
-                &mut access_key,
+                &access_key,
                 tx,
                 &transaction_cost,
                 block_height,
-                current_protocol_version,
                 &PendingConstraints::default(),
             )
         };
@@ -1845,7 +1832,10 @@ mod tests {
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
         );
-        let transaction_size = signed_tx.get_size();
+        // The size gate uses the full wire size (signature included) once
+        // `PostQuantumSignatures` is enabled, and the body-only size before
+        // that. Mirror that here so the test holds on both stable and nightly.
+        let transaction_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
@@ -2486,7 +2476,7 @@ mod tests {
     mod strict_nonce_tests {
         use super::*;
 
-        /// The nightly protocol version where StrictNonce is enabled.
+        /// The protocol version where StrictNonce is enabled.
         const STRICT_NONCE_PROTOCOL_VERSION: ProtocolVersion =
             ProtocolFeature::StrictNonce.protocol_version();
 
@@ -2634,7 +2624,7 @@ mod tests {
         }
 
         #[test]
-        fn test_strict_nonce_rejected_when_feature_disabled() {
+        fn test_strict_nonce_v1_rejected_before_feature() {
             let config = RuntimeConfig::test();
             let (signer, _state_update, _gas_price) =
                 setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
@@ -2648,16 +2638,9 @@ mod tests {
                 CryptoHash::default(),
             );
 
-            // Use a protocol version where StrictNonce is NOT enabled.
-            // GasKeys must be enabled for V1 to be accepted at all.
-            let protocol_version = ProtocolFeature::GasKeys.protocol_version();
-            assert!(
-                !ProtocolFeature::StrictNonce.enabled(protocol_version),
-                "StrictNonce should not be enabled at GasKeys protocol version"
-            );
-
+            let protocol_version = STRICT_NONCE_PROTOCOL_VERSION - 1;
             let err = validate_transaction(&config, signed_tx, protocol_version)
-                .expect_err("strict nonce should be rejected when feature disabled");
+                .expect_err("strict nonce V1 tx should be rejected before the feature");
             assert_eq!(err.0, InvalidTxError::InvalidTransactionVersion);
         }
 

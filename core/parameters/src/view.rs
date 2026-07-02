@@ -1,5 +1,5 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
-use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
+use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
@@ -23,6 +23,14 @@ pub struct RuntimeConfigView {
     pub congestion_control_config: CongestionControlConfigView,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfigView,
+    /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
+    /// burned might be lower, in which case the difference is refunded after execution.
+    #[serde(default)]
+    pub min_gas_purchase_price: Balance,
+    /// How much creating an account should cost in NEAR. Taken into account when burning gas for
+    /// account creation.
+    #[serde(default)]
+    pub account_creation_charge: Balance,
 }
 
 /// Describes different fees for the runtime
@@ -49,6 +57,10 @@ pub struct RuntimeFeesConfigView {
     /// Pessimistic gas price inflation ratio.
     #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// Describes the extra cost of verifying an ML-DSA-65 signature above the
+    /// cost of verifying the standard signature types.
+    pub ml_dsa_65_verification_cost: Gas,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -191,6 +203,9 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
+                ml_dsa_65_verification_cost: config.fees.signature_verification_costs
+                    [SignatureKind::MlDsa65]
+                    .gas,
             },
             wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {
@@ -203,6 +218,8 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 config.congestion_control_config,
             ),
             witness_config: WitnessConfigView::from(config.witness_config),
+            min_gas_purchase_price: config.min_gas_purchase_price,
+            account_creation_charge: config.account_creation_charge,
         }
     }
 }
@@ -238,6 +255,10 @@ pub struct VMConfigView {
     pub p256_verify_host_fn: bool,
     /// See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).
     pub yield_with_id_host_fns: bool,
+    /// See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).
+    pub chain_id_host_fn: bool,
+    /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
+    pub bls12381_not_in_group_fix: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -247,8 +268,6 @@ pub struct VMConfigView {
     pub implicit_account_creation: bool,
     /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).
-    pub eth_implicit_global_contract: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -272,38 +291,14 @@ impl From<crate::vm::Config> for VMConfigView {
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
-            eth_implicit_global_contract: config.eth_implicit_global_contract,
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
             yield_with_id_host_fns: config.yield_with_id_host_fns,
-        }
-    }
-}
-
-impl From<VMConfigView> for crate::vm::Config {
-    fn from(view: VMConfigView) -> Self {
-        Self {
-            ext_costs: crate::ExtCostsConfig::from(view.ext_costs),
-            grow_mem_cost: view.grow_mem_cost,
-            regular_op_cost: view.regular_op_cost,
-            linear_op_base_cost: view.linear_op_base_cost,
-            linear_op_unit_cost: view.linear_op_unit_cost,
-            discard_custom_sections: view.discard_custom_sections,
-            limit_config: view.limit_config,
-            storage_get_mode: view.storage_get_mode,
-            fix_contract_loading_cost: view.fix_contract_loading_cost,
-            vm_kind: view.vm_kind,
-            eth_implicit_accounts: view.eth_implicit_accounts,
-            eth_implicit_global_contract: view.eth_implicit_global_contract,
-            global_contract_host_fns: view.global_contract_host_fns,
-            reftypes_bulk_memory: view.reftypes_bulk_memory,
-            gas_key_host_fns: view.gas_key_host_fns,
-            one_yocto_on_promise: view.one_yocto_on_promise,
-            p256_verify_host_fn: view.p256_verify_host_fn,
-            yield_with_id_host_fns: view.yield_with_id_host_fns,
+            chain_id_host_fn: config.chain_id_host_fn,
+            bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
         }
     }
 }

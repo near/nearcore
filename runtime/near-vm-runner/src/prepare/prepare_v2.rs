@@ -51,8 +51,7 @@ impl<'a> PrepareContext<'a> {
 
     /// “Early” preparation.
     ///
-    /// Must happen before the finite-wasm analysis and is applicable to NearVm just as much as it is
-    /// applicable to other runtimes.
+    /// Must happen before the finite-wasm analysis and is applicable to all runtimes.
     ///
     /// This will validate the module, normalize the memories within, apply limits.
     fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
@@ -123,7 +122,7 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::MemorySection(reader) => {
                     // We do not want to include the implicit memory anymore as we normalized it by
-                    // importing the memory instead in NearVm.
+                    // importing the memory instead.
                     self.ensure_import_section();
                     self.before_memory_section = false;
                     self.validator
@@ -388,18 +387,6 @@ pub(crate) fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
-    match kind {
-        VMKind::NearVm => {
-            if let Some(max_size) = config.limit_config.max_instrumented_code_size {
-                if lightly_steamed.len() as u64 > max_size {
-                    tracing::debug!(target: "vm", size=lightly_steamed.len(), ?kind, "instrumented code too large");
-                    return Err(PrepareError::InstrumentedCodeTooLarge);
-                }
-            }
-            return Ok(lightly_steamed);
-        }
-        VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
-    }
 
     let res = finite_wasm::Analysis::new()
         .with_stack(Box::new(SimpleMaxStackCfg))
@@ -424,7 +411,6 @@ pub(crate) fn prepare_contract(
     Ok(res)
 }
 
-// TODO: refactor to avoid copy-paste with the ones currently defined in near_vm_runner
 struct SimpleMaxStackCfg;
 
 impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
@@ -602,32 +588,6 @@ mod test {
             // pass our validation step!
             if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
-                        let mut validator = wp::Validator::new_with_features(features.into());
-                        match validator.validate_all(&code) {
-                            Ok(_) => (),
-                            Err(e) => panic!(
-                                "prepared code failed validation: {e:?}\ncontract: {}",
-                                hex::encode(input),
-                            ),
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    #[test]
-    fn v2_preparation_near_vm_generates_valid_contract_fuzzer() {
-        let mut config = test_vm_config(Some(VMKind::NearVm));
-        config.reftypes_bulk_memory = false;
-        let features = crate::features::WasmFeatures::new(&config);
-        bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
-            // pass our validation step!
-            if let Ok(_) = validate_contract(input, features, &config) {
-                match super::prepare_contract(input, features, &config, VMKind::NearVm) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wp::Validator::new_with_features(features.into());

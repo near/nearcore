@@ -1,9 +1,9 @@
 use anyhow::{Context, anyhow, bail};
 use near_async::ActorSystem;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::messaging::{CanSendAsync, IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_async::tokio::TokioRuntimeHandle;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;

@@ -132,10 +132,6 @@ impl<'a> RuntimeExt<'a> {
     pub fn protocol_version(&self) -> ProtocolVersion {
         self.current_protocol_version
     }
-
-    pub fn chain_id(&self) -> String {
-        self.epoch_info_provider.chain_id()
-    }
 }
 
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
@@ -330,6 +326,10 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(&self.epoch_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    fn chain_id(&self) -> String {
+        self.epoch_info_provider.chain_id()
     }
 
     fn create_action_receipt(
@@ -628,7 +628,6 @@ impl Contract for RuntimeContractExt {
             | RuntimeContractIdentifier::Global { code_hash, .. } => {
                 self.storage.get(*code_hash).map(Arc::new)
             }
-            RuntimeContractIdentifier::LegacyEthWallet(legacy) => Some(legacy.contract()),
         }
     }
 }

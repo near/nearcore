@@ -777,13 +777,36 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
     fn handle(&mut self, msg: SpanWrapped<Status>) -> Result<StatusResponse, StatusError> {
         let msg = msg.span_unwrap();
         let head = self.client.chain.head()?;
+        let protocol_version = self
+            .client
+            .epoch_manager
+            .get_epoch_protocol_version(&head.epoch_id)
+            .into_chain_error()?;
         // For spice, walk back to find the latest executed block for the status
-        // response, since the consensus head may not be executed yet.
-        // In non-spice, this is just the head block as all blocks are considered executed.
-        let head_header =
-            self.spice_chain_reader.find_first_executed_ancestor(&head.last_block_hash)?;
+        // response, since the consensus head may not be executed yet. In non-spice,
+        // all blocks are considered executed, so the head block is the latest executed.
+        let head_header = if ProtocolFeature::Spice.enabled(protocol_version) {
+            self.spice_chain_reader.find_first_executed_ancestor(&head.last_block_hash)?
+        } else {
+            self.client.chain.get_block_header(&head.last_block_hash)?
+        };
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = *head_header.prev_state_root();
+        let head_protocol_version = self
+            .client
+            .epoch_manager
+            .get_epoch_protocol_version(head_header.epoch_id())
+            .into_chain_error()?;
+        let latest_state_root = if ProtocolFeature::Spice.enabled(head_protocol_version) {
+            // Spice block headers carry a placeholder state root since execution is
+            // decoupled from consensus. Report the last certified state instead.
+            self.client
+                .chain
+                .spice_core_reader
+                .last_certified_state_root(head_header.hash())?
+                .unwrap_or_default()
+        } else {
+            *head_header.prev_state_root()
+        };
         if msg.is_health_check {
             let now = self.clock.now_utc();
             let block_timestamp =

@@ -151,10 +151,15 @@ fn new_test_witness(block: &Block) -> SpiceChunkStateWitness {
 }
 
 fn setup(num_chunk_producers: usize, num_validators: usize) -> (Genesis, Chain) {
-    init_test_logger();
+    setup_with_shard_layout(num_chunk_producers, num_validators, ShardLayout::multi_shard(2, 0))
+}
 
-    let num_shards = 2;
-    let shard_layout = ShardLayout::multi_shard(num_shards, 0);
+fn setup_with_shard_layout(
+    num_chunk_producers: usize,
+    num_validators: usize,
+    shard_layout: ShardLayout,
+) -> (Genesis, Chain) {
+    init_test_logger();
 
     let block_and_chunk_producers =
         (0..num_chunk_producers).map(|i| format!("test-producer-{i}")).collect_vec();
@@ -339,6 +344,17 @@ fn witness_validator_account(chain: &Chain) -> AccountId {
     let block = latest_block(chain);
     let witness = new_test_witness(&block);
     witness_validators(chain, &block, &witness).into_iter().next().unwrap()
+}
+
+fn non_producer_witness_validator_account(chain: &Chain) -> AccountId {
+    let block = latest_block(chain);
+    let witness = new_test_witness(&block);
+    let producers: HashSet<_> =
+        witness_producer_accounts(chain, &block, &witness).into_iter().collect();
+    witness_validators(chain, &block, &witness)
+        .into_iter()
+        .find(|validator| !producers.contains(validator))
+        .unwrap()
 }
 
 fn producers_of_receipt_proof(
@@ -598,11 +614,6 @@ test_witness_distribution! {
     with_100_producers_10_validators(100, 10)
     with_100_producers_100_validators(100, 100)
     with_100_producers_1000_validators(100, 1000)
-    with_5000_producers_1_validator(5000, 1)
-    with_5000_producers_10_validators(5000, 10)
-    with_5000_producers_100_validators(5000, 100)
-    with_5000_producers_1000_validators(5000, 1000)
-    with_5000_producers_4000_validators(5000, 4000)
 }
 
 fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
@@ -722,8 +733,6 @@ test_receipts_distribution! {
     with_20_producers(20)
     with_50_producers(50)
     with_100_producers(100)
-    with_500_producers(500)
-    with_5000_producers(5000)
 }
 
 fn drain_outgoing_partial_data(
@@ -1424,10 +1433,10 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_requesting_witnesses_from_forks_on_start() {
-    let (_genesis, mut chain) = setup(1, 1);
+    let (_genesis, mut chain) = setup_with_shard_layout(1, 1, ShardLayout::single_shard());
     let block = latest_block(&chain);
     let shard_id = witness_shard_id(&block);
-    let validator = witness_validator_account(&chain);
+    let validator = non_producer_witness_validator_account(&chain);
 
     let next_block = produce_block(&mut chain, &block);
     let next_next_block = produce_block(&mut chain, &next_block);

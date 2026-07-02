@@ -12,7 +12,7 @@ pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
 pub use pending_shard_jobs::{FromPanic, PendingShardJobs};
 pub use store::utils::{
-    check_transaction_validity_period, get_chunk_clone_from_header,
+    check_transaction_validity_period, compute_transaction_validity, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard, retrieve_headers,
 };
 pub use store::{
@@ -38,7 +38,6 @@ pub mod missing_chunks;
 pub mod orphan;
 pub mod pending;
 mod pending_shard_jobs;
-pub mod rayon_spawner;
 pub mod receipt_to_tx;
 pub mod resharding;
 pub mod runtime;

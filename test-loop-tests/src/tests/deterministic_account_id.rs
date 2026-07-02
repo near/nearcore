@@ -134,6 +134,8 @@ fn test_deterministic_state_init_via_meta_tx() {
 /// validation. The exploit is prevented by a following `validate_receipt` check
 /// when the meta transaction is unpacked.
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_meta_tx_receiver_check_pre_fix() {
     let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
     let outcome = try_meta_tx_deterministic_receiver_exploit(fix_version - 1)
@@ -157,6 +159,8 @@ fn test_deterministic_state_init_meta_tx_receiver_check_pre_fix() {
 /// With `FixDelegatedDeterministicStateInit` in place, the exploit should
 /// already be caught at the first tx validation.
 #[test]
+// Pins to a pre-spice protocol version; skipped under the spice feature.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_meta_tx_receiver_check() {
     let fix_version = ProtocolFeature::FixDelegatedDeterministicStateInit.protocol_version();
     let err = try_meta_tx_deterministic_receiver_exploit(fix_version)
@@ -821,7 +825,15 @@ fn test_sharded_contract_peer_check() {
     );
     outcome.assert_success();
 
-    assert_eq!(3, outcome.receipts_outcome.len());
+    // AccountCostIncrease adds a refund for the purchase/burn price difference.
+    let extra_refund_outcome = if near_primitives::version::ProtocolFeature::AccountCostIncrease
+        .enabled(near_primitives::version::PROTOCOL_VERSION)
+    {
+        1
+    } else {
+        0
+    };
+    assert_eq!(3 + extra_refund_outcome, outcome.receipts_outcome.len());
     let ping_call_result = &outcome.receipts_outcome[1];
     assert_eq!(sharded_account2, ping_call_result.outcome.executor_id);
     assert_eq!(vec!["peer ok".to_owned()], ping_call_result.outcome.logs);
@@ -983,13 +995,22 @@ impl TestEnv {
             .runtime_config_store(runtime_config_store.clone())
             .build();
 
+        // `rs_contract` declares host-fn imports for the latest protocol that are
+        // not available at older versions; use the backwards-compatible contract
+        // when the test runs below the latest protocol version.
+        let contract_code = if protocol_version < PROTOCOL_VERSION {
+            near_test_contracts::backwards_compatible_rs_contract()
+        } else {
+            near_test_contracts::rs_contract()
+        };
+
         Self {
             env,
             runtime_config_store,
             user_account,
             independent_account,
             global_contract_account,
-            contract: ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
+            contract: ContractCode::new(contract_code.to_vec(), None),
             nonce: 1,
             protocol_version,
         }

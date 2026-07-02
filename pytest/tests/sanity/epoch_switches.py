@@ -33,10 +33,6 @@ config_overrides = {
             "secs": 0,
             "nanos": 500000000
         },
-        "state_sync_external_backoff": {
-            "secs": 0,
-            "nanos": 500000000
-        },
     }
 }
 
