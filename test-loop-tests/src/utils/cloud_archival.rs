@@ -397,6 +397,73 @@ pub fn snapshots_sanity_check(
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
+/// Asserts the writer attached inverse state changes across the resharding gap
+/// window. Every block from the resharding epoch's first block up to its
+/// snapshot anchor carries, for each new-layout shard, inverse changes whose
+/// keys mirror that block's forward changes and whose recorded pre-values match
+/// the previous block's state on disk. Blocks above the anchor carry none.
+pub fn assert_writer_inverse_deltas(
+    env: &TestLoopEnv,
+    writer_id: &AccountId,
+    info: &ReshardingInfo,
+) {
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let store = get_hot_store(env, writer_id);
+    let tries = build_shard_tries(&store);
+
+    // Inverse changes cover the gap window up to sync_prev_prev, the resharding
+    // epoch's snapshot anchor; blocks above it carry none.
+    let sync_hash = store.chain_store().get_block_hash_by_height(info.sync_block_height).unwrap();
+    let sync_prev = *store.chain_store().get_block_header(&sync_hash).unwrap().prev_hash();
+    let sync_prev_prev = *store.chain_store().get_block_header(&sync_prev).unwrap().prev_hash();
+    let inverse_ceiling = store.chain_store().get_block_header(&sync_prev_prev).unwrap().height();
+
+    for height in info.new_epoch_first_height..=info.sync_block_height {
+        let Ok(block_hash) = store.chain_store().get_block_hash_by_height(height) else {
+            continue;
+        };
+        let prev_block_hash =
+            *store.chain_store().get_block_header(&block_hash).unwrap().prev_hash();
+        for &shard_uid in &info.new_shard_uids {
+            let shard_data = cloud_storage
+                .get_shard_data(height, shard_uid.shard_id())
+                .unwrap()
+                .expect("gap-window shard data archived");
+            if height > inverse_ceiling {
+                assert!(
+                    shard_data.inverse_state_changes().is_none(),
+                    "no inverse above the gap window at height {height}"
+                );
+                continue;
+            }
+            let inverse = shard_data
+                .inverse_state_changes()
+                .expect("gap-window block carries inverse state changes");
+            let forward_keys: HashSet<Vec<u8>> =
+                shard_data.state_changes().iter().map(|change| change.trie_key.to_vec()).collect();
+            let inverse_keys: HashSet<Vec<u8>> = inverse.keys().map(|key| key.to_vec()).collect();
+            assert_eq!(
+                inverse_keys, forward_keys,
+                "inverse keys mirror forward keys at height {height}"
+            );
+
+            let prev_state_root = *store
+                .chunk_store()
+                .get_chunk_extra(&prev_block_hash, &shard_uid)
+                .unwrap()
+                .state_root();
+            let trie = tries.get_trie_for_shard(shard_uid, prev_state_root);
+            for (key, recorded_prev_value) in inverse {
+                let state_prev_value = trie.get(&key.to_vec(), AccessOptions::DEFAULT).unwrap();
+                assert_eq!(
+                    *recorded_prev_value, state_prev_value,
+                    "recorded pre-image matches state at height {height}"
+                );
+            }
+        }
+    }
+}
+
 /// Asserts the resharding epoch took a state snapshot for every new-layout shard
 /// even though its epoch height is off the snapshot cadence.
 pub fn assert_resharding_epoch_snapshot_forced(
