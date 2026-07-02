@@ -154,6 +154,9 @@ impl ExtCostsConfig {
             ExtCosts::keccak256_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
             ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
+            // SHA3-256 shares the keccak-f permutation, so it gets the same costs.
+            ExtCosts::sha3_256_base => SAFETY_MULTIPLIER * 1959830425,
+            ExtCosts::sha3_256_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::ripemd160_base => SAFETY_MULTIPLIER * 284558362,
             ExtCosts::ed25519_verify_base => SAFETY_MULTIPLIER * 1513656750,
             ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
@@ -343,6 +346,8 @@ pub enum ExtCosts {
     p256_verify_base = 85,
     p256_verify_byte = 86,
     yield_create_with_id_base = 87,
+    sha3_256_base = 88,
+    sha3_256_byte = 89,
 }
 
 // Type of an action, used in fees logic.
@@ -422,6 +427,8 @@ impl ExtCosts {
             ExtCosts::keccak256_byte => Parameter::WasmKeccak256Byte,
             ExtCosts::keccak512_base => Parameter::WasmKeccak512Base,
             ExtCosts::keccak512_byte => Parameter::WasmKeccak512Byte,
+            ExtCosts::sha3_256_base => Parameter::WasmSha3256Base,
+            ExtCosts::sha3_256_byte => Parameter::WasmSha3256Byte,
             ExtCosts::ripemd160_base => Parameter::WasmRipemd160Base,
             ExtCosts::ripemd160_block => Parameter::WasmRipemd160Block,
             ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
