@@ -108,6 +108,10 @@ pub fn update_cold_db(
                         )
                     } else if col == DBCol::StateChanges {
                         copy_state_changes_from_store(cold_db, &hot_store, block_hash_key)
+                    } else if let Some(res) =
+                        maybe_copy_chunk_producers(col, cold_db, &hot_store, block_hash_key)
+                    {
+                        res
                     } else {
                         let keys = combine_keys(&key_type_to_keys, &col.key_type());
                         copy_from_store(cold_db, &hot_store, col, keys)
@@ -127,6 +131,38 @@ pub fn update_cold_db(
                 )
         })?;
     Ok(())
+}
+
+// Copy ChunkProducers by prefix-scan on the block hash. Returns Some(result) if it
+// handled `col`, else None. The nightly-only DBCol variant is confined to this fn.
+#[cfg(feature = "nightly")]
+fn maybe_copy_chunk_producers(
+    col: DBCol,
+    cold_db: &ColdDB,
+    hot_store: &Store,
+    block_hash_key: &[u8],
+) -> Option<io::Result<()>> {
+    if col != DBCol::ChunkProducers {
+        return None;
+    }
+    // Keyed (anchor_hash, shard_id) using the epoch-AFTER-anchor layout, which differs from
+    // `shard_layout` (the anchor's own epoch) at a resharding boundary. Prefix-scan by block
+    // hash so boundary rows keyed by next-epoch shard_ids are copied, not just own-epoch ones.
+    let keys: Vec<Vec<u8>> = hot_store
+        .iter_prefix(DBCol::ChunkProducers, block_hash_key)
+        .map(|(k, _)| k.to_vec())
+        .collect();
+    Some(copy_from_store(cold_db, hot_store, col, keys))
+}
+
+#[cfg(not(feature = "nightly"))]
+fn maybe_copy_chunk_producers(
+    _col: DBCol,
+    _cold_db: &ColdDB,
+    _hot_store: &Store,
+    _block_hash_key: &[u8],
+) -> Option<io::Result<()>> {
+    None
 }
 
 // Correctly set the key and value on DBTransaction, taking reference counting

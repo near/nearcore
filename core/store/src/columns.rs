@@ -666,10 +666,9 @@ impl DBCol {
             | DBCol::EpochSyncProof
             | DBCol::StateSyncHashes
             | DBCol::StateSyncNewChunks
-            // TODO(early-kickout): Make ChunkProducers a cold column when GC is implemented.
             => false,
             #[cfg(feature = "nightly")]
-            DBCol::ChunkProducers => false,
+            DBCol::ChunkProducers => true,
         }
     }
 
