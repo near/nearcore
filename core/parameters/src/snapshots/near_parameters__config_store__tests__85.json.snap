@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -129,6 +128,8 @@ snapshot_kind: text
       "keccak256_byte": 21471105,
       "keccak512_base": 5811388236,
       "keccak512_byte": 36649701,
+      "sha3_256_base": 5879491275,
+      "sha3_256_byte": 21471105,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
       "ed25519_verify_base": 210000000000,

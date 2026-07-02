@@ -308,6 +308,16 @@ snapshot_kind: text
     },
     {
       "cost_category": "WASM_HOST_COST",
+      "cost": "SHA3_256_BASE",
+      "gas_used": "0"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "SHA3_256_BYTE",
+      "gas_used": "0"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
       "cost": "STORAGE_HAS_KEY_BASE",
       "gas_used": "36"
     },

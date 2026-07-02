@@ -57,6 +57,7 @@ mod reject_outdated_blocks;
 mod replay_chunks;
 mod resharding_cold_storage;
 mod resharding_v3;
+mod sha3_256;
 mod sharded_rpc;
 mod sharded_rpc_reliability;
 mod sharded_rpc_resharding;

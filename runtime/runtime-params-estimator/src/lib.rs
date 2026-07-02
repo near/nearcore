@@ -275,6 +275,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Keccak256Byte, keccak256_byte),
     (Cost::Keccak512Base, keccak512_base),
     (Cost::Keccak512Byte, keccak512_byte),
+    (Cost::Sha3256Base, sha3_256_base),
+    (Cost::Sha3256Byte, sha3_256_byte),
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
@@ -1181,6 +1183,13 @@ fn keccak512_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 fn keccak512_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "keccak512_10kib_10k", ExtCosts::keccak512_byte, 10 * 1024 * 10_000)
+}
+
+fn sha3_256_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_256_10b_10k", ExtCosts::sha3_256_base, 10_000)
+}
+fn sha3_256_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_256_10kib_10k", ExtCosts::sha3_256_byte, 10 * 1024 * 10_000)
 }
 
 fn ripemd160_base(ctx: &mut EstimatorContext) -> GasCost {

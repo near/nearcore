@@ -133,6 +133,8 @@ wasm_keccak256_base                            5_879_491_275
 wasm_keccak256_byte                               21_471_105
 wasm_keccak512_base                            5_811_388_236
 wasm_keccak512_byte                               36_649_701
+wasm_sha3_256_base                             5_879_491_275
+wasm_sha3_256_byte                                21_471_105
 wasm_ripemd160_base                              853_675_086
 wasm_ripemd160_block                             680_107_584
 wasm_ecrecover_base                          278_821_988_457
@@ -285,6 +287,7 @@ global_contract_host_fns                true
 gas_key_host_fns                        true
 one_yocto_on_promise                    true
 p256_verify_host_fn                     true
+sha3_256_host_fn                        false
 yield_with_id_host_fns                  true
 chain_id_host_fn                        true
 bls12381_not_in_group_fix               false
