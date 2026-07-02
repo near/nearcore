@@ -2564,6 +2564,7 @@ impl Chain {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
+            self.spice_core_reader.validate_light_client_commitment_roots(header)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(

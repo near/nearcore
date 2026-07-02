@@ -13,6 +13,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
 };
+use near_primitives::spice::commitment::{CertifiedBlockInfo, compute_commitment_roots};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -417,6 +418,49 @@ impl SpiceCoreReader {
         Ok(())
     }
 
+    /// Per-shard certified outcome roots of `block_header`, sorted by `ShardId`
+    /// to match the commitment leaf's `outcome_root` (`merklize_outcome_roots`).
+    /// `None` if the block's execution results are not all available.
+    pub fn certified_block_shard_outcome_roots(
+        &self,
+        block_header: &BlockHeader,
+    ) -> Result<Option<Vec<(ShardId, CryptoHash)>>, Error> {
+        let Some(results) = self.get_block_execution_results(block_header)? else {
+            return Ok(None);
+        };
+        let mut roots: Vec<(ShardId, CryptoHash)> = results
+            .0
+            .iter()
+            .map(|(shard_id, result)| (*shard_id, *result.chunk_extra.outcome_root()))
+            .collect();
+        roots.sort_by_key(|(shard_id, _)| *shard_id);
+        Ok(Some(roots))
+    }
+
+    /// Recompute-and-compare the `prev_state_root` / `prev_outcome_root` commitment
+    /// slots against the predecessor's certified set. Rejects on mismatch.
+    pub fn validate_light_client_commitment_roots(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        let prev_header = self.chain_store.get_block_header(header.prev_hash())?;
+        let (expected_state_root, expected_outcome_root) =
+            self.light_client_commitment_roots(&prev_header)?;
+        if header.prev_state_root() != &expected_state_root {
+            return Err(Error::InvalidSpiceCommitmentRoots(format!(
+                "prev_state_root: expected {expected_state_root}, got {}",
+                header.prev_state_root()
+            )));
+        }
+        if header.outcome_root() != &expected_outcome_root {
+            return Err(Error::InvalidSpiceCommitmentRoots(format!(
+                "prev_outcome_root: expected {expected_outcome_root}, got {}",
+                header.outcome_root()
+            )));
+        }
+        Ok(())
+    }
+
     pub fn validate_core_statements_in_block(
         &self,
         block: &Block,
@@ -605,16 +649,13 @@ impl SpiceCoreReader {
         Ok(())
     }
 
-    /// Returns execution results for all blocks that become newly certified when
-    /// `core_statements_for_next_block` is applied to the current chain state.
-    /// The results are ordered oldest-first. When no new certification frontier
-    /// advancement occurs but the last certified block is genesis, returns genesis
-    /// execution results to bootstrap gas price computation.
-    pub fn get_newly_certified_block_execution_results_for_next_block(
+    /// Blocks newly certified by applying `core_statements_for_next_block` on top
+    /// of `block_header`, oldest-first. Empty when nothing is newly certified.
+    fn enumerate_newly_certified_blocks(
         &self,
         block_header: &BlockHeader,
         core_statements_for_next_block: &SpiceCoreStatements,
-    ) -> Result<Vec<BlockExecutionResults>, Error> {
+    ) -> Result<Vec<CertifiedBlockInfo>, Error> {
         // Find old last certified (before applying new core statements).
         let old_last_certified =
             get_last_certified_block_header(&self.chain_store, block_header.hash())?;
@@ -637,13 +678,6 @@ impl SpiceCoreReader {
             };
 
         if new_last_certified.hash() == old_last_certified.hash() {
-            if old_last_certified.is_genesis() {
-                // Genesis is certified by definition. Return its execution results so gas price
-                // is computed from genesis gas_limit until the first real certification.
-                return Ok(vec![BlockExecutionResults(
-                    self.get_execution_results_by_shard_id(&old_last_certified)?,
-                )]);
-            }
             return Ok(vec![]);
         }
         assert!(
@@ -701,9 +735,65 @@ impl SpiceCoreReader {
                 "should have found all shard's execution results for newly certified block {}",
                 block_hash,
             );
-            result.push(BlockExecutionResults(execution_results));
+            result.push(CertifiedBlockInfo {
+                block_hash: *block_hash,
+                block_height: block_header.height(),
+                execution_results: BlockExecutionResults(execution_results),
+            });
         }
         Ok(result)
+    }
+
+    /// Returns execution results for all blocks that become newly certified when
+    /// `core_statements_for_next_block` is applied to the current chain state.
+    /// The results are ordered oldest-first. When no new certification frontier
+    /// advancement occurs but the last certified block is genesis, returns genesis
+    /// execution results to bootstrap gas price computation.
+    pub fn get_newly_certified_block_execution_results_for_next_block(
+        &self,
+        block_header: &BlockHeader,
+        core_statements_for_next_block: &SpiceCoreStatements,
+    ) -> Result<Vec<BlockExecutionResults>, Error> {
+        let newly_certified =
+            self.enumerate_newly_certified_blocks(block_header, core_statements_for_next_block)?;
+        if !newly_certified.is_empty() {
+            return Ok(newly_certified.into_iter().map(|info| info.execution_results).collect());
+        }
+        let old_last_certified =
+            get_last_certified_block_header(&self.chain_store, block_header.hash())?;
+        if old_last_certified.is_genesis() {
+            return Ok(vec![BlockExecutionResults(
+                self.get_execution_results_by_shard_id(&old_last_certified)?,
+            )]);
+        }
+        Ok(vec![])
+    }
+
+    /// The two commitment roots a block `P` built on `prev_header` commits in its
+    /// `prev_state_root` / `prev_outcome_root` slots: the commitment over the
+    /// blocks `prev_header` newly certified (as-of-prev). Shared by production
+    /// and validation. Empty (genesis / pre-spice / certified nothing) gives
+    /// `default()` roots.
+    pub fn light_client_commitment_roots(
+        &self,
+        prev_header: &BlockHeader,
+    ) -> Result<(CryptoHash, CryptoHash), Error> {
+        Ok(compute_commitment_roots(&self.certified_blocks_committed_by(prev_header)?))
+    }
+
+    /// The blocks `certifier`'s core statements newly certify, with the identity
+    /// and execution results needed to rebuild their commitment leaves. This is
+    /// exactly the set committed in `certifier`'s canonical child's slots.
+    pub fn certified_blocks_committed_by(
+        &self,
+        certifier: &BlockHeader,
+    ) -> Result<Vec<CertifiedBlockInfo>, Error> {
+        if certifier.is_genesis() || !certifier.is_spice() {
+            return Ok(vec![]);
+        }
+        let block = self.chain_store.get_block(certifier.hash())?;
+        let prev_header = self.chain_store.get_block_header(certifier.prev_hash())?;
+        self.enumerate_newly_certified_blocks(&prev_header, block.spice_core_statements())
     }
 }
 
@@ -813,6 +903,38 @@ pub fn record_uncertified_chunks_for_block(
         block.header().hash().as_ref(),
         &uncertified_chunks,
     );
+    chain_store_update.merge(store_update);
+    Ok(())
+}
+
+/// Indexes `H -> block` for each block `H` whose execution results `block`'s core
+/// statements newly certify. Called only for canonical blocks; `set_ser`
+/// overwrites the prior certifier so a reorg's winning chain re-points the index.
+pub fn index_spice_certifier_for_canonical_block(
+    chain_store_update: &mut ChainStoreUpdate,
+    block: &Block,
+) -> Result<(), Error> {
+    // `block` certifies its parent's uncertified chunks; if the parent never recorded
+    // them (genesis, pre-spice, or a parent installed by state sync), nothing to index.
+    let prev_hash = block.header().prev_hash();
+    let store = chain_store_update.chain_store().store_ref();
+    if !store.exists(DBCol::uncertified_chunks(), prev_hash.as_ref()) {
+        return Ok(());
+    }
+    let prev_uncertified = get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    let newly_certified =
+        find_newly_certified_block_hashes(&prev_uncertified, block.spice_core_statements());
+    if newly_certified.is_empty() {
+        return Ok(());
+    }
+    let mut store_update = chain_store_update.chain_store().store_ref().store_update();
+    for certified_block_hash in newly_certified {
+        store_update.set_ser(
+            DBCol::spice_certifier_by_block(),
+            certified_block_hash.as_ref(),
+            block.hash(),
+        );
+    }
     chain_store_update.merge(store_update);
     Ok(())
 }

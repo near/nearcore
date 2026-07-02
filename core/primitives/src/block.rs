@@ -249,9 +249,8 @@ impl Block {
         ));
 
         let chunks_wrapper = Chunks::from_chunk_headers(&chunks, height);
-        let prev_state_root = if spice_info.is_some() {
-            // TODO(spice): include state root from the relevant previous executed block.
-            CryptoHash::default()
+        let prev_state_root = if let Some(spice_info) = spice_info.as_ref() {
+            spice_info.prev_state_commitment_root
         } else {
             chunks_wrapper.compute_state_root()
         };
@@ -259,7 +258,11 @@ impl Block {
             chunks_wrapper.compute_chunk_prev_outgoing_receipts_root();
         let chunk_headers_root = chunks_wrapper.compute_chunk_headers_root();
         let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
-        let outcome_root = chunks_wrapper.compute_outcome_root();
+        let outcome_root = if let Some(spice_info) = spice_info.as_ref() {
+            spice_info.prev_outcome_commitment_root
+        } else {
+            chunks_wrapper.compute_outcome_root()
+        };
 
         let prev_last_certified_block_epoch_id =
             spice_info.as_ref().map(|info| info.prev_last_certified_block_epoch_id);
@@ -629,9 +632,13 @@ impl Block {
             return Err(InvalidTransactionRoot);
         }
 
-        let outcome_root = self.chunks().compute_outcome_root();
-        if self.header().outcome_root() != &outcome_root {
-            return Err(InvalidTransactionRoot);
+        // Spice repurposes `outcome_root` for the certified-block commitment, checked
+        // against the predecessor's certified set in `validate_light_client_commitment_roots`.
+        if !self.is_spice_block() {
+            let outcome_root = self.chunks().compute_outcome_root();
+            if self.header().outcome_root() != &outcome_root {
+                return Err(InvalidTransactionRoot);
+            }
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
@@ -648,6 +655,8 @@ impl Block {
 pub struct SpiceNewBlockProductionInfo {
     pub core_statements: SpiceCoreStatements,
     pub newly_certified_block_execution_results: Vec<BlockExecutionResults>,
+    pub prev_state_commitment_root: CryptoHash,
+    pub prev_outcome_commitment_root: CryptoHash,
     pub prev_last_certified_block_epoch_id: EpochId,
     /// Accumulated per-validator endorsement stats for the epoch; non-empty
     /// only on the last block of an epoch.

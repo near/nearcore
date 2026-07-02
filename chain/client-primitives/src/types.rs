@@ -3,6 +3,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::spice::commitment::SpiceCommitmentProofView;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
     MaybeBlockId, ShardId, TransactionOrReceiptId,
@@ -863,12 +864,26 @@ pub struct GetBlockProofResponse {
     pub proof: MerklePath,
 }
 
+#[derive(Debug)]
+pub struct GetExecutionBlockProof {
+    pub block_hash: CryptoHash,
+    pub head_block_hash: CryptoHash,
+}
+
+pub struct ExecutionBlockProofResponse {
+    pub block_header_lite: LightClientBlockLiteView,
+    pub block_proof: MerklePath,
+    pub spice_commitment_proof: Option<SpiceCommitmentProofView>,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum GetBlockProofError {
     #[error(
         "Block either has never been observed on the node or has been garbage collected: {error_message}"
     )]
     UnknownBlock { error_message: String },
+    #[error("execution commitment proof for block {block_hash} is not available yet")]
+    ProofNotAvailable { block_hash: CryptoHash },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
