@@ -101,6 +101,35 @@ fn test_keccak512() {
 }
 
 #[test]
+fn test_sha3_256() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let data = logic.internal_mem_write(b"tesdsst");
+    logic.sha3_256(data.len, data.ptr, 0).unwrap();
+    logic.assert_read_register(
+        &[
+            174, 42, 184, 134, 113, 104, 230, 180, 244, 77, 240, 72, 199, 42, 110, 178, 6, 168,
+            121, 77, 27, 183, 153, 108, 197, 171, 78, 61, 186, 133, 193, 182,
+        ],
+        0,
+    );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::sha3_256_base: 1,
+        ExtCosts::sha3_256_byte: data.len,
+    });
+}
+
+#[test]
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();

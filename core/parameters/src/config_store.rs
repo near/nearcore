@@ -62,6 +62,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (86, include_config!("86.yaml")),
     (129, include_config!("129.yaml")),
     (155, include_config!("155.yaml")),
+    // Enable the sha3_256 host function.
+    (156, include_config!("156.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
