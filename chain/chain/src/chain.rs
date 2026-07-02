@@ -3718,7 +3718,12 @@ impl Chain {
         let epoch_height =
             self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
         if epoch_height % snapshot_every_n_epochs != 0 {
-            return Ok(SnapshotAction::None);
+            // Force the resharding epoch's snapshot even off-cadence; cloud
+            // archival requires it. A node snapshotting every epoch (cadence 1)
+            // never reaches this branch.
+            if !self.epoch_manager.is_resharding_epoch(&head.last_block_hash)? {
+                return Ok(SnapshotAction::None);
+            }
         }
         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
     }

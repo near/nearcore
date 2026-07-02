@@ -351,6 +351,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(shard_layout != prev_shard_layout)
     }
 
+    /// Whether a resharding took effect at the start of `block_hash`'s epoch:
+    /// that epoch's shard layout differs from the previous epoch's. Accepts any
+    /// block in the epoch.
+    fn is_resharding_epoch(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        let shard_layout = self.get_shard_layout(block_info.epoch_id())?;
+        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(block_info.prev_hash())?;
+        let prev_shard_layout = self.get_shard_layout(&prev_epoch_id)?;
+        Ok(shard_layout != prev_shard_layout)
+    }
+
     /// Get *static* shard layout for the given protocol version. If the protocol version uses
     /// dynamic resharding, there is no specific layout assigned to that version, so this method
     /// returns `None`.
