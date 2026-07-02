@@ -280,7 +280,16 @@ impl StateSync {
 
         // If the network has moved past this epoch, state parts are no longer
         // available. Trigger a data reset so the node can restart fresh.
-        if highest_height > block_header.height() + chain.epoch_length + STALE_SYNC_HASH_THRESHOLD {
+        //
+        // Check `highest_height` against the, validator-signed, `header_head`
+        // to prevent malicious peer forcing a data reset.
+        let sync_height = block_header.height();
+        let header_head_height = chain.header_head()?.height;
+        let past_stale_threshold =
+            highest_height > sync_height + chain.epoch_length + STALE_SYNC_HASH_THRESHOLD;
+        let plausible_vs_validated =
+            highest_height <= header_head_height.saturating_add(chain.epoch_length);
+        if past_stale_threshold && plausible_vs_validated {
             tracing::warn!(
                 target: "sync",
                 ?block_header,
