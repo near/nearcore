@@ -648,7 +648,10 @@ impl EpochInfo {
     ) -> Option<ValidatorId> {
         let filtered: Vec<ValidatorId> =
             settlement.iter().copied().filter(|id| !exclude.contains(id)).collect();
-        (!filtered.is_empty()).then(|| filtered[(height % filtered.len() as u64) as usize])
+        if filtered.is_empty() {
+            return None;
+        }
+        Some(filtered[(height % filtered.len() as u64) as usize])
     }
 
     /// Filter `settlement` by `exclude`, then pick via a fresh stake-weighted
