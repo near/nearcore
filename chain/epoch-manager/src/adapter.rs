@@ -26,9 +26,9 @@ use std::sync::Arc;
 
 /// Height distance from a chunk's grandparent anchor to the chunk, absent
 /// skipped slots: a chunk anchored at block `A` is nominally at height
-/// `A.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`. The writer
-/// (`save_chunk_producers_for_header`) samples at this offset, and witness
-/// validation uses it as the anchor-implied minimum chunk height.
+/// `A.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`. The chunk-producer
+/// seeder (`EpochManager::seed_chunk_producers`) samples at this offset, and
+/// witness validation uses it as the anchor-implied minimum chunk height.
 pub const CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET: BlockHeight = 2;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -699,6 +699,15 @@ pub trait EpochManagerAdapter: Send + Sync {
         next_epoch_info: EpochInfo,
     ) -> Result<(), EpochError>;
 
+    /// Seed `DBCol::ChunkProducers` for the current epoch's first block after
+    /// epoch sync, which installs that `BlockInfo` outside `record_block_info`.
+    /// Writes into `store_update` so it commits atomically with the block.
+    fn seed_chunk_producers_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
+    ) -> Result<(), EpochError>;
+
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
         &self,
@@ -1164,6 +1173,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    fn seed_chunk_producers_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
+    ) -> Result<(), EpochError> {
+        self.read().seed_chunk_producers_for_first_block(store_update, block_info)
     }
 
     fn get_shard_layout_history(

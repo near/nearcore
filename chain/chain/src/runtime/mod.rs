@@ -1185,7 +1185,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 if now - last_log >= LOG_THROTTLE_INTERVAL {
                     LAST_LOG_TIME.store(now, Ordering::Relaxed);
 
-                    tracing::info!(target: "runtime", ?error, "error when getting the gc stop height, this error may naturally occur after the gc_num_epochs_to_keep config is increased, it should disappear as soon as the node builds up all epochs it wants");
+                    tracing::debug!(target: "runtime", ?error, "error when getting the gc stop height, this error may naturally occur after the gc_num_epochs_to_keep config is increased, it should disappear as soon as the node builds up all epochs it wants");
                 }
 
                 self.genesis_config.genesis_height
