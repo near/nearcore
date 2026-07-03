@@ -87,6 +87,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
+          # without github_token the action tries to mint a token via the
+          # Claude Code GitHub App, which is not installed on this repo
+          github_token: ${{ github.token }}
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
           prompt: ${{ env.REVIEW_PROMPT }}
           claude_args: >-
