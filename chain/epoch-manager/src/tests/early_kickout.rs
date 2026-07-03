@@ -1,5 +1,5 @@
 //! Tests for the early-kickout blacklist math (`compute_chunk_producer_blacklist`)
-//! and the gated `get_chunk_producer_blacklist` accessor. PR5 is pure math with no
+//! and the gated `get_chunk_producer_blacklist` accessor. The math is pure with no
 //! production callers; these tests exercise the math directly and the accessor
 //! end-to-end (gate + boundary reset + enabled path).
 

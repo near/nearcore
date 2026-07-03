@@ -90,7 +90,7 @@ pub fn compute_chunk_producer_blacklist(
         // endorsement-only entries (chunk validators that never produced); they must
         // not be blacklist candidates and must not skew the safety-valve denominator.
         // (Today expected>=MIN skips them since production.expected==0 — but make it
-        // explicit so demo threshold tuning can't silently reintroduce the bug.)
+        // explicit so threshold tuning can't silently reintroduce the bug.)
         let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
         let mut blacklisted = HashSet::new();
         for (&validator_id, stats) in validators {
@@ -102,8 +102,7 @@ pub fn compute_chunk_producer_blacklist(
                 continue;
             }
             let missed = expected.saturating_sub(produced);
-            // u128 keeps the ratio comparison overflow-proof (this feeds consensus
-            // assignment in PR6).
+            // u128 keeps the ratio comparison overflow-proof.
             if missed >= EARLY_KICKOUT_MIN_MISSES
                 && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
                     < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
