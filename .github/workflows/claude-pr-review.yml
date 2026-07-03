@@ -21,6 +21,10 @@ jobs:
         github.event.comment.author_association == 'COLLABORATOR'))
 
     runs-on: ubuntu-latest
+    env:
+      # secrets are not allowed in step-level `if:` expressions, so expose the
+      # key via env to let the review step check for its presence
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     permissions:
       contents: read
       pull-requests: write
@@ -78,12 +82,12 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
         uses: anthropics/claude-code-action@2cc1ac1331eac7a6a96d716dd204dd2888d0fcd2 # main @ Claude Code 2.1.128 / Agent SDK 0.2.128 (needed for --effort xhigh)
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
           prompt: ${{ env.REVIEW_PROMPT }}
           claude_args: >-
             --model opus
