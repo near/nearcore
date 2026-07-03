@@ -427,6 +427,22 @@ class NeardRunner:
         except FileNotFoundError:
             logging.info("no old directory to remove")
 
+    # TODO(#16009): remove once the `benchmarknet-1` image is rebuilt without
+    # the `state_sync.sync` block. nearcore #16009 removed the centralized
+    # (external-storage) state sync config variant, so the stale
+    # `state_sync.sync.ExternalStorage` block baked into the setup config makes
+    # newer neard binaries fail to load the config.
+    def strip_removed_state_sync_config(self):
+        config_path = self.setup_path('config.json')
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        if config.get('state_sync', {}).pop('sync', None) is None:
+            return
+        logging.info(
+            'stripping deprecated state_sync.sync block from setup config')
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+
     def reset_starting_data_dir(self):
         self.remove_data_dir()
 
@@ -434,6 +450,8 @@ class NeardRunner:
             logging.info(
                 "We don't have a setup folder, DB will be created from scratch")
             return
+
+        self.strip_removed_state_sync_config()
 
         cmd = [
             self.data['binaries'][0]['system_path'],
