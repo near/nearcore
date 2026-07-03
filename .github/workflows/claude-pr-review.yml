@@ -21,10 +21,6 @@ jobs:
         github.event.comment.author_association == 'COLLABORATOR'))
 
     runs-on: ubuntu-latest
-    env:
-      # secrets are not allowed in step-level `if:` expressions, so expose the
-      # key via env to let the review step check for its presence
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     permissions:
       contents: read
       pull-requests: write
@@ -32,6 +28,16 @@ jobs:
       id-token: write
 
     steps:
+      # secrets are not allowed in step-level `if:` expressions, so record the
+      # key's presence as a step output for the review step's condition. Kept
+      # as a dedicated step before checkout so the secret is never exposed to
+      # steps that execute code from the checked-out ref.
+      - name: Check for API key
+        id: key-check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: echo "present=${ANTHROPIC_API_KEY:+true}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
         with:
@@ -82,7 +88,7 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        if: ${{ steps.key-check.outputs.present == 'true' }}
         uses: anthropics/claude-code-action@2cc1ac1331eac7a6a96d716dd204dd2888d0fcd2 # main @ Claude Code 2.1.128 / Agent SDK 0.2.128 (needed for --effort xhigh)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -90,7 +96,7 @@ jobs:
           # without github_token the action tries to mint a token via the
           # Claude Code GitHub App, which is not installed on this repo
           github_token: ${{ github.token }}
-          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: ${{ env.REVIEW_PROMPT }}
           claude_args: >-
             --model opus
