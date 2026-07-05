@@ -270,6 +270,10 @@ fn build_inverse_state_changes(
     if block_height > context.ceiling {
         return Ok(None);
     }
+    // No changes to reverse.
+    if forward.is_empty() {
+        return Ok(Some(InverseStateChanges::new()));
+    }
     let header = store.chain_store().get_block_header(block_hash)?;
     let prev_chunk_extra = store.chunk_store().get_chunk_extra(header.prev_hash(), &shard_uid)?;
     let prev_state_root = *prev_chunk_extra.state_root();
@@ -376,15 +380,19 @@ pub fn build_shard_batch(
 ) -> Result<ShardBatch, Error> {
     // Inverse changes read pre-image values from disk; a fresh `ShardTries`
     // avoids the writer's memtries, which may not hold the child layout's roots.
-    let inverse_deltas_context = inverse_ceiling.map(|ceiling| InverseDeltasContext {
-        tries: ShardTries::new(
-            store.trie_store(),
-            TrieConfig::default(),
-            FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::Disabled,
-        ),
-        ceiling,
-    });
+    // Skipped when the whole range sits above the ceiling, so no block needs it.
+    let inverse_deltas_context =
+        inverse_ceiling.filter(|&ceiling| ceiling >= range.start()).map(|ceiling| {
+            InverseDeltasContext {
+                tries: ShardTries::new(
+                    store.trie_store(),
+                    TrieConfig::default(),
+                    FlatStorageManager::new(store.flat_store()),
+                    StateSnapshotConfig::Disabled,
+                ),
+                ceiling,
+            }
+        });
     let count = (range.end() - range.start() + 1) as usize;
     let mut data = Vec::with_capacity(count);
     for height in range.start()..=range.end() {
