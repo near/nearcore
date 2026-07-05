@@ -1,7 +1,9 @@
 use crate::adapter::StoreAdapter;
 use crate::adapter::chain_store::option_to_not_found;
 use crate::archive::cloud_storage::batch::BatchRange;
-use crate::{DBCol, KeyForStateChanges, Store};
+use crate::flat::FlatStorageManager;
+use crate::trie::AccessOptions;
+use crate::{DBCol, KeyForStateChanges, ShardTries, StateSnapshotConfig, Store, TrieConfig};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
@@ -61,6 +63,8 @@ pub struct NewChunkData {
     /// Read from `DBCol::ProcessedReceiptIds` (entries tagged
     /// `ReceiptSource::ReceiptToTxGc`) and `DBCol::ReceiptToTx`.
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// Earlier value of each key in `state_changes`. `None` if not computed.
+    inverse_state_changes: Option<InverseStateChanges>,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -76,14 +80,26 @@ pub struct CarriedData {
     /// Read from `DBCol::IncomingReceipts`. `None` when no new chunk in
     /// the block produces a receipt targeting this shard.
     incoming_receipts: Option<Vec<ReceiptProof>>,
+    /// Earlier value of each key in `state_changes`. `None` if not computed.
+    inverse_state_changes: Option<InverseStateChanges>,
 }
 
-/// `Ok(None)` at skipped heights (no block).
-pub fn build_shard_data(
+/// Context for building a shard's inverse state changes: a disk-backed
+/// `ShardTries` for pre-image lookups and the gap ceiling at or below which
+/// blocks carry inverse changes.
+struct InverseDeltasContext {
+    tries: ShardTries,
+    ceiling: BlockHeight,
+}
+
+/// `Ok(None)` at skipped heights (no block). Attaches inverse state changes when
+/// `inverse_deltas_context` is set and the block is within the resharding gap.
+fn build_shard_data(
     store: &Store,
     shard_layout: &ShardLayout,
     block_height: BlockHeight,
     shard_uid: ShardUId,
+    inverse_deltas_context: Option<&InverseDeltasContext>,
 ) -> Result<Option<ShardData>, Error> {
     let chain_store = store.chain_store();
     let chunk_store = store.chunk_store();
@@ -108,6 +124,14 @@ pub fn build_shard_data(
         format_args!("CHUNK APPLY STATS: height {block_height}, shard {shard_id:?}"),
     )?;
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
+    let inverse_state_changes = build_inverse_state_changes(
+        store,
+        inverse_deltas_context,
+        shard_uid,
+        &block_hash,
+        block_height,
+        &state_changes,
+    )?;
     // `IncomingReceipts` is only written at `(block, shard)` when at least
     // one new chunk in `block` produces a receipt targeting `shard`;
     // tolerate absence.
@@ -125,6 +149,7 @@ pub fn build_shard_data(
             chunk_apply_stats,
             state_changes,
             incoming_receipts,
+            inverse_state_changes,
         }))));
     }
 
@@ -144,6 +169,7 @@ pub fn build_shard_data(
         state_changes,
         transaction_result_for_block,
         receipt_to_tx,
+        inverse_state_changes,
     }))))
 }
 
@@ -225,6 +251,39 @@ fn get_state_changes(
     Ok(state_changes)
 }
 
+/// The reverse of the block's `forward` state changes for `shard_uid`, or `None`
+/// when there is no inverse context or the block is above the gap ceiling. Each
+/// changed key maps to its value at the previous block's post-state root (`None`
+/// if the key was absent then). Keyed by `TrieKey` in a `BTreeMap`, so every
+/// writer emits the same blob.
+fn build_inverse_state_changes(
+    store: &Store,
+    inverse_deltas_context: Option<&InverseDeltasContext>,
+    shard_uid: ShardUId,
+    block_hash: &CryptoHash,
+    block_height: BlockHeight,
+    forward: &[RawStateChangesWithTrieKey],
+) -> Result<Option<InverseStateChanges>, Error> {
+    let Some(context) = inverse_deltas_context else {
+        return Ok(None);
+    };
+    if block_height > context.ceiling {
+        return Ok(None);
+    }
+    let header = store.chain_store().get_block_header(block_hash)?;
+    let prev_chunk_extra = store.chunk_store().get_chunk_extra(header.prev_hash(), &shard_uid)?;
+    let prev_state_root = *prev_chunk_extra.state_root();
+    let trie = context.tries.get_trie_for_shard(shard_uid, prev_state_root);
+    let mut inverse = InverseStateChanges::new();
+    for change in forward {
+        let prev_value = trie
+            .get(&change.trie_key.to_vec(), AccessOptions::DEFAULT)
+            .map_err(|err| Error::Other(format!("inverse lookup failed: {err}")))?;
+        inverse.insert(change.trie_key.clone(), prev_value);
+    }
+    Ok(Some(inverse))
+}
+
 impl ShardData {
     pub fn block_hash(&self) -> &CryptoHash {
         match self {
@@ -284,10 +343,10 @@ impl ShardData {
         }
     }
 
-    // TODO(cloud_archival): return the stored field once the writer attaches it.
     pub fn inverse_state_changes(&self) -> Option<&InverseStateChanges> {
         match self {
-            ShardData::V1(_) => None,
+            ShardData::V1(ShardDataV1::NewChunk(d)) => d.inverse_state_changes.as_ref(),
+            ShardData::V1(ShardDataV1::Carried(d)) => d.inverse_state_changes.as_ref(),
         }
     }
 }
@@ -313,11 +372,29 @@ pub fn build_shard_batch(
     shard_layout: &ShardLayout,
     range: &BatchRange,
     shard_uid: ShardUId,
+    inverse_ceiling: Option<BlockHeight>,
 ) -> Result<ShardBatch, Error> {
+    // Inverse changes read pre-image values from disk; a fresh `ShardTries`
+    // avoids the writer's memtries, which may not hold the child layout's roots.
+    let inverse_deltas_context = inverse_ceiling.map(|ceiling| InverseDeltasContext {
+        tries: ShardTries::new(
+            store.trie_store(),
+            TrieConfig::default(),
+            FlatStorageManager::new(store.flat_store()),
+            StateSnapshotConfig::Disabled,
+        ),
+        ceiling,
+    });
     let count = (range.end() - range.start() + 1) as usize;
     let mut data = Vec::with_capacity(count);
     for height in range.start()..=range.end() {
-        data.push(build_shard_data(store, shard_layout, height, shard_uid)?);
+        data.push(build_shard_data(
+            store,
+            shard_layout,
+            height,
+            shard_uid,
+            inverse_deltas_context.as_ref(),
+        )?);
     }
     Ok(ShardBatch::new(range.start(), range.end(), data))
 }
