@@ -586,7 +586,8 @@ impl CloudArchivalWriter {
         let mut shard_batches = Vec::new();
         for &shard_uid in &tracked_shards {
             if old_tracked_shards.contains(&shard_uid) {
-                // Carried over: spans the whole batch.
+                // Carried over: spans the whole batch. A non-split shard maps
+                // accounts identically in both layouts, so the new layout is safe.
                 shard_batches.push(ShardBatchToArchive {
                     shard_uid,
                     layout: resharding.new_layout.clone(),
