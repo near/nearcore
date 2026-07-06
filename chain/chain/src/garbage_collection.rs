@@ -686,6 +686,12 @@ impl<'a> ChainStoreUpdate<'a> {
         for shard_uid in self.get_shard_uids_to_gc(epoch_manager, &block_hash) {
             let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
             self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
+            // ChunkProducers is keyed by ShardId (not ShardUId); insert-only, nightly-only.
+            #[cfg(feature = "nightly")]
+            self.gc_col(
+                DBCol::ChunkProducers,
+                &get_block_shard_id(&block_hash, shard_uid.shard_id()),
+            );
         }
 
         // 3. Delete block_hash-indexed data
@@ -883,6 +889,17 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut store_update = self.store().store_update();
             store_update.flat_store_update().remove_delta(shard_uid, block_hash);
             self.merge(store_update);
+        }
+
+        // ChunkProducers is keyed by the epoch-after-anchor layout, so iterate the
+        // this-epoch ∪ next-epoch shard set (mirrors clear_block_data) to avoid leaking
+        // next-layout rows at a resharding boundary. Keyed by ShardId; nightly-only.
+        #[cfg(feature = "nightly")]
+        for shard_uid in self.get_shard_uids_to_gc(epoch_manager, &block_hash) {
+            self.gc_col(
+                DBCol::ChunkProducers,
+                &get_block_shard_id(&block_hash, shard_uid.shard_id()),
+            );
         }
 
         // 2. Delete block_hash-indexed data

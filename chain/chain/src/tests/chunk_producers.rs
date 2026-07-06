@@ -1,6 +1,7 @@
 #[cfg(feature = "nightly")]
 mod tests {
     use crate::ChainStoreAccess;
+    use crate::garbage_collection::GCMode;
     use crate::test_utils::{setup, setup_with_tx_validity_period};
     use near_async::time::{Duration, FakeClock, Utc};
     use near_crypto::{KeyType, PublicKey};
@@ -429,6 +430,70 @@ mod tests {
                 .unwrap();
             assert_eq!(resolved.account_id(), canonical.account_id());
         }
+    }
+
+    /// Hot GC deletes a below-boundary anchor's ChunkProducers rows while retaining rows for
+    /// anchors that later blocks still resolve against. Drives clear_block_data directly (mirrors
+    /// garbage_collection::tests::test_clear_old_data_fixed_height) so the cleared block is exact.
+    #[test]
+    fn test_chunk_producers_garbage_collected_with_block() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // setup() uses epoch_length 1000, so all blocks share one epoch and one shard.
+        let mut hashes = vec![*chain.genesis().hash()];
+        for _ in 0..9 {
+            let prev_hash = *chain.head_header().unwrap().hash();
+            let prev = chain.get_block(&prev_hash).unwrap();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            hashes.push(*block.hash());
+            chain.process_block_test(block).unwrap();
+        }
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&hashes[1]).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        let row = |chain: &crate::Chain, anchor: &CryptoHash| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
+        };
+
+        // Every anchor has a row before GC.
+        for anchor in &hashes {
+            assert!(row(&chain, anchor).is_some(), "row should exist before GC for {anchor}");
+        }
+
+        // GCMode::Canonical clears block_hash.prev, so passing hashes[5] clears anchor hashes[4].
+        let cleared_anchor = hashes[4];
+        let input_hash = hashes[5];
+        let tries = chain.runtime_adapter.get_tries();
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update
+            .clear_block_data(epoch_manager.as_ref(), input_hash, GCMode::Canonical(tries))
+            .unwrap();
+        store_update.commit().unwrap();
+
+        // The reassigned prev (hashes[4]) is the anchor actually cleared, NOT the input hash.
+        assert!(
+            row(&chain, &cleared_anchor).is_none(),
+            "below-boundary anchor row must be deleted"
+        );
+        assert!(row(&chain, &input_hash).is_some(), "canonical GC clears prev, not the input hash");
+
+        // A higher anchor's row is retained and still resolves for its child chunk. The chunk
+        // built on hashes[7] anchors on its grandparent hashes[6].
+        assert!(row(&chain, &hashes[6]).is_some(), "above-boundary anchor row must be retained");
+        assert!(
+            epoch_manager.get_chunk_producer_info_from_prev_block(&hashes[7], shard_id).is_ok(),
+            "retained anchor must still resolve"
+        );
     }
 
     /// Resolution errors on a missing anchor DB row under EarlyKickout (strict read).
