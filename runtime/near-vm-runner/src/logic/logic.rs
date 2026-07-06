@@ -1885,6 +1885,28 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If any of the signature, message or public key arguments are out of
     ///   memory bounds, returns [`HostError::MemoryAccessViolation`]
     ///
+    /// # Malleability
+    ///
+    /// ECDSA signatures are malleable: if `(r, s)` verifies, so does
+    /// `(r, n - s)`, and this function accepts both. It delegates to a
+    /// FIPS 186-5 compliant implementation and does not enforce low-s
+    /// normalization (low-s is a Bitcoin convention from BIP-62, not an ECDSA
+    /// requirement). This is deliberate: WebAuthn does not require low-s and
+    /// real authenticators — notably Apple's Secure Enclave — routinely emit
+    /// high-s signatures, so rejecting them would break passkey flows.
+    /// Ethereum's RIP-7212 `P256VERIFY` precompile makes the same choice, and
+    /// unlike `ecrecover` this function takes no malleability flag.
+    ///
+    /// Malleability only matters to callers that use the signature bytes
+    /// themselves for uniqueness or replay protection. Such callers must either
+    /// enforce low-s themselves — with the raw `r || s` encoding, `s` is bytes
+    /// 32..64 big-endian, so the check is a lexicographic comparison against
+    /// ⌊n/2⌋ =
+    /// `0x7FFFFFFF800000007FFFFFFFFFFFFFFFDE737D56D38BCF4279DCE5617E3192A8` — or
+    /// have clients normalize `s = n - s` before submission. This behavior is
+    /// pinned by `test_p256_verify_wycheproof_high_s_accepted`; changing it
+    /// would be protocol-breaking.
+    ///
     /// # Cost
     ///
     /// Each input can either be in memory or in a register. Set the length of
