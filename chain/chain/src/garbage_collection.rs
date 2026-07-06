@@ -511,6 +511,21 @@ impl<'a> ChainStoreUpdate<'a> {
                 let key: &[u8] = header_hash.as_bytes();
                 store_update.delete(DBCol::BlockHeader, key);
                 self.merge(store_update);
+
+                // ChunkProducers rows are written per header (header sync and block
+                // processing) keyed by (block_hash, shard_id). Prefix-scan by the header hash
+                // to delete every shard's row layout-agnostically; nightly-only.
+                #[cfg(feature = "nightly")]
+                {
+                    let cp_keys: Vec<Box<[u8]>> = self
+                        .store()
+                        .iter_prefix(DBCol::ChunkProducers, header_hash.as_bytes())
+                        .map(|(key, _)| key)
+                        .collect();
+                    for cp_key in cp_keys {
+                        self.gc_col(DBCol::ChunkProducers, &cp_key);
+                    }
+                }
             }
             let key = index_to_bytes(height);
             self.gc_col(DBCol::HeaderHashesByHeight, &key);
@@ -891,16 +906,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.merge(store_update);
         }
 
-        // ChunkProducers is keyed by the epoch-after-anchor layout, so iterate the
-        // this-epoch ∪ next-epoch shard set (mirrors clear_block_data) to avoid leaking
-        // next-layout rows at a resharding boundary. Keyed by ShardId; nightly-only.
-        #[cfg(feature = "nightly")]
-        for shard_uid in self.get_shard_uids_to_gc(epoch_manager, &block_hash) {
-            self.gc_col(
-                DBCol::ChunkProducers,
-                &get_block_shard_id(&block_hash, shard_uid.shard_id()),
-            );
-        }
+        // ChunkProducers rows are deleted in clear_header_data_for_heights below, which covers
+        // the head_height..=header_head_height range: this head, its fork siblings, and every
+        // header-only anchor synced above it.
 
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());

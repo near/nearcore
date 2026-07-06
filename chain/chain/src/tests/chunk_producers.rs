@@ -496,6 +496,77 @@ mod tests {
         );
     }
 
+    /// clear_head_block_data (the undo-block path) deletes ChunkProducers rows for the body
+    /// head AND every header-only anchor synced above it. Header sync writes a row per header,
+    /// so a body-head-only delete would orphan the header-only rows; the prefix-scan in
+    /// clear_header_data_for_heights covers the whole head..=header_head range.
+    #[test]
+    fn test_chunk_producers_garbage_collected_on_undo_block() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Build a chain sharing one merkle tree so the header-only blocks validate on sync.
+        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let mut blocks = vec![genesis];
+        let mut block_merkle_tree = PartialMerkleTree::default();
+        for i in 0..5 {
+            clock.advance(Duration::milliseconds(1));
+            let epoch_sync_data_hash = if blocks[i].header().is_genesis() {
+                epoch_manager.compute_epoch_sync_data_hash(blocks[i].hash()).unwrap()
+            } else {
+                None
+            };
+            blocks.push(
+                TestBlockBuilder::from_prev_block(clock.clock(), &blocks[i], signer.clone())
+                    .block_merkle_tree(&mut block_merkle_tree)
+                    .epoch_sync_data_hash(epoch_sync_data_hash)
+                    .build(),
+            );
+        }
+
+        // Process bodies for heights 1..=3 (body head becomes height 3).
+        for block in &blocks[1..=3] {
+            chain.process_block_test(block.clone()).unwrap();
+        }
+        // Sync only the headers for heights 4..=5 (header_head advances past the body head).
+        chain
+            .sync_block_headers(blocks[4..=5].iter().map(|b| b.header().clone().into()).collect())
+            .unwrap();
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(blocks[1].hash()).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
+        let row = |chain: &crate::Chain, anchor: &CryptoHash, shard_id| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
+        };
+
+        // The body head (3) and the header-only anchors (4, 5) all have rows before the undo.
+        for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
+            for shard_id in shard_layout.shard_ids() {
+                assert!(row(&chain, anchor, shard_id).is_some(), "row should exist for {anchor}");
+            }
+        }
+
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update.clear_head_block_data(epoch_manager.as_ref()).unwrap();
+        store_update.commit().unwrap();
+
+        // Body head + header-only anchors are all cleared; nothing orphaned.
+        for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
+            for shard_id in shard_layout.shard_ids() {
+                assert!(
+                    row(&chain, anchor, shard_id).is_none(),
+                    "undo-block must delete ChunkProducers for {anchor}"
+                );
+            }
+        }
+    }
+
     /// Resolution errors on a missing anchor DB row under EarlyKickout (strict read).
     #[test]
     fn test_resolution_errors_on_anchor_db_miss() {
