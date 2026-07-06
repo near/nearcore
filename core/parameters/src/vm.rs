@@ -158,6 +158,10 @@ pub struct LimitConfig {
     /// a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_types_per_contract: Option<u64>,
+    /// If present, stores max number of globals (entries in the wasm global
+    /// section) a contract may declare.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_globals_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
