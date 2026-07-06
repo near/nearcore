@@ -93,7 +93,7 @@ impl<'a> ConfigValidator<'a> {
         }
     }
 
-    fn warn_deprecated_centralized_state_sync(&self) {
+    fn warn_deprecated_centralized_state_sync(&mut self) {
         let Some(state_sync) = &self.config.state_sync else {
             return;
         };
@@ -106,12 +106,12 @@ impl<'a> ConfigValidator<'a> {
             );
         }
         if matches!(state_sync.sync, SyncConfig::ExternalStorage(_)) {
-            tracing::warn!(
-                target: "config",
-                "centralized state sync is deprecated and will be removed in a future release. \
-                 'state_sync.sync.ExternalStorage' configuration will stop being supported. \
-                 Please migrate to peer-based state sync (\"Peers\")."
-            );
+            let error_message = "external-storage (centralized) state sync \
+                ('state_sync.sync.ExternalStorage') is no longer supported. Use peer-based state \
+                sync: set 'state_sync.sync' to \"Peers\" or remove the 'state_sync.sync' block \
+                (peer-based is the default)."
+                .to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
         }
     }
 
@@ -567,6 +567,37 @@ mod tests {
     fn test_cloud_archival_writer_save_receipt_to_tx_false() {
         let mut config = cloud_archival_writer_archiving_shards_config();
         config.save_receipt_to_tx = Some(false);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    fn test_external_storage_state_sync_rejected() {
+        let mut config = Config::default();
+        config.state_sync = Some(StateSyncConfig::gcs_with_bucket("some-bucket".to_string()));
+        let err = validate_config(&config).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(
+            err.contains("'state_sync.sync.ExternalStorage') is no longer supported"),
+            "expected external-storage sync to be rejected, got: {err}",
+        );
+    }
+
+    #[test]
+    fn test_default_peer_based_state_sync_ok() {
+        let config = Config::default();
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    fn test_external_storage_dump_only_ok() {
+        let mut config = Config::default();
+        let mut state_sync_config = StateSyncConfig::default();
+        state_sync_config.dump = Some(DumpConfig {
+            location: ExternalStorageLocation::GCS { bucket: "some-bucket".to_string() },
+            restart_dump_for_shards: None,
+            iteration_delay: None,
+            credentials_file: None,
+        });
+        config.state_sync = Some(state_sync_config);
         validate_config(&config).unwrap();
     }
 
