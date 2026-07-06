@@ -15,6 +15,7 @@ struct PrepareContext<'a> {
     table_limit: u32,
     table_element_limit: u64,
     type_limit: u64,
+    global_limit: u64,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -44,6 +45,7 @@ impl<'a> PrepareContext<'a> {
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
             type_limit: limits.max_types_per_contract.unwrap_or(u64::MAX),
+            global_limit: limits.max_globals_per_contract.unwrap_or(u64::MAX),
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -141,6 +143,10 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .global_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
+                    self.global_limit = self
+                        .global_limit
+                        .checked_sub(u64::from(reader.count()))
+                        .ok_or(PrepareError::TooManyGlobals)?;
                     self.copy_section(SectionId::Global, reader.range())?;
                 }
                 wp::Payload::ExportSection(reader) => {
