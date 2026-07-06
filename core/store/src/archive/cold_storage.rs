@@ -56,6 +56,11 @@ pub trait ColdMigrationStore {
 /// 1. add it to `DBCol::is_cold` list
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
+/// The `get_keys_from_store` path derives the `ShardId` component from the copied block's own
+/// epoch layout. If a column's rows are keyed by a different layout (e.g. the epoch-after-anchor
+/// layout, as `ChunkProducers` is), that derivation picks the wrong shard_ids at a resharding
+/// boundary and misses rows. Copy such a column by prefix-scanning the block hash instead
+/// (see `maybe_copy_chunk_producers` and `copy_state_changes_from_store`).
 /// When `resharding_block_hash` is `Some`, it indicates a resharding boundary:
 /// the shard UID mapping is updated for cold store and the TrieChanges from
 /// the resharding block (previous block) are also copied.
