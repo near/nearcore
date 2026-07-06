@@ -1366,6 +1366,8 @@ pub enum PrepareError {
     /// A function's max operand-stack size (in bytes) exceeds
     /// `max_operand_stack_bytes_per_function`.
     OperandStackTooLarge = 18,
+    /// Contract declares too many entries in the wasm global section.
+    TooManyGlobals = 19,
 }
 
 /// A kind of a trap happened during execution of a binary
