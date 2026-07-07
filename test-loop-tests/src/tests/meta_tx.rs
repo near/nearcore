@@ -53,31 +53,21 @@ fn test_meta_tx() {
         public_key: new_key.clone(),
         access_key: AccessKey::full_access(),
     }));
-    let candidate_nonce = env
-        .rpc_node()
-        .view_access_key_query(&candidate, &candidate_signer.public_key())
-        .unwrap()
-        .nonce
-        + 1;
-    let head = env.rpc_node().head();
+    let candidate_nonce = env.rpc_node().get_next_nonce(&candidate);
     let delegate_action = DelegateAction {
         sender_id: candidate.clone(),
         receiver_id: candidate.clone(),
         actions: vec![NonDelegateAction::try_from(add_key_action).unwrap()],
         nonce: candidate_nonce,
-        max_block_height: head.height + 100,
+        max_block_height: env.rpc_node().head().height + 100,
         public_key: candidate_signer.public_key(),
     };
-    let signature = candidate_signer.sign(delegate_action.get_nep461_hash().as_bytes());
-    let signed_delegate_action = SignedDelegateAction { delegate_action, signature };
+    let signed_delegate_action = SignedDelegateAction::sign(&candidate_signer, delegate_action);
 
     // The relayer wraps and submits it, paying the gas.
     let relayer_balance_before = env.rpc_node().query_balance(&relayer);
-    let meta_tx = env.rpc_node().tx_from_actions(
-        &relayer,
-        &candidate,
-        vec![Action::Delegate(Box::new(signed_delegate_action))],
-    );
+    let meta_tx =
+        env.rpc_node().tx_from_actions(&relayer, &candidate, vec![signed_delegate_action.into()]);
     env.rpc_runner().run_tx(meta_tx, Duration::seconds(5));
 
     // Both keys now exist on the candidate account, and its balance is unchanged:
