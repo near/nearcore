@@ -236,6 +236,9 @@ pub struct Config {
     /// Whether to enable the `sha3_256` (FIPS-202) host function.
     pub sha3_256_host_fn: bool,
 
+    /// Whether to enable the `sha3_384` and `sha3_512` (FIPS-202) host functions.
+    pub sha3_384_512_host_fns: bool,
+
     /// Whether to enable the promise_yield_create_with_id and
     /// promise_yield_resume_with_yield_id host functions.
     pub yield_with_id_host_fns: bool,
@@ -283,6 +286,7 @@ impl Config {
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
         self.sha3_256_host_fn = true;
+        self.sha3_384_512_host_fns = true;
         self.yield_with_id_host_fns = true;
         self.chain_id_host_fn = true;
         self.bls12381_not_in_group_fix = true;

@@ -4131,6 +4131,38 @@
             ],
             "description": "Cost of getting sha3-256 per byte"
           },
+          "sha3_384_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-384 base"
+          },
+          "sha3_384_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-384 per byte"
+          },
+          "sha3_512_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-512 base"
+          },
+          "sha3_512_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-512 per byte"
+          },
           "storage_has_key_base": {
             "allOf": [
               {

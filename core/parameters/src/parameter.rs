@@ -118,6 +118,14 @@ pub enum Parameter {
     WasmSha3256Base,
     #[strum(serialize = "wasm_sha3_256_byte")]
     WasmSha3256Byte,
+    #[strum(serialize = "wasm_sha3_384_base")]
+    WasmSha3384Base,
+    #[strum(serialize = "wasm_sha3_384_byte")]
+    WasmSha3384Byte,
+    #[strum(serialize = "wasm_sha3_512_base")]
+    WasmSha3512Base,
+    #[strum(serialize = "wasm_sha3_512_byte")]
+    WasmSha3512Byte,
     WasmRipemd160Base,
     WasmRipemd160Block,
     WasmEcrecoverBase,
@@ -295,6 +303,10 @@ pub enum Parameter {
     // Flag to enable the sha3_256 host function
     #[strum(serialize = "sha3_256_host_fn")]
     Sha3256HostFn,
+
+    // Flag to enable the sha3_384 and sha3_512 host functions
+    #[strum(serialize = "sha3_384_512_host_fns")]
+    Sha3384512HostFns,
 
     // Flag to enable yield_create_with_id and yield_resume_with_id host functions
     YieldWithIdHostFns,
