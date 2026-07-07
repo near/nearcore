@@ -44,6 +44,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
+    storage_proof_size_before_receipt: Option<usize>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -70,6 +71,7 @@ pub(crate) fn action_function_call(
         apply_state.current_protocol_version,
         config.wasm_config.storage_get_mode,
         Arc::clone(&apply_state.trie_access_tracker_state),
+        storage_proof_size_before_receipt,
     );
     let outcome = execute_function_call(
         contract,

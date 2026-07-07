@@ -446,6 +446,7 @@ pub enum ProtocolFeature {
     /// require a verifiable signature before processing the response.
     SignedContractCodeResponse,
     ClampOutgoingGasAdmission,
+    EnforcePerReceiptStorageProofLimit,
 }
 
 impl ProtocolFeature {
@@ -572,6 +573,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ClampOutgoingGasAdmission
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
+            ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -623,7 +625,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 86;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 155;

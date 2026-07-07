@@ -252,8 +252,9 @@ impl<'a> VMLogic<'a> {
     ) -> Self {
         let current_account_locked_balance = context.account_locked_balance;
         let config = Arc::clone(&result_state.config);
+
         let recorded_storage_counter = RecordedStorageCounter::new(
-            ext.get_recorded_storage_size(),
+            ext.storage_proof_size_before_receipt(),
             config.limit_config.per_receipt_storage_proof_size_limit,
         );
         let remaining_stack = u64::from(config.limit_config.max_stack_height);

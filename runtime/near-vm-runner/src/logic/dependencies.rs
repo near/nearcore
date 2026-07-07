@@ -262,6 +262,9 @@ pub trait External {
     /// Size of the recorded trie storage proof.
     fn get_recorded_storage_size(&self) -> usize;
 
+    /// Size of the recorded trie storage proof before the receipt execution started.
+    fn storage_proof_size_before_receipt(&self) -> usize;
+
     /// Returns the validator stake for given account in the current epoch.
     /// If the account is not a validator, returns `None`.
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>>;
