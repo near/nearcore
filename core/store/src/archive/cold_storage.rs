@@ -155,7 +155,7 @@ fn maybe_copy_chunk_producers(
     // hash so boundary rows keyed by next-epoch shard_ids are copied, not just own-epoch ones.
     let keys: Vec<Vec<u8>> = hot_store
         .iter_prefix(DBCol::ChunkProducers, block_hash_key)
-        .map(|(k, _)| k.to_vec())
+        .map(|(k, _)| k.into_vec())
         .collect();
     Some(copy_from_store(cold_db, hot_store, col, keys))
 }
