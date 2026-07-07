@@ -300,13 +300,9 @@ pub enum Parameter {
     // Flag to enable the P-256 verification host function
     P256VerifyHostFn,
 
-    // Flag to enable the sha3_256 host function
-    #[strum(serialize = "sha3_256_host_fn")]
-    Sha3256HostFn,
-
-    // Flag to enable the sha3_384 and sha3_512 host functions
-    #[strum(serialize = "sha3_384_512_host_fns")]
-    Sha3384512HostFns,
+    // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
+    #[strum(serialize = "sha3_host_fns")]
+    Sha3HostFns,
 
     // Flag to enable yield_create_with_id and yield_resume_with_id host functions
     YieldWithIdHostFns,

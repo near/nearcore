@@ -290,8 +290,7 @@ global_contract_host_fns                true
 gas_key_host_fns                        true
 one_yocto_on_promise                    true
 p256_verify_host_fn                     true
-sha3_256_host_fn                        false
-sha3_384_512_host_fns                   false
+sha3_host_fns                           false
 yield_with_id_host_fns                  true
 chain_id_host_fn                        true
 bls12381_not_in_group_fix               false

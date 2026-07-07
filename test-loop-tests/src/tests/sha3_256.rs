@@ -18,12 +18,12 @@ const SHA3_256_ABC: [u8; 32] = [
     157, 82, 91, 70, 191, 226, 69, 17, 67, 21, 50,
 ];
 
-/// `sha3_256_host_fn` has no `ProtocolFeature` variant; it is turned on purely by
+/// `sha3_host_fns` has no `ProtocolFeature` variant; it is turned on purely by
 /// a runtime-config diff (156.yaml). Check the flag for the current protocol
 /// version so the test skips on stable, runs on nightly, and re-enables itself
 /// automatically once the feature stabilizes.
 fn sha3_256_enabled() -> bool {
-    RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).wasm_config.sha3_256_host_fn
+    RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).wasm_config.sha3_host_fns
 }
 
 /// Build a WASM contract that imports `env.sha3_256`, bakes `input` into linear
@@ -101,7 +101,7 @@ fn test_sha3_256_pre_activation_call_fails() {
         return;
     }
 
-    // sha3_256_host_fn is turned on at protocol version 156 (see 156.yaml), so 155
+    // sha3_host_fns is turned on at protocol version 156 (see 156.yaml), so 155
     // is the last version without it.
     let pre_activation_pv = 155;
     let user = create_account_id("user");

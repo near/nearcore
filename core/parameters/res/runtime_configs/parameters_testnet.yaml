@@ -292,8 +292,7 @@ reftypes_bulk_memory: false
 gas_key_host_fns: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
-sha3_256_host_fn: false
-sha3_384_512_host_fns: false
+sha3_host_fns: false
 yield_with_id_host_fns: false
 chain_id_host_fn: false
 bls12381_not_in_group_fix: false

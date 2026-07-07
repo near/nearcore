@@ -37,12 +37,12 @@ const SHA3_512_ABC: [u8; 64] = [
     240,
 ];
 
-/// `sha3_384_512_host_fns` has no `ProtocolFeature` variant; it is turned on purely
-/// by a runtime-config diff (157.yaml). Check the flag for the current protocol
+/// `sha3_host_fns` has no `ProtocolFeature` variant; it is turned on purely
+/// by a runtime-config diff (156.yaml). Check the flag for the current protocol
 /// version so the test skips on stable, runs on nightly, and re-enables itself
 /// automatically once the feature stabilizes.
 fn sha3_384_512_enabled() -> bool {
-    RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).wasm_config.sha3_384_512_host_fns
+    RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).wasm_config.sha3_host_fns
 }
 
 /// Build a WASM contract that imports `env.{func}`, bakes `input` into linear
@@ -124,7 +124,7 @@ fn test_sha3_384_512_matches_known_digest() {
     }
 }
 
-/// Before the protocol version that activates `sha3_384_512_host_fns`, a contract
+/// Before the protocol version that activates `sha3_host_fns`, a contract
 /// that imports `env.sha3_384` must fail at call time (the import can't be linked
 /// against a runtime that doesn't expose it).
 #[test]
@@ -138,9 +138,9 @@ fn test_sha3_384_512_pre_activation_call_fails() {
         return;
     }
 
-    // sha3_384_512_host_fns is turned on at protocol version 157 (see 157.yaml), so
-    // 156 is the last version without it.
-    let pre_activation_pv = 156;
+    // sha3_host_fns is turned on at protocol version 156 (see 156.yaml), so 155
+    // is the last version without it.
+    let pre_activation_pv = 155;
     let user = create_account_id("user");
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
