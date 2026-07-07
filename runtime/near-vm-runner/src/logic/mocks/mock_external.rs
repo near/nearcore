@@ -214,6 +214,10 @@ impl External for MockedExternal {
         0
     }
 
+    fn storage_proof_size_before_receipt(&self) -> usize {
+        0
+    }
+
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {
         Ok(self.validators.get(account_id).cloned())
     }
