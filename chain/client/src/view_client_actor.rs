@@ -47,6 +47,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
+use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
@@ -867,7 +868,10 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         let chunk_inner = chunk.cloned_header().take_inner();
         let author = self
             .epoch_manager
-            .get_chunk_producer_info_db(chunk_inner.prev_block_hash(), chunk_inner.shard_id())
+            .get_chunk_producer_info_from_prev_block(
+                chunk_inner.prev_block_hash(),
+                chunk_inner.shard_id(),
+            )
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 
@@ -1337,7 +1341,10 @@ fn handle_receipt_to_tx(
 
     let mut current_receipt_id = msg.receipt_id;
     let mut current_height = msg.block_height;
-    let mut current_shard = msg.shard_id;
+    // Shards a column-miss scan inspects, resolved lazily at scan time (column
+    // hits skip it). Caller `shard_id` seeds first scan; each `FromReceipt` hop
+    // reseeds to parent's predecessor account.
+    let mut scan_shards = msg.shard_id.map(ScanShards::Hint).unwrap_or(ScanShards::Enumerate);
     let mut remaining_budget = max_outcomes_per_request;
     // Monotonic. False → true on first scan-resolve, never reset. After
     // scan, `current_height` = parent's exact execution height; causality
@@ -1362,20 +1369,19 @@ fn handle_receipt_to_tx(
                 } else {
                     Scan::CenterOut { window: effective_window }
                 };
-                match scan_with_optional_shard_enumeration(
+                match scan_for_seed(
                     actor,
                     current_receipt_id,
                     height,
-                    current_shard,
+                    &scan_shards,
                     scan,
                     &mut remaining_budget,
                 )? {
                     Some(res) => {
                         have_scanned = true;
                         current_height = Some(res.outcome_block_height);
-                        // No `current_shard = None`: FromReceipt arm
-                        // recomputes from parent's predecessor account,
-                        // FromTransaction arm doesn't read it.
+                        // Next-hop seed set by the FromReceipt arm below;
+                        // FromTransaction arm returns without scanning.
                         res.info
                     }
                     None => {
@@ -1395,16 +1401,12 @@ fn handle_receipt_to_tx(
             }
             ReceiptOrigin::FromReceipt(origin) => {
                 let parent_id = origin.parent_receipt_id;
-                // Next-hop shard = predecessor of this receipt's parent.
-                // Parent P executed on shard(P.receiver_id) =
-                // receipt's predecessor_id. P's parent at
-                // shard(origin.parent_predecessor_id), computed at
-                // current_height. Best-effort across resharding: layout
-                // shifts may pick stale shard → scan misses, walk returns
-                // `UnknownReceipt` rather than fabricate.
-                current_shard = current_height.and_then(|h| {
-                    shard_for_account_at_height(actor, &origin.parent_predecessor_id, h)
-                });
+                // Next hop targets parent P's producing shard. P executed on
+                // shard(P.receiver_id) = this receipt's predecessor_id; P's parent
+                // lives at shard(parent_predecessor_id). Carry the account, resolve
+                // its lineage lazily at scan time, so a producing outcome on a
+                // reshard-retired ancestor shard is still scanned.
+                scan_shards = ScanShards::Account(origin.parent_predecessor_id);
                 current_receipt_id = parent_id;
             }
         }
@@ -1416,19 +1418,134 @@ fn handle_receipt_to_tx(
     })
 }
 
-fn scan_with_optional_shard_enumeration(
+/// Seed for which shards a column-miss scan inspects, resolved to shard ids
+/// lazily at scan time (see `resolve_scan_shards`).
+enum ScanShards {
+    /// Caller `shard_id` hint (first scan). Walked back through parent shards so
+    /// a hint naming a post-reshard child still reaches the retired parent.
+    /// Ancestors only, not descendants (reshards split forward); the mirror
+    /// (parent hint, producer forward on a child) is uncovered — caller drops the
+    /// hint and `Enumerate` covers it.
+    Hint(ShardId),
+    /// Predecessor account from a `FromReceipt` hop. Mapped to its shard at each
+    /// layout in the window, covering a reshard between producer and anchor.
+    Account(AccountId),
+    /// No hint, no derivation yet → every shard at any layout the window spans.
+    Enumerate,
+}
+
+/// Resolve the seed to the shards to scan, unioned across every distinct epoch
+/// layout the window spans. Version-agnostic: a static (V2) or dynamic (V3)
+/// reshard in the window contributes the pre-reshard layout, whose
+/// `account_id_to_shard_id` / `shard_ids` still name the retired parent.
+///
+/// `Ok(None)` = no height in the window has a local block header (all GC'd) →
+/// the caller returns `UnknownReceipt`. A missing header at a single height
+/// (`DBNotFoundErr`) is skipped — the same skip-and-continue the hint scan uses;
+/// other chain/epoch errors → `InternalError`, so corruption can't masquerade as
+/// a missing receipt.
+fn resolve_scan_shards(
+    actor: &ViewClientActor,
+    scan: Scan,
+    anchor_height: BlockHeight,
+    seed: &ScanShards,
+) -> Result<Option<Vec<ShardId>>, GetReceiptToTxError> {
+    let (lo, hi) = scan.height_bounds(anchor_height);
+
+    // Distinct layouts the window spans (tiny — ≤2 in practice).
+    let mut seen_epochs: Vec<EpochId> = Vec::new();
+    let mut layouts: Vec<ShardLayout> = Vec::new();
+    for height in lo..=hi {
+        let header = match actor.chain.get_block_header_by_height(height) {
+            Ok(header) => header,
+            Err(near_chain::Error::DBNotFoundErr(_)) => continue,
+            Err(e) => return Err(GetReceiptToTxError::InternalError(e.to_string())),
+        };
+        let epoch_id = *header.epoch_id();
+        if seen_epochs.contains(&epoch_id) {
+            continue;
+        }
+        seen_epochs.push(epoch_id);
+        let layout = actor
+            .chain
+            .epoch_manager
+            .get_shard_layout(&epoch_id)
+            .into_chain_error()
+            .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?;
+        layouts.push(layout);
+    }
+    if layouts.is_empty() {
+        return Ok(None);
+    }
+
+    // Union per seed across the window's layouts, deduping in place — a shard
+    // scanned twice double-charges the budget. Coverage-safe: `resolve_receipt_via_hint`
+    // re-keys outcomes by `(block_hash, shard_id)` per height, so a deduped id still
+    // hits its rows in every layout.
+    let mut shards: Vec<ShardId> = Vec::new();
+    let push = |id: ShardId, shards: &mut Vec<ShardId>| {
+        if !shards.contains(&id) {
+            shards.push(id);
+        }
+    };
+    for layout in &layouts {
+        match seed {
+            ScanShards::Account(account_id) => {
+                push(layout.account_id_to_shard_id(account_id), &mut shards);
+            }
+            ScanShards::Enumerate => {
+                for shard_id in layout.shard_ids() {
+                    push(shard_id, &mut shards);
+                }
+            }
+            ScanShards::Hint(shard_id) => {
+                for id in hint_lineage(layout, *shard_id)
+                    .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?
+                {
+                    push(id, &mut shards);
+                }
+            }
+        }
+    }
+    Ok(Some(shards))
+}
+
+/// Hint's parent lineage in one layout: hint, then each ancestor it split from,
+/// stopping at the self-parent fixed point (an unchanged / V3 non-split shard is
+/// its own parent; the `parent == id` break prevents an infinite loop).
+/// `InvalidShardId` ends the walk (hint absent in this layout — expected); any
+/// other error propagates, so corruption can't look like a miss.
+fn hint_lineage(layout: &ShardLayout, hint: ShardId) -> Result<Vec<ShardId>, ShardLayoutError> {
+    let mut lineage = vec![hint];
+    let mut id = hint;
+    loop {
+        match layout.try_get_parent_shard_id(id) {
+            Ok(Some(parent)) => {
+                if parent == id {
+                    break;
+                }
+                lineage.push(parent);
+                id = parent;
+            }
+            Ok(None) => break,
+            Err(ShardLayoutError::InvalidShardId { .. }) => break,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(lineage)
+}
+
+/// Run the hint scan over every shard the seed resolves to, sharing one budget.
+/// `UnknownReceipt` when no window height is resolvable or no shard yields it.
+fn scan_for_seed(
     actor: &ViewClientActor,
     receipt_id: CryptoHash,
     block_height: BlockHeight,
-    shard_id: Option<ShardId>,
+    seed: &ScanShards,
     scan: Scan,
     remaining_budget: &mut u64,
 ) -> Result<Option<HintResolution>, GetReceiptToTxError> {
-    if let Some(shard_id) = shard_id {
-        return run_hint_scan(actor, receipt_id, block_height, shard_id, scan, remaining_budget);
-    }
-
-    let Some(shard_ids) = shard_ids_for_hint_height(actor, block_height)? else {
+    let Some(shard_ids) = resolve_scan_shards(actor, scan, block_height, seed)? else {
         return Err(GetReceiptToTxError::UnknownReceipt(receipt_id));
     };
     for shard_id in shard_ids {
@@ -1439,43 +1556,6 @@ fn scan_with_optional_shard_enumeration(
         }
     }
     Ok(None)
-}
-
-/// Shard layout at hinted height. `Ok(None)` = height not locally
-/// resolvable (GC'd at archival horizon); caller maps to `UnknownReceipt`.
-/// No head-epoch fallback — would scan wrong shards post-resharding.
-/// Other chain/epoch errors → `InternalError`, not `Ok(None)`, so
-/// corruption can't masquerade as missing receipt.
-fn shard_ids_for_hint_height(
-    actor: &ViewClientActor,
-    block_height: BlockHeight,
-) -> Result<Option<Vec<ShardId>>, GetReceiptToTxError> {
-    let header = match actor.chain.get_block_header_by_height(block_height) {
-        Ok(header) => header,
-        Err(near_chain::Error::DBNotFoundErr(_)) => return Ok(None),
-        Err(e) => return Err(GetReceiptToTxError::InternalError(e.to_string())),
-    };
-    let shard_layout = actor
-        .chain
-        .epoch_manager
-        .get_shard_layout(header.epoch_id())
-        .into_chain_error()
-        .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?;
-    Ok(Some(shard_layout.shard_ids().collect()))
-}
-
-/// Resolve `account_id` → shard at the height hint walked to. `None` =
-/// height locally unresolvable; callers fall back to `current_shard = None`
-/// → all-shards enumeration on next hop's scan (all-shards scan with
-/// unresolvable height surfaces `UnknownReceipt`).
-fn shard_for_account_at_height(
-    actor: &ViewClientActor,
-    account_id: &AccountId,
-    block_height: BlockHeight,
-) -> Option<ShardId> {
-    let header = actor.chain.get_block_header_by_height(block_height).ok()?;
-    let epoch_id = header.epoch_id();
-    account_id_to_shard_id(actor.chain.epoch_manager.as_ref(), account_id, epoch_id).ok()
 }
 
 /// Run one hint-fallback scan + unconditionally record stats. Used by
@@ -1789,5 +1869,53 @@ impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
             return None;
         };
         self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
+    }
+}
+
+#[cfg(test)]
+mod hint_lineage_tests {
+    use super::hint_lineage;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::{AccountId, ShardId};
+
+    /// Static (V2) split layout plus its parent (retired), a post-split child,
+    /// and an unchanged self-parenting shard. Mirrors `setup_reshard_boundary`
+    /// in the test-loop tests, but at the layout level — no env needed.
+    fn split_layout() -> (ShardLayout, ShardId, ShardId, ShardId) {
+        let boundary: AccountId = "boundary".parse().unwrap();
+        let base = ShardLayout::multi_shard(3, 3);
+        let parent = base.account_id_to_shard_id(&boundary);
+        let split = ShardLayout::derive_shard_layout(&base, boundary.clone());
+        let child = split.account_id_to_shard_id(&boundary);
+        let unchanged = split
+            .shard_ids()
+            .find(|&s| matches!(split.try_get_parent_shard_id(s), Ok(Some(p)) if p == s))
+            .expect("split layout retains at least one unchanged shard");
+        (split, parent, child, unchanged)
+    }
+
+    #[test]
+    fn self_parent_terminates() {
+        let (split, _parent, _child, unchanged) = split_layout();
+        // Self-parenting shard stops at the fixed point and yields only itself
+        // (revert the `parent == id` break in `hint_lineage` and this hangs).
+        assert_eq!(hint_lineage(&split, unchanged).unwrap(), vec![unchanged]);
+    }
+
+    #[test]
+    fn child_reaches_retired_parent() {
+        let (split, parent, child, _unchanged) = split_layout();
+        // Post-split child walks up to its retired parent, then stops (the
+        // parent is absent from this layout → InvalidShardId ends the walk).
+        assert_eq!(hint_lineage(&split, child).unwrap(), vec![child, parent]);
+    }
+
+    #[test]
+    fn unknown_hint_yields_itself() {
+        let (split, parent, _child, _unchanged) = split_layout();
+        // The retired parent id is not a valid shard in the post-split layout;
+        // the walk ends immediately and the hint is still returned (harmless —
+        // the hint scan finds no rows for it).
+        assert_eq!(hint_lineage(&split, parent).unwrap(), vec![parent]);
     }
 }

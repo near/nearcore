@@ -14,7 +14,6 @@ use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
@@ -28,9 +27,7 @@ use tracing::Instrument;
 pub(super) struct StateSyncDownloader {
     pub clock: Clock,
     pub store: Store,
-    pub preferred_source: Arc<dyn StateSyncDownloadSource>,
-    pub fallback_source: Option<Arc<dyn StateSyncDownloadSource>>,
-    pub num_attempts_before_fallback: usize,
+    pub source: Arc<dyn StateSyncDownloadSource>,
     pub header_validation_sender:
         AsyncSender<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
@@ -52,9 +49,7 @@ impl StateSyncDownloader {
     ) -> BoxFuture<'_, Result<ShardStateSyncResponseHeader, near_chain::Error>> {
         let store = self.store.clone();
         let validation_sender = self.header_validation_sender.clone();
-        let preferred_source = self.preferred_source.clone();
-        let fallback_source = self.fallback_source.clone();
-        let num_attempts_before_fallback = self.num_attempts_before_fallback;
+        let source = self.source.clone();
         let task_tracker = self.task_tracker.clone();
         let clock = self.clock.clone();
         let retry_backoff = self.retry_backoff;
@@ -67,21 +62,8 @@ impl StateSyncDownloader {
                 return Ok(header);
             }
 
-            let i = AtomicUsize::new(0); // for easier Rust async capture
             let attempt = || {
                 async {
-                    // We cannot assume that either source is infallible. We interleave attempts
-                    // to the available sources until one of them gives us the state successfully.
-                    let source = if fallback_source.is_some()
-                        && i.load(Ordering::Relaxed) >= num_attempts_before_fallback
-                    {
-                        i.store(0, Ordering::Relaxed);
-                        fallback_source.as_ref().unwrap().as_ref()
-                    } else {
-                        i.fetch_add(1, Ordering::Relaxed);
-                        preferred_source.as_ref()
-                    };
-
                     let header = source
                         .download_shard_header(shard_id, sync_hash, handle.clone(), cancel.clone())
                         .await?;
@@ -160,14 +142,11 @@ impl StateSyncDownloader {
         state_root: CryptoHash,
         num_state_parts: u64,
         part_id: u64,
-        num_prior_attempts: usize,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
         let runtime_adapter = self.runtime.clone();
-        let preferred_source = self.preferred_source.clone();
-        let fallback_source = self.fallback_source.clone();
-        let num_attempts_before_fallback = self.num_attempts_before_fallback;
+        let source = self.source.clone();
         let clock = self.clock.clone();
         let task_tracker = self.task_tracker.clone();
         let retry_backoff = self.retry_backoff;
@@ -183,18 +162,6 @@ impl StateSyncDownloader {
             }
 
             let attempt = || async {
-                // We cannot assume that either source is infallible. We cycle attempts
-                // to the available sources until one of them gives us the state successfully.
-                let cycle_length = num_attempts_before_fallback + 1;
-                let use_fallback = fallback_source.is_some()
-                    && num_prior_attempts % cycle_length == num_attempts_before_fallback;
-
-                let source = if use_fallback {
-                    fallback_source.as_ref().unwrap().as_ref()
-                } else {
-                    preferred_source.as_ref()
-                };
-
                 let part = source
                     .download_shard_part(
                         shard_id,

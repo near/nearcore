@@ -137,9 +137,6 @@ epoch, state parts become unavailable from peers. When the node detects this
 (the network tip is more than one epoch ahead of the sync hash), it triggers
 the same data-reset-and-restart flow used for stale nodes.
 
-See [how-to](../../misc/state_sync_from_external_storage.md) to learn how to
-configure your node for state sync from external storage (GCS, S3).
-
 #### Step 4: block sync
 
 The final step downloads and applies blocks from the sync point to the network

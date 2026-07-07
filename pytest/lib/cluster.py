@@ -1053,10 +1053,10 @@ def init_cluster(
 
     logger.info("Search for stdout and stderr in %s" % node_dirs)
 
-    # if extra_state_dumper is True, we added 1 to num_observers above and we will enable
-    # state dumping to a local tmp dir on the last node in node_dirs. The other nodes will have their
-    # state_sync configs point to this tmp dir
-    # TODO: remove this extra_state_dumper option when centralized state sync is no longer used
+    # if extra_state_dumper is True, we added 1 to num_observers above and we
+    # designate the last node in node_dirs as a state-part server: it tracks all
+    # shards and takes state snapshots so the other nodes can sync state from it
+    # over the peer-to-peer network.
     if extra_state_dumper:
         (node_config_dump,
          node_config_sync) = state_sync_lib.get_state_sync_configs_pair(
@@ -1172,7 +1172,6 @@ def apply_config_changes(node_dir: str,
         'consensus.max_block_production_delay',
         'consensus.max_block_wait_delay',
         'consensus.state_sync_external_timeout',
-        'consensus.state_sync_external_backoff',
         'consensus.state_sync_p2p_timeout',
         'expected_shutdown',
         'log_summary_period',

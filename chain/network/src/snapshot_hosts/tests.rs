@@ -204,6 +204,12 @@ async fn test_lru_eviction() {
     assert_eq!([&info1].as_set(), unwrap(&res).as_set());
     assert_eq!([&info0, &info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 
+    // Activate the sync hash so that the shard-specific host caches are populated.
+    // All hosts here share epoch height 123, hence the same sync hash.
+    let sync_hash = CryptoHash::hash_borsh(123u64);
+    cache.select_host_for_header(&sync_hash, ShardId::new(2));
+    assert_eq!([&peer0, &peer1].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
+
     // insert past capacity
     let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, sid_vec(&[1, 3]), &key2));
     let res = cache.insert(vec![info2.clone()]).await;
@@ -211,6 +217,62 @@ async fn test_lru_eviction() {
     assert_eq!([&info2].as_set(), unwrap(&res).as_set());
     // check that the oldest data was evicted
     assert_eq!([&info1, &info2].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+    // the evicted host must not linger in the shard-specific caches either
+    assert_eq!([&peer1, &peer2].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
+}
+
+#[tokio::test]
+async fn test_update_keeps_shard_hosts() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let key0 = data::make_secret_key(rng);
+    let peer0 = PeerId::new(key0.public_key());
+
+    let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new(config);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1]), &key0));
+    cache.insert(vec![info0.clone()]).await;
+    let sync_hash = CryptoHash::hash_borsh(123u64);
+    cache.select_host_for_header(&sync_hash, ShardId::new(0));
+    assert_eq!([&peer0].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
+
+    // Re-inserting the same peer displaces only its own previous entry, which is
+    // not an eviction and must not drop it from the shard caches.
+    let info0_new = Arc::new(make_snapshot_host_info(&peer0, 124, sid_vec(&[0, 1]), &key0));
+    cache.insert(vec![info0_new.clone()]).await;
+    assert_eq!([&peer0].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
+}
+
+#[tokio::test]
+async fn test_discard_removes_shard_hosts() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let key0 = data::make_secret_key(rng);
+    let peer0 = PeerId::new(key0.public_key());
+
+    let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
+    let cache = SnapshotHostsCache::new_with_epoch_retention_window(config, 1);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1]), &key0));
+    cache.insert(vec![info0.clone()]).await;
+    let sync_hash = CryptoHash::hash_borsh(123u64);
+    cache.select_host_for_header(&sync_hash, ShardId::new(0));
+    assert_eq!([&peer0].as_set(), cache.shard_host_peers().iter().collect::<HashSet<_>>());
+
+    // Advancing the epoch past the retention window discards peer0, which must
+    // also disappear from the shard caches.
+    cache.set_current_epoch_height(125);
+    assert!(cache.get_hosts().is_empty());
+    assert!(cache.shard_host_peers().is_empty());
 }
 
 // In each test, we will have a list of these, where they will indicate the function we

@@ -356,6 +356,12 @@ pub enum InvalidAccessKeyError {
     } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall = 5,
+    /// Gas keys track nonces per index in dedicated storage, which a plain
+    /// access key nonce does not select, so a gas key must sign a `DelegateV2`
+    /// with a gas key nonce instead.
+    DelegateActionRequiresNonGasKey = 6,
+    /// A delegate action with a gas key nonce must be signed by a gas key.
+    DelegateActionRequiresGasKey = 7,
 }
 
 /// Describes the error for validating a list of actions.
@@ -833,6 +839,11 @@ pub enum ActionErrorKind {
         public_key: Option<Box<PublicKey>>,
         balance: Balance,
     } = 25,
+    /// DelegateAction nonce index is outside the gas key's nonce range
+    DelegateActionInvalidNonceIndex {
+        nonce_index: NonceIndex,
+        num_nonces: NonceIndex,
+    } = 26,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -988,6 +999,15 @@ impl Display for InvalidAccessKeyError {
                     "Having a deposit with a function call action is not allowed with a function call access key."
                 )
             }
+            InvalidAccessKeyError::DelegateActionRequiresGasKey => {
+                write!(f, "Gas key delegate action requires a gas key")
+            }
+            InvalidAccessKeyError::DelegateActionRequiresNonGasKey => {
+                write!(
+                    f,
+                    "Gas keys can't sign a delegate action with a plain nonce; use a DelegateV2 with a gas key nonce"
+                )
+            }
         }
     }
 }
@@ -1130,6 +1150,11 @@ impl Display for ActionErrorKind {
                 "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}",
                 delegate_nonce, upper_bound
             ),
+            ActionErrorKind::DelegateActionInvalidNonceIndex { nonce_index, num_nonces } => write!(
+                f,
+                "DelegateAction nonce index {} must be smaller than the gas key nonce count {}",
+                nonce_index, num_nonces
+            ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
             }
@@ -1193,9 +1218,9 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
     /// Error selecting chunk producer for a shard.
     ChunkProducerSelectionError(String),
-    /// Chunk producer entry not found in the ChunkProducers DB column.
-    /// This is transient during initial sync — the entry is populated when
-    /// the parent block is processed.
+    /// Chunk producer entry not found in the ChunkProducers DB column. The
+    /// `CryptoHash` is the chunk's grandparent anchor. This is transient during
+    /// initial sync — the entry is populated when the anchor block is processed.
     ChunkProducerNotInDB(CryptoHash, ShardId),
 }
 

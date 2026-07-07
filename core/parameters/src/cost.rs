@@ -50,18 +50,27 @@ impl Fee {
     }
 
     fn test_value(value: u64, factor: u64) -> Self {
+        Self::test_value_detailed(value, value, value, factor)
+    }
+
+    fn test_value_detailed(
+        send_sir_cost: u64,
+        send_not_sir_cost: u64,
+        execution_cost: u64,
+        factor: u64,
+    ) -> Self {
         Self {
             send_sir: FeeComponent::GasAndCompute {
-                gas: Gas::from_gas(value),
-                compute: value * factor,
+                gas: Gas::from_gas(send_sir_cost),
+                compute: send_sir_cost * factor,
             },
             send_not_sir: FeeComponent::GasAndCompute {
-                gas: Gas::from_gas(value),
-                compute: value * factor,
+                gas: Gas::from_gas(send_not_sir_cost),
+                compute: send_not_sir_cost * factor,
             },
             execution: FeeComponent::GasAndCompute {
-                gas: Gas::from_gas(value),
-                compute: value * factor,
+                gas: Gas::from_gas(execution_cost),
+                compute: execution_cost * factor,
             },
         }
     }
@@ -145,6 +154,9 @@ impl ExtCostsConfig {
             ExtCosts::keccak256_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
             ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
+            // SHA3-256 shares the keccak-f permutation, so it gets the same costs.
+            ExtCosts::sha3_256_base => SAFETY_MULTIPLIER * 1959830425,
+            ExtCosts::sha3_256_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::ripemd160_base => SAFETY_MULTIPLIER * 284558362,
             ExtCosts::ed25519_verify_base => SAFETY_MULTIPLIER * 1513656750,
             ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
@@ -334,6 +346,8 @@ pub enum ExtCosts {
     p256_verify_base = 85,
     p256_verify_byte = 86,
     yield_create_with_id_base = 87,
+    sha3_256_base = 88,
+    sha3_256_byte = 89,
 }
 
 // Type of an action, used in fees logic.
@@ -413,6 +427,8 @@ impl ExtCosts {
             ExtCosts::keccak256_byte => Parameter::WasmKeccak256Byte,
             ExtCosts::keccak512_base => Parameter::WasmKeccak512Base,
             ExtCosts::keccak512_byte => Parameter::WasmKeccak512Byte,
+            ExtCosts::sha3_256_base => Parameter::WasmSha3256Base,
+            ExtCosts::sha3_256_byte => Parameter::WasmSha3256Byte,
             ExtCosts::ripemd160_base => Parameter::WasmRipemd160Base,
             ExtCosts::ripemd160_block => Parameter::WasmRipemd160Block,
             ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
@@ -488,6 +504,23 @@ impl ExtCosts {
     }
 }
 
+/// Signature scheme of a transaction (or delegate-action) signer, used as the
+/// key for per-scheme verification-cost lookups. Mirrors the schemes in
+/// `near_crypto::KeyType`; kept here (rather than reusing `KeyType`) so that
+/// `near-parameters` need not depend on `near-crypto`. Convert with the
+/// `KeyType -> SignatureKind` match at the runtime call site.
+///
+/// To price a future scheme (more ML-DSA bits, hash-based schemes, ...): add
+/// the `KeyType`, add a variant here, and add a `<scheme>_verification_cost`
+/// runtime parameter; the compiler then forces wiring the new entry into the
+/// cost map in `parameter_table.rs`.
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, enum_map::Enum)]
+pub enum SignatureKind {
+    Ed25519,
+    Secp256k1,
+    MlDsa65,
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct RuntimeFeesConfig {
     /// Gas fees for sending and executing actions.
@@ -523,6 +556,18 @@ pub struct RuntimeFeesConfig {
     /// Per-byte compute cost charged when applying a
     /// `GlobalContractDistribution` receipt, scaled by deployed code size.
     pub deploy_global_contract_execution_per_byte: Compute,
+
+    /// Gas and compute cost charged at transaction conversion for each
+    /// signature the transaction triggers verification of, keyed by signature
+    /// scheme: the signer's own signature, plus each `Delegate` action's inner
+    /// signer. This is the *extra* verification cost of a scheme relative to
+    /// the classical schemes (whose verification is part of
+    /// `action_receipt_creation`). ed25519/secp256k1 stay 0 for backwards
+    /// compatibility; only ML-DSA-65 carries a charge. The signer pays it as
+    /// burnt gas when buying the transaction; receipts created from within
+    /// contracts are unaffected (no signing there). All 0 before
+    /// `PostQuantumSignatures`.
+    pub signature_verification_costs: EnumMap<SignatureKind, ParameterCost>,
 }
 
 /// Describes cost of storage per block
@@ -548,6 +593,24 @@ impl RuntimeFeesConfig {
     /// Convenience constructor to use in tests where the exact gas cost does
     /// not need to correspond to a specific protocol version.
     pub fn test_with_undercharging_factor(factor: u64) -> Self {
+        // Once `ProtocolFeature::AccountCostIncrease` is enabled the test config has to keep the invariant
+        // `min_gas_purchase_price * create_account.exec >= account_creation_charge` satisfied,
+        // so the `create_account` fee is aligned with the real mainnet protocol values. With the
+        // feature disabled we keep the historical `Fee::test_value(3_850_000_000_000)` so
+        // pre-feature test expectations are unchanged.
+        let create_account_fee =
+            if near_primitives_core::version::ProtocolFeature::AccountCostIncrease
+                .enabled(near_primitives_core::version::PROTOCOL_VERSION)
+            {
+                Fee::test_value_detailed(
+                    500_000_000_000,
+                    500_000_000_000,
+                    7_200_000_000_000,
+                    factor,
+                )
+            } else {
+                Fee::test_value(3_850_000_000_000, factor)
+            };
         Self {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
@@ -555,7 +618,7 @@ impl RuntimeFeesConfig {
             gas_refund_penalty: Rational32::new(5, 100),
             min_gas_refund_penalty: Gas::from_teragas(1),
             action_fees: enum_map::enum_map! {
-                ActionCosts::create_account => Fee::test_value(3_850_000_000_000, factor),
+                ActionCosts::create_account => create_account_fee.clone(),
                 ActionCosts::delete_account => Fee::test_value(147489000000, factor),
                 ActionCosts::deploy_contract_base => Fee::test_value(184765750000, factor),
                 ActionCosts::deploy_contract_byte => Fee::test_value(6812999, factor),
@@ -584,6 +647,7 @@ impl RuntimeFeesConfig {
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
+            signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
         }
     }
 
@@ -604,6 +668,7 @@ impl RuntimeFeesConfig {
             min_gas_refund_penalty: Gas::ZERO,
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
+            signature_verification_costs: enum_map::enum_map! { _ => ParameterCost::ZERO },
         }
     }
 

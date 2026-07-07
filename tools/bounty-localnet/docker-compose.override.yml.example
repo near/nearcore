@@ -1,0 +1,34 @@
+# Byzantine-repro override: run ONE validator with a modified neard binary.
+# Compose auto-merges docker-compose.override.yml on every `up`:
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   # edit, then: docker compose up --build
+#
+# Pick a NON-RPC validator (validator1..7, never validator0 — it owns the
+# RPC port). N/A for NUM_VALIDATORS=1.
+#
+# If your binary is fully offline from the start (crash stub, immediate
+# exit), use NUM_VALIDATORS>=5: below that, the remaining nodes' startup
+# peer gate (min(N-1, 3) peers) never opens and no blocks are produced.
+
+services:
+  validator1:
+    # PRIMARY: bind-mount your custom-built neard over the image's binary.
+    # Path must be absolute. The base file's /srv/near mount survives —
+    # compose merges volume lists.
+    volumes:
+      - /absolute/path/to/your/custom/neard:/usr/local/bin/neard:ro
+
+    # ADVANCED: build from a different nearcore checkout instead. Only safe
+    # if the fork still matches the configs init generates (same genesis
+    # layout, same protocol version) — otherwise the validator won't join.
+    # Comment out the `volumes:` block above first.
+    #
+    # `image:` is required: without it the fork build silently overwrites
+    # the shared bounty-localnet-neard:local tag every other validator runs.
+    # image: bounty-localnet-neard-fork:local
+    # build:
+    #   context: /absolute/path/to/your/nearcore-fork
+    #   dockerfile: Dockerfile
+    #   args:
+    #     make_target: neard-release

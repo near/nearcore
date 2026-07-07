@@ -22,6 +22,7 @@ use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncShardResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
@@ -31,7 +32,6 @@ use near_chain::chain::{
     VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice::core::find_newly_certified_block_hashes;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -409,8 +409,6 @@ impl Client {
             config.state_sync_external_timeout,
             config.state_sync_p2p_timeout,
             config.state_sync_retry_backoff,
-            config.state_sync_external_backoff,
-            &config.chain_id,
             &config.state_sync,
             chain_sender_for_state_sync.clone(),
             state_sync_future_spawner.clone(),
@@ -1116,27 +1114,7 @@ impl Client {
             None
         };
 
-        let epoch_sync_data_hash = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            let last_block_info = self.epoch_manager.get_block_info(prev_block.hash())?;
-            let prev_epoch_id = *last_block_info.epoch_id();
-            let prev_epoch_first_block_info =
-                self.epoch_manager.get_block_info(last_block_info.epoch_first_block())?;
-            let prev_epoch_prev_last_block_info =
-                self.epoch_manager.get_block_info(last_block_info.prev_hash())?;
-            let prev_epoch_info = self.epoch_manager.get_epoch_info(&prev_epoch_id)?;
-            let cur_epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
-            let next_epoch_info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
-            Some(CryptoHash::hash_borsh(&(
-                prev_epoch_first_block_info,
-                prev_epoch_prev_last_block_info,
-                last_block_info,
-                prev_epoch_info,
-                cur_epoch_info,
-                next_epoch_info,
-            )))
-        } else {
-            None
-        };
+        let epoch_sync_data_hash = self.epoch_manager.compute_epoch_sync_data_hash(&prev_hash)?;
 
         // Last final block **after this block is produced**
         let last_final_block = prev.last_final_block_for_height(height);
@@ -1175,10 +1153,15 @@ impl Client {
                 .chain
                 .spice_core_reader
                 .prev_last_certified_block_epoch_id(prev_header.hash())?;
+            let spice_chunk_endorsement_stats = self
+                .chain
+                .spice_core_reader
+                .spice_chunk_endorsement_stats_for_next_block(prev_header, height)?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 newly_certified_block_execution_results,
                 prev_last_certified_block_epoch_id,
+                spice_chunk_endorsement_stats,
             })
         } else {
             None
@@ -1559,7 +1542,10 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info_db(chunk_header.prev_block_hash(), chunk_header.shard_id())?
+            .get_chunk_producer_info_from_prev_block(
+                chunk_header.prev_block_hash(),
+                chunk_header.shard_id(),
+            )?
             .take_account_id();
         tracing::error!(
             target: "client",
@@ -1953,7 +1939,8 @@ impl Client {
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
 
-        // Notify chunk validation actor about the new block for orphan witness processing
+        // Notify ChunkValidationActor: the new block lets it process orphan witnesses
+        // that were waiting on it as their previous block.
         let block_notification = BlockNotificationMessage { block: block.clone() };
         self.chunk_validation_sender.block_notification.send(block_notification.clone());
 
@@ -2562,8 +2549,6 @@ impl Client {
                             self.config.state_sync_external_timeout,
                             self.config.state_sync_p2p_timeout,
                             self.config.state_sync_retry_backoff,
-                            self.config.state_sync_external_backoff,
-                            &self.config.chain_id,
                             &self.config.state_sync,
                             self.chain_sender_for_state_sync.clone(),
                             self.state_sync_future_spawner.clone(),

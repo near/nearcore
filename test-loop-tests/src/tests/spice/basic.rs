@@ -20,9 +20,11 @@ use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality, ShardId};
+use near_primitives::types::{
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId,
+};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::QueryRequest;
 use near_store::DBCol;
@@ -60,9 +62,27 @@ fn test_spice_chain() {
     // More than one shard in total allows testing cross-shard communications.
     let shard_layout =
         ShardLayout::multi_shard_custom(vec![accounts[accounts.len() / 2].clone()], 1);
-    let validators_spec = ValidatorsSpec::desired_roles(
-        &block_and_chunk_producers.iter().map(|a| a.as_str()).collect_vec(),
-        &validators_only.iter().map(|a| a.as_str()).collect_vec(),
+    // Skewed stakes keep the producer set stable across reward epochs: with equal
+    // stakes a producer that misses its first post-genesis chunk can earn few enough
+    // rewards to get replaced, and spice test-loop has no state sync for new producers.
+    let all_validators: Vec<AccountInfo> = block_and_chunk_producers
+        .iter()
+        .map(|account_id| AccountInfo {
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            account_id: account_id.clone(),
+            amount: Balance::from_near(10_000),
+        })
+        .chain(validators_only.iter().map(|account_id| AccountInfo {
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            account_id: account_id.clone(),
+            amount: Balance::from_near(100),
+        }))
+        .collect();
+    let validators_spec = ValidatorsSpec::raw(
+        all_validators,
+        num_block_producers as u64,
+        num_block_producers as u64,
+        num_validators as u64,
     );
 
     const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
@@ -829,28 +849,27 @@ fn test_spice_chain_with_missing_chunks() {
     let (sent_txs, balance_changes) =
         schedule_send_money_txs(&[node_data], &accounts, &env.test_loop);
 
-    let mut observed_txs = HashSet::new();
+    // A final result requires the whole receipt tree to resolve, including the gas-refund
+    // receipt, so balances have fully settled once every transaction reaches one.
+    let mut finalized_txs = HashSet::new();
     env.rpc_runner().run_until(
         |node| {
-            let head = node.head();
+            let sent_txs = sent_txs.lock();
+            if sent_txs.len() < accounts.len() {
+                return false;
+            }
             let client = node.client();
-            let block = client.chain.get_block(&head.last_block_hash).unwrap();
-            for chunk in block.chunks().iter() {
-                let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) else {
-                    continue;
-                };
-                for tx in chunk.to_transactions() {
-                    observed_txs.insert(tx.get_hash());
+            for tx_hash in sent_txs.iter() {
+                if !finalized_txs.contains(tx_hash)
+                    && client.chain.get_final_transaction_result(tx_hash).is_ok()
+                {
+                    finalized_txs.insert(*tx_hash);
                 }
             }
-            observed_txs.len() == sent_txs.lock().len()
+            finalized_txs.len() == sent_txs.len()
         },
         Duration::seconds(200),
     );
-
-    // A few more blocks to make sure everything is executed.
-    let head_height = env.rpc_node().head().height;
-    env.rpc_runner().run_until_head_height(head_height + 3);
 
     {
         let node = env.rpc_node();

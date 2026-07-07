@@ -108,13 +108,15 @@ fn get_state_root(
 /// block that flat storage has a delta for, possibly in more than one fork.
 /// `state_root` parameter is required if `ChunkExtra` is not available, e.g. on catchup.
 ///
-/// Returns the loaded memtries and the height up to which deltas have been applied.
+/// Returns the loaded memtries, the height up to which deltas have been applied,
+/// and the number of deltas applied during loading (i.e. those that accumulated
+/// above the flat head while the base trie was being loaded).
 pub fn load_trie_from_flat_state_and_delta(
     store: &Store,
     shard_uid: ShardUId,
     state_root: Option<StateRoot>,
     parallelize: bool,
-) -> Result<(MemTries, BlockHeight), StorageError> {
+) -> Result<(MemTries, BlockHeight, usize), StorageError> {
     tracing::debug!(target: "memtrie", %shard_uid, "loading base trie from flat state");
     let flat_store = store.flat_store();
     let flat_head = match flat_store.get_flat_storage_status(shard_uid) {
@@ -141,10 +143,11 @@ pub fn load_trie_from_flat_state_and_delta(
     let mut memtries =
         load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)?;
 
-    let max_height = apply_deltas_to_memtries(store, shard_uid, &mut memtries, flat_head.height)?;
+    let (max_height, num_deltas) =
+        apply_deltas_to_memtries(store, shard_uid, &mut memtries, flat_head.height)?;
 
     tracing::debug!(target: "memtrie", %shard_uid, "done loading memtries for shard");
-    Ok((memtries, max_height))
+    Ok((memtries, max_height, num_deltas))
 }
 
 /// Applies all flat state deltas to the given memtries that are not already
@@ -153,13 +156,14 @@ pub fn load_trie_from_flat_state_and_delta(
 ///
 /// `base_height` is the height up to which deltas have already been applied.
 /// Deltas at or below this height are skipped. Returns the height of the
-/// highest delta that was applied (or `base_height` if no deltas were applied).
+/// highest delta that was applied (or `base_height` if no deltas were applied)
+/// and the number of deltas applied.
 pub fn apply_deltas_to_memtries(
     store: &Store,
     shard_uid: ShardUId,
     memtries: &mut MemTries,
     base_height: BlockHeight,
-) -> Result<BlockHeight, StorageError> {
+) -> Result<(BlockHeight, usize), StorageError> {
     let flat_store = store.flat_store();
 
     tracing::debug!(target: "memtrie", %shard_uid, %base_height, "loading flat state deltas");
@@ -174,6 +178,7 @@ pub fn apply_deltas_to_memtries(
         .collect();
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
+    let num_deltas = sorted_deltas.len();
     let max_height = sorted_deltas.last().map(|(height, _, _)| *height).unwrap_or(base_height);
     for (height, hash, prev_hash) in sorted_deltas {
         let Some(changes) = flat_store.get_delta(shard_uid, hash) else { continue };
@@ -197,7 +202,7 @@ pub fn apply_deltas_to_memtries(
         tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
     }
 
-    Ok(max_height)
+    Ok((max_height, num_deltas))
 }
 
 #[cfg(test)]
@@ -482,9 +487,10 @@ mod tests {
         // Load into memory. It should load the base flat state (block 0), plus all
         // four deltas. We'll check against the state roots at each block; they should
         // all exist in the loaded memtrie.
-        let (memtries, max_height) =
+        let (memtries, max_height, num_deltas) =
             load_trie_from_flat_state_and_delta(&store, shard_uid, None, true).unwrap();
         assert_eq!(max_height, 4);
+        assert_eq!(num_deltas, 4);
 
         assert_eq!(
             memtrie_lookup(memtries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None)

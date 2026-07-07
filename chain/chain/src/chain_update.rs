@@ -3,7 +3,9 @@ use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::spice::chunk_application::apply_chunk_postprocessing;
-use crate::spice::core::record_uncertified_chunks_for_block;
+use crate::spice::core::{
+    record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
+};
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
@@ -270,11 +272,6 @@ impl<'a> ChainUpdate<'a> {
             .epoch_manager
             .add_validator_proposals(block_info, *block.header().random_value())?;
         self.chain_store_update.merge(epoch_manager_update.into());
-        self.chain_store_update.save_chunk_producers_for_header(
-            self.epoch_manager.as_ref(),
-            block.header(),
-            current_protocol_version,
-        )?;
 
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             // If this is the first block of the epoch, update epoch sync proof.
@@ -303,6 +300,11 @@ impl<'a> ChainUpdate<'a> {
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         if ProtocolFeature::Spice.enabled(protocol_version) {
             record_uncertified_chunks_for_block(
+                &mut self.chain_store_update,
+                self.epoch_manager.as_ref(),
+                &block,
+            )?;
+            record_spice_endorsement_stats_for_block(
                 &mut self.chain_store_update,
                 self.epoch_manager.as_ref(),
                 &block,

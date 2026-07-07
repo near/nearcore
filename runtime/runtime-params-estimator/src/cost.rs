@@ -426,6 +426,12 @@ pub enum Cost {
     /// Estimates `keccak512_byte`, the cost charged per input byte in calls to the
     /// keccak512-hash host function.
     Keccak512Byte,
+    /// Estimates `sha3_256_base`, the cost charged once per call to the
+    /// sha3-256-hash host function.
+    Sha3256Base,
+    /// Estimates `sha3_256_byte`, the cost charged per input byte in calls to the
+    /// sha3-256-hash host function.
+    Sha3256Byte,
     /// Estimates `ripemd160_base`, the cost charged once per call to the
     /// ripemd160-hash host function.
     Ripemd160Base,

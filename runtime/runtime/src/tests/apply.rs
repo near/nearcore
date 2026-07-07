@@ -15,7 +15,9 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{
+    AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
+};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
 use near_primitives::apply::ApplyChunkReason;
@@ -34,9 +36,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
-    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction,
-    ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    TransactionNonce, TransferAction,
+    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ExecutionMetadata,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction,
+    SignedTransaction, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -777,6 +779,9 @@ fn test_apply_delayed_receipts_local_tx() {
     );
 }
 
+// Under AccountCostIncrease the runtime caps gas_burn_price at the receipt's gas_price (no
+// deficit ever) and refunds price_surplus through a refund receipt (instead of adding it to
+// tx_burnt). The tests below assert on both flavors.
 #[test]
 fn test_apply_deficit_gas_for_transfer() {
     let initial_balance = Balance::from_near(1_000_000);
@@ -807,10 +812,16 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
-        result.stats.balance.gas_deficit_amount,
-        result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
-    )
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // gas_burn_price is capped at the receipt's (lower) gas_price, so the receipt is
+        // burnt at exactly what the user paid and no deficit accumulates.
+        assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
+    } else {
+        assert_eq!(
+            result.stats.balance.gas_deficit_amount,
+            result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
+        )
+    }
 }
 
 /// Apply a transfer receipt that was purchased at a higher gas price than
@@ -854,12 +865,20 @@ fn test_apply_surplus_gas_for_transfer() {
         .unwrap()
         .gas;
 
-    let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
-    let expected_receipts = 0;
-
     assert!(result.stats.balance.gas_deficit_amount.is_zero());
-    assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
-    assert_eq!(result.outgoing_receipts.len(), expected_receipts);
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // price_surplus is refunded to the signer (1 refund receipt) and only the burn-price
+        // portion (= apply_state.gas_price * exec_gas) is added to tx_burnt_amount.
+        let expected_burnt_amount =
+            apply_state.gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+        assert_eq!(result.outgoing_receipts.len(), 1);
+    } else {
+        // price_surplus is burnt (added to tx_burnt_amount) and no refund is produced.
+        let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+        assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+        assert_eq!(result.outgoing_receipts.len(), 0);
+    }
 }
 
 #[test]
@@ -938,14 +957,17 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
-        result.stats.balance.gas_deficit_amount,
+    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // gas_burn_price is capped at the receipt's gas_price, no deficit can accumulate.
+        Balance::ZERO
+    } else {
         GAS_PRICE
             .checked_sub(gas_price)
             .unwrap()
             .checked_mul(u128::from(expected_gas_burnt.as_gas()))
             .unwrap()
-    );
+    };
+    assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1006,11 +1028,15 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_deficit = GAS_PRICE
-        .checked_sub(gas_price)
-        .unwrap()
-        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-        .unwrap();
+    let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        Balance::ZERO
+    } else {
+        GAS_PRICE
+            .checked_sub(gas_price)
+            .unwrap()
+            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+            .unwrap()
+    };
 
     let result = runtime
         .apply(
@@ -1092,11 +1118,25 @@ fn test_apply_surplus_gas_for_function_call() {
         .unwrap(),
     );
     let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
-    let expected_refund = total_receipt_cost
-        .checked_sub(expected_gas_burnt_amount)
-        .unwrap()
-        .checked_sub(gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap())
-        .unwrap();
+    // The unspent gas is refunded at the price it was purchased at (the receipt's `gas_price`).
+    let unspent_refund = total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap();
+    let expected_refund = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        // The refund penalty is charged at the burn price (`apply_state.gas_price`), not the
+        // receipt's (higher) purchase price. Additionally, the price surplus on the burnt gas
+        // (= (purchase_price - burn_price) * gas_burnt) is refunded instead of being burnt.
+        let penalty =
+            apply_state.gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+        let price_surplus = gas_price
+            .checked_sub(apply_state.gas_price)
+            .unwrap()
+            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+            .unwrap();
+        unspent_refund.checked_sub(penalty).unwrap().checked_add(price_surplus).unwrap()
+    } else {
+        // The refund penalty is charged at the receipt's gas price.
+        let penalty = gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap();
+        unspent_refund.checked_sub(penalty).unwrap()
+    };
 
     let result = runtime
         .apply(
@@ -1112,11 +1152,10 @@ fn test_apply_surplus_gas_for_function_call() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO, "expected surplus");
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
-            assert!(
-                matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
-            );
-        }
+        ReceiptEnum::Action(ActionReceipt { actions, .. }) => match &actions[0] {
+            Action::Transfer(TransferAction { deposit }) => assert_eq!(*deposit, expected_refund),
+            other => panic!("Expected transfer action, got {:?}", other),
+        },
         _ => unreachable!(),
     };
 }
@@ -2519,19 +2558,11 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
     let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     // Contract size is much larger than the rest of the storage proof, so we compare them to check if the contract is excluded.
-    if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(PROTOCOL_VERSION) {
-        assert!(
-            total_size < PREV_CONTRACT_SIZE,
-            "Contract code should not be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    } else {
-        assert!(
-            total_size > PREV_CONTRACT_SIZE,
-            "Contract code should be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    }
+    assert!(
+        total_size < PREV_CONTRACT_SIZE,
+        "Contract code should not be in storage proof. Storage proof size: {}",
+        total_size
+    );
 }
 
 /// Tests that the existing contract is not recorded in the state witness for a delete-account action.
@@ -2621,19 +2652,11 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
     let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     // Contract size is much larger than the rest of the storage proof, so we compare them to check if the contract is excluded.
-    if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(PROTOCOL_VERSION) {
-        assert!(
-            total_size < CONTRACT_SIZE,
-            "Contract code should not be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    } else {
-        assert!(
-            total_size > CONTRACT_SIZE,
-            "Contract code should be in storage proof. Storage proof size: {}",
-            total_size
-        );
-    }
+    assert!(
+        total_size < CONTRACT_SIZE,
+        "Contract code should not be in storage proof. Storage proof size: {}",
+        total_size
+    );
 }
 
 /// Check that applying nothing does not change the state trie.
@@ -3043,6 +3066,13 @@ fn test_deploy_and_call_local_receipt() {
     );
 }
 
+fn execution_outcome_contracts(outcome: &ExecutionOutcome) -> Vec<AccountContract> {
+    match &outcome.metadata {
+        ExecutionMetadata::V4(v4) => v4.contracts.clone(),
+        other => panic!("expected V4 metadata, got {other:?}"),
+    }
+}
+
 #[test]
 fn test_deploy_and_call_local_receipts() {
     let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -3114,6 +3144,97 @@ fn test_deploy_and_call_local_receipts() {
     assert_matches!(
         action_error.kind,
         ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
+    );
+
+    // V4 metadata: one `contracts` entry per receipt action, recording the
+    // contract on the receiver account before that action ran (in receipt
+    // order). o1's receipt is a single DeployContract on a fresh alice → the
+    // pre-action contract is `None`. o2's receipt is
+    // [FunctionCall, DeployContract, FunctionCall]: the first FunctionCall
+    // sees rs_contract just deployed by tx1; the DeployContract action also
+    // sees rs_contract (it then replaces it with trivial_contract); the
+    // trailing FunctionCall sees trivial_contract and records it even though
+    // it fails at method-resolve — the contract is captured before the call
+    // is dispatched.
+    let rs_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
+    let trivial_hash = CryptoHash::hash_bytes(near_test_contracts::trivial_contract());
+    assert_eq!(execution_outcome_contracts(o1), vec![AccountContract::None]);
+    assert_eq!(
+        execution_outcome_contracts(o2),
+        vec![
+            AccountContract::Local(rs_hash),
+            AccountContract::Local(rs_hash),
+            AccountContract::Local(trivial_hash),
+        ],
+    );
+}
+
+/// When a non-final action errors, the action loop breaks before later
+/// actions run. The V4 `contracts` vector is then resized to match the
+/// receipt's action count with `AccountContract::None`, so consumers can
+/// still index by action position. Here the receipt is
+/// [DeployContract, DeleteKey(missing), FunctionCall]: action 0 deploys
+/// rs_contract (pre-action contract: `None`), action 1 then fails (pre-action
+/// contract: `Local(rs_hash)` — the deploy from action 0 took effect even
+/// though the receipt as a whole fails), and the trailing FunctionCall never
+/// runs — its slot must land on `None` via the resize pad, not via a real
+/// contract resolution. The `Local(rs_hash)` entry in the middle is what
+/// distinguishes a real per-action capture from the pad.
+#[test]
+fn test_apply_v4_metadata_pads_unexecuted_actions() {
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    let nonexistent_pk =
+        InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "nonexistent").public_key();
+    let receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            }),
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: nonexistent_pk })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_string(),
+                args: vec![],
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                deposit: Balance::ZERO,
+            })),
+        ],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = assert_matches!(
+        &apply_result.outcomes[..],
+        [ExecutionOutcomeWithId { id: _, outcome }] => outcome
+    );
+    let action_error = assert_matches!(
+        &outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
+    );
+    assert_eq!(action_error.index, Some(1));
+    assert_matches!(action_error.kind, ActionErrorKind::DeleteKeyDoesNotExist { .. });
+
+    let rs_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
+    assert_eq!(
+        execution_outcome_contracts(outcome),
+        vec![AccountContract::None, AccountContract::Local(rs_hash), AccountContract::None]
     );
 }
 
@@ -3205,24 +3326,14 @@ fn test_transaction_ordering_with_apply() {
         )
         .expect("apply should succeed");
 
-    let expected_order = if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        vec![
-            bob_tx1.get_hash(),
-            alice_invalid_tx.get_hash(),
-            alice_tx1.get_hash(),
-            bob_tx2.get_hash(),
-            alice_tx2.get_hash(),
-            bob_tx3.get_hash(),
-        ]
-    } else {
-        vec![
-            bob_tx1.get_hash(),
-            alice_tx1.get_hash(),
-            bob_tx2.get_hash(),
-            alice_tx2.get_hash(),
-            bob_tx3.get_hash(),
-        ]
-    };
+    let expected_order = vec![
+        bob_tx1.get_hash(),
+        alice_invalid_tx.get_hash(),
+        alice_tx1.get_hash(),
+        bob_tx2.get_hash(),
+        alice_tx2.get_hash(),
+        bob_tx3.get_hash(),
+    ];
 
     let num_outcomes = expected_order.len();
     // Note: The 3 local receipts are generated for valid transactions
@@ -3312,28 +3423,97 @@ fn test_transaction_multiple_access_keys_with_apply() {
     assert!(account.amount() > Balance::from_near(993_000));
 }
 
-/// Tests that the FixAccessKeyAllowanceCharging protocol feature prevents
-/// access key allowance mutation when a transaction fails after the allowance
-/// check. Scenario: two function call transactions using the same access key.
-/// Tx1 targets the wrong receiver (fails at verify_function_call_permission,
-/// which runs after the allowance check). Tx2 targets the correct receiver.
-///
-/// Before the fix: tx1 incorrectly decrements the allowance, causing tx2 to
-/// see a lower allowance and fail with NotEnoughAllowance.
-/// After the fix: tx1 does not touch the allowance, and tx2 succeeds.
+/// Tests that a transaction failing after the allowance check does not mutate
+/// the access key allowance. Scenario: two function call transactions using the
+/// same access key. Tx1 targets the wrong receiver (fails at
+/// verify_function_call_permission, which runs after the allowance check). Tx2
+/// targets the correct receiver. Since tx1 does not touch the allowance, tx2
+/// still sees the full allowance and succeeds.
 #[test]
-fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
+fn test_access_key_allowance_not_mutated_on_failed_tx() {
     let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
 
-    // We'll run the test twice: once with the old version and once with the new version.
-    let fix_version = ProtocolFeature::FixAccessKeyAllowanceCharging.protocol_version();
-    for (protocol_version, expect_tx2_success) in [(fix_version - 1, false), (fix_version, true)] {
-        let config = Arc::new(RuntimeConfig::test());
-        // Compute cost of one function call transaction so we can set allowance tightly.
-        let sample_tx = SignedTransaction::from_actions(
-            1,
+    let config = Arc::new(RuntimeConfig::test());
+    // Compute cost of one function call transaction so we can set allowance tightly.
+    let sample_tx = SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        bob_account(),
+        &*alice_signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "hello".to_string(),
+            args: vec![],
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
+        }))],
+        CryptoHash::default(),
+    );
+    let sample_cost = crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE).unwrap();
+    // Set allowance so it covers exactly one transaction's total_cost.
+    let allowance = sample_cost.total_cost;
+
+    // Build state manually with a function call access key.
+    let tries = TestTriesBuilder::new().build();
+    let shard_uid = ShardUId::single_shard();
+    let root = MerkleHash::default();
+    let mut initial_state = tries.new_trie_update(shard_uid, root);
+
+    let access_key = AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(allowance),
+            receiver_id: bob_account().into(),
+            method_names: vec![],
+        }),
+    };
+    let mut alice = account_new(Balance::from_near(1_000_000), CryptoHash::default());
+    alice.set_storage_usage(182);
+    set_account(&mut initial_state, alice_account(), &alice);
+    set_access_key(&mut initial_state, alice_account(), alice_signer.public_key(), &access_key);
+    let bob = account_new(Balance::from_near(1_000_000), CryptoHash::default());
+    set_account(&mut initial_state, bob_account(), &bob);
+
+    initial_state.commit(StateChangeCause::InitialState);
+    let trie_changes = initial_state.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    let runtime = Runtime::new();
+    let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
+    let epoch_info_provider = MockEpochInfoProvider::default();
+    let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
+    let shard_ids = shard_layout.shard_ids();
+    let shards_congestion_info =
+        shard_ids.map(|id| (id, ExtendedCongestionInfo::default())).collect();
+    let mut apply_state = ApplyState {
+        apply_reason: ApplyChunkReason::UpdateTrackedShard,
+        block_height: 1,
+        prev_block_hash: Default::default(),
+        shard_id: shard_uid.shard_id(),
+        epoch_id: Default::default(),
+        epoch_height: 0,
+        gas_price: GAS_PRICE,
+        block_timestamp: 100,
+        gas_limit: Some(Gas::from_teragas(1000)),
+        random_seed: Default::default(),
+        current_protocol_version: PROTOCOL_VERSION,
+        config,
+        next_wasm_config: None,
+        cache: Some(Box::new(contract_cache)),
+        is_new_chunk: true,
+        save_receipt_to_tx: false,
+        congestion_info: BlockCongestionInfo::new(shards_congestion_info),
+        bandwidth_requests: BlockBandwidthRequests::empty(),
+        trie_access_tracker_state: Default::default(),
+        on_post_state_ready: None,
+    };
+
+    let make_fc_tx = |nonce, receiver| {
+        SignedTransaction::from_actions(
+            nonce,
             alice_account(),
-            bob_account(),
+            receiver,
             &*alice_signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
@@ -3342,156 +3522,53 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-        );
-        let sample_cost =
-            crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE).unwrap();
-        // Set allowance so it covers exactly one transaction's total_cost.
-        let allowance = sample_cost.total_cost;
+        )
+    };
 
-        // Build state manually with a function call access key.
-        let tries = TestTriesBuilder::new().build();
-        let shard_uid = ShardUId::single_shard();
-        let root = MerkleHash::default();
-        let mut initial_state = tries.new_trie_update(shard_uid, root);
+    // tx1: wrong receiver → fails at verify_function_call_permission
+    // tx2: correct receiver → should succeed if allowance is intact
+    let tx1 = make_fc_tx(1, alice_account()); // wrong receiver
+    let tx2 = make_fc_tx(2, bob_account()); // correct receiver
+    let txs = vec![tx1.clone(), tx2.clone()];
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs, vec![true, true]);
 
-        let access_key = AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(allowance),
-                receiver_id: bob_account().into(),
-                method_names: vec![],
-            }),
-        };
-        let mut alice = account_new(Balance::from_near(1_000_000), CryptoHash::default());
-        alice.set_storage_usage(182);
-        set_account(&mut initial_state, alice_account(), &alice);
-        set_access_key(&mut initial_state, alice_account(), alice_signer.public_key(), &access_key);
-        let bob = account_new(Balance::from_near(1_000_000), CryptoHash::default());
-        set_account(&mut initial_state, bob_account(), &bob);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
 
-        initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap().trie_changes;
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit();
-
-        let runtime = Runtime::new();
-        let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-        let epoch_info_provider = MockEpochInfoProvider::default();
-        let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
-        let shard_ids = shard_layout.shard_ids();
-        let shards_congestion_info =
-            shard_ids.map(|id| (id, ExtendedCongestionInfo::default())).collect();
-        let mut apply_state = ApplyState {
-            apply_reason: ApplyChunkReason::UpdateTrackedShard,
-            block_height: 1,
-            prev_block_hash: Default::default(),
-            shard_id: shard_uid.shard_id(),
-            epoch_id: Default::default(),
-            epoch_height: 0,
-            gas_price: GAS_PRICE,
-            block_timestamp: 100,
-            gas_limit: Some(Gas::from_teragas(1000)),
-            random_seed: Default::default(),
-            current_protocol_version: protocol_version,
-            config: config.clone(),
-            next_wasm_config: None,
-            cache: Some(Box::new(contract_cache)),
-            is_new_chunk: true,
-            save_receipt_to_tx: false,
-            congestion_info: BlockCongestionInfo::new(shards_congestion_info),
-            bandwidth_requests: BlockBandwidthRequests::empty(),
-            trie_access_tracker_state: Default::default(),
-            on_post_state_ready: None,
-        };
-
-        let make_fc_tx = |nonce, receiver| {
-            SignedTransaction::from_actions(
-                nonce,
-                alice_account(),
-                receiver,
-                &*alice_signer,
-                vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "hello".to_string(),
-                    args: vec![],
-                    gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
-                    deposit: Balance::ZERO,
-                }))],
-                CryptoHash::default(),
+    // tx1 fails at verify_function_call_permission (after the allowance check) but
+    // does not mutate the allowance, so tx2 still sees the full allowance and succeeds.
+    // Both outcomes are recorded.
+    assert_eq!(apply_result.outcomes.len(), 2);
+    let tx1_outcome = &apply_result.outcomes[0];
+    assert_eq!(tx1_outcome.id, tx1.get_hash());
+    assert_matches!(
+        &tx1_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidAccessKeyError(
+                near_primitives::errors::InvalidAccessKeyError::ReceiverMismatch { .. }
             )
-        };
+        ))
+    );
+    let tx2_outcome = &apply_result.outcomes[1];
+    assert_eq!(tx2_outcome.id, tx2.get_hash());
+    assert_matches!(&tx2_outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
 
-        // tx1: wrong receiver → fails at verify_function_call_permission
-        // tx2: correct receiver → should succeed if allowance is intact
-        let tx1 = make_fc_tx(1, alice_account()); // wrong receiver
-        let tx2 = make_fc_tx(2, bob_account()); // correct receiver
-        let txs = vec![tx1.clone(), tx2.clone()];
-        let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs, vec![true, true]);
-
-        let apply_result = runtime
-            .apply(
-                tries.get_trie_for_shard(shard_uid, root),
-                &None,
-                &apply_state,
-                &[],
-                signed_valid_period_txs,
-                &epoch_info_provider,
-                Default::default(),
-            )
-            .unwrap();
-
-        if expect_tx2_success {
-            // After the fix (also after InvalidTxGenerateOutcomes): both outcomes are recorded.
-            assert_eq!(apply_result.outcomes.len(), 2, "protocol_version={protocol_version}");
-            let tx1_outcome = &apply_result.outcomes[0];
-            assert_eq!(tx1_outcome.id, tx1.get_hash());
-            assert_matches!(
-                &tx1_outcome.outcome.status,
-                ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        near_primitives::errors::InvalidAccessKeyError::ReceiverMismatch { .. }
-                    )
-                ))
-            );
-            let tx2_outcome = &apply_result.outcomes[1];
-            assert_eq!(tx2_outcome.id, tx2.get_hash());
-            assert_matches!(
-                &tx2_outcome.outcome.status,
-                ExecutionStatus::SuccessReceiptId(_),
-                "protocol_version={protocol_version}: tx2 should succeed after fix"
-            );
-        } else {
-            // Before the fix (also before InvalidTxGenerateOutcomes): failed tx outcomes
-            // are not recorded. Both txs fail (tx1 with ReceiverMismatch, tx2 with
-            // NotEnoughAllowance due to tx1's buggy allowance mutation), so no outcomes
-            // or outgoing receipts are produced.
-            assert_eq!(apply_result.outcomes.len(), 0);
-            assert_eq!(apply_result.outgoing_receipts.len(), 0);
-        }
-
-        // Verify the access key state after apply.
-        // State is only written to trie for successful transactions (via set_access_key
-        // on the success path). So the trie reflects whether tx2 succeeded or not.
-        let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
-        let state = tries.new_trie_update(shard_uid, root);
-        let ak =
-            get_access_key(&state, &alice_account(), &alice_signer.public_key()).unwrap().unwrap();
-        let final_allowance = ak.permission.function_call_permission().unwrap().allowance.unwrap();
-        if expect_tx2_success {
-            // After the fix: tx2 succeeded → allowance was consumed and written to trie.
-            assert!(
-                final_allowance < allowance,
-                "protocol_version={protocol_version}: allowance should decrease after successful tx2"
-            );
-        } else {
-            // Before the fix: tx1's buggy allowance mutation prevented tx2 from succeeding.
-            // Neither tx wrote to trie, so trie allowance is unchanged.
-            assert_eq!(
-                final_allowance, allowance,
-                "protocol_version={protocol_version}: trie allowance unchanged (both txs failed)"
-            );
-        }
-    }
+    // Verify the access key state after apply: tx2 succeeded → allowance was consumed
+    // and written to trie.
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let ak = get_access_key(&state, &alice_account(), &alice_signer.public_key()).unwrap().unwrap();
+    let final_allowance = ak.permission.function_call_permission().unwrap().allowance.unwrap();
+    assert!(final_allowance < allowance, "allowance should decrease after successful tx2");
 }
 
 #[test]
@@ -3525,25 +3602,116 @@ fn test_expired_transaction() {
         )
         .expect("apply should succeed");
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_eq!(
-            apply_result.outcomes.len(),
-            1,
-            "should have produced one outcome for the expired tx"
-        );
-        let outcome = &apply_result.outcomes[0];
-        assert_eq!(outcome.id, expired_tx[0].get_hash());
-        assert_matches!(
-            &outcome.outcome.status,
-            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::Expired))
-        );
-    } else {
-        assert_eq!(
-            apply_result.outcomes.len(),
-            0,
-            "should have not produced any outcomes for the expired tx"
-        );
-    }
+    assert_eq!(
+        apply_result.outcomes.len(),
+        1,
+        "should have produced one outcome for the expired tx"
+    );
+    let outcome = &apply_result.outcomes[0];
+    assert_eq!(outcome.id, expired_tx[0].get_hash());
+    assert_matches!(
+        &outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::Expired))
+    );
+}
+
+#[test]
+fn test_duplicate_transaction_in_chunk_skipped() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let send_money = |nonce| {
+        SignedTransaction::send_money(
+            nonce,
+            alice_account(),
+            bob_account(),
+            &alice_signer,
+            Balance::from_near(1),
+            CryptoHash::default(),
+        )
+    };
+    let tx = send_money(1);
+    // A distinct transaction (different nonce, different hash) that must not be skipped.
+    let other = send_money(2);
+    let (tx_hash, other_hash) = (tx.get_hash(), other.get_hash());
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    assert!(ProtocolFeature::UniqueChunkTransactions.enabled(PROTOCOL_VERSION));
+
+    // [T, U, T]: the repeat of T is non-adjacent to the original.
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), other, tx], vec![true; 3]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // The repeat of T is skipped, leaving a single success outcome under its
+    // hash rather than a success and a conflicting InvalidNonce failure, while
+    // the distinct transaction U is processed normally.
+    let tx_outcomes = |id| apply_result.outcomes.iter().filter(|o| o.id == id).collect::<Vec<_>>();
+    let (tx_outcomes, other_outcomes) = (tx_outcomes(tx_hash), tx_outcomes(other_hash));
+    assert_eq!(tx_outcomes.len(), 1, "duplicate transaction must be skipped");
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_eq!(other_outcomes.len(), 1, "distinct transaction must not be skipped");
+    assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_duplicate_transaction_in_chunk_prior_behavior() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let tx = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &alice_signer,
+        Balance::from_near(1),
+        CryptoHash::default(),
+    );
+    let tx_hash = tx.get_hash();
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::UniqueChunkTransactions.protocol_version() - 1;
+
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(vec![tx.clone(), tx], vec![true, true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // Without the feature both copies are processed: the second records a
+    // conflicting InvalidNonce failure under the same id as the success.
+    let tx_outcomes: Vec<_> = apply_result.outcomes.iter().filter(|o| o.id == tx_hash).collect();
+    assert_eq!(tx_outcomes.len(), 2);
+    assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(
+        tx_outcomes[1].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidNonce { .. }
+        ))
+    );
 }
 
 #[test]
@@ -4159,6 +4327,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
         commit_apply_result(&deploy_result, &mut apply_state, &tries, ShardUId::single_shard());
     apply_state.block_height += 1;
 
+    let receipt_gas_price = GAS_PRICE.max(apply_state.config.min_gas_purchase_price);
     let build_receipt = |tag: &str, predecessor: AccountId, signer: &Signer, actions| -> Receipt {
         Receipt::V0(ReceiptV0 {
             predecessor_id: predecessor.clone(),
@@ -4167,7 +4336,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: predecessor,
                 signer_public_key: signer.public_key(),
-                gas_price: GAS_PRICE,
+                gas_price: receipt_gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions,

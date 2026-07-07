@@ -24,10 +24,9 @@ fn encode(xs: &[u64]) -> Vec<u8> {
 
 fn test_contract(vm_kind: VMKind) -> ContractCode {
     let code = match vm_kind {
-        VMKind::Wasmer0 => unreachable!(),
-        VMKind::Wasmer2 => unreachable!(),
+        VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => unreachable!(),
         // production and developer environment, use a cutting-edge WASM
-        VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
+        VMKind::Wasmtime => near_test_contracts::rs_contract(),
     };
     ContractCode::new(code.to_vec(), None)
 }
@@ -232,9 +231,8 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.aborted,
             match vm_kind {
-                VMKind::NearVm | VMKind::Wasmtime =>
-                    Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
-                VMKind::Wasmer2 | VMKind::Wasmer0 => unreachable!(),
+                VMKind::Wasmtime => Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
+                VMKind::Wasmer2 | VMKind::Wasmer0 | VMKind::NearVm => unreachable!(),
             }
         );
     })

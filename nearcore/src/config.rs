@@ -27,12 +27,11 @@ use near_chain_configs::{
     default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
     default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
     default_state_request_throttle_period, default_state_requests_per_throttle_period,
-    default_state_sync_external_backoff, default_state_sync_external_timeout,
-    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_transaction_pool_strict_nonce_ttl_blocks,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, get_initial_supply,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -164,9 +163,6 @@ pub struct Consensus {
     #[serde(default = "default_state_sync_retry_backoff")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub state_sync_retry_backoff: Duration,
-    #[serde(default = "default_state_sync_external_backoff")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub state_sync_external_backoff: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
@@ -210,7 +206,6 @@ impl Default for Consensus {
             state_sync_external_timeout: default_state_sync_external_timeout(),
             state_sync_p2p_timeout: default_state_sync_p2p_timeout(),
             state_sync_retry_backoff: default_state_sync_retry_backoff(),
-            state_sync_external_backoff: default_state_sync_external_backoff(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
             sync_check_period: default_sync_check_period(),
@@ -766,7 +761,6 @@ impl NearConfig {
                 state_sync_external_timeout: config.consensus.state_sync_external_timeout,
                 state_sync_p2p_timeout: config.consensus.state_sync_p2p_timeout,
                 state_sync_retry_backoff: config.consensus.state_sync_retry_backoff,
-                state_sync_external_backoff: config.consensus.state_sync_external_backoff,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: config.log_summary_period,
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -1087,7 +1081,6 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
-    state_sync_bucket: Option<&str>,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
@@ -1129,15 +1122,6 @@ pub fn init_configs(
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
-    if let Some(bucket) = state_sync_bucket {
-        tracing::warn!(
-            target: "near",
-            "--state-sync-bucket is deprecated and will be removed in a future release. \
-             Cloud state sync is being deprecated in favor of peer-based state sync."
-        );
-        config.state_sync = Some(StateSyncConfig::gcs_with_bucket(bucket.to_string()));
-    }
-
     if let Some(nodes) = boot_nodes {
         config.network.boot_nodes = nodes.to_string();
     }
@@ -1857,7 +1841,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .unwrap();
         let genesis = Genesis::from_file(
@@ -1915,7 +1898,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .unwrap();
 
@@ -1943,7 +1925,6 @@ mod tests {
             false,
             None,
             false,
-            None,
             None,
             None,
             None,

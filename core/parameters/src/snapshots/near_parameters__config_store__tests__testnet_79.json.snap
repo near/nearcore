@@ -102,7 +102,8 @@ expression: config_view
     "pessimistic_gas_price_inflation_ratio": [
       1,
       1
-    ]
+    ],
+    "ml_dsa_65_verification_cost": 0
   },
   "wasm_config": {
     "ext_costs": {
@@ -127,6 +128,8 @@ expression: config_view
       "keccak256_byte": 21471105,
       "keccak512_base": 5811388236,
       "keccak512_byte": 36649701,
+      "sha3_256_base": 5879491275,
+      "sha3_256_byte": 21471105,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
       "ed25519_verify_base": 210000000000,
@@ -209,11 +212,12 @@ expression: config_view
     "one_yocto_on_promise": false,
     "p256_verify_host_fn": false,
     "yield_with_id_host_fns": false,
+    "chain_id_host_fn": false,
+    "bls12381_not_in_group_fix": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
-    "eth_implicit_global_contract": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,
@@ -268,5 +272,7 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
-  }
+  },
+  "min_gas_purchase_price": "0",
+  "account_creation_charge": "0"
 }

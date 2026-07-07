@@ -325,9 +325,10 @@ fn drive_down_node(handle: &EpochManagerHandle, count: u64, down: ValidatorId) -
 }
 
 // Anti-flap attribution (headline guard): once validator 0 is blacklisted, its slots
-// reassign to the replacement, which produces. The aggregator must credit the replacement
-// (not validator 0) on the reassigned heights, so validator 0 never recovers and never
-// flaps back in. Forward recompute makes this self-contained in the epoch manager.
+// reassign to the replacement, which produces. The blacklist-aware seeder persists the
+// replacement into `DBCol::ChunkProducers`, and the aggregator reads that row back via
+// `anchored_chunk_producers_for_aggregator`, so the replacement (not validator 0) is
+// credited on the reassigned heights. Validator 0 never recovers and never flaps back in.
 #[cfg(feature = "nightly")]
 #[test]
 fn early_kickout_attribution_does_not_flap() {

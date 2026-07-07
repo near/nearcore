@@ -102,13 +102,10 @@ impl TrieViewer {
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         assert_supported_protocol_version(current_protocol_version);
         let account = self.view_account(state_update, account_id)?;
-        let wasm_config =
-            &self.runtime_config_store.get_config(current_protocol_version).wasm_config;
         let contract_id = RuntimeContractIdentifier::resolve(
             account_id,
             account.contract().into_owned(),
             state_update,
-            wasm_config,
             chain_id,
             AccessOptions::DEFAULT,
         )?;
@@ -121,9 +118,6 @@ impl TrieViewer {
             }
             RuntimeContractIdentifier::Global { identifier, .. } => {
                 identifier.code(state_update)?
-            }
-            RuntimeContractIdentifier::LegacyEthWallet(legacy) => {
-                Some((*legacy.contract()).clone())
             }
         };
         maybe_code.ok_or_else(|| errors::ViewContractCodeError::NoContractCode {
@@ -406,7 +400,6 @@ impl TrieViewer {
             contract_id,
             account.contract().into_owned(),
             &state_update,
-            &config.wasm_config,
             &epoch_info_provider.chain_id(),
             AccessOptions::DEFAULT,
         )?;

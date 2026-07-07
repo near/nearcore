@@ -65,7 +65,7 @@ impl Test {
         let genesis = TestLoopBuilder::new_genesis_builder()
             .epoch_length(epoch_length)
             .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-            .add_user_accounts_simple(&accounts, stake)
+            .add_user_accounts_simple(&accounts, stake.checked_add(Balance::from_near(1)).unwrap())
             .shard_layout(ShardLayout::multi_shard(4, 3))
             .genesis_height(0)
             .build();

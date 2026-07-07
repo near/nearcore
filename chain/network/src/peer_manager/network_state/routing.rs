@@ -109,7 +109,7 @@ impl NetworkState {
         let clock = clock.clone();
         self.add_edges_demux
             .call(edges, |edges: Vec<EdgesWithSource>| async move {
-                let (mut edges, oks) = this.graph.update(edges).await;
+                let (mut edges, oks) = this.graph.update(edges);
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results
                 // in us sending a lot of tombstones to peers.

@@ -26,6 +26,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -191,11 +192,22 @@ impl ChunkValidationActor {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&witness.chunk_production_key())?
-            .account_id()
-            .clone();
+        let key = witness.chunk_production_key();
+        // Resolve anchored like production/verify: under skipped slots the canonical
+        // height sampler diverges from the anchored producer and would ack the wrong
+        // validator. The anchor is derived from the parent, which may be absent locally
+        // (a witness can race it); fall back to canonical then, as the ack is a
+        // best-effort latency signal and must never abort witness processing.
+        let chunk_producer = match self.epoch_manager.get_chunk_producer_info_from_prev_block(
+            witness.chunk_header().prev_block_hash(),
+            key.shard_id,
+        ) {
+            Ok(info) => info.take_account_id(),
+            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+                self.epoch_manager.get_chunk_producer_info(&key)?.account_id().clone()
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Skip sending ack to self.
         if let Some(validator_signer) = self.validator_signer.get() {
@@ -395,6 +407,7 @@ impl ChunkValidationActor {
             &self.chain_store,
             self.genesis_block.clone(),
             self.epoch_manager.as_ref(),
+            self.runtime_adapter.as_ref(),
         )
         .map_err(|err| {
             CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
@@ -525,10 +538,11 @@ impl ChunkValidationActor {
             return Err(Error::Other(ERROR_MSG.to_string()));
         }
 
-        // Send acknowledgement back to the chunk producer
+        // Send acknowledgement back to the chunk producer. The ack is a best-effort
+        // latency signal and must never abort witness processing, so log and continue
+        // on failure rather than returning early.
         if let Err(err) = self.send_state_witness_ack(&witness) {
             tracing::error!(target: "chunk_validation", ?err, "failed to send state witness ack");
-            return Err(err);
         }
 
         // Save the witness if configured to do so

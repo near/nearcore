@@ -187,3 +187,26 @@ check-cspell:
     # You will need the cspell npm package.
     # For nixpkgs users that's `nodePackages.cspell`
     git ls-files | cspell --no-progress --file-list stdin
+
+# Derives COMPOSE_PROFILES from NUM_VALIDATORS; plain `docker compose up`
+# users must sync it manually.
+# Bring up the bug-bounty localnet (4 validators by default; edit tools/bounty-localnet/.env to change).
+bounty-localnet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd tools/bounty-localnet
+    [ -f .env ] || cp .env.example .env
+    set -a
+    source .env
+    set +a
+    if (( NUM_VALIDATORS > 1 )); then
+        export COMPOSE_PROFILES="min${NUM_VALIDATORS}"
+    else
+        # empty export, not unset: shell env must win over the .env value
+        export COMPOSE_PROFILES=""
+    fi
+    docker compose up --build
+
+# Tear down the bug-bounty localnet and wipe its generated state.
+bounty-localnet-reset:
+    cd tools/bounty-localnet && ./reset.sh

@@ -6,7 +6,6 @@ use futures::{StreamExt, TryStreamExt};
 use itertools::any;
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::messaging::AsyncSender;
-use near_async::time::Duration;
 use near_chain::BlockHeader;
 use near_chain::types::RuntimeAdapter;
 use near_client_primitives::types::ShardSyncStatus;
@@ -70,7 +69,6 @@ pub(super) async fn run_state_sync_for_shard(
     cancel: CancellationToken,
     future_spawner: Arc<dyn FutureSpawner>,
     concurrency_limit: u8,
-    min_delay_before_reattempt: Duration,
 ) -> Result<(), near_chain::Error> {
     tracing::info!(target: "sync", %shard_id, "running state sync");
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
@@ -101,7 +99,6 @@ pub(super) async fn run_state_sync_for_shard(
         let mut rng = thread_rng();
         parts_to_download.shuffle(&mut rng);
     }
-    let mut attempt_count = 0;
     while !parts_to_download.is_empty() {
         return_if_cancelled!(cancel);
         let results = tokio_stream::iter(parts_to_download.clone())
@@ -112,7 +109,6 @@ pub(super) async fn run_state_sync_for_shard(
                     state_root,
                     num_parts,
                     part_id,
-                    attempt_count,
                     cancel.clone(),
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
@@ -127,8 +123,9 @@ pub(super) async fn run_state_sync_for_shard(
             })
             .collect::<Vec<_>>()
             .await;
-        attempt_count += 1;
-        // Update the list of parts_to_download retaining only the ones that failed
+        // Update the list of parts_to_download retaining only the ones that failed.
+        // Failed single attempts already wait `retry_backoff` inside the downloader
+        // before returning, so the next round is paced without an extra delay here.
         parts_to_download = results
             .iter()
             .enumerate()
@@ -136,22 +133,6 @@ pub(super) async fn run_state_sync_for_shard(
                 res.as_ref().err().map(|_| parts_to_download[task_index])
             })
             .collect();
-        // Wait before retrying the failed parts
-        if !parts_to_download.is_empty() {
-            tracing::debug!(
-                target: "sync",
-                ?shard_id,
-                ?attempt_count,
-                num_failed = parts_to_download.len(),
-                delay = ?min_delay_before_reattempt,
-                "some parts failed to download, retrying after delay",
-            );
-            let deadline = downloader.clock.now() + min_delay_before_reattempt;
-            tokio::select! {
-                _ = downloader.clock.sleep_until(deadline) => {}
-                _ = cancel.cancelled() => {}
-            }
-        }
     }
 
     return_if_cancelled!(cancel);

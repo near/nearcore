@@ -47,7 +47,7 @@
 //! make imports retroactively available to old transactions. So
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
-#![cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
+#![cfg(feature = "wasmtime_vm")]
 
 macro_rules! call_with_name {
     ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
@@ -118,6 +118,7 @@ imports! {
     // # Context API #
     // ###############
     current_account_id<[register_id: u64] -> []>,
+    #[chain_id_host_fn] chain_id<[register_id: u64] -> []>,
     signer_account_id<[register_id: u64] -> []>,
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
@@ -141,6 +142,7 @@ imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[sha3_256_host_fn] sha3_256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     ed25519_verify<[sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,

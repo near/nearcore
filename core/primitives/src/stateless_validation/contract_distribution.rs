@@ -8,7 +8,8 @@ use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::code::ContractCode;
 use near_primitives_core::hash::{CryptoHash, hash};
-use near_primitives_core::types::{AccountId, ShardId};
+use near_primitives_core::types::{AccountId, ProtocolVersion, ShardId};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -28,6 +29,13 @@ pub const MAX_CONTRACTS_PER_REQUEST: usize = 1282;
 #[repr(u8)]
 pub enum ChunkContractAccesses {
     V1(ChunkContractAccessesV1) = 0,
+    /// Emitted and accepted only under `EarlyKickout`. Carries the grandparent
+    /// anchor (`prev_prev_block_hash`) so the verifier resolves the producer via
+    /// the anchored lookup, and the parent (`prev_block_hash`) so it can
+    /// cross-check the signed chunk key against the anchor before trusting it.
+    /// See `near_client::stateless_validation::validate` for the receive-side
+    /// version gate and cross-check.
+    V2(ChunkContractAccessesV2) = 1,
 }
 
 /// Contains information necessary to identify StateTransitionData in the storage.
@@ -42,32 +50,66 @@ impl ChunkContractAccesses {
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
         main_transition: MainTransitionKey,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
         signer: &ValidatorSigner,
+        protocol_version: ProtocolVersion,
     ) -> Self {
-        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, main_transition, signer))
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            Self::V2(ChunkContractAccessesV2::new(
+                next_chunk,
+                contracts,
+                main_transition,
+                prev_block_hash,
+                prev_prev_block_hash,
+                signer,
+            ))
+        } else {
+            Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, main_transition, signer))
+        }
     }
 
     pub fn contracts(&self) -> &[CodeHash] {
         match self {
             Self::V1(accesses) => &accesses.inner.contracts,
+            Self::V2(accesses) => &accesses.inner.contracts,
         }
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
             Self::V1(accesses) => &accesses.inner.next_chunk,
+            Self::V2(accesses) => &accesses.inner.next_chunk,
         }
     }
 
     pub fn main_transition(&self) -> &MainTransitionKey {
         match self {
             Self::V1(accesses) => &accesses.inner.main_transition,
+            Self::V2(accesses) => &accesses.inner.main_transition,
+        }
+    }
+
+    /// Parent block of the chunk (V2 only).
+    pub fn prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(accesses) => Some(accesses.prev_block_hash()),
+        }
+    }
+
+    /// Grandparent anchor of the chunk (V2 only).
+    pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(accesses) => Some(accesses.prev_prev_block_hash()),
         }
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
         match self {
             Self::V1(accesses) => accesses.verify_signature(public_key),
+            Self::V2(accesses) => accesses.verify_signature(public_key),
         }
     }
 }
@@ -121,6 +163,89 @@ impl ChunkContractAccessesInner {
             contracts: contracts.into_iter().collect(),
             main_transition,
             signature_differentiator: "ChunkContractAccessesInner".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractAccessesV2 {
+    inner: ChunkContractAccessesV2Inner,
+    /// Signature of the inner, signed by the chunk producer of the next chunk.
+    signature: Signature,
+}
+
+impl ChunkContractAccessesV2 {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ChunkContractAccessesV2Inner::new(
+            next_chunk,
+            contracts,
+            main_transition,
+            prev_block_hash,
+            prev_prev_block_hash,
+        );
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Self { inner, signature }
+    }
+
+    /// Parent block of the chunk these accesses belong to.
+    pub fn prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_block_hash
+    }
+
+    /// Grandparent anchor used to resolve the producer under `EarlyKickout`.
+    pub fn prev_prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_prev_block_hash
+    }
+
+    fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractAccessesV2Inner {
+    /// Production metadata of the chunk created after the chunk the accesses belong to.
+    /// We associate this message with the next-chunk info because this message is generated
+    /// and distributed while generating the state-witness of the next chunk
+    /// (by the chunk producer of the next chunk).
+    next_chunk: ChunkProductionKey,
+    /// List of code-hashes for the contracts accessed.
+    contracts: Vec<CodeHash>,
+    /// Corresponds to the StateTransitionData where the contracts were accessed.
+    main_transition: MainTransitionKey,
+    /// Parent block of the chunk. Signed so the verifier can cross-check the
+    /// signed `next_chunk` key against the anchor before trusting the anchored
+    /// producer resolution.
+    prev_block_hash: CryptoHash,
+    /// Grandparent anchor for producer resolution under `EarlyKickout`.
+    /// `CryptoHash::default()` when the chunk has no real grandparent.
+    prev_prev_block_hash: CryptoHash,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl ChunkContractAccessesV2Inner {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+    ) -> Self {
+        Self {
+            next_chunk,
+            contracts: contracts.into_iter().collect(),
+            main_transition,
+            prev_block_hash,
+            prev_prev_block_hash,
+            // Distinct from V1 so a V1 signature cannot be grafted onto a V2 struct.
+            signature_differentiator: "ChunkContractAccessesV2Inner".to_owned(),
         }
     }
 }
@@ -246,27 +371,53 @@ impl ContractCodeRequestInner {
 #[repr(u8)]
 pub enum ContractCodeResponse {
     V1(ContractCodeResponseV1) = 0,
+    V2(ContractCodeResponseV2) = 1,
 }
 
 impl ContractCodeResponse {
     pub fn encode(
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
+        signer: &ValidatorSigner,
+        protocol_version: ProtocolVersion,
     ) -> std::io::Result<Self> {
-        ContractCodeResponseV1::encode(next_chunk, contracts).map(|v1| Self::V1(v1))
+        if ProtocolFeature::SignedContractCodeResponse.enabled(protocol_version) {
+            ContractCodeResponseV2::encode(next_chunk, contracts, signer).map(Self::V2)
+        } else {
+            ContractCodeResponseV1::encode(next_chunk, contracts).map(Self::V1)
+        }
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
             Self::V1(v1) => &v1.next_chunk,
+            Self::V2(v2) => &v2.inner.next_chunk,
+        }
+    }
+
+    /// Account that produced this response. Available only for signed variants.
+    pub fn responder(&self) -> Option<&AccountId> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(&v2.inner.responder),
         }
     }
 
     pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
         let compressed_contracts = match self {
             Self::V1(v1) => &v1.compressed_contracts,
+            Self::V2(v2) => &v2.inner.compressed_contracts,
         };
         compressed_contracts.decode().map(|(data, _size)| data)
+    }
+
+    /// Verifies the signature for signed variants. Returns `false` for
+    /// unsigned variants since there is nothing to verify.
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        match self {
+            Self::V1(_) => false,
+            Self::V2(v2) => v2.verify_signature(public_key),
+        }
     }
 }
 
@@ -283,8 +434,60 @@ impl ContractCodeResponseV1 {
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
     ) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts)?;
+        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
         Ok(Self { next_chunk, compressed_contracts })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ContractCodeResponseV2 {
+    inner: ContractCodeResponseV2Inner,
+    /// Signature of the inner, signed by the responder.
+    signature: Signature,
+}
+
+impl ContractCodeResponseV2 {
+    pub fn encode(
+        next_chunk: ChunkProductionKey,
+        contracts: &Vec<CodeBytes>,
+        signer: &ValidatorSigner,
+    ) -> std::io::Result<Self> {
+        let inner =
+            ContractCodeResponseV2Inner::encode(next_chunk, contracts, signer.validator_id())?;
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Ok(Self { inner, signature })
+    }
+
+    fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ContractCodeResponseV2Inner {
+    // The same as `next_chunk` in `ContractCodeRequest`
+    next_chunk: ChunkProductionKey,
+    /// Account that produced this response. Used for signature verification.
+    /// Must be a chunk producer for `next_chunk.shard_id` in `next_chunk.epoch_id`.
+    responder: AccountId,
+    /// Code for the contracts.
+    compressed_contracts: CompressedContractCode,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl ContractCodeResponseV2Inner {
+    fn encode(
+        next_chunk: ChunkProductionKey,
+        contracts: &Vec<CodeBytes>,
+        responder: &AccountId,
+    ) -> std::io::Result<Self> {
+        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        Ok(Self {
+            next_chunk,
+            responder: responder.clone(),
+            compressed_contracts,
+            signature_differentiator: "ContractCodeResponseV2Inner".to_owned(),
+        })
     }
 }
 
@@ -670,5 +873,77 @@ impl SpiceContractCodeResponseV1 {
     pub fn encode(chunk_id: SpiceChunkId, contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
         let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
         Ok(Self { chunk_id, compressed_contracts })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ChunkContractAccesses, CodeHash, MainTransitionKey};
+    use crate::stateless_validation::ChunkProductionKey;
+    use crate::test_utils::create_test_signer;
+    use crate::types::EpochId;
+    use crate::validator_signer::ValidatorSigner;
+    use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::types::{ProtocolVersion, ShardId};
+    use near_primitives_core::version::ProtocolFeature;
+    use std::collections::HashSet;
+
+    fn pre_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
+    }
+
+    fn post_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version()
+    }
+
+    fn test_key() -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: ShardId::new(0),
+            epoch_id: EpochId(CryptoHash::hash_bytes(b"epoch")),
+            height_created: 42,
+        }
+    }
+
+    fn make_accesses(
+        signer: &ValidatorSigner,
+        protocol_version: ProtocolVersion,
+    ) -> ChunkContractAccesses {
+        let contracts: HashSet<CodeHash> =
+            [CodeHash(CryptoHash::hash_bytes(b"code"))].into_iter().collect();
+        let main_transition = MainTransitionKey {
+            block_hash: CryptoHash::hash_bytes(b"mt"),
+            shard_id: ShardId::new(0),
+        };
+        ChunkContractAccesses::new(
+            test_key(),
+            contracts,
+            main_transition,
+            CryptoHash::hash_bytes(b"prev"),
+            CryptoHash::hash_bytes(b"prev_prev"),
+            signer,
+            protocol_version,
+        )
+    }
+
+    #[test]
+    fn v1_accesses_has_no_anchor() {
+        let signer = create_test_signer("cp");
+        let accesses = make_accesses(&signer, pre_kickout_version());
+        assert!(matches!(accesses, ChunkContractAccesses::V1(_)));
+        assert!(accesses.prev_block_hash().is_none());
+        assert!(accesses.prev_prev_block_hash().is_none());
+    }
+
+    #[test]
+    fn v2_accesses_carries_and_verifies_anchor() {
+        let signer = create_test_signer("cp");
+        let accesses = make_accesses(&signer, post_kickout_version());
+        assert!(matches!(accesses, ChunkContractAccesses::V2(_)));
+        assert_eq!(accesses.prev_block_hash(), Some(&CryptoHash::hash_bytes(b"prev")));
+        assert_eq!(accesses.prev_prev_block_hash(), Some(&CryptoHash::hash_bytes(b"prev_prev")));
+        assert_eq!(accesses.chunk_production_key(), &test_key());
+        // Signed by `cp`; verifies under cp's key, rejects another key.
+        assert!(accesses.verify_signature(&signer.public_key()));
+        assert!(!accesses.verify_signature(&create_test_signer("other").public_key()));
     }
 }

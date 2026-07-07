@@ -4,7 +4,10 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+use crate::action::delegate::{
+    DelegateAction, SignedDelegateAction, VersionedDelegateActionPayload,
+    VersionedSignedDelegateAction,
+};
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
     GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
@@ -19,6 +22,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
+use crate::profile_data_v3::ProfileDataV3;
 use crate::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
     Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
@@ -39,9 +43,9 @@ use crate::transaction::{
 use crate::trie_split::TrieSplit;
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
-    Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
-    StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue,
-    ValidatorKickoutReason,
+    Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats, StateChangeCause, StateChangeKind,
+    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
+    StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -925,6 +929,8 @@ pub struct BlockHeaderView {
     pub shard_split: Option<(ShardId, AccountId)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_last_certified_block_epoch_id: Option<EpochId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -972,6 +978,9 @@ impl From<&BlockHeader> for BlockHeaderView {
             prev_last_certified_block_epoch_id: header
                 .prev_last_certified_block_epoch_id()
                 .cloned(),
+            spice_chunk_endorsement_stats: header
+                .spice_chunk_endorsement_stats()
+                .map(<[SpiceChunkEndorsementStats]>::to_vec),
         }
     }
 }
@@ -1009,6 +1018,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
             view.shard_split,
             view.prev_last_certified_block_epoch_id,
+            view.spice_chunk_endorsement_stats,
         )
     }
 }
@@ -1364,6 +1374,54 @@ impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
     }
 }
 
+/// RPC view of a non-empty [`AccountContract`]. The `AccountContract::None`
+/// variant is represented externally as a JSON `null` via `Option`, so this
+/// enum only carries the three "contract is present" cases. Serializes as
+/// an externally-tagged object:
+///
+/// - `Local(hash)` → `{"local": "<CryptoHash>"}`
+/// - `GlobalHash(hash)` → `{"global_hash": "<CryptoHash>"}`
+/// - `GlobalAccountId(id)` → `{"global_account_id": "<AccountId>"}`
+///
+/// Mirrors [`AccountContract`] 1:1 (minus `None`) so consumers can preserve
+/// the distinction between a global-by-hash and global-by-account contract
+/// without descending into a nested identifier.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum AccountContractView {
+    Local(CryptoHash) = 0,
+    GlobalHash(CryptoHash) = 1,
+    GlobalAccountId(AccountId) = 2,
+}
+
+impl AccountContractView {
+    /// Project an [`AccountContract`] into its RPC view, with
+    /// `AccountContract::None` mapping to `Option::None` so the JSON layer
+    /// can render it as `null`.
+    pub fn from_account_contract(contract: AccountContract) -> Option<Self> {
+        match contract {
+            AccountContract::None => None,
+            AccountContract::Local(hash) => Some(AccountContractView::Local(hash)),
+            AccountContract::Global(hash) => Some(AccountContractView::GlobalHash(hash)),
+            AccountContract::GlobalByAccount(account_id) => {
+                Some(AccountContractView::GlobalAccountId(account_id))
+            }
+        }
+    }
+}
+
 impl From<GlobalContractIdentifierView> for GlobalContractIdentifier {
     fn from(code: GlobalContractIdentifierView) -> Self {
         match code {
@@ -1428,6 +1486,10 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     } = 8,
+    DelegateV2 {
+        delegate_action: VersionedDelegateActionPayload,
+        signature: Signature,
+    } = 16,
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1494,6 +1556,10 @@ impl From<Action> for ActionView {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
             Action::Delegate(action) => ActionView::Delegate {
+                delegate_action: action.delegate_action,
+                signature: action.signature,
+            },
+            Action::DelegateV2(action) => ActionView::DelegateV2 {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
@@ -1567,6 +1633,12 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
+            }
+            ActionView::DelegateV2 { delegate_action, signature } => {
+                Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+                    delegate_action,
+                    signature,
+                }))
             }
             ActionView::DeployGlobalContract { code } => {
                 Action::DeployGlobalContract(DeployGlobalContractAction {
@@ -1810,6 +1882,14 @@ pub struct CostGasUsed {
 pub struct ExecutionMetadataView {
     pub version: u32,
     pub gas_profile: Option<Vec<CostGasUsed>>,
+    /// One entry per action in the receipt (V4+ only): the contract attached
+    /// to the receiver account immediately before that action ran. The inner
+    /// `Option` is `Some` (a tagged contract object) when the account had a
+    /// contract and `None` (rendered as JSON `null`) when it did not (e.g. an
+    /// account with no code, or one that did not yet exist). The outer
+    /// `Option` is `None` for older metadata versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contracts: Option<Vec<Option<AccountContractView>>>,
 }
 
 impl Default for ExecutionMetadataView {
@@ -1824,6 +1904,17 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
             ExecutionMetadata::V1 => 1,
             ExecutionMetadata::V2(_) => 2,
             ExecutionMetadata::V3(_) => 3,
+            ExecutionMetadata::V4(_) => 4,
+        };
+        let contracts = match &metadata {
+            ExecutionMetadata::V1 | ExecutionMetadata::V2(_) | ExecutionMetadata::V3(_) => None,
+            ExecutionMetadata::V4(v4) => Some(
+                v4.contracts
+                    .iter()
+                    .cloned()
+                    .map(AccountContractView::from_account_contract)
+                    .collect(),
+            ),
         };
         let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
@@ -1856,43 +1947,8 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
 
                 Some(costs)
             }
-            ExecutionMetadata::V3(profile) => {
-                // Add actions, wasm op, and ext costs in groups.
-                // actions costs are 1-to-1
-                let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
-                    .filter_map(|cost| {
-                        let gas_used = profile.get_action_cost(cost);
-                        (gas_used > Gas::ZERO).then(|| {
-                            CostGasUsed::action(
-                                format!("{:?}", cost).to_ascii_uppercase(),
-                                gas_used,
-                            )
-                        })
-                    })
-                    .collect();
-
-                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
-                let wasm_gas_used = profile.get_wasm_cost();
-                if wasm_gas_used > Gas::ZERO {
-                    costs.push(CostGasUsed::wasm_host(
-                        "WASM_INSTRUCTION".to_string(),
-                        wasm_gas_used,
-                    ));
-                }
-
-                // ext costs are 1-to-1
-                for ext_cost in ExtCosts::iter() {
-                    let gas_used = profile.get_ext_cost(ext_cost);
-                    if gas_used > Gas::ZERO {
-                        costs.push(CostGasUsed::wasm_host(
-                            format!("{:?}", ext_cost).to_ascii_uppercase(),
-                            gas_used,
-                        ));
-                    }
-                }
-
-                Some(costs)
-            }
+            ExecutionMetadata::V3(profile) => Some(profile_v3_to_costs(&profile)),
+            ExecutionMetadata::V4(v4) => Some(profile_v3_to_costs(&v4.profile)),
         };
         if let Some(ref mut costs) = gas_profile {
             // The order doesn't really matter, but the default one is just
@@ -1905,8 +1961,38 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 lhs.cost_category.cmp(&rhs.cost_category).then_with(|| lhs.cost.cmp(&rhs.cost))
             });
         }
-        ExecutionMetadataView { version, gas_profile }
+        ExecutionMetadataView { version, gas_profile, contracts }
     }
+}
+
+fn profile_v3_to_costs(profile: &ProfileDataV3) -> Vec<CostGasUsed> {
+    // Add actions, wasm op, and ext costs in groups.
+    // actions costs are 1-to-1
+    let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
+        .filter_map(|cost| {
+            let gas_used = profile.get_action_cost(cost);
+            (gas_used > Gas::ZERO)
+                .then(|| CostGasUsed::action(format!("{:?}", cost).to_ascii_uppercase(), gas_used))
+        })
+        .collect();
+
+    // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+    let wasm_gas_used = profile.get_wasm_cost();
+    if wasm_gas_used > Gas::ZERO {
+        costs.push(CostGasUsed::wasm_host("WASM_INSTRUCTION".to_string(), wasm_gas_used));
+    }
+
+    // ext costs are 1-to-1
+    for ext_cost in ExtCosts::iter() {
+        let gas_used = profile.get_ext_cost(ext_cost);
+        if gas_used > Gas::ZERO {
+            costs.push(CostGasUsed::wasm_host(
+                format!("{:?}", ext_cost).to_ascii_uppercase(),
+                gas_used,
+            ));
+        }
+    }
+    costs
 }
 
 impl CostGasUsed {
@@ -2056,6 +2142,7 @@ pub struct TxStatusView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
     None = 0,
@@ -3027,6 +3114,22 @@ mod tests {
     #[test]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with V4 metadata exposes both the gas profile
+    /// (same layout as V3) and the per-action contract list.
+    #[test]
+    fn test_exec_metadata_v4_view() {
+        use crate::transaction::ExecutionMetadataV4;
+        use near_primitives_core::account::AccountContract;
+        let metadata = ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 {
+            profile: ProfileDataV3::test(),
+            // Receipt with two actions: a Transfer (no contract) followed by
+            // a FunctionCall against a local contract.
+            contracts: vec![AccountContract::None, AccountContract::Local(CryptoHash([7u8; 32]))],
+        }));
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
     }

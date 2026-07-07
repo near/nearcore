@@ -63,7 +63,7 @@ impl SpiceChainReader {
         &self,
         start_hash: &CryptoHash,
     ) -> Result<Arc<BlockHeader>, Error> {
-        let final_execution_head = self.chain_store.spice_final_execution_head().ok();
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
         let mut header = self.chain_store.get_block_header(start_hash)?;
         loop {
             if self.is_block_executed(&header)? {
@@ -72,10 +72,8 @@ impl SpiceChainReader {
             if header.is_genesis() {
                 return Ok(header);
             }
-            if let Some(final_execution_head) = &final_execution_head {
-                if header.height() <= final_execution_head.height {
-                    return Err(Error::DBNotFoundErr("no executed ancestor found".to_string()));
-                }
+            if header.height() <= final_execution_head.height {
+                return Err(Error::DBNotFoundErr("no executed ancestor found".to_string()));
             }
             header = self.chain_store.get_block_header(header.prev_hash())?;
         }

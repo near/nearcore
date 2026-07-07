@@ -24,9 +24,9 @@ expression: "&view"
     },
     "action_creation_config": {
       "create_account_cost": {
-        "send_sir": 3850000000000,
-        "send_not_sir": 3850000000000,
-        "execution": 3850000000000
+        "send_sir": 500000000000,
+        "send_not_sir": 500000000000,
+        "execution": 7200000000000
       },
       "deploy_contract_cost": {
         "send_sir": 184765750000,
@@ -102,7 +102,8 @@ expression: "&view"
     "pessimistic_gas_price_inflation_ratio": [
       1,
       1
-    ]
+    ],
+    "ml_dsa_65_verification_cost": 100000000000
   },
   "wasm_config": {
     "ext_costs": {
@@ -127,6 +128,8 @@ expression: "&view"
       "keccak256_byte": 21471105,
       "keccak512_base": 5811388236,
       "keccak512_byte": 36649701,
+      "sha3_256_base": 5879491275,
+      "sha3_256_byte": 21471105,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
       "ed25519_verify_base": 210000000000,
@@ -175,7 +178,7 @@ expression: "&view"
       "alt_bn128_pairing_check_element": 5102000000000,
       "yield_create_base": 153411779276,
       "yield_create_byte": 15643988,
-      "yield_create_with_id_base": 300000000000000,
+      "yield_create_with_id_base": 290000000000,
       "yield_resume_base": 1195627285210,
       "yield_resume_byte": 47683715,
       "bls12381_p1_sum_base": 16500000000,
@@ -208,12 +211,13 @@ expression: "&view"
     "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
-    "yield_with_id_host_fns": false,
+    "yield_with_id_host_fns": true,
+    "chain_id_host_fn": true,
+    "bls12381_not_in_group_fix": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
-    "eth_implicit_global_contract": true,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
       "max_stack_height": 262144,
@@ -278,5 +282,7 @@ expression: "&view"
     "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
-  }
+  },
+  "min_gas_purchase_price": "1000000000",
+  "account_creation_charge": "7000000000000000000000"
 }

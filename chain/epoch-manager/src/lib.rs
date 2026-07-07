@@ -1,5 +1,8 @@
-pub use crate::adapter::EpochManagerAdapter;
-use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
+pub use crate::adapter::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
+use crate::metrics::{
+    DYNAMIC_RESHARDING_SCHEDULED_EPOCH_HEIGHT, PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES,
+    RESHARDING_ASSIGNMENT_STRATEGY,
+};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
 use epoch_info_aggregator::EpochInfoAggregator;
@@ -14,7 +17,7 @@ use near_primitives::epoch_manager::{
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::trie_split::TrieSplit;
@@ -428,6 +431,7 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+        spice_endorsement_tracker: &HashMap<ValidatorId, ValidatorStats>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
@@ -455,6 +459,13 @@ impl EpochManager {
                     chunk_stats.endorsement_stats_mut().expected +=
                         stat.endorsement_stats().expected;
                 }
+            }
+            // On spice epochs endorsements are not embedded per-shard, so the
+            // per-shard tracker above is empty; the endorsement stats come from
+            // the epoch's last block header instead.
+            if let Some(stat) = spice_endorsement_tracker.get(&(i as u64)) {
+                chunk_stats.endorsement_stats_mut().produced += stat.produced;
+                chunk_stats.endorsement_stats_mut().expected += stat.expected;
             }
             total_stake = total_stake.checked_add(v.stake()).unwrap();
             let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
@@ -663,6 +674,24 @@ impl EpochManager {
             *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
+        // On spice epochs, chunk endorsements are accumulated per-validator on
+        // the epoch's last block header rather than embedded per-shard.
+        let spice_endorsement_tracker: HashMap<ValidatorId, ValidatorStats> = last_block_info
+            .spice_chunk_endorsement_stats()
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .map(|(validator_id, stats)| {
+                (
+                    validator_id as ValidatorId,
+                    ValidatorStats {
+                        produced: u64::from(stats.produced),
+                        expected: u64::from(stats.expected),
+                    },
+                )
+            })
+            .collect();
+
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
         let (validator_block_chunk_stats, kickout) = Self::compute_validators_to_reward_and_kickout(
@@ -670,6 +699,7 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
+            &spice_endorsement_tracker,
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);
@@ -735,9 +765,10 @@ impl EpochManager {
         };
 
         // Skip the split if the shard no longer exists in the next layout
-        // (e.g. it was already split in a previous epoch).
+        // (e.g. it was already split in a previous epoch). This should never happen
+        // given the resharding cooldown invariant.
         if !next_shard_layout.shard_ids().any(|id| id == *shard_id) {
-            tracing::info!(
+            tracing::warn!(
                 target: "epoch_manager",
                 ?shard_id,
                 %boundary_account,
@@ -752,6 +783,15 @@ impl EpochManager {
             %boundary_account,
             "dynamic resharding: shard selected for split, deriving new layout"
         );
+        // The layout being derived takes effect two epochs after the one being finalized.
+        // Best-effort: a metrics-only lookup must not fail the layout derivation.
+        if let Ok(epoch_info) = self.get_epoch_info(block_info.epoch_id()) {
+            let scheduled_epoch_height = epoch_info.epoch_height() + 2;
+            let shard_uid = ShardUId::from_shard_id_and_layout(*shard_id, next_shard_layout);
+            DYNAMIC_RESHARDING_SCHEDULED_EPOCH_HEIGHT
+                .with_label_values(&[shard_uid.to_string().as_str(), boundary_account.as_str()])
+                .set(scheduled_epoch_height as i64);
+        }
         let new_layout = next_shard_layout
             .derive_v3(boundary_account.clone(), || {
                 self.get_shard_layout_history(current_protocol_version, None)
@@ -894,6 +934,7 @@ impl EpochManager {
             &next_shard_layout,
             &next_next_shard_layout,
         );
+        RESHARDING_ASSIGNMENT_STRATEGY.with_label_values(&[strategy.metrics_label()]).inc();
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -960,11 +1001,26 @@ impl EpochManager {
                 assert_eq!(block_info.proposals_iter().len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?;
+                let genesis_height = block_info.height();
                 self.save_block_info(&mut store_update, Arc::new(block_info))?;
                 self.save_epoch_info(
                     &mut store_update,
                     &EpochId(current_hash),
-                    genesis_epoch_info,
+                    Arc::clone(&genesis_epoch_info),
+                )?;
+                // Chunks anchored at genesis (height genesis + 2) belong to the
+                // first real epoch (`EpochId::default()`), whose validator set is
+                // the genesis epoch info; chunks at genesis + 1 and below have no
+                // grandparent and use the canonical sampler.
+                let genesis_shard_layout = self.get_shard_layout(&pre_genesis_epoch_id)?;
+                self.seed_chunk_producers(
+                    &mut store_update,
+                    &current_hash,
+                    genesis_height,
+                    &genesis_epoch_info,
+                    &pre_genesis_epoch_id,
+                    &genesis_epoch_info,
+                    &genesis_shard_layout,
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
@@ -998,6 +1054,28 @@ impl EpochManager {
                 let block_info = Arc::new(block_info);
                 // Save current block info.
                 self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
+                // Seed chunk producers anchored at this block (chunks at height + 2)
+                // so every driver (chain, replay, tests) records them; the aggregator
+                // and the consensus reader read these rows for the block's grandchildren.
+                {
+                    let own_epoch_info = self.get_epoch_info(block_info.epoch_id())?;
+                    let sample_epoch_id = if self.is_next_block_in_next_epoch(&block_info)? {
+                        self.get_next_epoch_id_from_info(&block_info)?
+                    } else {
+                        *block_info.epoch_id()
+                    };
+                    let sample_epoch_info = self.get_epoch_info(&sample_epoch_id)?;
+                    let sample_shard_layout = self.get_shard_layout(&sample_epoch_id)?;
+                    self.seed_chunk_producers(
+                        &mut store_update,
+                        block_info.hash(),
+                        block_info.height(),
+                        &own_epoch_info,
+                        &sample_epoch_id,
+                        &sample_epoch_info,
+                        &sample_shard_layout,
+                    )?;
+                }
                 if block_info.last_finalized_height() > self.largest_final_height {
                     self.largest_final_height = block_info.last_finalized_height();
 
@@ -1791,11 +1869,11 @@ impl EpochManager {
         if let Some((aggregator, replace)) =
             self.aggregate_epoch_info_upto(last_final_block_hash)?
         {
-            // The aggregator now always covers the full `[epoch_start..last_final_block]`
-            // range, so assign it directly (no prefix merge). Save on epoch change or
-            // every `AGGREGATOR_SAVE_PERIOD` heights, as before.
-            self.epoch_info_aggregator = aggregator;
-            let save = replace || {
+            let save = if replace {
+                self.epoch_info_aggregator = aggregator;
+                true
+            } else {
+                self.epoch_info_aggregator.merge(aggregator);
                 let block_info = self.get_block_info(last_final_block_hash)?;
                 block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
             };
@@ -1818,10 +1896,10 @@ impl EpochManager {
         &self,
         last_block_hash: &CryptoHash,
     ) -> Result<EpochInfoAggregator, EpochError> {
-        if let Some((aggregator, _replace)) = self.aggregate_epoch_info_upto(last_block_hash)? {
-            // The aggregator already covers the full `[epoch_start..last_block]` range
-            // (it is seeded from the cached prefix when not replacing), so return it
-            // directly with no prefix merge.
+        if let Some((mut aggregator, replace)) = self.aggregate_epoch_info_upto(last_block_hash)? {
+            if !replace {
+                aggregator.merge_prefix(&self.epoch_info_aggregator);
+            }
             Ok(aggregator)
         } else {
             Ok(self.epoch_info_aggregator.clone())
@@ -1859,26 +1937,19 @@ impl EpochManager {
         let epoch_id = *self.get_block_info(block_hash)?.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let epoch_protocol_version = epoch_info.protocol_version();
 
-        // Collect the range backward (following the `prev_hash` chain), then attribute
-        // forward (increasing height). The forward order is required so that each block
-        // is attributed against the prefix stats `[epoch_start..block.prev]` — the same
-        // stat set the write path reads via `get_chunk_producer_blacklist`. Attributing
-        // backward cannot recompute the blacklist because the suffix walk never holds the
-        // prefix at the block being attributed.
-        let mut collected: Vec<(Arc<BlockInfo>, BlockHeight)> = Vec::new();
+        let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
         let mut cur_hash = *block_hash;
-        // `replace` is true when the backward walk reaches the start of the epoch (or
-        // genesis) without meeting the cached aggregator's sync point, i.e. the cached
-        // prefix is not a usable prefix for this epoch and we must reseed fresh.
-        let replace = loop {
+        Ok(Some(loop {
             #[cfg(test)]
             {
                 self.epoch_info_aggregator_loop_counter
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
 
+            // To avoid cloning BlockInfo we need to first get reference to the
+            // current block, but then drop it so that we can call
+            // get_block_info for previous block.
             let block_info = self.get_block_info(&cur_hash)?;
             let different_epoch = &epoch_id != block_info.epoch_id();
 
@@ -1889,7 +1960,7 @@ impl EpochManager {
                 // belongs to different epoch or we’re on different fork (though
                 // the latter should never happen).  In either case, the
                 // aggregator contains full epoch information.
-                break true;
+                break (aggregator, true);
             }
 
             let prev_hash = *block_info.prev_hash();
@@ -1913,53 +1984,276 @@ impl EpochManager {
                 Err(e) => return Err(e),
             };
 
-            collected.push((block_info, prev_height));
+            let chunk_producers = self.anchored_chunk_producers_for_aggregator(
+                &epoch_id,
+                &epoch_info,
+                &shard_layout,
+                &prev_hash,
+            );
+            let block_info = self.get_block_info(&cur_hash)?;
+            aggregator.update_tail(
+                &block_info,
+                &epoch_info,
+                &shard_layout,
+                prev_height,
+                chunk_producers.as_ref(),
+            );
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
                 // aggregator was for a different epoch, we have full info in
                 // our aggregator; otherwise we don’t.
-                break epoch_id != prev_epoch;
+                break (aggregator, epoch_id != prev_epoch);
             }
 
             cur_hash = prev_hash;
-        };
+        }))
+    }
 
-        // Seed the running aggregator: fresh on `replace` (the cached prefix is for a
-        // different epoch / fork), otherwise from a clone of the cached prefix so the
-        // returned aggregator always covers the full `[epoch_start..block_hash]` range.
-        let mut running = if replace {
-            EpochInfoAggregator::new(epoch_id, *block_hash)
-        } else {
-            self.epoch_info_aggregator.clone()
-        };
+    /// Resolve per-shard chunk producers at `height` (the chunk height of the
+    /// block built on `prev_hash`) via the grandparent anchor, mirroring
+    /// `get_chunk_producer_info_anchored` so kickout stats track the producers
+    /// that consensus actually resolved.
+    ///
+    /// Returns `None` when the legacy sampler applies: EarlyKickout off for the
+    /// epoch, no real grandparent (genesis), anchor `BlockInfo` missing (epoch
+    /// sync tail), or anchor in a previous epoch (cross-epoch arm — the
+    /// canonical sampler is exact there since the blacklist is provably empty).
+    fn anchored_chunk_producers_for_aggregator(
+        &self,
+        epoch_id: &EpochId,
+        epoch_info: &EpochInfo,
+        shard_layout: &ShardLayout,
+        prev_hash: &CryptoHash,
+    ) -> Option<HashMap<ShardId, ValidatorId>> {
+        // `DBCol::ChunkProducers` only exists under nightly (as does an enabled
+        // EarlyKickout); stable always uses the legacy sampler.
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_store::DBCol;
 
-        // Attribute forward (increasing height). When the walk reaches a block, `running`
-        // already holds `[epoch_start..block.prev]`, so the per-block blacklist below is
-        // the same one the write path computed for that block. The blacklist is the only
-        // gated input: empty off-feature, so `running` equals the previous backward
-        // walk + merge result (result-preserving refactor).
-        for (block_info, prev_height) in collected.into_iter().rev() {
-            let blacklist = if ProtocolFeature::EarlyKickout.enabled(epoch_protocol_version) {
+            if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
+                return None;
+            }
+            // Missing prev `BlockInfo` is the epoch-sync special case handled by
+            // the caller; resolve that block with the legacy sampler.
+            let prev_block_info = self.get_block_info(prev_hash).ok()?;
+            if prev_block_info.is_genesis() {
+                return None;
+            }
+            let anchor = *prev_block_info.prev_hash();
+            let anchor_block_info = self.get_block_info(&anchor).ok()?;
+            if anchor_block_info.epoch_id() != epoch_id {
+                return None;
+            }
+            // Reproduce what the writer stored at the anchor: a sample at
+            // `anchor.height + 2`, not the chunk height. They differ only when
+            // `prev` skipped heights above `anchor` (e.g. post epoch-sync).
+            let anchor_sample_height =
+                anchor_block_info.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+            let mut chunk_producers = HashMap::new();
+            for shard_id in shard_layout.shard_ids() {
+                let key = get_block_shard_id(&anchor, shard_id);
+                let validator_id = match self
+                    .store
+                    .store_ref()
+                    .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                {
+                    None => {
+                        // Tolerated on this stats path: canonical sampling is
+                        // exact wherever the kickout blacklist is empty (e.g.
+                        // epoch-sync boundary tails, or blocks recorded before this
+                        // column existed). The consensus reader
+                        // `get_chunk_producer_info_anchored` keeps the strict
+                        // `ChunkProducerNotInDB` guard.
+                        tracing::debug!(
+                            target: "epoch_tracker",
+                            ?anchor,
+                            %shard_id,
+                            "chunk producer row absent during aggregation, sampling canonically",
+                        );
+                        epoch_info.sample_chunk_producer(
+                            shard_layout,
+                            shard_id,
+                            anchor_sample_height,
+                        )?
+                    }
+                    Some(stake) => match epoch_info.get_validator_id(stake.account_id()).copied() {
+                        Some(validator_id) => validator_id,
+                        None => {
+                            // A stored account outside `epoch_info` should not
+                            // happen in correct operation, but on this stats path
+                            // fall back to canonical sampling rather than panic.
+                            tracing::debug!(
+                                target: "epoch_tracker",
+                                ?anchor,
+                                %shard_id,
+                                "chunk producer not in epoch during aggregation, sampling canonically",
+                            );
+                            epoch_info.sample_chunk_producer(
+                                shard_layout,
+                                shard_id,
+                                anchor_sample_height,
+                            )?
+                        }
+                    },
+                };
+                chunk_producers.insert(shard_id, validator_id);
+            }
+            Some(chunk_producers)
+        }
+        #[cfg(not(feature = "nightly"))]
+        {
+            let _ = (epoch_id, epoch_info, shard_layout, prev_hash);
+            None
+        }
+    }
+
+    /// Seed `DBCol::ChunkProducers` for chunks anchored at `block_hash` (the
+    /// grandparent anchor of chunks at height `block_height +
+    /// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`). No-op unless EarlyKickout is
+    /// enabled for the anchor's own epoch (`own_epoch_info`). Producers are
+    /// sampled from the epoch the anchored chunks belong to (`sample_epoch_info`
+    /// / `sample_shard_layout`, the epoch after the anchor); a chunk in a later
+    /// epoch never reads this row (the reader's cross-epoch arm samples
+    /// canonically).
+    ///
+    /// Writes into `store_update` so the rows commit atomically with the block's
+    /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
+    /// avoids seeding dead rows for last-of-epoch anchors across an activation edge.
+    ///
+    /// Kickout-aware: once `EarlyKickout` is active the persisted producer is the
+    /// blacklist-excluded sample, so every consensus reader
+    /// (`get_chunk_producer_info_anchored`, chunk production) and the aggregator's
+    /// `anchored_chunk_producers_for_aggregator` credit the replacement, not the
+    /// down node — no forward recompute needed.
+    ///
+    /// Activation dependency (#15640): the V2 witness path must route producer
+    /// lookup through `DBCol::ChunkProducers` before `EarlyKickout` is activated,
+    /// otherwise witness resolution would still use the pre-kickout height sample.
+    fn seed_chunk_producers(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_hash: &CryptoHash,
+        block_height: BlockHeight,
+        own_epoch_info: &EpochInfo,
+        sample_epoch_id: &EpochId,
+        sample_epoch_info: &EpochInfo,
+        sample_shard_layout: &ShardLayout,
+    ) -> Result<(), EpochError> {
+        #[cfg(feature = "nightly")]
+        {
+            if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
+                return Ok(());
+            }
+            // Compute the blacklist as of the anchor being seeded.
+            // `get_epoch_info_aggregator_upto_last` is an `EpochManager` method
+            // (`&self`, no lock); the adapter `get_chunk_producer_blacklist` would
+            // re-take `self.read()` and deadlock, since the seeder already runs under
+            // the write lock. Mirror the adapter body inline.
+            //
+            // `block_hash` must already be in the block cache / store (the caller
+            // recorded it via `save_block_info`). The epoch-sync first block is only
+            // in the pending `store_update`, so it uses
+            // `seed_chunk_producers_for_first_block` (empty blacklist, no walk) instead.
+            let aggregator = self.get_epoch_info_aggregator_upto_last(block_hash)?;
+            // The anchored chunks belong to `sample_epoch_id`. If that differs from the
+            // aggregator's epoch (last-of-epoch anchor), the sample epoch starts with no
+            // stats -> empty blacklist. Matches `get_chunk_producer_blacklist`'s reset.
+            let blacklist = if aggregator.epoch_id == *sample_epoch_id {
                 compute_chunk_producer_blacklist(
-                    &running.shard_tracker,
-                    epoch_info.as_ref(),
-                    &shard_layout,
+                    &aggregator.shard_tracker,
+                    sample_epoch_info,
+                    sample_shard_layout,
                 )
             } else {
                 HashMap::new()
             };
-            running.update_tail(
-                &block_info,
-                epoch_info.as_ref(),
-                &shard_layout,
-                prev_height,
+            self.seed_chunk_producer_rows(
+                store_update,
+                block_hash,
+                block_height,
+                sample_epoch_info,
+                sample_shard_layout,
                 &blacklist,
             );
         }
-        running.last_block_hash = *block_hash;
+        #[cfg(not(feature = "nightly"))]
+        let _ = (
+            store_update,
+            block_hash,
+            block_height,
+            own_epoch_info,
+            sample_epoch_id,
+            sample_epoch_info,
+            sample_shard_layout,
+        );
+        Ok(())
+    }
 
-        Ok(Some((running, replace)))
+    /// Sample each shard's chunk producer at the anchor offset, excluding the
+    /// per-shard `blacklist`, and write the rows into `store_update`. Shared by
+    /// the record-block and epoch-sync seeders, which differ only in how the
+    /// blacklist is obtained.
+    #[cfg(feature = "nightly")]
+    fn seed_chunk_producer_rows(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_hash: &CryptoHash,
+        block_height: BlockHeight,
+        sample_epoch_info: &EpochInfo,
+        sample_shard_layout: &ShardLayout,
+        blacklist: &HashMap<ShardId, HashSet<ValidatorId>>,
+    ) {
+        let empty = HashSet::new();
+        let height = block_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        for shard_id in sample_shard_layout.shard_ids() {
+            if let Some(validator_id) = sample_epoch_info.sample_chunk_producer_excluding(
+                sample_shard_layout,
+                shard_id,
+                height,
+                blacklist.get(&shard_id).unwrap_or(&empty),
+            ) {
+                let validator_stake = sample_epoch_info.get_validator(validator_id);
+                store_update.set_chunk_producer(block_hash, shard_id, &validator_stake);
+            }
+        }
+    }
+
+    /// Seed chunk producers for a block that is the first block of its epoch, so
+    /// chunks anchored at it belong to that same epoch. Used by the epoch-sync
+    /// path, which installs the current epoch's first `BlockInfo` outside
+    /// `record_block_info`.
+    ///
+    /// Uses an empty blacklist: the first block of an epoch has no in-epoch stats
+    /// yet. This also sidesteps the aggregator walk in `seed_chunk_producers` —
+    /// the epoch-sync block lives only in the pending `store_update`, so a walk
+    /// from it via `get_block_info` would fail with `MissingBlock`.
+    fn seed_chunk_producers_for_first_block(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
+    ) -> Result<(), EpochError> {
+        let epoch_id = block_info.epoch_id();
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        #[cfg(feature = "nightly")]
+        {
+            if ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
+                self.seed_chunk_producer_rows(
+                    store_update,
+                    block_info.hash(),
+                    block_info.height(),
+                    &epoch_info,
+                    &shard_layout,
+                    &HashMap::new(),
+                );
+            }
+        }
+        #[cfg(not(feature = "nightly"))]
+        let _ = (store_update, &epoch_info, &shard_layout);
+        Ok(())
     }
 
     /// Get the shard split to include in the block header, if any.

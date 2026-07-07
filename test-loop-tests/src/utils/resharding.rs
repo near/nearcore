@@ -658,7 +658,6 @@ pub(crate) fn call_promise_yield(
 ///
 /// Each signer is paired with a deterministic 32-byte yield_id so both the
 /// pre- and post-resharding transactions agree without inter-tx storage.
-#[cfg(feature = "nightly")]
 pub(crate) fn call_promise_yield_with_id(
     signer_ids: Vec<AccountId>,
     receiver_ids: Vec<AccountId>,

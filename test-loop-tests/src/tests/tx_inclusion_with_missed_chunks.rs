@@ -16,7 +16,8 @@ use near_primitives::views::FinalExecutionStatus;
 /// must still be accepted, since the missed-chunk count stays well below the
 /// threshold..
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// N/A under spice: missing chunks are applied as empty new chunks, so the
+// missed-chunk threshold being tested here never accrues.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_tx_inclusion_with_missed_chunks() {
     init_test_logger();

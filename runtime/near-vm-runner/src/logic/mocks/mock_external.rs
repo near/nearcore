@@ -225,6 +225,10 @@ impl External for MockedExternal {
             .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()))
     }
 
+    fn chain_id(&self) -> String {
+        "test".to_string()
+    }
+
     fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,

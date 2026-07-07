@@ -43,6 +43,8 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         witness_config: latest_runtime_config.witness_config,
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
         use_state_stored_receipt: latest_runtime_config.use_state_stored_receipt,
+        min_gas_purchase_price: latest_runtime_config.min_gas_purchase_price,
+        account_creation_charge: latest_runtime_config.account_creation_charge,
     };
     Ok(res)
 }
@@ -141,6 +143,8 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::keccak256_byte => Cost::Keccak256Byte,
         ExtCosts::keccak512_base => Cost::Keccak512Base,
         ExtCosts::keccak512_byte => Cost::Keccak512Byte,
+        ExtCosts::sha3_256_base => Cost::Sha3256Base,
+        ExtCosts::sha3_256_byte => Cost::Sha3256Byte,
         ExtCosts::ripemd160_base => Cost::Ripemd160Base,
         ExtCosts::ripemd160_block => Cost::Ripemd160Block,
         ExtCosts::ecrecover_base => Cost::EcrecoverBase,

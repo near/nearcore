@@ -8,8 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::{Gas, ProtocolVersion};
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -471,19 +470,18 @@ impl Receipt {
     /// The expectation is that applying an instant receipt is a quick operation (e.g. setting a few values in the state).
     /// Instant receipts generally shouldn't emit new instant receipts, as it could lead to
     /// infinitely many receipts being executed in a single chunk.
-    pub fn is_instant_receipt(&self, protocol_version: ProtocolVersion) -> bool {
+    pub fn is_instant_receipt(&self) -> bool {
         match self.versioned_receipt() {
             VersionedReceiptEnum::PromiseYield(_) => {
                 // PromiseYield receipts are instant receipts.
                 // Applying a PromiseYield receipt is one trie write, it's okay to make it an instant receipt.
-                ProtocolFeature::InstantPromiseYield.enabled(protocol_version)
+                true
             }
             VersionedReceiptEnum::Action(action_receipt) => {
                 // Action receipts containing a single DeleteAccount action and no input
                 // promises are instant receipts.
                 // Deleting an account is a quick trie operation, it's okay to make it instant.
-                ProtocolFeature::InstantDeleteAccount.enabled(protocol_version)
-                    && matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
+                matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
                     && action_receipt.input_data_ids().is_empty()
             }
             VersionedReceiptEnum::Data(_)
@@ -886,13 +884,8 @@ impl GlobalContractDistributionReceipt {
         already_delivered_shards: Vec<ShardId>,
         code: Arc<[u8]>,
         nonce: u64,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
-            Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
-        } else {
-            Self::new_v1(id, target_shard, already_delivered_shards, code)
-        }
+        Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
     }
 
     pub fn new_v1(

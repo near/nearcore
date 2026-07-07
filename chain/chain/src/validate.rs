@@ -1,3 +1,4 @@
+use crate::metrics::DYNAMIC_RESHARDING_VALIDATION_FAILURES;
 use crate::stateless_validation::metrics::VALIDATE_CHUNK_WITH_ENCODED_MERKLE_ROOT_TIME;
 use crate::{Chain, byzantine_assert};
 use crate::{ChainStore, Error};
@@ -173,6 +174,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     )?;
 
     if prev_chunk_extra.proposed_split() != chunk_header.proposed_split() {
+        DYNAMIC_RESHARDING_VALIDATION_FAILURES.with_label_values(&["chunk_header"]).inc();
         return Err(Error::InvalidChunkHeaderShardSplit(format!(
             "header has {:?}, expected {:?} (prev block hash: {:?} height created: {:?})",
             chunk_header.proposed_split(),
@@ -212,6 +214,7 @@ pub fn validate_block_shard_split(
 
     let header_shard_split = header.shard_split();
     if header_shard_split != expected_shard_split.as_ref() {
+        DYNAMIC_RESHARDING_VALIDATION_FAILURES.with_label_values(&["block_header"]).inc();
         return Err(Error::InvalidBlockHeaderShardSplit(format!(
             "header has {:?}, expected {:?} (block hash: {:?} height: {:?})",
             header_shard_split,

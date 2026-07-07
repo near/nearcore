@@ -31,7 +31,7 @@ use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
     get_signer_and_access_key, set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter;
 use std::sync::Arc;
 
@@ -59,7 +59,6 @@ pub(crate) struct CachedCosts {
     pub(crate) p256_verify_base: Option<GasCost>,
     pub(crate) function_call_base: Option<GasCost>,
     pub(crate) yield_create_base: Option<GasCost>,
-    #[cfg(feature = "nightly")]
     pub(crate) yield_create_with_id_base: Option<GasCost>,
     pub(crate) action_deterministic_state_init_base_per_entry_per_byte:
         Option<(GasCost, GasCost, GasCost)>,
@@ -267,6 +266,39 @@ pub(crate) struct Testbed<'c> {
     transaction_builder: TransactionBuilder,
 }
 
+/// Expected block latency (extra blocks needed to drain all receipts) for the
+/// blocks passed to [`Testbed::measure_blocks`].
+pub(crate) enum BlockLatency {
+    /// Every block drains in the same number of extra blocks.
+    Uniform(usize),
+    /// Setup and measured blocks alternate, as produced by `fn_cost_with_setup`:
+    /// even-indexed blocks run the setup, odd-indexed blocks the measurement.
+    SetupAndMeasured { setup: usize, measured: usize },
+}
+
+impl BlockLatency {
+    fn expected_at(&self, block_index: usize) -> usize {
+        match self {
+            BlockLatency::Uniform(latency) => *latency,
+            BlockLatency::SetupAndMeasured { setup, measured } => {
+                if block_index.is_multiple_of(2) {
+                    *setup
+                } else {
+                    *measured
+                }
+            }
+        }
+    }
+
+    /// Latency of the measured blocks, used to size the per-measurement overhead.
+    pub(crate) fn measured(&self) -> usize {
+        match self {
+            BlockLatency::Uniform(latency) => *latency,
+            BlockLatency::SetupAndMeasured { measured, .. } => *measured,
+        }
+    }
+}
+
 impl Testbed<'_> {
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
@@ -283,13 +315,13 @@ impl Testbed<'_> {
     pub(crate) fn measure_blocks(
         &mut self,
         blocks: Vec<Vec<SignedTransaction>>,
-        block_latency: usize,
+        block_latency: BlockLatency,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
         let allow_failures = false;
 
         let mut res = Vec::with_capacity(blocks.len());
 
-        for block in blocks {
+        for (block_index, block) in blocks.into_iter().enumerate() {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
             let extra_blocks;
             let gas_cost = {
@@ -299,9 +331,10 @@ impl Testbed<'_> {
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
+            let expected_latency = block_latency.expected_at(block_index);
             assert_eq!(
-                block_latency, extra_blocks,
-                "block latency {block_latency} does not match expected {extra_blocks}"
+                expected_latency, extra_blocks,
+                "block {block_index}: expected block latency {expected_latency} but drained in {extra_blocks}"
             );
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
@@ -410,10 +443,22 @@ impl Testbed<'_> {
 
         let mut total_burnt_gas = Gas::ZERO;
         if !allow_failures {
+            // Gas-refund receipts (predecessor "system") are allowed to fail: e.g. when an
+            // account deletes itself, the gas refund bounces back to the now-missing account.
+            // The protocol just burns the refunded tokens in that case, so such failures are
+            // expected and must not abort the estimation.
+            let refund_receipt_ids: HashSet<CryptoHash> = self
+                .prev_receipts
+                .iter()
+                .filter(|receipt| receipt.predecessor_id().is_system())
+                .map(|receipt| *receipt.receipt_id())
+                .collect();
             for outcome in &apply_result.outcomes {
                 total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt).unwrap();
                 match &outcome.outcome.status {
-                    ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
+                    ExecutionStatus::Failure(e) if !refund_receipt_ids.contains(&outcome.id) => {
+                        panic!("execution failed {e:#?}")
+                    }
                     _ => (),
                 }
             }
@@ -477,11 +522,10 @@ impl Testbed<'_> {
         let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
             &signer,
-            &mut access_key,
+            &access_key,
             validated_tx.to_tx(),
             &cost,
             block_height,
-            PROTOCOL_VERSION,
             &PendingConstraints::default(),
         ) else {
             panic!("tx verification should not fail in estimator");

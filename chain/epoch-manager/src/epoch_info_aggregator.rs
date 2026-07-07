@@ -10,7 +10,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
 #[derive(
@@ -43,20 +43,33 @@ impl EpochInfoAggregator {
         }
     }
 
-    /// Aggregates data from `block_info` into the running aggregator.
+    /// Aggregates data from a block which directly precede the first block this
+    /// aggregator has statistic on.
     ///
-    /// Called in increasing-height order over an epoch's blocks: when this is
-    /// invoked for a block, `self` already holds the stats for the epoch prefix
-    /// `[epoch_start..block_info.prev]`. `chunk_producer_blacklist` is the blacklist
-    /// computed from that prefix, so chunk attribution credits the producer the write
-    /// path actually assigned. The blacklist is empty off-feature.
+    /// For example, this method can be used in the following situation (where
+    /// A through G are blocks ordered in increasing height and arrows denote
+    /// ‘is parent’ relationship and B is start of a new epoch):
+    ///
+    /// ```text
+    ///     ┌─ block_info
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I
+    ///         │←── self ─→│
+    /// ```
+    ///
+    /// Note that there is no method which allows adding information about G,
+    /// H or I blocks into the aggregator.  The expected usage is to create
+    /// a new aggregator starting from I, add H and G into it (using this
+    /// method) and then [merge][`Self::merge`] it into `self`.
+    /// `chunk_producers` carries the per-shard producers resolved via the
+    /// grandparent anchor (EarlyKickout); `None` falls back to the legacy
+    /// height-based sampler.
     pub fn update_tail(
         &mut self,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
         shard_layout: &ShardLayout,
         prev_block_height: BlockHeight,
-        chunk_producer_blacklist: &HashMap<ShardId, HashSet<ValidatorId>>,
+        chunk_producers: Option<&HashMap<ShardId, ValidatorId>>,
     ) {
         let _span = tracing::debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
             .entered();
@@ -89,22 +102,15 @@ impl EpochInfoAggregator {
 
         // Step 2: update shard tracker (chunk production/endorsement stats)
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
-        let empty = HashSet::new();
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            // Attribute the chunk to the producer the write path actually assigned
-            // (the blacklist reassigns kicked-out slots). Off-feature the blacklist is
-            // empty and this delegates to `sample_chunk_producer`, so attribution is
-            // byte-identical to the pre-blacklist behavior.
-            let chunk_producer_id = epoch_info
-                .sample_chunk_producer_excluding(
-                    shard_layout,
-                    shard_id,
-                    prev_block_height + 1,
-                    chunk_producer_blacklist.get(&shard_id).unwrap_or(&empty),
-                )
-                .unwrap();
+            let chunk_producer_id = match chunk_producers.and_then(|cp| cp.get(&shard_id)) {
+                Some(chunk_producer_id) => *chunk_producer_id,
+                None => epoch_info
+                    .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
+                    .unwrap(),
+            };
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_producer_id)
@@ -186,16 +192,120 @@ impl EpochInfoAggregator {
         }
 
         // Step 3: update version tracker
-        // `version_tracker` and `all_proposals` are last-value, not additive. The walk
-        // visits blocks in increasing height, so the last write wins — overwrite (not
-        // `or_insert`) keeps the highest-height value, matching the previous backward
-        // first-seen + merge behavior.
         let block_producer_id = epoch_info.sample_block_producer(block_info_height);
-        self.version_tracker.insert(block_producer_id, *block_info.latest_protocol_version());
+        self.version_tracker
+            .entry(block_producer_id)
+            .or_insert_with(|| *block_info.latest_protocol_version());
 
         // Step 4: update proposals
         for proposal in block_info.proposals_iter() {
-            self.all_proposals.insert(proposal.account_id().clone(), proposal);
+            self.all_proposals.entry(proposal.account_id().clone()).or_insert(proposal);
+        }
+    }
+
+    /// Merges information from `other` aggregator into `self`.
+    ///
+    /// The `other` aggregator must hold statistics from blocks which **follow**
+    /// the ones this aggregator has.  Both aggregators have to be for the same
+    /// epoch (the function panics if they aren’t).
+    ///
+    /// For example, this method can be used in the following situation (where
+    /// A through J are blocks ordered in increasing height, arrows denote ‘is
+    /// parent’ relationship and B is start of a new epoch):
+    ///
+    /// ```text
+    ///     │←─── self ────→│   │←─ other ─→│
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
+    ///     └── new epoch ──→
+    /// ```
+    ///
+    /// Once the method finishes `self` will hold statistics for blocks from
+    /// B till J.
+    pub fn merge(&mut self, other: EpochInfoAggregator) {
+        self.merge_common(&other);
+
+        // merge version tracker
+        self.version_tracker.extend(other.version_tracker);
+        // merge proposals
+        self.all_proposals.extend(other.all_proposals);
+
+        self.last_block_hash = other.last_block_hash;
+    }
+
+    /// Merges information from `other` aggregator into `self`.
+    ///
+    /// The `other` aggregator must hold statistics from blocks which
+    /// **precede** the ones this aggregator has.  Both aggregators have to be
+    /// for the same epoch (the function panics if they aren’t).
+    ///
+    /// For example, this method can be used in the following situation (where
+    /// A through J are blocks ordered in increasing height, arrows denote ‘is
+    /// parent’ relationship and B is start of a new epoch):
+    ///
+    /// ```text
+    ///     │←─── other ───→│   │←─ self ──→│
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
+    ///     └── new epoch ──→
+    /// ```
+    ///
+    /// Once the method finishes `self` will hold statistics for blocks from
+    /// B till J.
+    ///
+    /// The method is a bit like doing `other.merge(self)` except that `other`
+    /// is not changed.
+    pub fn merge_prefix(&mut self, other: &EpochInfoAggregator) {
+        self.merge_common(&other);
+
+        // merge version tracker
+        self.version_tracker.reserve(other.version_tracker.len());
+        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
+        for (k, v) in &other.version_tracker {
+            self.version_tracker.entry(*k).or_insert_with(|| *v);
+        }
+
+        // merge proposals
+        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
+        for (k, v) in &other.all_proposals {
+            self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+
+    /// Merges block and shard trackers from `other` into `self`.
+    ///
+    /// See [`Self::merge`] and [`Self::merge_prefix`] method for description of
+    /// merging.
+    fn merge_common(&mut self, other: &EpochInfoAggregator) {
+        assert_eq!(self.epoch_id, other.epoch_id);
+
+        // merge block tracker
+        for (block_producer_id, stats) in &other.block_tracker {
+            self.block_tracker
+                .entry(*block_producer_id)
+                .and_modify(|e| {
+                    e.expected += stats.expected;
+                    e.produced += stats.produced
+                })
+                .or_insert_with(|| stats.clone());
+        }
+        // merge shard tracker
+        for (shard_id, stats) in &other.shard_tracker {
+            self.shard_tracker
+                .entry(*shard_id)
+                .and_modify(|e| {
+                    for (chunk_producer_id, stat) in stats {
+                        e.entry(*chunk_producer_id)
+                            .and_modify(|entry| {
+                                *entry.expected_mut() += stat.expected();
+                                *entry.produced_mut() += stat.produced();
+                                entry.endorsement_stats_mut().expected +=
+                                    stat.endorsement_stats().expected;
+                                entry.endorsement_stats_mut().produced +=
+                                    stat.endorsement_stats().produced;
+                            })
+                            .or_insert_with(|| stat.clone());
+                    }
+                })
+                .or_insert_with(|| stats.clone());
         }
     }
 }

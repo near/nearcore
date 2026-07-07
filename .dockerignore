@@ -13,6 +13,9 @@ keystore/
 tmp/
 sandbox/
 
+# Generated bounty-localnet state — must not enter the build context.
+tools/bounty-localnet/network/
+
 # Ignore Vim swapfiles
 *.swp
 

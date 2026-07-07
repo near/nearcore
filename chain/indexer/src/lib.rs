@@ -131,7 +131,7 @@ impl Indexer {
         let near_config =
             indexer_config.load_near_config().context("failed to load near config")?;
         let nearcore::NearNode { client, view_client, shard_tracker, .. } =
-            Self::start_near_node(&indexer_config, near_config.clone())
+            Self::start_near_node(&indexer_config, near_config.clone(), ActorSystem::new())
                 .await
                 .context("failed to start near node as part of indexer")?;
         Ok(Self {
@@ -146,8 +146,9 @@ impl Indexer {
     pub fn start_near_node(
         indexer_config: &IndexerConfig,
         near_config: NearConfig,
+        actor_system: ActorSystem,
     ) -> impl Future<Output = anyhow::Result<NearNode>> {
-        nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
+        nearcore::start_with_config(&indexer_config.home_dir, near_config, actor_system)
     }
 
     pub fn from_near_node(
@@ -201,6 +202,5 @@ pub fn indexer_init_configs(
         params.download_config_url.as_deref(),
         params.boot_nodes.as_deref(),
         params.max_gas_burnt_view,
-        None,
     )
 }

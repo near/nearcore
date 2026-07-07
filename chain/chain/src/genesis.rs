@@ -137,19 +137,6 @@ impl Chain {
                 .add_validator_proposals(block_info, *genesis.header().random_value())?
                 .into(),
         );
-        // Save chunk producers for height 1 (next height after genesis).
-        store_update.save_chunk_producers_for_header(
-            epoch_manager,
-            genesis.header(),
-            genesis_protocol_version,
-        )?;
-        // Save chunk producers for the genesis chunks themselves (height 0).
-        // Genesis chunks have prev_block_hash = CryptoHash::default().
-        store_update.save_genesis_chunk_producers(
-            epoch_manager,
-            genesis_protocol_version,
-            genesis.header().height(),
-        )?;
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
@@ -427,6 +414,6 @@ mod test {
 
         // In case this test fails, please make sure the changes do not change the structure of the genesis block.
         let hash = genesis_block.hash().to_string();
-        assert_eq!(hash, "93CRibQrTXr4eGB1zBCdVqrCNS3jFwwmx8oQ6wFxsx5j");
+        assert_eq!(hash, "3j2i6euhGGm8UG7avGhDnxiDftD2HW42kyTa14jbuKtQ");
     }
 }

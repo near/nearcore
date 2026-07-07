@@ -1,19 +1,24 @@
 use super::partial_witness::witness_part_length;
+use crate::metrics;
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
+use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
+use near_primitives::version::ProtocolFeature;
+use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store, get_genesis_height};
 use strum::IntoStaticStr;
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
@@ -22,14 +27,14 @@ const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 /// This enum represents whether a particular chunk is relevant in the context of validating
 /// a chunk endorsement or a partial witness.
-#[derive(IntoStaticStr)]
+#[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ChunkRelevance {
     Relevant,
     /// Chunk is irrelevant because it's height is less or equal to the current final head.
     TooLate,
     /// Chunk is irrelevant because it's height is more than `MAX_HEIGHTS_AHEAD`
-    /// from the current final head.
+    /// from the current head.
     TooEarly,
     /// Chunk is irrelevant because it's impossible to establish the ID of the epoch
     /// to which it should belong.
@@ -78,10 +83,12 @@ pub fn validate_partial_encoded_state_witness(
     )
     .entered();
 
-    if let VersionedPartialEncodedStateWitness::V2(_) = partial_witness {
-        return Err(Error::InvalidPartialChunkStateWitness(
-            "V2 validation not implemented".to_string(),
-        ));
+    let encoded_length = partial_witness.encoded_length();
+    if encoded_length > MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize {
+        return Err(Error::InvalidPartialChunkStateWitness(format!(
+            "encoded_length {encoded_length} exceeds witness size cap {}",
+            MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64()
+        )));
     }
 
     let num_parts =
@@ -111,13 +118,144 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+    // V1/V2 producer-resolution contract: see `VersionedPartialEncodedStateWitness` docstring.
+    let chunk_producer = match partial_witness {
+        VersionedPartialEncodedStateWitness::V1(_) => {
+            epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
+        }
+        VersionedPartialEncodedStateWitness::V2(v2) => {
+            // Resolve the producer from the anchor: it is one block older than the parent,
+            // so we have usually processed it even when the witness beats its parent.
+            let info = resolve_anchored_producer(
+                epoch_manager,
+                v2.prev_prev_block_hash(),
+                &epoch_id,
+                height_created,
+                shard_id,
+                "witness",
+            )?;
+            verify_anchored_chunk_key(
+                epoch_manager,
+                &epoch_id,
+                height_created,
+                v2.prev_block_hash(),
+                v2.prev_prev_block_hash(),
+                store,
+                "witness",
+            )?;
+            info
+        }
+    };
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
 
     Ok(ChunkRelevance::Relevant)
+}
+
+/// Cross-check the signed (epoch, height) against the signed anchor before trusting the
+/// producer resolved from it. The anchored lookup is keyed by anchor and shard only, not
+/// height, so without this a producer could sign under any height and we would store or
+/// forward under a forged key.
+///
+/// Parent known: must match the parent exactly. Parent absent, real anchor: height must be
+/// anchor + 2. Parent absent, default anchor: only valid at genesis or genesis + 1.
+/// `msg_label` names the caller in the error.
+fn verify_anchored_chunk_key(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    height_created: BlockHeight,
+    prev_block_hash: &CryptoHash,
+    prev_prev_block_hash: &CryptoHash,
+    store: &Store,
+    msg_label: &str,
+) -> Result<(), Error> {
+    match epoch_manager.get_block_info(prev_block_hash) {
+        Ok(parent_info) => {
+            let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+            if parent_info.prev_hash() != prev_prev_block_hash
+                || parent_info.height() + 1 != height_created
+                || &expected_epoch_id != epoch_id
+            {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "V2 {msg_label} chunk key mismatch: signed (epoch_id={:?}, height={}, \
+                     prev_prev={:?}) does not match prev_block_hash-implied \
+                     (epoch_id={:?}, height={}, prev_prev={:?})",
+                    epoch_id,
+                    height_created,
+                    prev_prev_block_hash,
+                    expected_epoch_id,
+                    parent_info.height() + 1,
+                    parent_info.prev_hash(),
+                )));
+            }
+        }
+        Err(EpochError::MissingBlock(_)) => {
+            if prev_prev_block_hash != &CryptoHash::default() {
+                // Parent not here yet, so only the anchor is known. Requiring height ==
+                // anchor + 2 ties one anchor to one chunk key per shard, so a producer
+                // cannot reuse it across many cache slots. (Cross-epoch anchors fall back
+                // to the resolver.) A skipped slot with a missing parent is dropped here;
+                // that is fine, best-effort.
+                let anchor_height = epoch_manager.get_block_info(prev_prev_block_hash)?.height();
+                let expected_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+                if height_created != expected_height {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 {msg_label} height {height_created} does not match \
+                         anchor-implied height {expected_height}"
+                    )));
+                }
+            } else {
+                // Default (genesis) anchor with no parent: nothing pins the height. A real
+                // default anchor only happens at genesis or genesis + 1, so reject higher
+                // to avoid an any-height hole.
+                let genesis_height = get_genesis_height(store)
+                    .ok_or_else(|| Error::Other("genesis height not found".to_owned()))?;
+                if height_created > genesis_height + 1 {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 {msg_label} with default anchor at height {height_created} \
+                         above genesis + 1 ({})",
+                        genesis_height + 1
+                    )));
+                }
+            }
+        }
+        Err(err) => return Err(err.into()),
+    }
+    Ok(())
+}
+
+/// Look up the producer from the anchor and record the lookup-outcome metric (hit, anchor
+/// block missing, or `DBCol::ChunkProducers` row missing). Error returned unchanged;
+/// callers turn the node-behind cases (`MissingBlock`, `ChunkProducerNotInDB`) into a
+/// quiet drop.
+fn resolve_anchored_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_prev_block_hash: &CryptoHash,
+    epoch_id: &EpochId,
+    height_created: BlockHeight,
+    shard_id: ShardId,
+    message_type: &str,
+) -> Result<ValidatorStake, EpochError> {
+    let result = epoch_manager.get_chunk_producer_info_anchored(
+        Some(prev_prev_block_hash),
+        epoch_id,
+        height_created,
+        shard_id,
+    );
+    let label = match &result {
+        Ok(_) => "hit",
+        // Anchor block not processed yet: this node is two or more blocks behind.
+        Err(EpochError::MissingBlock(_)) => "miss_anchor_block",
+        // Anchor is processed but has no `DBCol::ChunkProducers` row. Should be ~0
+        // normally; if it persists, something that writes that row has a bug.
+        Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
+        Err(_) => "error",
+    };
+    metrics::ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL
+        .with_label_values(&[shard_id.to_string().as_str(), message_type, label])
+        .inc();
+    result
 }
 
 pub fn validate_partial_encoded_contract_deploys(
@@ -175,7 +313,7 @@ pub fn validate_chunk_contract_accesses(
         signer.validator_id(),
         store
     )?);
-    validate_witness_contract_accesses_signature(epoch_manager, accesses)?;
+    validate_witness_contract_accesses_signature(epoch_manager, accesses, store)?;
 
     Ok(ChunkRelevance::Relevant)
 }
@@ -193,6 +331,21 @@ pub fn validate_contract_code_request(
         store
     )?);
     validate_witness_contract_code_request_signature(epoch_manager, request)?;
+
+    Ok(ChunkRelevance::Relevant)
+}
+
+pub fn validate_contract_code_response(
+    epoch_manager: &dyn EpochManagerAdapter,
+    response: &ContractCodeResponse,
+    store: &Store,
+) -> Result<ChunkRelevance, Error> {
+    let key = response.chunk_production_key();
+    require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+    if ProtocolFeature::SignedContractCodeResponse.enabled(protocol_version) {
+        validate_witness_contract_code_response_signature(epoch_manager, response)?;
+    }
 
     Ok(ChunkRelevance::Relevant)
 }
@@ -229,9 +382,9 @@ fn ensure_chunk_validator(
 /// - height_created is in (last_final_height..chain_head_height + MAX_HEIGHTS_AHEAD] range
 /// - epoch_id is within epoch_manager's possible_epochs_of_height_around_tip
 /// Returns:
-/// - Ok(true) if ChunkProductionKey is valid and we should process it.
-/// - Ok(false) if ChunkProductionKey is potentially valid, but at this point we should not
-///   process it. One example of that is if the witness is too old.
+/// - `Ok(ChunkRelevance::Relevant)` if ChunkProductionKey is valid and we should process it.
+/// - `Ok(ChunkRelevance::*)` (a non-relevant variant) if ChunkProductionKey is potentially valid,
+///   but at this point we should not process it. One example of that is if the witness is too old.
 /// - Err if ChunkProductionKey is invalid which most probably indicates malicious behavior.
 fn validate_chunk_relevant(
     epoch_manager: &dyn EpochManagerAdapter,
@@ -336,10 +489,62 @@ fn validate_witness_contract_code_request_signature(
 fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
+    store: &Store,
 ) -> Result<(), Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
+    let key = accesses.chunk_production_key();
+    // V1 uses the sampler; V2 looks the producer up from the anchor (like the witness
+    // path) and cross-checks the key first. An unresolvable anchor returns `DBNotFoundErr`,
+    // dropped quietly by the caller (this node is behind).
+    let chunk_producer = match accesses {
+        ChunkContractAccesses::V1(_) => epoch_manager.get_chunk_producer_info(key)?,
+        ChunkContractAccesses::V2(v2) => {
+            let producer = resolve_anchored_producer(
+                epoch_manager,
+                v2.prev_prev_block_hash(),
+                &key.epoch_id,
+                key.height_created,
+                key.shard_id,
+                "contract accesses",
+            )?;
+            verify_anchored_chunk_key(
+                epoch_manager,
+                &key.epoch_id,
+                key.height_created,
+                v2.prev_block_hash(),
+                v2.prev_prev_block_hash(),
+                store,
+                "contract accesses",
+            )?;
+            producer
+        }
+    };
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
+    }
+    Ok(())
+}
+
+fn validate_witness_contract_code_response_signature(
+    epoch_manager: &dyn EpochManagerAdapter,
+    response: &ContractCodeResponse,
+) -> Result<(), Error> {
+    let Some(responder) = response.responder() else {
+        return Err(Error::Other(
+            "Unsigned contract code response in epoch where signature is required".to_owned(),
+        ));
+    };
+    let key = response.chunk_production_key();
+    let chunk_producers =
+        epoch_manager.get_epoch_chunk_producers_for_shard(&key.epoch_id, key.shard_id)?;
+    if !chunk_producers.contains(responder) {
+        return Err(Error::Other(format!(
+            "Contract code response responder {responder} is not a chunk producer for shard {} in epoch {:?}",
+            key.shard_id, key.epoch_id,
+        )));
+    }
+    let validator = epoch_manager.get_validator_by_account_id(&key.epoch_id, responder)?;
+    if !response.verify_signature(validator.public_key()) {
+        return Err(Error::Other("Invalid witness contract code response signature".to_owned()));
     }
     Ok(())
 }

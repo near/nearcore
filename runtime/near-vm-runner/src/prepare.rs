@@ -257,14 +257,9 @@ mod tests {
         module.finish()
     }
 
-    // Block limits are enforced during the instrumentation pass, which NearVm
-    // skips. Run for all VM kinds that go through instrumentation.
     #[test]
     fn too_many_blocks_per_function() {
         with_vm_variants(|kind| {
-            if kind == VMKind::NearVm {
-                return;
-            }
             let limit: u64 = 100;
             let mut config = test_vm_config(Some(kind));
             config.limit_config.max_blocks_per_function = Some(limit);
@@ -284,9 +279,6 @@ mod tests {
     #[test]
     fn too_many_blocks_per_contract() {
         with_vm_variants(|kind| {
-            if kind == VMKind::NearVm {
-                return;
-            }
             let limit: u64 = 50;
             let mut config = test_vm_config(Some(kind));
             config.limit_config.max_blocks_per_contract = Some(limit);
@@ -436,22 +428,6 @@ mod tests {
                     ),
                 );
 
-                // NearVM does not have params limit, these are added for Wasmtime
-                if kind == VMKind::NearVm {
-                    match expect {
-                        Ok(_)
-                        | Err(PrepareError::TooManyParamsPerContract)
-                        | Err(PrepareError::TooManyParamsPerFunction) => {
-                            assert!(
-                                test_result.is_ok(),
-                                "got error when expecting ok, {test_result:?}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
-                            );
-                            return;
-                        }
-                        Err(_) => { /* Handle the same as Wasmtime */ }
-                    }
-                }
-
                 if let Err(expected_err) = &expect {
                     let Err(err) = test_result else {
                         panic!(
@@ -473,14 +449,10 @@ mod tests {
     }
 
     /// Reject contracts whose static operand-stack size (bytes) in any single
-    /// function exceeds `max_operand_stack_bytes_per_function`. NearVm doesn't run
-    /// the instrumentation pass and so doesn't enforce this cap.
+    /// function exceeds `max_operand_stack_bytes_per_function`.
     #[test]
     fn operand_stack_too_large() {
         with_vm_variants(|kind| {
-            if kind == VMKind::NearVm {
-                return;
-            }
             // 16 i64 pushes leave 128 bytes on the operand stack at peak.
             // Cap of 127 should reject; cap of 128 should accept.
             let push_then_drop = "(i64.const 0) ".repeat(16) + &"(drop) ".repeat(16);

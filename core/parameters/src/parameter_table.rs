@@ -1,7 +1,8 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
 use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
-    ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
+    ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, SignatureKind,
+    StorageUsageConfig,
 };
 use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
@@ -430,6 +431,15 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::DeployGlobalContractExecutionBase)?,
                 deploy_global_contract_execution_per_byte: params
                     .get(Parameter::DeployGlobalContractExecutionPerByte)?,
+                signature_verification_costs: enum_map::enum_map! {
+                    // Extra verification cost relative to the classical
+                    // schemes, whose base verification cost is already part of
+                    // `action_receipt_creation`. They stay 0 for backwards
+                    // compatibility; only ML-DSA-65 carries a charge. Adding a
+                    // new `SignatureKind` variant forces a decision here.
+                    SignatureKind::Ed25519 | SignatureKind::Secp256k1 => ParameterCost::ZERO,
+                    SignatureKind::MlDsa65 => params.get(Parameter::MlDsa65VerificationCost)?,
+                },
             }),
             wasm_config: Arc::new(Config {
                 ext_costs: ExtCostsConfig {
@@ -447,17 +457,20 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
+                fix_contract_loading_error: params.get(Parameter::FixContractLoadingError)?,
                 storage_get_mode: match params.get(Parameter::FlatStorageReads)? {
                     true => StorageGetMode::FlatStorage,
                     false => StorageGetMode::Trie,
                 },
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
-                eth_implicit_global_contract: params.get(Parameter::EthImplicitGlobalContract)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
                 p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
+                sha3_256_host_fn: params.get(Parameter::Sha3256HostFn)?,
                 yield_with_id_host_fns: params.get(Parameter::YieldWithIdHostFns)?,
+                chain_id_host_fn: params.get(Parameter::ChainIdHostFn)?,
+                bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
@@ -480,6 +493,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
             },
             use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
+            min_gas_purchase_price: params.get(Parameter::MinGasPurchasePrice)?,
+            account_creation_charge: params.get(Parameter::AccountCreationCharge)?,
         })
     }
 }

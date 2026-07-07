@@ -74,6 +74,7 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
+    fn sha3_256(value_len: u64, value_ptr: u64, register_id: u64);
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     fn ecrecover(
         hash_len: u64,
@@ -149,7 +150,6 @@ extern "C" {
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
-    #[cfg(feature = "nightly")]
     fn promise_yield_create_with_id(
         method_len: u64,
         method_ptr: u64,
@@ -504,6 +504,29 @@ pub unsafe fn keccak512_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         keccak512(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `sha3_256_base` and `sha3_256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `sha3_256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute sha3_256 on 10b 10k times.
+#[unsafe(no_mangle)]
+pub unsafe fn sha3_256_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        sha3_256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `sha3_256_base` and `sha3_256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `sha3_256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute sha3_256 on 10kib 10k times.
+#[unsafe(no_mangle)]
+pub unsafe fn sha3_256_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        sha3_256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
     }
 }
 
@@ -1403,7 +1426,6 @@ pub unsafe fn yield_create_base() {
 /// Creates 1000 waiting receipts/yield promises via `promise_yield_create_with_id`.
 /// Each call uses a distinct user-provided yield_id (the loop counter) to avoid
 /// duplicate-detection bailouts.
-#[cfg(feature = "nightly")]
 #[unsafe(no_mangle)]
 pub unsafe fn yield_create_with_id_base() {
     const METHOD_NAME: &str = "n";

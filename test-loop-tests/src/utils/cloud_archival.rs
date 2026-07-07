@@ -1,6 +1,7 @@
 use crate::setup::env::TestLoopEnv;
 use borsh::BorshDeserialize;
 use itertools::Itertools;
+use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
@@ -11,29 +12,28 @@ use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
     StateFileType, StateSyncConnection, external_storage_location, list_state_parts,
 };
-use near_primitives::block::Block;
-use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
-use near_primitives::utils::index_to_bytes;
+use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::CloudStorage;
+use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
 use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
 };
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 #[derive(Clone)]
 pub(crate) struct WriterConfig {
@@ -45,6 +45,86 @@ pub(crate) struct WriterConfig {
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     env.runner_for_account(account_id).run_until_head_height(target_height);
+}
+
+/// Resharding data observed by a test.
+pub struct ReshardingInfo {
+    /// The last block of the epoch before the split.
+    pub resharding_block_height: BlockHeight,
+    /// The resharding epoch's first block, a produced block inside the gap.
+    pub new_epoch_first_height: BlockHeight,
+    /// The resharding epoch's sync_hash block height: the reader's snapshot
+    /// anchor, above the gap the inverse walk must cover.
+    pub sync_block_height: BlockHeight,
+    /// Shard UIds of the pre-split layout.
+    pub base_shard_uids: Vec<ShardUId>,
+    /// Shard UIds of the post-split layout.
+    pub new_shard_uids: Vec<ShardUId>,
+    /// The shard the resharding removes.
+    pub parent_shard: ShardId,
+    /// One of the new child shards.
+    pub child_shard: ShardId,
+    /// A shard the resharding leaves unchanged.
+    pub carried_shard: ShardId,
+}
+
+/// Runs the chain one epoch past the resharding to `new_layout`.
+pub fn run_until_one_epoch_after_resharding(
+    env: &mut TestLoopEnv,
+    archival_id: &AccountId,
+    base_layout: &ShardLayout,
+    new_layout: &ShardLayout,
+    boundary: &AccountId,
+    epoch_length: BlockHeightDelta,
+) -> ReshardingInfo {
+    let timeout = Duration::seconds((5 * epoch_length) as i64);
+    env.runner_for_account(archival_id).run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
+            node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == *new_layout
+        },
+        timeout,
+    );
+    let node = env.node_for_account(archival_id);
+    let resharding_epoch_id = node.head().epoch_id;
+    let epoch_manager = &node.client().epoch_manager;
+    let head = node.head().last_block_hash;
+    // Follow prev_hash to the old epoch's last block; it can sit below
+    // epoch_start - 1 when slots before the epoch start are skipped.
+    let epoch_first = *epoch_manager.get_block_info(&head).unwrap().epoch_first_block();
+    let resharding_block = *epoch_manager.get_block_info(&epoch_first).unwrap().prev_hash();
+    let resharding_block_height = epoch_manager.get_block_info(&resharding_block).unwrap().height();
+    let new_epoch_first_height = epoch_manager.get_block_info(&epoch_first).unwrap().height();
+
+    // Advance one epoch from the resharding epoch's first produced block so the
+    // resharding epoch fully elapses and its sync_hash gets recorded.
+    run_node_until(env, archival_id, new_epoch_first_height + epoch_length);
+
+    let node = env.node_for_account(archival_id);
+    let chain_store = node.client().chain.chain_store().store().chain_store();
+    let sync_hash = chain_store
+        .get_current_epoch_sync_hash(&resharding_epoch_id)
+        .expect("resharding epoch sync_hash recorded one epoch past the split");
+    let sync_block_height = chain_store.get_block_header(&sync_hash).unwrap().height();
+
+    let base_shard_uids: Vec<ShardUId> = base_layout.shard_uids().collect();
+    let new_shard_uids: Vec<ShardUId> = new_layout.shard_uids().collect();
+    let parent_shard = base_layout.account_id_to_shard_id(boundary);
+    let child_shard = new_layout.account_id_to_shard_id(boundary);
+    let carried_shard = base_layout
+        .shard_ids()
+        .find(|shard_id| *shard_id != parent_shard)
+        .expect("layout has a shard other than the resharding parent");
+    ReshardingInfo {
+        resharding_block_height,
+        new_epoch_first_height,
+        sync_block_height,
+        base_shard_uids,
+        new_shard_uids,
+        parent_shard,
+        child_shard,
+        carried_shard,
+    }
 }
 
 fn execute_future<F: Future>(fut: F) -> F::Output {
@@ -317,6 +397,39 @@ pub fn snapshots_sanity_check(
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
+/// Asserts the resharding epoch took a state snapshot for every new-layout shard
+/// even though its epoch height is off the snapshot cadence.
+pub fn assert_resharding_epoch_snapshot_forced(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+    info: &ReshardingInfo,
+    snapshot_every_n_epochs: u64,
+) {
+    let cloud_storage = get_cloud_storage(env, archival_id);
+    let store = get_hot_store(env, archival_id);
+    let node = env.node_for_account(archival_id);
+    let epoch_manager = &node.client().epoch_manager;
+
+    let gap_block_hash =
+        store.chain_store().get_block_hash_by_height(info.new_epoch_first_height).unwrap();
+    let resharding_epoch_id = epoch_manager.get_epoch_id(&gap_block_hash).unwrap();
+    let resharding_epoch_height =
+        epoch_manager.get_epoch_info(&resharding_epoch_id).unwrap().epoch_height();
+    assert_ne!(
+        resharding_epoch_height % snapshot_every_n_epochs,
+        0,
+        "test needs the resharding epoch off the snapshot cadence"
+    );
+    for &shard_uid in &info.new_shard_uids {
+        let state_header = execute_future(cloud_storage.retrieve_state_header(
+            resharding_epoch_height,
+            resharding_epoch_id,
+            shard_uid.shard_id(),
+        ));
+        assert!(state_header.is_ok(), "resharding epoch snapshot forced for {shard_uid}");
+    }
+}
+
 /// Bootstraps a reader node by downloading blocks from cloud and applying
 /// state sync to reconstruct the state at `target_block_height`.
 pub fn bootstrap_reader(
@@ -347,12 +460,7 @@ pub fn bootstrap_reader(
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
-    let tries = ShardTries::new(
-        store.trie_store(),
-        TrieConfig::default(),
-        FlatStorageManager::new(store.flat_store()),
-        StateSnapshotConfig::Disabled,
-    );
+    let tries = build_shard_tries(&store);
 
     // TODO(cloud_archival): support resharding; the shard layout can change
     // between the snapshot epoch and the target, which this loop assumes constant.
@@ -409,7 +517,22 @@ pub fn bootstrap_reader(
     }
 }
 
-fn has_state_root(tries: &ShardTries, shard_uid: ShardUId, state_root: CryptoHash) -> bool {
+/// Builds a `ShardTries` over `store` with state snapshots disabled.
+pub(crate) fn build_shard_tries(store: &Store) -> ShardTries {
+    ShardTries::new(
+        store.trie_store(),
+        TrieConfig::default(),
+        FlatStorageManager::new(store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    )
+}
+
+/// Whether `state_root` resolves to a reachable root node in `shard_uid`'s trie.
+pub(crate) fn has_state_root(
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    state_root: CryptoHash,
+) -> bool {
     let trie = tries.get_trie_for_shard(shard_uid, state_root);
     trie.retrieve_root_node().is_ok()
 }
@@ -492,54 +615,172 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// Verifies that all block and epoch columns written by bootstrap_range
-/// are present and consistent in the store.
-pub(crate) fn verify_block_range(
-    store: &Store,
-    start_height: BlockHeight,
-    end_height: BlockHeight,
+/// How the reader is checked against a set of writer rows.
+enum Parity {
+    /// Reader must equal the given writer rows exactly, holding no extra rows.
+    Equality,
+    /// Reader must contain every given writer row, but may hold extra rows
+    /// (e.g. blocks backfilled below `start` to complete the merkle tree chain).
+    Containment,
+}
+
+/// Asserts the reader reproduces the writer's rows over `[start, end]` for every
+/// column the cloud-bootstrapped reader reconstructs today. Caller must
+/// `.disable_gc()` so the writer retains the bootstrap range.
+pub(crate) fn assert_reader_writer_parity(
+    reader: &Store,
+    writer: &Store,
+    start: BlockHeight,
+    end: BlockHeight,
 ) {
-    let mut prev_hash = None;
-    let mut seen_epochs = HashSet::<EpochId>::new();
-    for height in start_height..=end_height {
-        let block_hash: CryptoHash = store
-            .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
-            .unwrap_or_else(|| panic!("BlockHeight entry missing at height {height}"));
+    // TODO(cloud_archival): compare the skipped columns too.
+    let cols: Vec<DBCol> = DBCol::iter()
+        .filter(|&c| {
+            is_cloud_archive_reader_bootstrapped(c)
+                && !matches!(
+                    c,
+                    // Not reconstructed yet.
+                    DBCol::NextBlockHashes
+                        | DBCol::BlockPerHeight
+                        | DBCol::ChunkHashesByHeight
+                        | DBCol::ChunkExtra
+                        | DBCol::IncomingReceipts
+                        | DBCol::OutcomeIds
+                        | DBCol::TransactionResultForBlock
+                        | DBCol::StateChanges
+                        | DBCol::Transactions
+                        | DBCol::Receipts
+                        | DBCol::ReceiptToTx
+                        | DBCol::State
+                        // Reconstructed, but keyed off-height (genesis BlockInfo under
+                        // CryptoHash::default(), EpochInfo under AGGREGATOR_KEY), so the
+                        // height walk can't reproduce their key sets.
+                        | DBCol::BlockInfo
+                        | DBCol::EpochInfo
+                        | DBCol::EpochStart
+                )
+        })
+        .collect();
 
-        // Verify all block-level columns exist.
-        let header: BlockHeader = store
-            .get_ser(DBCol::BlockHeader, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockHeader missing at height {height}"));
-        let _block: Block = store
-            .get_ser(DBCol::Block, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("Block missing at height {height}"));
-        let _block_info: BlockInfo = store
-            .get_ser(DBCol::BlockInfo, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockInfo missing at height {height}"));
+    let writer_kvs = writer_kvs(writer, &cols, start, end);
 
-        // Verify epoch-level columns exist for each epoch we encounter.
-        let epoch_id = *header.epoch_id();
-        if seen_epochs.insert(epoch_id) {
-            let _epoch_info: EpochInfo = store
-                .get_ser(DBCol::EpochInfo, epoch_id.as_ref())
-                .unwrap_or_else(|| panic!("EpochInfo missing for epoch at height {height}"));
-        }
-
-        // Verify merkle tree exists and chains correctly from the previous block.
-        let tree: PartialMerkleTree = store
-            .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
-            .unwrap_or_else(|| panic!("BlockMerkleTree missing at height {height}"));
-        if let Some(prev) = prev_hash {
-            assert_eq!(*header.prev_hash(), prev, "prev_hash linkage broken at height {height}");
-            let prev_tree: PartialMerkleTree = store
-                .get_ser(DBCol::BlockMerkleTree, CryptoHash::as_ref(&prev))
-                .expect("prev BlockMerkleTree should exist");
-            assert_eq!(
-                tree.size(),
-                prev_tree.size() + 1,
-                "merkle tree size should increment at height {height}"
-            );
-        }
-        prev_hash = Some(block_hash);
+    for &col in &cols {
+        let parity = match col {
+            // The reader backfills these columns below `start` to complete the merkle
+            // tree chain, so it holds extra rows: check containment, not equality.
+            DBCol::BlockHeight | DBCol::Block | DBCol::BlockHeader | DBCol::BlockMerkleTree => {
+                Parity::Containment
+            }
+            _ => Parity::Equality,
+        };
+        assert_keyed_parity(reader, col, &writer_kvs[&col], parity);
     }
+}
+
+/// Compares the writer's rows in `col` against the full reader.
+fn assert_keyed_parity(
+    reader: &Store,
+    col: DBCol,
+    writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>,
+    parity: Parity,
+) {
+    let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
+        reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
+    match parity {
+        Parity::Equality => {
+            assert_eq!(&reader_all_kvs, writer_kvs, "{col} parity mismatch")
+        }
+        Parity::Containment => {
+            for (key, writer_value) in writer_kvs {
+                assert_eq!(
+                    reader_all_kvs.get(key),
+                    Some(writer_value),
+                    "{col}: writer key {key:?} missing or different at reader"
+                );
+            }
+        }
+    }
+}
+
+/// Collects the writer's per-(block, shard) column rows for one chunk into `kvs`.
+fn collect_chunk_kvs(
+    writer: &Store,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    block_hash: &CryptoHash,
+    chunk_header: &ShardChunkHeader,
+    height: BlockHeight,
+) {
+    let block_shard_id = get_block_shard_id(block_hash, chunk_header.shard_id());
+    if chunk_header.is_new_chunk(height) {
+        let chunk_hash = chunk_header.chunk_hash().as_ref().to_vec();
+        let value = writer.get(DBCol::Chunks, &chunk_hash).unwrap();
+        kvs.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash, value.to_vec());
+        if let Some(value) = writer.get(DBCol::OutgoingReceipts, &block_shard_id) {
+            kvs.get_mut(&DBCol::OutgoingReceipts)
+                .unwrap()
+                .insert(block_shard_id.clone(), value.to_vec());
+        }
+    }
+    if let Some(value) = writer.get(DBCol::ChunkApplyStats, &block_shard_id) {
+        kvs.get_mut(&DBCol::ChunkApplyStats).unwrap().insert(block_shard_id, value.to_vec());
+    }
+}
+
+/// Returns the writer rows the reader is expected to hold over `[start, end]`,
+/// plus the genesis block, one map per column in `cols`.
+fn writer_kvs(
+    writer: &Store,
+    cols: &[DBCol],
+    start: BlockHeight,
+    end: BlockHeight,
+) -> HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> {
+    let writer_store = writer.chain_store();
+    let chain_head = writer_store.head().unwrap().height;
+    let genesis_height = writer_store.get_genesis_height();
+
+    let mut in_scope: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
+        cols.iter().map(|&c| (c, BTreeMap::new())).collect();
+    let mut out_of_scope: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
+        cols.iter().map(|&c| (c, BTreeMap::new())).collect();
+
+    // Walk the chain, reading each column's row at height `h` into the in-scope
+    // or the out-of-scope map. Genesis is in scope wherever it sits.
+    for h in 0..=chain_head {
+        let Ok(block_hash) = writer_store.get_block_hash_by_height(h) else {
+            continue;
+        };
+        let is_in_scope = (start..=end).contains(&h) || h == genesis_height;
+        let kvs = if is_in_scope { &mut in_scope } else { &mut out_of_scope };
+        let height_key = index_to_bytes(h).to_vec();
+        if let Some(value) = writer.get(DBCol::BlockHeight, &height_key) {
+            kvs.get_mut(&DBCol::BlockHeight).unwrap().insert(height_key, value.to_vec());
+        }
+        for col in [DBCol::Block, DBCol::BlockHeader, DBCol::BlockMerkleTree] {
+            let key = block_hash.as_ref().to_vec();
+            if let Some(value) = writer.get(col, &key) {
+                kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
+            }
+        }
+        let block = writer_store.get_block(&block_hash).expect("block exists, checked above");
+        for chunk_header in block.chunks().iter_raw() {
+            collect_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
+        }
+    }
+
+    // TODO(cloud_archival): add a negative test (follow-up PR) that tampers a
+    // reader row and confirms these checks catch it.
+    // The walk must reproduce each writer column exactly, keys and values.
+    for &col in cols {
+        let writer_all: BTreeMap<Vec<u8>, Vec<u8>> =
+            writer.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
+        let mut seen = in_scope[&col].clone();
+        seen.extend(out_of_scope[&col].clone());
+        assert_eq!(seen, writer_all, "{col}: walk did not reproduce writer's column");
+        assert!(
+            in_scope[&col].keys().all(|k| !out_of_scope[&col].contains_key(k)),
+            "{col}: key in both in-scope and out-of-scope",
+        );
+    }
+
+    in_scope
 }

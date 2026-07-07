@@ -18,6 +18,7 @@ use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::{InMemorySigner, KeyType, Signature};
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
@@ -51,7 +52,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
@@ -198,9 +199,12 @@ async fn produce_block_with_approvals() {
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     let signer1 = create_test_signer(&block_producer);
+    let epoch_sync_data_hash =
+        actor_handles.epoch_manager.compute_epoch_sync_data_hash(&last_block.header.hash).unwrap();
     let block =
         TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer1))
             .block_merkle_tree(&mut block_merkle_tree)
+            .epoch_sync_data_hash(epoch_sync_data_hash)
             .build();
     actor_handles.client_actor.send(
         BlockResponse {
@@ -279,9 +283,12 @@ async fn invalid_blocks_common(is_requested: bool) {
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     let signer = create_test_signer("test");
+    let epoch_sync_data_hash =
+        actor_handles.epoch_manager.compute_epoch_sync_data_hash(&last_block.header.hash).unwrap();
     let valid_block = Arc::unwrap_or_clone(
         TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer))
             .block_merkle_tree(&mut block_merkle_tree)
+            .epoch_sync_data_hash(epoch_sync_data_hash)
             .build(),
     );
 
@@ -538,7 +545,11 @@ fn test_time_attack() {
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
+    let epoch_sync_data_hash =
+        client.epoch_manager.compute_epoch_sync_data_hash(genesis.hash()).unwrap();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .epoch_sync_data_hash(epoch_sync_data_hash)
+        .build();
     let timestamp = b1.header().timestamp();
     Arc::make_mut(&mut b1)
         .mut_header()
@@ -569,7 +580,11 @@ fn test_invalid_gas_price() {
     let signer = client.validator_signer.get().unwrap();
 
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
+    let epoch_sync_data_hash =
+        client.epoch_manager.compute_epoch_sync_data_hash(genesis.hash()).unwrap();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .epoch_sync_data_hash(epoch_sync_data_hash)
+        .build();
     Arc::make_mut(&mut b1).mut_header().set_next_gas_price(Balance::ZERO);
     Arc::make_mut(&mut b1).mut_header().resign(signer.as_ref());
 
@@ -2104,7 +2119,26 @@ fn test_block_execution_outcomes() {
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
     assert!(next_chunk.to_transactions().is_empty());
-    assert!(next_chunk.prev_outgoing_receipts().is_empty());
+    // Under AccountCostIncrease the two action receipts processed in block 2 each emit a
+    // price_surplus gas-refund receipt, which then becomes `prev_outgoing_receipts` of
+    // block 3. Pre-feature no refund is produced because the unused-gas refund evaluates to
+    // zero with the test's gas_price.
+    let expected_refund_receipts_in_chunk =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 2 } else { 0 };
+    // The refund receipts are produced by executing block 2's chunk. Without spice they ride in
+    // block 3's chunk as `prev_outgoing_receipts`; with spice chunks carry no outgoing receipts
+    // (that field is always empty) and the produced receipts are stored keyed by the block whose
+    // chunk produced them.
+    let refund_receipts_in_chunk = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.clients[0]
+            .chain
+            .chain_store()
+            .get_outgoing_receipts(block.hash(), shard_id)
+            .map_or(0, |receipts| receipts.len())
+    } else {
+        next_chunk.prev_outgoing_receipts().len()
+    };
+    assert_eq!(refund_receipts_in_chunk, expected_refund_receipts_in_chunk);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
@@ -2112,8 +2146,12 @@ fn test_block_execution_outcomes() {
         .unwrap()
         .remove(&shard_id)
         .unwrap();
-    assert_eq!(execution_outcomes_from_block.len(), 1);
-    assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
+    // The delayed action receipt is processed plus, under the feature, the refund receipts
+    // for the previously-processed receipts are also processed in this block.
+    assert_eq!(execution_outcomes_from_block.len(), 1 + expected_refund_receipts_in_chunk);
+    assert!(
+        execution_outcomes_from_block.iter().any(|o| o.outcome_with_id.id == delayed_receipt_id[0])
+    );
 }
 
 #[test]
@@ -2889,15 +2927,26 @@ fn test_reorg_reintroduces_old_branch_tx_when_pool_is_full() {
     // the chain allows zero; that check is orthogonal to what this exercises.
     genesis.config.min_gas_price = Balance::ZERO;
 
-    // A send_money tx in these tests is 112 bytes, so a 120-byte limit holds
-    // exactly one such tx; a second insert fails with `NoSpaceLeft`.
+    // Size the pool to hold exactly one `send_money` transaction; a second
+    // insert then fails with `NoSpaceLeft`. The pool accounts for the full
+    // `wire_size` (body + signature), so measure that rather than hard-coding
+    // a byte count.
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let one_tx_size = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        CryptoHash::default(),
+    )
+    .wire_size();
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .transaction_pool_size_limit(Some(120))
+        .transaction_pool_size_limit(Some(one_tx_size))
         .build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator_signer = Arc::new(create_test_signer("test0"));
     let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     let shard_uid = ShardUId::single_shard();
@@ -2952,12 +3001,15 @@ fn test_reorg_reintroduces_old_branch_tx_when_pool_is_full() {
     let block_merkle_tree_raw =
         env.clients[0].chain.chain_store().get_block_merkle_tree(genesis_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree_raw);
+    let epoch_sync_data_hash =
+        env.clients[0].epoch_manager.compute_epoch_sync_data_hash(genesis_block.hash()).unwrap();
     let block_b = TestBlockBuilder::from_prev_block(clock, &genesis_block, validator_signer)
         .height(2)
         .chunks(vec![chunk_header_b])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement_b.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut block_merkle_tree)
+        .epoch_sync_data_hash(epoch_sync_data_hash)
         .build();
     env.clients[0]
         .distribute_and_persist_encoded_chunk(
@@ -3079,12 +3131,15 @@ fn test_reorg_skips_overlap_txs_during_reintroduction() {
     let merkle_raw =
         env.clients[0].chain.chain_store().get_block_merkle_tree(genesis_block.hash()).unwrap();
     let mut merkle = PartialMerkleTree::clone(&merkle_raw);
+    let epoch_sync_data_hash =
+        env.clients[0].epoch_manager.compute_epoch_sync_data_hash(genesis_block.hash()).unwrap();
     let block_b = TestBlockBuilder::from_prev_block(clock, &genesis_block, validator_signer)
         .height(2)
         .chunks(vec![chunk_header_b])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement_b.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut merkle)
+        .epoch_sync_data_hash(epoch_sync_data_hash)
         .build();
     env.clients[0]
         .distribute_and_persist_encoded_chunk(chunk_b, encoded_paths_b, receipts_b, validator_id)

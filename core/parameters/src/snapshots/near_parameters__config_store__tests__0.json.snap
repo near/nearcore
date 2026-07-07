@@ -12,14 +12,14 @@ expression: config_view
     },
     "data_receipt_creation_config": {
       "base_cost": {
-        "send_sir": 4697339419375,
-        "send_not_sir": 4697339419375,
-        "execution": 4697339419375
+        "send_sir": 36486732312,
+        "send_not_sir": 36486732312,
+        "execution": 36486732312
       },
       "cost_per_byte": {
-        "send_sir": 59357464,
-        "send_not_sir": 59357464,
-        "execution": 59357464
+        "send_sir": 17212011,
+        "send_not_sir": 17212011,
+        "execution": 17212011
       }
     },
     "action_creation_config": {
@@ -102,7 +102,8 @@ expression: config_view
     "pessimistic_gas_price_inflation_ratio": [
       103,
       100
-    ]
+    ],
+    "ml_dsa_65_verification_cost": 0
   },
   "wasm_config": {
     "ext_costs": {
@@ -127,11 +128,13 @@ expression: config_view
       "keccak256_byte": 21471105,
       "keccak512_base": 5811388236,
       "keccak512_byte": 36649701,
+      "sha3_256_base": 5879491275,
+      "sha3_256_byte": 21471105,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
       "ed25519_verify_base": 210000000000,
       "ed25519_verify_byte": 9000000,
-      "ecrecover_base": 3365369625000,
+      "ecrecover_base": 278821988457,
       "p256_verify_base": 1300000000000,
       "p256_verify_byte": 13000000,
       "log_base": 3543313050,
@@ -198,7 +201,7 @@ expression: config_view
       "bls12381_p2_decompress_element": 300000000000000
     },
     "grow_mem_cost": 1,
-    "regular_op_cost": 3856371,
+    "regular_op_cost": 822756,
     "linear_op_base_cost": 300000000000000,
     "linear_op_unit_cost": 300000000000000,
     "vm_kind": "<REDACTED>",
@@ -209,11 +212,12 @@ expression: config_view
     "one_yocto_on_promise": false,
     "p256_verify_host_fn": false,
     "yield_with_id_host_fns": false,
+    "chain_id_host_fn": false,
+    "bls12381_not_in_group_fix": false,
     "storage_get_mode": "Trie",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": false,
-    "eth_implicit_global_contract": false,
     "limit_config": {
       "max_gas_burnt": 200000000000000,
       "max_stack_height": 16384,
@@ -238,6 +242,7 @@ expression: config_view
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
+      "max_functions_number_per_contract": 10000,
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
@@ -266,5 +271,7 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 4294967295,
     "combined_transactions_size_limit": 4294967295,
     "new_transactions_validation_state_size_soft_limit": 4294967295
-  }
+  },
+  "min_gas_purchase_price": "0",
+  "account_creation_charge": "0"
 }

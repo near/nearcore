@@ -27,9 +27,6 @@ pub(crate) enum RuntimeContractIdentifier {
     /// time. The original `GlobalContractIdentifier` is preserved so that
     /// `record_contract_call` can construct the correct trie key.
     Global { code_hash: CryptoHash, identifier: GlobalContractIdentifier },
-    /// Non-global legacy ETH wallet contract.
-    /// Code comes from the built-in wallet contract, not from storage.
-    LegacyEthWallet(LegacyEthWallet),
 }
 
 impl RuntimeContractIdentifier {
@@ -40,7 +37,6 @@ impl RuntimeContractIdentifier {
         account_id: &AccountId,
         account_contract: AccountContract,
         state_update: &TrieUpdate,
-        config: &near_parameters::vm::Config,
         chain_id: &str,
         access: AccessOptions,
     ) -> Result<Self, StorageError> {
@@ -59,20 +55,14 @@ impl RuntimeContractIdentifier {
             // description of #11606) may have something else deployed to them. Only return
             // something here if the accounts have a wallet contract hash. Otherwise use the
             // regular path to grab the deployed contract.
-            if let Some(legacy) = LegacyEthWallet::resolve(local_hash) {
-                // With EthImplicitGlobalContract, ETH implicit wallet accounts
-                // switched to global contracts, including those created in old
-                // protocol versions.
-                let identifier = if config.eth_implicit_global_contract {
-                    let global_hash = eth_wallet_global_contract_hash(chain_id);
-                    RuntimeContractIdentifier::Global {
-                        code_hash: global_hash,
-                        identifier: GlobalContractIdentifier::CodeHash(global_hash),
-                    }
-                } else {
-                    RuntimeContractIdentifier::LegacyEthWallet(legacy)
-                };
-                return Ok(identifier);
+            if LegacyEthWallet::resolve(local_hash).is_some() {
+                // ETH implicit wallet accounts use global contracts, including
+                // those created in old protocol versions.
+                let global_hash = eth_wallet_global_contract_hash(chain_id);
+                return Ok(RuntimeContractIdentifier::Global {
+                    code_hash: global_hash,
+                    identifier: GlobalContractIdentifier::CodeHash(global_hash),
+                });
             }
         }
 
@@ -89,7 +79,6 @@ impl RuntimeContractIdentifier {
             // `code_hash` to indicate contract code absence in `AccountV1`.
             Self::None => CryptoHash::default(),
             Self::AccountLocal { code_hash, .. } | Self::Global { code_hash, .. } => *code_hash,
-            Self::LegacyEthWallet(legacy) => *legacy.contract().hash(),
         }
     }
 }

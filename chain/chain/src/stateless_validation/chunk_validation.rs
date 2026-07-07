@@ -2,7 +2,6 @@ use crate::chain::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
     apply_new_chunk, apply_old_chunk,
 };
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
 use crate::resharding::manager::ReshardingManager;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
@@ -19,6 +18,7 @@ use crate::{Chain, ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -33,6 +33,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -311,11 +312,33 @@ pub fn pre_validate_chunk_state_witness(
     store: &ChainStore,
     genesis: Arc<Block>,
     epoch_manager: &dyn EpochManagerAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<PreValidationOutput, Error> {
     // Ensure that the chunk header version is supported in this protocol version
     let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
     state_witness.chunk_header().validate_version(protocol_version)?;
+
+    let runtime_config = runtime_adapter.get_runtime_config(protocol_version);
+    for tx in state_witness.new_transactions() {
+        if let Err(err) =
+            ValidatedTransaction::check_valid_for_config(runtime_config, tx, protocol_version)
+        {
+            tracing::debug!(
+                target: "chain",
+                tx_hash = ?tx.get_hash(),
+                protocol_version,
+                ?err,
+                "new transaction is invalid for active protocol version",
+            );
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "new transaction {} is invalid for protocol version {}: {}",
+                tx.get_hash(),
+                protocol_version,
+                err
+            )));
+        }
+    }
 
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
@@ -839,6 +862,7 @@ impl Chain {
             self.chain_store(),
             self.genesis_block(),
             epoch_manager,
+            self.runtime_adapter.as_ref(),
         )?;
         tracing::debug!(
             parent: &parent_span,

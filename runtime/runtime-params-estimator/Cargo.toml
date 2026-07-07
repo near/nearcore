@@ -17,6 +17,7 @@ required-features = ["costs_counting"]
 
 [dependencies]
 anyhow.workspace = true
+borsh.workspace = true
 bs58.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
@@ -44,7 +45,7 @@ near-parameters = { workspace = true, features = ["clap"] }
 near-primitives.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
-near-vm-runner = { workspace = true, features = [ "near_vm", "prepare" ] }
+near-vm-runner = { workspace = true, features = [ "prepare" ] }
 nearcore.workspace = true
 node-runtime = { workspace = true, features = ["estimator"] }
 
@@ -57,7 +58,6 @@ costs_counting = ["near-vm-runner/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
 required = [
   "costs_counting",
-  "near-vm-runner/no_cpu_compatibility_checks",
 ]
 nightly = [
   "genesis-populate/nightly",

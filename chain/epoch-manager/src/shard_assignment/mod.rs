@@ -199,6 +199,15 @@ impl AssignmentStrategy {
             Self::StickyResharding { .. } => true,
         }
     }
+
+    /// Label value for the `near_resharding_assignment_strategy_total` metric.
+    pub(crate) fn metrics_label(&self) -> &'static str {
+        match self {
+            Self::CarryOver => "carry_over",
+            Self::Fresh => "fresh",
+            Self::StickyResharding { .. } => "sticky_resharding",
+        }
+    }
 }
 
 /// Copy the previous assignment over by `ShardIndex`, up to the minimum of
