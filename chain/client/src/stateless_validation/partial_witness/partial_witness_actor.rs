@@ -262,8 +262,8 @@ impl PartialWitnessActor {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
         // Parent and grandparent anchor for V2 messages. The producer has already
         // processed the parent, since it built this chunk on top of it, so the anchor
-        // lookup will not miss. We compute them once here and share them with both the
-        // contract-accesses message below and the witness parts spawned below.
+        // lookup will not miss. We compute them once here and share them with the
+        // contract-accesses and contract-deploys messages and the witness parts below.
         let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
         let prev_prev_block_hash =
             self.epoch_manager.grandparent_anchor(&prev_block_hash)?.unwrap_or_default();
@@ -711,22 +711,11 @@ impl PartialWitnessActor {
         partial_deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_deploys, "received partial encoded contract deploys");
-        // Drop messages whose version is wrong for the epoch: a V2 message before
-        // EarlyKickout is active, or a V1 message at or after it. Same as the witness
-        // and contract-accesses paths.
-        let version = self
-            .epoch_manager
-            .get_epoch_protocol_version(&partial_deploys.chunk_production_key().epoch_id)
-            .ok();
-        if version_mismatch(
-            version,
-            matches!(partial_deploys, PartialEncodedContractDeploys::V2(_)),
+        if self.should_drop_for_version(
+            &partial_deploys.chunk_production_key(),
+            matches!(&partial_deploys, PartialEncodedContractDeploys::V2(_)),
+            "partial encoded contract deploys",
         ) {
-            tracing::debug!(
-                target: "client",
-                key = ?partial_deploys.chunk_production_key(),
-                "dropping partial encoded contract deploys: kickout gate",
-            );
             return Ok(());
         }
         match validate_partial_encoded_contract_deploys(
@@ -744,6 +733,21 @@ impl PartialWitnessActor {
                     target: "client",
                     key = ?partial_deploys.chunk_production_key(),
                     "dropping partial encoded contract deploys: chain data not yet available",
+                );
+                return Ok(());
+            }
+            // A node lagging on headers cannot resolve the signed epoch when the parent
+            // block is also missing, so this is node-behind, not a forged epoch (which
+            // would have a known parent and still surface below). Drop quietly.
+            Err(Error::EpochOutOfBounds(_))
+                if partial_deploys
+                    .prev_block_hash()
+                    .is_some_and(|prev| self.epoch_manager.get_block_info(prev).is_err()) =>
+            {
+                tracing::debug!(
+                    target: "client",
+                    key = ?partial_deploys.chunk_production_key(),
+                    "dropping partial encoded contract deploys: signed epoch not resolvable",
                 );
                 return Ok(());
             }
@@ -836,6 +840,25 @@ impl PartialWitnessActor {
         self.state_witness_tracker.lock().on_witness_ack_received(witness_ack);
     }
 
+    /// Drop a contract-distribution message whose wire version is wrong for its epoch: a V2
+    /// message before EarlyKickout is active, or a V1 message at or after it. Checked here
+    /// because the anchored resolver ignores the anchor when the feature is off, so acceptance
+    /// must be gated by protocol version, the same as the witness path. Returns whether it was
+    /// dropped. `message_type` labels the log.
+    fn should_drop_for_version(
+        &self,
+        key: &ChunkProductionKey,
+        is_v2: bool,
+        message_type: &str,
+    ) -> bool {
+        let version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id).ok();
+        if version_mismatch(version, is_v2) {
+            tracing::debug!(target: "client", ?key, message_type, "dropping message: kickout gate");
+            return true;
+        }
+        false
+    }
+
     /// Handles contract code accesses message from chunk producer.
     /// This is sent in parallel to a chunk state witness and contains the hashes
     /// of the contract code accessed when applying the previous chunk of the witness.
@@ -843,20 +866,11 @@ impl PartialWitnessActor {
         &self,
         accesses: ChunkContractAccesses,
     ) -> Result<(), Error> {
-        // Drop messages whose version is wrong for the epoch: a V2 message before
-        // EarlyKickout is active, or a V1 message at or after it. We check it here
-        // because when the feature is off the resolver ignores the anchor, so we have
-        // to gate acceptance by protocol version, the same as the witness path does.
-        let version = self
-            .epoch_manager
-            .get_epoch_protocol_version(&accesses.chunk_production_key().epoch_id)
-            .ok();
-        if version_mismatch(version, matches!(accesses, ChunkContractAccesses::V2(_))) {
-            tracing::debug!(
-                target: "client",
-                key = ?accesses.chunk_production_key(),
-                "dropping chunk contract accesses: kickout gate",
-            );
+        if self.should_drop_for_version(
+            &accesses.chunk_production_key(),
+            matches!(&accesses, ChunkContractAccesses::V2(_)),
+            "chunk contract accesses",
+        ) {
             return Ok(());
         }
 
@@ -877,6 +891,21 @@ impl PartialWitnessActor {
                     target: "client",
                     key = ?accesses.chunk_production_key(),
                     "dropping chunk contract accesses: chain data not yet available",
+                );
+                return Ok(());
+            }
+            // A node lagging on headers cannot resolve the signed epoch when the parent
+            // block is also missing, so this is node-behind, not a forged epoch (which
+            // would have a known parent and still surface below). Drop quietly.
+            Err(Error::EpochOutOfBounds(_))
+                if accesses
+                    .prev_block_hash()
+                    .is_some_and(|prev| self.epoch_manager.get_block_info(prev).is_err()) =>
+            {
+                tracing::debug!(
+                    target: "client",
+                    key = ?accesses.chunk_production_key(),
+                    "dropping chunk contract accesses: signed epoch not resolvable",
                 );
                 return Ok(());
             }
