@@ -153,11 +153,15 @@ fn maybe_copy_chunk_producers(
     // Keyed (anchor_hash, shard_id) using the epoch-AFTER-anchor layout, which differs from
     // `shard_layout` (the anchor's own epoch) at a resharding boundary. Prefix-scan by block
     // hash so boundary rows keyed by next-epoch shard_ids are copied, not just own-epoch ones.
-    let keys: Vec<Vec<u8>> = hot_store
-        .iter_prefix(DBCol::ChunkProducers, block_hash_key)
-        .map(|(k, _)| k.into_vec())
-        .collect();
-    Some(copy_from_store(cold_db, hot_store, col, keys))
+    // ChunkProducers is not rc, so write values straight from the scan (no re-read), mirroring
+    // `copy_state_changes_from_store`. `into_vec` avoids copying the boxed slices.
+    let mut transaction = DBTransaction::new();
+    for (key, value) in hot_store.iter_prefix(col, block_hash_key) {
+        metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
+        transaction.set(col, key.into_vec(), value.into_vec());
+    }
+    cold_db.write(transaction);
+    Some(Ok(()))
 }
 
 #[cfg(not(feature = "nightly"))]
