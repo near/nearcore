@@ -2209,12 +2209,27 @@ impl EpochManager {
         let empty = HashSet::new();
         let height = block_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
         for shard_id in sample_shard_layout.shard_ids() {
-            if let Some(validator_id) = sample_epoch_info.sample_chunk_producer_excluding(
+            let sampled = sample_epoch_info.sample_chunk_producer_excluding(
                 sample_shard_layout,
                 shard_id,
                 height,
                 blacklist.get(&shard_id).unwrap_or(&empty),
-            ) {
+            );
+            // The blacklist's safety valve (compute_chunk_producer_blacklist) never
+            // excludes every producer on a shard, so the sampler must yield one for any
+            // shard that has producers. A `None` here means the shard's settlement is
+            // empty (nothing to seed) — anything else means the safety valve was
+            // weakened and a shard was left with no eligible producer.
+            debug_assert!(
+                sampled.is_some()
+                    || sample_shard_layout
+                        .get_shard_index(shard_id)
+                        .ok()
+                        .and_then(|i| sample_epoch_info.chunk_producers_settlement().get(i))
+                        .is_none_or(|s| s.is_empty()),
+                "kickout seeder excluded every producer on shard {shard_id}",
+            );
+            if let Some(validator_id) = sampled {
                 let validator_stake = sample_epoch_info.get_validator(validator_id);
                 store_update.set_chunk_producer(block_hash, shard_id, &validator_stake);
             }

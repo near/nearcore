@@ -3,6 +3,8 @@
 //! production callers; these tests exercise the math directly and the accessor
 //! end-to-end (gate + boundary reset + enabled path).
 
+#[cfg(feature = "nightly")]
+use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager};
 use crate::{
@@ -413,4 +415,108 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
         .expect("expected an epoch boundary among recorded blocks");
     let bl = handle.get_chunk_producer_blacklist(boundary).unwrap();
     assert!(bl.is_empty(), "epoch boundary must reset blacklist, got {bl:?}");
+}
+
+// Scope A' equivalence: the seeded `DBCol::ChunkProducers` row equals the plain height
+// sampler while the blacklist is empty, and equals the blacklist-aware sampler (never the
+// down node) once it is non-empty. The strict consensus reader returns that same row.
+#[cfg(feature = "nightly")]
+#[test]
+fn seeded_rows_match_blacklist_aware_sampler() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let count = 200;
+    let h = drive_down_node(&handle, count, 0);
+    let epoch_id = handle.get_epoch_id(&h[1]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+
+    // Early anchor: blacklist empty, so the row must equal the plain height sample.
+    let early = 5u64;
+    let early_bl = handle.get_chunk_producer_blacklist(&h[early as usize]).unwrap();
+    assert!(early_bl.is_empty(), "early anchor should have an empty blacklist, got {early_bl:?}");
+    let early_height = early + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+    let plain = epoch_info
+        .get_validator(epoch_info.sample_chunk_producer(&layout, shard_id, early_height).unwrap());
+    let stored_early = handle
+        .get_chunk_producer_info_anchored(
+            Some(&h[early as usize]),
+            &epoch_id,
+            early_height,
+            shard_id,
+        )
+        .unwrap();
+    assert_eq!(stored_early, plain, "empty-blacklist row must equal the plain height sample");
+
+    // Late window: blacklist is {0}. No seeded row may be the down node, even at heights
+    // where the plain sampler would have picked it -> proves exclusion is applied.
+    let late_bl = handle.get_chunk_producer_blacklist(&h[count as usize]).unwrap();
+    assert_eq!(
+        late_bl,
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+        "late anchor should blacklist validator 0"
+    );
+    let mut plain_would_pick_down = false;
+    for i in (count - 40)..=count {
+        let anchor = h[i as usize];
+        let ch = i + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let stored = handle
+            .get_chunk_producer_info_anchored(Some(&anchor), &epoch_id, ch, shard_id)
+            .unwrap();
+        assert_ne!(
+            epoch_info.get_validator_id(stored.account_id()).copied(),
+            Some(0),
+            "no seeded row in the blacklist window may be the down node (anchor height {i})"
+        );
+        if epoch_info.sample_chunk_producer(&layout, shard_id, ch) == Some(0) {
+            plain_would_pick_down = true;
+        }
+    }
+    assert!(
+        plain_would_pick_down,
+        "expected a height where the plain sampler picks the down node, else exclusion is untested"
+    );
+}
+
+// Missing-row invariant (from the Codex debate): wherever the blacklist as of an anchor is
+// non-empty, that anchor's `DBCol::ChunkProducers` rows are present for every shard. So the
+// aggregator's lenient reader never height-samples (which would re-credit the down node)
+// while a blacklist is active -- the missing-row region and the non-empty-blacklist region
+// are disjoint.
+#[cfg(feature = "nightly")]
+#[test]
+fn nonempty_blacklist_anchor_always_has_row() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let count = 200;
+    let h = drive_down_node(&handle, count, 0);
+    let epoch_id = handle.get_epoch_id(&h[1]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+
+    let mut checked = 0;
+    for i in 1..=count {
+        let anchor = h[i as usize];
+        let bl = handle.get_chunk_producer_blacklist(&anchor).unwrap();
+        if bl.is_empty() {
+            continue;
+        }
+        checked += 1;
+        // The strict anchored reader errors `ChunkProducerNotInDB` on a miss, so `Ok`
+        // proves the row is present (the lenient aggregator path would never fall back
+        // to height sampling here).
+        for shard_id in layout.shard_ids() {
+            let res = handle.get_chunk_producer_info_anchored(
+                Some(&anchor),
+                &epoch_id,
+                i + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+                shard_id,
+            );
+            assert!(
+                res.is_ok(),
+                "anchor at height {i} has a non-empty blacklist but no ChunkProducers row for shard {shard_id}: {res:?}"
+            );
+        }
+    }
+    assert!(checked > 0, "no non-empty-blacklist anchor exercised; test is vacuous");
 }
