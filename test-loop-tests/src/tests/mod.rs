@@ -41,6 +41,7 @@ mod jsonrpc;
 mod light_client;
 mod malicious_chunk_producer;
 mod max_receipt_size;
+mod meta_tx;
 mod ml_dsa_access_key;
 mod ml_dsa_verification_cost;
 mod multinode_stateless_validators;
