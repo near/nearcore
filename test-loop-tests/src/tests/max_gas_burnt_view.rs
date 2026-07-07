@@ -34,7 +34,6 @@ fn test_max_gas_burnt_view() {
 
     let deploy_tx = env.node(0).tx_deploy_test_contract(&contract_account);
     env.node_runner(0).run_tx(deploy_tx, Duration::seconds(5));
-    env.node_runner(0).run_for_number_of_blocks(2);
 
     // `fibonacci` takes a single byte argument and returns the result as
     // little-endian u64 bytes.
