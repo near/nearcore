@@ -35,4 +35,10 @@ ignore = [
     # S3/cloud-storage XML responses, not untrusted input. Remove once the upstream S3 crates upgrade.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+
+    # RUSTSEC-2026-0202: cxx `let_cxx_string!` unsoundness, no fixed release yet. cxx is only in
+    # the lockfile via iana-time-zone-haiku (chrono's Haiku-OS-only timezone backend), which never
+    # compiles on any platform nearcore builds for, so the unsound macro is unreachable in every
+    # artifact. Remove once cxx ships a fix and the chain picks it up.
+    "RUSTSEC-2026-0202",
 ]
