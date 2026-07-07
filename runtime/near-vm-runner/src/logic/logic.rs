@@ -1,3 +1,4 @@
+// cspell:words wycheproof
 use super::context::VMContext;
 use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};

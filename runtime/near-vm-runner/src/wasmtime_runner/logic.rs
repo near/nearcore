@@ -1,3 +1,4 @@
+// cspell:words wycheproof
 // Many host functions take `memory: &mut [u8]` for a uniform signature even
 // when they don't write to memory.
 #![allow(clippy::needless_pass_by_ref_mut)]
