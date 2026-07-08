@@ -161,12 +161,6 @@ impl TrieViewer {
     }
 
     /// Lists an account's access keys, optionally paginated.
-    ///
-    /// Pagination: pass `after` to resume, and `limit` to
-    /// bound the page size. When a page is truncated the returned cursor is
-    /// `Some(last_key)`; `None` means the listing is complete. A request is
-    /// paginated if either `after` or `limit` is set — unpaginated callers
-    /// get the full, uncapped list.
     pub fn view_access_keys(
         &self,
         state_update: &TrieUpdate,

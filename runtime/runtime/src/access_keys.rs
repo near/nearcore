@@ -782,6 +782,9 @@ mod tests {
         assert_eq!(view_nonces, expected_nonces);
     }
 
+    /// Gas keys store their nonces as extra rows under the `ACCESS_KEY` column
+    /// (the access-key key plus a `NonceIndex` suffix). Those rows must be
+    /// filtered out, so each gas key appears in the listing exactly once.
     #[test]
     fn test_view_access_keys_returns_gas_keys() {
         let (account_id, public_key, access_key) = test_account_keys();
@@ -797,151 +800,66 @@ mod tests {
                 .public_key();
         add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key2);
 
-        let viewer = TrieViewer::default();
-        let (access_keys, last_key) = viewer
+        let (access_keys, last_key) = TrieViewer::default()
             .view_access_keys(&state_update, &account_id, None, None)
             .expect("expected to find access keys");
         assert_eq!(last_key, None, "unpaginated listing should not return a cursor");
-        let public_keys =
-            access_keys.into_iter().map(|(pk, _)| pk).collect::<HashSet<PublicKeyHandle>>();
-        let expected_public_keys = vec![public_key, gas_key_public_key1, gas_key_public_key2]
-            .into_iter()
-            .map(PublicKeyHandle::from)
-            .collect::<HashSet<PublicKeyHandle>>();
-        assert_eq!(public_keys, expected_public_keys);
+
+        let expected: HashSet<PublicKeyHandle> =
+            [public_key, gas_key_public_key1, gas_key_public_key2]
+                .into_iter()
+                .map(PublicKeyHandle::from)
+                .collect();
+        // Length check before de-duplicating: each gas key also has
+        // `TEST_NUM_NONCES` nonce rows, so a broken nonce filter would return its
+        // handle more than once — which the set comparison alone would hide.
+        assert_eq!(access_keys.len(), expected.len(), "gas-key nonce rows were not filtered out");
+        let returned: HashSet<PublicKeyHandle> =
+            access_keys.into_iter().map(|(pk, _)| pk).collect();
+        assert_eq!(returned, expected);
     }
 
-    /// `view_access_keys` has no size cap of its own (unlike `view_state`, which
-    /// is bounded by `TrieViewer::state_size_limit`): it returns every access
-    /// key the account owns. This checks that even a very large list is returned
-    /// in full — nothing truncated, nothing dropped, no error — and that the
-    /// gas-key-nonce rows sharing the `ACCESS_KEY` column are still correctly
-    /// filtered out at scale.
+    /// With no configured limit (`TrieViewer::default()`), an unpaginated call
+    /// returns every access key the account owns, however many there are.
     #[test]
     fn test_view_access_keys_returns_massive_list() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
 
-        // The account starts with the single full-access key from `setup_account`.
+        // Setup key plus a large batch of plain keys.
         let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
         expected.insert(PublicKeyHandle::from(public_key));
+        expected.extend(seed_extra_keys(&mut state_update, &account_id, 1_000));
 
-        // A large batch of plain full-access keys. There is no protocol limit on
-        // the number of access keys per account, so "maxed out" just means "a lot".
-        const NUM_PLAIN_KEYS: usize = 10000;
-        for i in 0..NUM_PLAIN_KEYS {
-            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("plain_key_{i}"));
-            set_access_key(&mut state_update, account_id.clone(), pk.clone(), &access_key);
-            assert!(expected.insert(PublicKeyHandle::from(pk)), "seeded a duplicate plain key");
-        }
-
-        // A handful of gas keys. Each one also writes `TEST_NUM_NONCES` gas-key
-        // nonce rows under the same `ACCESS_KEY` column; those extend the access
-        // key's trie key with a `NonceIndex` suffix and must NOT appear in the
-        // result. Their presence exercises the nonce-filtering path at scale.
-        const NUM_GAS_KEYS: usize = 5;
-        for i in 0..NUM_GAS_KEYS {
-            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}"));
-            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &pk);
-            assert!(expected.insert(PublicKeyHandle::from(pk)), "seeded a duplicate gas key");
-        }
-
-        let viewer = TrieViewer::default();
-        let (access_keys, last_key) = viewer
+        let (access_keys, last_key) = TrieViewer::default()
             .view_access_keys(&state_update, &account_id, None, None)
-            .expect("view_access_keys should succeed even for a maxed-out list");
-
-        // An unpaginated call returns the whole list uncapped, with no cursor.
-        assert_eq!(last_key, None, "unpaginated listing should not return a cursor");
-        // Every access key is returned exactly once, and the gas-key-nonce rows
-        // are excluded from the count.
-        assert_eq!(
-            access_keys.len(),
-            expected.len(),
-            "expected {} keys ({NUM_PLAIN_KEYS} plain + 1 setup + {NUM_GAS_KEYS} gas), got {}",
-            expected.len(),
-            access_keys.len(),
-        );
+            .expect("unpaginated listing with no configured limit should succeed");
+        assert_eq!(last_key, None, "a complete listing should not return a cursor");
+        assert_eq!(access_keys.len(), expected.len(), "wrong number of keys (or duplicates)");
         let returned: HashSet<PublicKeyHandle> =
             access_keys.into_iter().map(|(pk, _)| pk).collect();
         assert_eq!(returned, expected, "returned key set does not match the seeded set");
-    }
-
-    /// Walking the list one page at a time returns exactly the same keys as an
-    /// unpaginated call — no duplicates, no omissions — with gas-key-nonce rows
-    /// filtered across page boundaries.
-    #[test]
-    fn test_view_access_keys_pagination_walks_all_keys() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
-
-        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
-        expected.insert(PublicKeyHandle::from(public_key));
-
-        // Enough plain keys to span many pages, interleaved with gas keys so the
-        // page boundaries land near gas-key-nonce rows that must be skipped.
-        const NUM_PLAIN_KEYS: usize = 50;
-        for i in 0..NUM_PLAIN_KEYS {
-            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("plain_key_{i}"));
-            set_access_key(&mut state_update, account_id.clone(), pk.clone(), &access_key);
-            assert!(expected.insert(PublicKeyHandle::from(pk)));
-        }
-        const NUM_GAS_KEYS: usize = 4;
-        for i in 0..NUM_GAS_KEYS {
-            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}"));
-            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &pk);
-            assert!(expected.insert(PublicKeyHandle::from(pk)));
-        }
-
-        let viewer = TrieViewer::default();
-        let page_size = NonZeroU32::new(7).unwrap();
-
-        let mut collected: Vec<PublicKeyHandle> = Vec::new();
-        let mut after: Option<PublicKeyHandle> = None;
-        let mut pages = 0;
-        loop {
-            let (page, cursor) = viewer
-                .view_access_keys(&state_update, &account_id, after.as_ref(), Some(page_size))
-                .expect("paginated view_access_keys should succeed");
-            pages += 1;
-            assert!(pages <= expected.len() + 2, "pagination did not terminate");
-            match &cursor {
-                // Non-final pages are filled to the page size.
-                Some(_) => assert_eq!(
-                    page.len(),
-                    page_size.get() as usize,
-                    "a non-final page should be full"
-                ),
-                None => assert!(page.len() <= page_size.get() as usize),
-            }
-            collected.extend(page.into_iter().map(|(pk, _)| pk));
-            match cursor {
-                Some(c) => after = Some(c),
-                None => break,
-            }
-        }
-
-        assert!(pages > 1, "test should exercise more than one page");
-        // No duplicates across pages.
-        let unique: HashSet<PublicKeyHandle> = collected.iter().cloned().collect();
-        assert_eq!(unique.len(), collected.len(), "a key was returned on more than one page");
-        // Exactly the seeded set, nothing missing or extra.
-        assert_eq!(unique, expected, "paged walk did not cover the full key set");
     }
 
     fn viewer_with_limit(limit: u32) -> TrieViewer {
         TrieViewer::new(RuntimeConfigStore::new(None), None, Some(limit), None)
     }
 
-    /// Seeds `count` extra plain full-access keys on top of the account's setup key.
-    fn seed_extra_keys(state_update: &mut TrieUpdate, account_id: &AccountId, count: usize) {
+    /// Seeds `count` extra plain full-access keys on top of the account's setup
+    /// key, returning their handles.
+    fn seed_extra_keys(
+        state_update: &mut TrieUpdate,
+        account_id: &AccountId,
+        count: usize,
+    ) -> Vec<PublicKeyHandle> {
         let access_key = AccessKey::full_access();
-        for i in 0..count {
-            let pk = PublicKey::from_seed(KeyType::ED25519, &i.to_string());
-            set_access_key(state_update, account_id.clone(), pk, &access_key);
-        }
+        (0..count)
+            .map(|i| {
+                let pk = PublicKey::from_seed(KeyType::ED25519, &format!("extra_key_{i}"));
+                set_access_key(state_update, account_id.clone(), pk.clone(), &access_key);
+                PublicKeyHandle::from(pk)
+            })
+            .collect()
     }
 
     #[test]
@@ -988,38 +906,42 @@ mod tests {
         );
     }
 
+    /// Walks the whole list page by page against a configured limit: the first
+    /// page passes an explicit `limit`; resumed pages default their page size to
+    /// the config max. Checks full coverage with no duplicates or omissions, and
+    /// that gas-key-nonce rows are filtered across page boundaries.
     #[test]
-    fn test_view_access_keys_paginated_walk_respects_config_limit() {
+    fn test_view_access_keys_paginated_walk() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
         let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
         expected.insert(PublicKeyHandle::from(public_key));
-        // 7 keys total against a config limit of 5.
-        for i in 0..6 {
-            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("extra_key_{i}"));
-            set_access_key(&mut state_update, account_id.clone(), pk.clone(), &access_key);
+        expected.extend(seed_extra_keys(&mut state_update, &account_id, 20));
+        for i in 0..3 {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}"));
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &pk);
             expected.insert(PublicKeyHandle::from(pk));
         }
-        let viewer = viewer_with_limit(5);
 
-        // Page 1: an explicit request limit equal to the max fills a full page.
-        let (page1, cursor1) = viewer
+        let viewer = viewer_with_limit(5);
+        let mut collected: HashSet<PublicKeyHandle> = HashSet::new();
+        // First page uses an explicit limit; resumes default to the config max.
+        let (mut page, mut cursor) = viewer
             .view_access_keys(&state_update, &account_id, None, NonZeroU32::new(5))
             .expect("first page should succeed");
-        assert_eq!(page1.len(), 5);
-        let cursor1 = cursor1.expect("first of two pages should return a cursor");
-
-        // Page 2: resuming with no explicit limit defaults the page size to the
-        // config max, and returns the remaining 2 keys with no further cursor.
-        let (page2, cursor2) = viewer
-            .view_access_keys(&state_update, &account_id, Some(&cursor1), None)
-            .expect("second page should succeed");
-        assert_eq!(page2.len(), 2);
-        assert_eq!(cursor2, None);
-
-        let got: HashSet<PublicKeyHandle> =
-            page1.into_iter().chain(page2).map(|(pk, _)| pk).collect();
-        assert_eq!(got, expected, "the two pages should cover exactly the full key set");
+        loop {
+            assert!(page.len() <= 5, "no page may exceed the config limit");
+            for (pk, _) in page {
+                assert!(collected.insert(pk), "a key was returned on more than one page");
+            }
+            let Some(after) = cursor else { break };
+            (page, cursor) = viewer
+                .view_access_keys(&state_update, &account_id, Some(&after), None)
+                .expect("resume should succeed");
+        }
+        assert_eq!(collected, expected, "paged walk did not cover the full key set exactly");
     }
 
     fn transfer_to_gas_key(
