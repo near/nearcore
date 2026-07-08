@@ -190,6 +190,13 @@ fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
     if col == DBCol::ReceiptProofs {
         return true;
     }
+    // TODO(early-kickout): move ChunkProducers to is_cloud_archive_reader_bootstrapped once it is
+    // wired into cloud ShardData serialization + reader reconstruction (at stabilization, when the
+    // column becomes non-nightly).
+    #[cfg(feature = "nightly")]
+    if col == DBCol::ChunkProducers {
+        return true;
+    }
     matches!(
         col,
         // DB-level metadata; the reader maintains its own.

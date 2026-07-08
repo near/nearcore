@@ -125,6 +125,7 @@ pub fn setup_client(
         client_config.cloud_archival_writer.is_some(),
         snapshot_every_n_epochs,
         client_config.save_receipt_to_tx,
+        client_config.max_gas_burnt_view,
     );
 
     let state_snapshot = StateSnapshotActor::new(
@@ -227,6 +228,7 @@ pub fn setup_client(
                 client_config.cloud_archival_writer.is_some(),
                 snapshot_every_n_epochs,
                 client_config.save_receipt_to_tx,
+                client_config.max_gas_burnt_view,
             );
             (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
         } else {
