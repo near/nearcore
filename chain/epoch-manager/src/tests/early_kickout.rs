@@ -17,6 +17,9 @@ use near_primitives::types::{Balance, ChunkStats, ShardId, ValidatorId};
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "nightly")]
+use crate::metrics::EARLY_KICKOUT_SLOT_REASSIGNED;
+
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
 
 /// Builds a single-shard `EpochInfo` with `num_producers` chunk producers (ids
@@ -483,4 +486,144 @@ fn feature_off_resolved_producer_matches_plain_sampler() {
             "feature-off resolver must match plain sampler at height {height}"
         );
     }
+}
+
+// --- Metric test: `near_early_kickout_slot_reassigned_total` counts seeded writes the
+// blacklist actually moved, once per write, bounded to the `shard_id` label. ---
+
+/// Reads the process-global reassignment counter for one shard.
+#[cfg(feature = "nightly")]
+fn slot_reassigned_total(shard_id: ShardId) -> u64 {
+    EARLY_KICKOUT_SLOT_REASSIGNED.with_label_values(&[&shard_id.to_string()]).get()
+}
+
+/// Multi-shard variant of `drive_anchored_misses`: records heights `start..=end`,
+/// missing only `target_shard`'s chunk and only when its *resolved* (seeded)
+/// producer is `target`; every other shard always produces. So `target` accrues
+/// misses solely on `target_shard`, which is the only shard that blacklists. The
+/// aggregator credits the resolved producer, so once `target` is excluded its stats
+/// freeze (anti-flap), keeping the blacklist stable. `hashes[i]` is the block at
+/// height `i`; genesis (`hashes[0]`) must already be recorded.
+#[cfg(feature = "nightly")]
+fn drive_anchored_misses_on_shard(
+    handle: &EpochManagerHandle,
+    hashes: &[CryptoHash],
+    start: u64,
+    end: u64,
+    target: ValidatorId,
+    target_shard: ShardId,
+) {
+    let epoch_id = handle.get_epoch_id(&hashes[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let target_account =
+        handle.get_epoch_info(&epoch_id).unwrap().get_validator(target).account_id().clone();
+    for height in start..=end {
+        let prev = hashes[(height - 1) as usize];
+        let mask: Vec<bool> = layout
+            .shard_ids()
+            .map(|sid| {
+                if sid != target_shard {
+                    return true;
+                }
+                let resolved = handle.get_chunk_producer_info_from_prev_block(&prev, sid).unwrap();
+                resolved.account_id() != &target_account
+            })
+            .collect();
+        record_block_with_mask(&mut handle.write(), prev, hashes[height as usize], height, mask);
+    }
+}
+
+// 15. Rollout metric: with a producer blacklisted on one shard, the counter for that
+//     shard increments exactly once per seeded write that the blacklist actually
+//     moved (stored producer != plain sampler), and a healthy shard never increments.
+//     Isolated on non-zero shard labels so the process-global counter is not shared
+//     with the single-shard writer tests above (which only touch shard 0).
+#[cfg(feature = "nightly")]
+#[test]
+fn slot_reassigned_metric_counts_reassignments() {
+    let validators: Vec<_> = (0..6).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
+    let handle = setup_default_epoch_manager(validators, 10_000, 3, 3, 90, 60).into_handle();
+    let count = 160u64;
+
+    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
+
+    let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+
+    // Pick a shard to reassign and a shard to keep healthy, both non-zero so their
+    // counters are never shared with the single-shard tests. The target shard needs
+    // >= 2 distinct producers (else the safety valve vetoes blacklisting); the target
+    // validator is one of its producers so it accrues misses there.
+    let distinct = |s: ShardId| -> HashSet<ValidatorId> {
+        let idx = layout.get_shard_index(s).unwrap();
+        epoch_info.chunk_producers_settlement()[idx].iter().copied().collect()
+    };
+    let non_zero: Vec<ShardId> = layout.shard_ids().filter(|s| *s != ShardId::new(0)).collect();
+    let target_shard = *non_zero
+        .iter()
+        .find(|&&s| distinct(s).len() >= 2)
+        .expect("need a non-zero shard with >=2 producers");
+    let target: ValidatorId = *distinct(target_shard).iter().min().unwrap();
+    let healthy_shard =
+        *non_zero.iter().find(|&&s| s != target_shard).expect("need a second non-zero shard");
+
+    // Captured after genesis: genesis seeds chunk height 2 with an empty blacklist, so
+    // it can never reassign and is excluded from both the window and the oracle below.
+    let before_target = slot_reassigned_total(target_shard);
+    let before_healthy = slot_reassigned_total(healthy_shard);
+
+    // Phase 1 records h[1..=count-2], seeding chunk heights 3..=count. The window
+    // `mid - before` therefore matches the seeded rows we can read back (each needs its
+    // child block, recorded in phase 2).
+    drive_anchored_misses_on_shard(&handle, &h, 1, count - 2, target, target_shard);
+    let mid_target = slot_reassigned_total(target_shard);
+    let mid_healthy = slot_reassigned_total(healthy_shard);
+    // Phase 2 records the tail so anchor h[count-2]'s row is readable via child h[count-1].
+    drive_anchored_misses_on_shard(&handle, &h, count - 1, count, target, target_shard);
+
+    // The target is blacklisted on its shard; the healthy shard never is.
+    let bl = handle.get_chunk_producer_blacklist(&h[(count - 2) as usize]).unwrap();
+    assert_eq!(
+        bl.get(&target_shard),
+        Some(&HashSet::from([target])),
+        "target must be blacklisted on the target shard, got {bl:?}"
+    );
+    assert!(bl.get(&healthy_shard).is_none(), "healthy shard must not be blacklisted, got {bl:?}");
+
+    // Independent oracle over the readable seed writes (chunk heights 3..=count, anchors
+    // h[1..=count-2]): a write reassigned iff the actually-stored producer differs from
+    // the plain sampler. The healthy shard must equal the plain sampler everywhere.
+    let mut reassigned = 0u64;
+    for hh in 3..=count {
+        let child = &h[(hh - 1) as usize];
+
+        let plain = epoch_info.sample_chunk_producer(&layout, target_shard, hh).unwrap();
+        let stored = handle.get_chunk_producer_info_from_prev_block(child, target_shard).unwrap();
+        if stored.account_id() != epoch_info.get_validator(plain).account_id() {
+            reassigned += 1;
+        }
+
+        let plain_h = epoch_info.sample_chunk_producer(&layout, healthy_shard, hh).unwrap();
+        let stored_h =
+            handle.get_chunk_producer_info_from_prev_block(child, healthy_shard).unwrap();
+        assert_eq!(
+            stored_h.account_id(),
+            epoch_info.get_validator(plain_h).account_id(),
+            "healthy shard seed must match plain sampler at height {hh}"
+        );
+    }
+
+    assert!(reassigned >= 1, "scenario must drive at least one reassignment");
+    assert_eq!(
+        mid_target - before_target,
+        reassigned,
+        "reassigned counter must equal the moved seed writes on the target shard"
+    );
+    assert_eq!(
+        mid_healthy - before_healthy,
+        0,
+        "healthy shard counter must not increment when nothing is reassigned"
+    );
 }

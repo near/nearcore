@@ -2181,6 +2181,7 @@ impl EpochManager {
             if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
                 return Ok(());
             }
+            use crate::metrics::EARLY_KICKOUT_SLOT_REASSIGNED;
             // Blacklist from the anchor's committed chain, via the same helper the
             // read accessor uses so the stored producer matches what the reader
             // would resolve. Empty at an epoch boundary (own epoch != sample
@@ -2191,12 +2192,35 @@ impl EpochManager {
             let height = block_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
             for shard_id in sample_shard_layout.shard_ids() {
                 let exclude = blacklist.get(&shard_id).unwrap_or(&empty);
-                if let Some(validator_id) = sample_epoch_info.sample_chunk_producer_excluding(
+                let stored = sample_epoch_info.sample_chunk_producer_excluding(
                     sample_shard_layout,
                     shard_id,
                     height,
                     exclude,
-                ) {
+                );
+                if let Some(validator_id) = stored {
+                    // Rollout signal: count this seeded write when the blacklist
+                    // actually moved the slot, i.e. the stored producer differs from
+                    // what plain sampling would have chosen. Skipped when `exclude` is
+                    // empty because `sample_chunk_producer_excluding` then returns the
+                    // plain sample verbatim (no move possible, and the extra sample
+                    // call would be redundant). On the full-exclusion valve edge the
+                    // excluding sampler returns `None`, so no row is written and no
+                    // reassignment is counted. Both samples come from
+                    // `sample_epoch_info`, so comparing `ValidatorId`s compares
+                    // producer identity.
+                    if !exclude.is_empty()
+                        && stored
+                            != sample_epoch_info.sample_chunk_producer(
+                                sample_shard_layout,
+                                shard_id,
+                                height,
+                            )
+                    {
+                        EARLY_KICKOUT_SLOT_REASSIGNED
+                            .with_label_values(&[&shard_id.to_string()])
+                            .inc();
+                    }
                     let validator_stake = sample_epoch_info.get_validator(validator_id);
                     store_update.set_chunk_producer(block_hash, shard_id, &validator_stake);
                 }

@@ -39,3 +39,16 @@ pub(crate) static RESHARDING_ASSIGNMENT_STRATEGY: LazyLock<IntCounterVec> = Lazy
     )
     .unwrap()
 });
+
+// Only the early-kickout seeding path touches this counter, and that path is
+// nightly-only; gate the static so non-nightly builds don't carry a dead symbol.
+#[cfg(feature = "nightly")]
+pub(crate) static EARLY_KICKOUT_SLOT_REASSIGNED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_early_kickout_slot_reassigned_total",
+        "Number of seeded chunk-producer rows where the early-kickout blacklist moved the \
+         slot to a different producer than plain sampling would have chosen",
+        &["shard_id"],
+    )
+    .unwrap()
+});
