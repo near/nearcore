@@ -8583,6 +8583,15 @@
             ],
             "description": "Version of the binary."
           },
+          "view_access_keys_limit": {
+            "description": "Upper bound on the number of access keys returned by a `view_access_key_list`\nquery. None is no limit.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "view_client_threads": {
             "description": "Number of threads for ViewClientActor pool.",
             "format": "uint",
