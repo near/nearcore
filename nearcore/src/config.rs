@@ -31,7 +31,8 @@ use near_chain_configs::{
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
     default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
+    default_tx_routing_height_horizon, default_view_access_keys_limit, default_view_client_threads,
+    get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -340,6 +341,9 @@ pub struct Config {
     /// Number of threads for StateRequestActor pool.
     pub state_request_server_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
+    /// Upper bound on the number of access keys returned by a `view_access_key_list`
+    /// query. None is no limit.
+    pub view_access_keys_limit: Option<u32>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
@@ -501,6 +505,7 @@ impl Default for Config {
             state_requests_per_throttle_period: default_state_requests_per_throttle_period(),
             state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
+            view_access_keys_limit: default_view_access_keys_limit(),
             max_gas_burnt_view: None,
             store,
             cold_store: None,
@@ -802,6 +807,7 @@ impl NearConfig {
                 state_requests_per_throttle_period: config.state_requests_per_throttle_period,
                 state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
+                view_access_keys_limit: config.view_access_keys_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
@@ -949,6 +955,7 @@ impl NightshadeRuntime {
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
+            config.client_config.view_access_keys_limit,
             config.client_config.max_gas_burnt_view,
             None,
             config.config.gc.gc_num_epochs_to_keep(),

@@ -121,6 +121,7 @@ impl NightshadeRuntime {
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
+        view_access_keys_limit: Option<u32>,
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
@@ -139,6 +140,7 @@ impl NightshadeRuntime {
         let trie_viewer = TrieViewer::new(
             runtime_config_store.clone(),
             trie_viewer_state_size_limit,
+            view_access_keys_limit,
             max_gas_burnt_view,
         );
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());

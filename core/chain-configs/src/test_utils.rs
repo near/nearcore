@@ -325,6 +325,7 @@ impl ClientConfig {
             state_requests_per_throttle_period: 30,
             state_request_server_threads: 1,
             trie_viewer_state_size_limit: None,
+            view_access_keys_limit: None,
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,

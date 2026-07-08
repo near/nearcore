@@ -342,8 +342,9 @@ mod tests {
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
+    use crate::state_viewer::errors::ViewAccessKeyError;
     use near_crypto::{InMemorySigner, KeyType, PublicKeyHandle};
-    use near_parameters::RuntimeConfig;
+    use near_parameters::{RuntimeConfig, RuntimeConfigStore};
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
     };
@@ -928,6 +929,97 @@ mod tests {
         assert_eq!(unique.len(), collected.len(), "a key was returned on more than one page");
         // Exactly the seeded set, nothing missing or extra.
         assert_eq!(unique, expected, "paged walk did not cover the full key set");
+    }
+
+    fn viewer_with_limit(limit: u32) -> TrieViewer {
+        TrieViewer::new(RuntimeConfigStore::new(None), None, Some(limit), None)
+    }
+
+    /// Seeds `count` extra plain full-access keys on top of the account's setup key.
+    fn seed_extra_keys(state_update: &mut TrieUpdate, account_id: &AccountId, count: usize) {
+        let access_key = AccessKey::full_access();
+        for i in 0..count {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &i.to_string());
+            set_access_key(state_update, account_id.clone(), pk, &access_key);
+        }
+    }
+
+    #[test]
+    fn test_view_access_keys_unpaginated_over_limit_errors() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        // Setup provides 1 key; add 6 more -> 7 total, over the limit of 5.
+        seed_extra_keys(&mut state_update, &account_id, 6);
+
+        let err = viewer_with_limit(5)
+            .view_access_keys(&state_update, &account_id, None, None)
+            .expect_err("unpaginated listing over the limit should error");
+        assert!(
+            matches!(err, ViewAccessKeyError::TooManyAccessKeys { limit: 5, .. }),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_view_access_keys_unpaginated_at_limit_ok() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        // Setup provides 1 key; add 4 more -> exactly 5, at the limit.
+        seed_extra_keys(&mut state_update, &account_id, 4);
+
+        let (keys, last_key) = viewer_with_limit(5)
+            .view_access_keys(&state_update, &account_id, None, None)
+            .expect("exactly-at-limit unpaginated listing should succeed");
+        assert_eq!(keys.len(), 5);
+        assert_eq!(last_key, None, "a complete listing should not return a cursor");
+    }
+
+    #[test]
+    fn test_view_access_keys_paginated_request_over_limit_errors() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let state_update = setup_account(&account_id, &public_key, &access_key);
+
+        let err = viewer_with_limit(5)
+            .view_access_keys(&state_update, &account_id, None, NonZeroU32::new(6))
+            .expect_err("requesting a page larger than the max should error");
+        assert!(
+            matches!(err, ViewAccessKeyError::LimitTooLarge { limit: 6, max: 5 }),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_view_access_keys_paginated_walk_respects_config_limit() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
+        expected.insert(PublicKeyHandle::from(public_key));
+        // 7 keys total against a config limit of 5.
+        for i in 0..6 {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("extra_key_{i}"));
+            set_access_key(&mut state_update, account_id.clone(), pk.clone(), &access_key);
+            expected.insert(PublicKeyHandle::from(pk));
+        }
+        let viewer = viewer_with_limit(5);
+
+        // Page 1: an explicit request limit equal to the max fills a full page.
+        let (page1, cursor1) = viewer
+            .view_access_keys(&state_update, &account_id, None, NonZeroU32::new(5))
+            .expect("first page should succeed");
+        assert_eq!(page1.len(), 5);
+        let cursor1 = cursor1.expect("first of two pages should return a cursor");
+
+        // Page 2: resuming with no explicit limit defaults the page size to the
+        // config max, and returns the remaining 2 keys with no further cursor.
+        let (page2, cursor2) = viewer
+            .view_access_keys(&state_update, &account_id, Some(&cursor1), None)
+            .expect("second page should succeed");
+        assert_eq!(page2.len(), 2);
+        assert_eq!(cursor2, None);
+
+        let got: HashSet<PublicKeyHandle> =
+            page1.into_iter().chain(page2).map(|(pk, _)| pk).collect();
+        assert_eq!(got, expected, "the two pages should cover exactly the full key set");
     }
 
     fn transfer_to_gas_key(

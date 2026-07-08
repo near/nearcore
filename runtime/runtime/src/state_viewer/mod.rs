@@ -4,7 +4,6 @@ use crate::ext::RuntimeExt;
 use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use borsh::object_length;
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
@@ -65,6 +64,9 @@ pub struct TrieViewer {
     runtime_config_store: RuntimeConfigStore,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
+    /// Upper bound on the number of access keys returned by `view_access_keys`.
+    /// Applies to both paginated and unpaginated requests. None is no limit.
+    access_keys_limit: Option<u32>,
     /// Gas limit used when handling call_function queries. If None, resolved
     /// from the runtime config for the current protocol version.
     max_gas_burnt_view: Option<Gas>,
@@ -73,7 +75,12 @@ pub struct TrieViewer {
 impl Default for TrieViewer {
     fn default() -> Self {
         let runtime_config_store = RuntimeConfigStore::new(None);
-        Self { runtime_config_store, state_size_limit: None, max_gas_burnt_view: None }
+        Self {
+            runtime_config_store,
+            state_size_limit: None,
+            access_keys_limit: None,
+            max_gas_burnt_view: None,
+        }
     }
 }
 
@@ -81,9 +88,10 @@ impl TrieViewer {
     pub fn new(
         runtime_config_store: RuntimeConfigStore,
         state_size_limit: Option<u64>,
+        access_keys_limit: Option<u32>,
         max_gas_burnt_view: Option<Gas>,
     ) -> Self {
-        Self { runtime_config_store, state_size_limit, max_gas_burnt_view }
+        Self { runtime_config_store, state_size_limit, access_keys_limit, max_gas_burnt_view }
     }
 
     pub fn view_account(
@@ -169,35 +177,30 @@ impl TrieViewer {
         (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
         errors::ViewAccessKeyError,
     > {
+        let max = self.access_keys_limit;
+        let paginated = after.is_some() || limit.is_some();
+
+        if let (Some(max), Some(requested)) = (max, limit) {
+            if requested.get() > max {
+                return Err(errors::ViewAccessKeyError::LimitTooLarge {
+                    limit: requested.get(),
+                    max,
+                });
+            }
+        }
+
+        let item_cap: Option<u32> =
+            if paginated { limit.map(NonZeroU32::get).or(max) } else { None };
+
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-        // The iterator yields this account's access-key rows in ascending raw-key
-        // order. To resume after a cursor we skip forward until strictly past its
-        // raw access-key key.
         let after_key =
             after.map(|handle| TrieKey::access_key(account_id.clone(), handle.clone()).to_vec());
         let mut iter = state_update.iter(&prefix)?;
 
-        // Per-page caps, matching `view_state`. The byte cap is soft: it is
-        // checked before appending, so a page may run one item over.
-        const MAX_VIEW_ACCESS_KEY_LIST_PAGE_ITEMS: u32 = 10_000;
-        const MAX_VIEW_ACCESS_KEY_LIST_PAGE_BYTES: u64 = 50_000;
-
-        let paginated = after.is_some() || limit.is_some();
-        let (item_cap, byte_cap) = if paginated {
-            let items = limit
-                .map_or(MAX_VIEW_ACCESS_KEY_LIST_PAGE_ITEMS, NonZeroU32::get)
-                .min(MAX_VIEW_ACCESS_KEY_LIST_PAGE_ITEMS);
-            (Some(items), Some(MAX_VIEW_ACCESS_KEY_LIST_PAGE_BYTES))
-        } else {
-            (None, None)
+        let mut keys = match item_cap {
+            Some(cap) => Vec::with_capacity(cap as usize),
+            None => Vec::new(),
         };
-
-        // Pre-allocate only for an explicit `limit`; the default page size is too big to assume.
-        let mut keys = match (limit, item_cap) {
-            (Some(_), Some(cap)) => Vec::with_capacity(cap as usize),
-            _ => Vec::new(),
-        };
-        let mut used_bytes: u64 = 0;
         let mut last_key = None;
 
         for raw_key in &mut iter {
@@ -222,14 +225,24 @@ impl TrieViewer {
                 // This is a gas key nonce, skip it.
                 continue;
             }
-            // A genuine access key. If the page is already full, its existence
-            // proves more remain: emit a cursor at the last kept key and stop.
-            let hit_items = item_cap.is_some_and(|cap| keys.len() as u64 >= u64::from(cap));
-            let hit_bytes = byte_cap.is_some_and(|cap| used_bytes >= cap);
-            if hit_items || hit_bytes {
-                last_key =
-                    keys.last().map(|(handle, _): &(PublicKeyHandle, AccessKey)| handle.clone());
-                break;
+            // A genuine access key beyond what we've already kept.
+            if let Some(cap) = item_cap {
+                if keys.len() as u64 >= u64::from(cap) {
+                    // Page is full and at least one more key exists: emit a cursor
+                    // at the last kept key so the caller can resume.
+                    last_key = keys
+                        .last()
+                        .map(|(handle, _): &(PublicKeyHandle, AccessKey)| handle.clone());
+                    break;
+                }
+            } else if let Some(max) = max {
+                // Unpaginated request that exceeds the configured limit.
+                if keys.len() as u64 >= u64::from(max) {
+                    return Err(errors::ViewAccessKeyError::TooManyAccessKeys {
+                        requested_account_id: account_id.clone(),
+                        limit: max,
+                    });
+                }
             }
             let access_key = get_access_key_by_handle(state_update, account_id, &key_handle)?
                 .ok_or_else(|| {
@@ -237,7 +250,6 @@ impl TrieViewer {
                         "iterator yielded an access-key trie key with no value: {key_handle}"
                     ))
                 })?;
-            used_bytes += raw_key.len() as u64 + object_length(&access_key).unwrap_or(0) as u64;
             keys.push((key_handle, access_key));
         }
         Ok((keys, last_key))
