@@ -10,10 +10,18 @@ use near_primitives::types::Balance;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
-/// SHA3-384 and SHA3-512 FIPS-202 test vectors for the empty string and "abc".
-/// These are independent oracles for the digests the host functions must produce
-/// (algorithm correctness is also covered by the vm-runner unit tests; this
-/// exercises the full deploy/call path).
+/// FIPS-202 test vectors for the empty string and "abc". These are independent
+/// oracles for the digests the host functions must produce (algorithm correctness
+/// is also covered by the vm-runner unit tests; this exercises the full
+/// deploy/call path).
+const SHA3_256_EMPTY: [u8; 32] = [
+    167, 255, 198, 248, 191, 30, 215, 102, 81, 193, 71, 86, 160, 97, 214, 98, 245, 128, 255, 77,
+    228, 59, 73, 250, 130, 216, 10, 75, 128, 248, 67, 74,
+];
+const SHA3_256_ABC: [u8; 32] = [
+    58, 152, 93, 167, 79, 226, 37, 178, 4, 92, 23, 45, 107, 211, 144, 189, 133, 95, 8, 110, 62,
+    157, 82, 91, 70, 191, 226, 69, 17, 67, 21, 50,
+];
 const SHA3_384_EMPTY: [u8; 48] = [
     12, 99, 167, 91, 132, 94, 79, 125, 1, 16, 125, 133, 46, 76, 36, 133, 197, 26, 80, 170, 170,
     148, 252, 97, 153, 94, 113, 187, 238, 152, 58, 42, 195, 113, 56, 49, 38, 74, 219, 71, 251, 107,
@@ -37,11 +45,11 @@ const SHA3_512_ABC: [u8; 64] = [
     240,
 ];
 
-/// `sha3_host_fns` has no `ProtocolFeature` variant; it is turned on purely
-/// by a runtime-config diff (156.yaml). Check the flag for the current protocol
+/// `sha3_host_fns` has no `ProtocolFeature` variant; it is turned on purely by
+/// a runtime-config diff (156.yaml). Check the flag for the current protocol
 /// version so the test skips on stable, runs on nightly, and re-enables itself
 /// automatically once the feature stabilizes.
-fn sha3_384_512_enabled() -> bool {
+fn sha3_enabled() -> bool {
     RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).wasm_config.sha3_host_fns
 }
 
@@ -73,19 +81,22 @@ fn sha3_wasm(func: &str, input: &[u8]) -> Vec<u8> {
     near_test_contracts::wat_contract(&wat)
 }
 
-/// End-to-end: deploy a contract that calls `sha3_384`/`sha3_512` and assert it
-/// returns the FIPS-202 digest of the input, for both the empty string and "abc".
+/// End-to-end: deploy a contract that calls `sha3_256`/`sha3_384`/`sha3_512` and
+/// assert it returns the FIPS-202 digest of the input, for both the empty string
+/// and "abc".
 #[test]
-fn test_sha3_384_512_matches_known_digest() {
+fn test_sha3_matches_known_digest() {
     init_test_logger();
-    if !sha3_384_512_enabled() {
+    if !sha3_enabled() {
         tracing::info!(
-            "skipping: sha3_384/512 host fns not enabled at protocol version {PROTOCOL_VERSION}"
+            "skipping: sha3 host fns not enabled at protocol version {PROTOCOL_VERSION}"
         );
         return;
     }
 
-    let cases: [(&str, &[u8], &[u8]); 4] = [
+    let cases: [(&str, &[u8], &[u8]); 6] = [
+        ("sha3_256", b"", &SHA3_256_EMPTY),
+        ("sha3_256", b"abc", &SHA3_256_ABC),
         ("sha3_384", b"", &SHA3_384_EMPTY),
         ("sha3_384", b"abc", &SHA3_384_ABC),
         ("sha3_512", b"", &SHA3_512_EMPTY),
@@ -124,16 +135,16 @@ fn test_sha3_384_512_matches_known_digest() {
     }
 }
 
-/// Before the protocol version that activates `sha3_host_fns`, a contract
-/// that imports `env.sha3_384` must fail at call time (the import can't be linked
-/// against a runtime that doesn't expose it).
+/// Before the protocol version that activates `sha3_host_fns`, a contract that
+/// imports a `env.sha3_*` host function must fail at call time (the import can't
+/// be linked against a runtime that doesn't expose it).
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_sha3_384_512_pre_activation_call_fails() {
+fn test_sha3_pre_activation_call_fails() {
     init_test_logger();
-    if !sha3_384_512_enabled() {
+    if !sha3_enabled() {
         tracing::info!(
-            "skipping: sha3_384/512 host fns not enabled at protocol version {PROTOCOL_VERSION}"
+            "skipping: sha3 host fns not enabled at protocol version {PROTOCOL_VERSION}"
         );
         return;
     }
@@ -148,7 +159,7 @@ fn test_sha3_384_512_pre_activation_call_fails() {
         .add_user_account(&user, Balance::from_near(100))
         .build();
 
-    let wasm = sha3_wasm("sha3_384", b"abc");
+    let wasm = sha3_wasm("sha3_256", b"abc");
     let deploy_tx = env.rpc_node().tx_deploy_contract(&user, wasm);
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
 

@@ -1629,6 +1629,29 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         )
     }
 
+    /// Hashes the given value using the SHA3 (FIPS-202) digest `D` and returns it into
+    /// `register_id`, charging `base_cost` once plus `byte_cost` per input byte.
+    fn sha3_generic<D: sha3::Digest>(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+        base_cost: ExtCosts,
+        byte_cost: ExtCosts,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base_cost)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
+        self.result_state.gas_counter.pay_per(byte_cost, value.len() as u64)?;
+
+        let value_hash = D::digest(&value);
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            &value_hash[..],
+        )
+    }
+
     /// Hashes the given value using sha3-256 (FIPS-202) and returns it into `register_id`.
     ///
     /// # Errors
@@ -1640,18 +1663,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + sha3_256_base + sha3_256_byte * num_bytes`
     pub fn sha3_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        self.result_state.gas_counter.pay_base(sha3_256_base)?;
-        let value = get_memory_or_register!(self, value_ptr, value_len)?;
-        self.result_state.gas_counter.pay_per(sha3_256_byte, value.len() as u64)?;
-
-        use sha3::Digest;
-
-        let value_hash = sha3::Sha3_256::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
+        self.sha3_generic::<sha3::Sha3_256>(
+            value_len,
+            value_ptr,
             register_id,
-            &value_hash[..],
+            sha3_256_base,
+            sha3_256_byte,
         )
     }
 
@@ -1666,18 +1683,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + sha3_384_base + sha3_384_byte * num_bytes`
     pub fn sha3_384(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        self.result_state.gas_counter.pay_base(sha3_384_base)?;
-        let value = get_memory_or_register!(self, value_ptr, value_len)?;
-        self.result_state.gas_counter.pay_per(sha3_384_byte, value.len() as u64)?;
-
-        use sha3::Digest;
-
-        let value_hash = sha3::Sha3_384::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
+        self.sha3_generic::<sha3::Sha3_384>(
+            value_len,
+            value_ptr,
             register_id,
-            &value_hash[..],
+            sha3_384_base,
+            sha3_384_byte,
         )
     }
 
@@ -1692,18 +1703,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + sha3_512_base + sha3_512_byte * num_bytes`
     pub fn sha3_512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        self.result_state.gas_counter.pay_base(sha3_512_base)?;
-        let value = get_memory_or_register!(self, value_ptr, value_len)?;
-        self.result_state.gas_counter.pay_per(sha3_512_byte, value.len() as u64)?;
-
-        use sha3::Digest;
-
-        let value_hash = sha3::Sha3_512::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
+        self.sha3_generic::<sha3::Sha3_512>(
+            value_len,
+            value_ptr,
             register_id,
-            &value_hash[..],
+            sha3_512_base,
+            sha3_512_byte,
         )
     }
 
