@@ -68,19 +68,38 @@ const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 80;
 const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
 const EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS: u64 = 50;
 
+/// Per-shard observability for the blacklist computation. Emitted once at the
+/// accessor (compute runs every block, so emitting here would over-count).
+pub struct BlacklistShardStats {
+    /// RAW pre-safety-valve count of producers that met the blacklist criteria.
+    pub raw_candidate_count: usize,
+    /// Whether the keep-one safety valve fired (all distinct producers on the shard
+    /// were candidates, so exactly one least-bad producer was kept).
+    pub safety_valve_fired: bool,
+}
+
+/// Result of [`compute_chunk_producer_blacklist`]: the blacklist itself plus
+/// per-shard stats for observability.
+pub struct ChunkProducerBlacklist {
+    pub blacklist: HashMap<ShardId, HashSet<ValidatorId>>,
+    /// Only shards where at least one producer was a candidate (raw_candidate_count > 0).
+    pub shard_stats: HashMap<ShardId, BlacklistShardStats>,
+}
+
 /// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
 /// A validator is blacklisted on a shard when, within the current epoch:
 ///   - expected >= EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS  (sample-size guard)
 ///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
 ///   - produced * 100 < expected * 80                     (production ratio < 80%)
 /// Safety valve: if blacklisting would remove every distinct producer on a shard,
-/// that shard is omitted (caller falls through to default sampling).
+/// exactly one least-bad producer (highest produced/expected ratio) is kept eligible.
 pub fn compute_chunk_producer_blacklist(
     shard_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
     epoch_info: &EpochInfo,
     shard_layout: &ShardLayout,
-) -> HashMap<ShardId, HashSet<ValidatorId>> {
-    let mut result = HashMap::new();
+) -> ChunkProducerBlacklist {
+    let mut blacklist = HashMap::new();
+    let mut shard_stats = HashMap::new();
     for (shard_id, validators) in shard_tracker {
         let Ok(shard_index) = shard_layout.get_shard_index(*shard_id) else { continue };
         let Some(settlement) = epoch_info.chunk_producers_settlement().get(shard_index) else {
@@ -107,16 +126,57 @@ pub fn compute_chunk_producer_blacklist(
                 && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
                     < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
             {
+                tracing::info!(
+                    target: "early_kickout",
+                    account_id = %epoch_info.validator_account_id(validator_id),
+                    %shard_id,
+                    produced,
+                    expected,
+                    missed,
+                    "chunk producer blacklisted"
+                );
                 blacklisted.insert(validator_id);
             }
         }
-        // Safety valve: never blacklist every distinct producer on a shard. Backstopped
-        // by sample_chunk_producer_excluding -> None on full exclusion.
-        if !blacklisted.is_empty() && blacklisted.len() < producers.len() {
-            result.insert(*shard_id, blacklisted);
+        // RAW pre-mutation candidate count (observability; emitted once at accessor).
+        let raw_candidate_count = blacklisted.len();
+        if raw_candidate_count == 0 {
+            continue;
+        }
+        // all producers on this shard would be blacklisted -> keep exactly one eligible = LEAST-BAD
+        // (highest produced/expected). Pick over `blacklisted` (subset of shard_tracker, so stats
+        // exist) — NEVER index `producers`. Deterministic TOTAL order (consensus-critical, never
+        // HashSet order):
+        let safety_valve_fired = blacklisted.len() == producers.len();
+        if safety_valve_fired {
+            let keep = *blacklisted
+                .iter()
+                .max_by(|a, b| {
+                    let (sa, sb) = (&validators[*a], &validators[*b]);
+                    let (pa, ea) = (sa.produced() as u128, sa.expected() as u128);
+                    let (pb, eb) = (sb.produced() as u128, sb.expected() as u128);
+                    (pa * eb)
+                        .cmp(&(pb * ea)) // higher produced/expected ratio (integer cross-mult, no float)
+                        .then(eb.cmp(&ea)) // tiebreak: fewer expected
+                        .then((**b).cmp(&**a)) // tiebreak: lower validator_id
+                })
+                .unwrap();
+            blacklisted.remove(&keep);
+            tracing::warn!(
+                target: "early_kickout",
+                %shard_id,
+                kept = %epoch_info.validator_account_id(keep),
+                "safety valve: kept least-bad producer"
+            );
+        }
+        shard_stats
+            .insert(*shard_id, BlacklistShardStats { raw_candidate_count, safety_valve_fired });
+        // 1-producer shard -> blacklisted becomes empty after keep-one -> skip.
+        if !blacklisted.is_empty() {
+            blacklist.insert(*shard_id, blacklisted);
         }
     }
-    result
+    ChunkProducerBlacklist { blacklist, shard_stats }
 }
 
 /// In the current architecture, various components have access to the same

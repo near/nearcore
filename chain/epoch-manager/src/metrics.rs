@@ -39,3 +39,23 @@ pub(crate) static RESHARDING_ASSIGNMENT_STRATEGY: LazyLock<IntCounterVec> = Lazy
     )
     .unwrap()
 });
+
+pub(crate) static EARLY_KICKOUT_SAFETY_VALVE_FIRED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_early_kickout_safety_valve_fired_total",
+        "Number of blocks whose early-kickout blacklist would have excluded every distinct \
+         chunk producer on a shard, so the least-bad producer was kept eligible",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static EARLY_KICKOUT_BLACKLIST_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_early_kickout_blacklist_size",
+        "Raw pre-safety-valve count of chunk producers meeting the early-kickout blacklist \
+         criteria on a shard",
+        &["shard_id"],
+    )
+    .unwrap()
+});

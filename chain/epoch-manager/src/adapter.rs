@@ -1131,11 +1131,40 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        Ok(crate::compute_chunk_producer_blacklist(
-            &aggregator.shard_tracker,
-            epoch_info.as_ref(),
-            &shard_layout,
-        ))
+        let crate::ChunkProducerBlacklist { blacklist, shard_stats } =
+            crate::compute_chunk_producer_blacklist(
+                &aggregator.shard_tracker,
+                epoch_info.as_ref(),
+                &shard_layout,
+            );
+        // Emit observability ONCE here (compute runs every block -> emitting there over-counts).
+        for (shard_id, stats) in &shard_stats {
+            let shard_id = shard_id.to_string();
+            crate::metrics::EARLY_KICKOUT_BLACKLIST_SIZE
+                .with_label_values(&[&shard_id])
+                .set(stats.raw_candidate_count as i64);
+            if stats.safety_valve_fired {
+                crate::metrics::EARLY_KICKOUT_SAFETY_VALVE_FIRED
+                    .with_label_values(&[&shard_id])
+                    .inc();
+            }
+        }
+        if !blacklist.is_empty() {
+            let by_account: HashMap<ShardId, Vec<&AccountId>> = blacklist
+                .iter()
+                .map(|(shard_id, ids)| {
+                    let accounts =
+                        ids.iter().map(|id| epoch_info.validator_account_id(*id)).collect();
+                    (*shard_id, accounts)
+                })
+                .collect();
+            tracing::info!(
+                target: "early_kickout",
+                blacklist = ?by_account,
+                "computed chunk producer blacklist"
+            );
+        }
+        Ok(blacklist)
     }
 
     fn get_chunk_validator_assignments(
