@@ -9895,8 +9895,28 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key": {
+                "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PublicKeyHandle"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "block_id": {
                 "$ref": "#/components/schemas/BlockId"
+              },
+              "limit": {
+                "description": "Maximum number of access keys to return in this page.",
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -9911,8 +9931,28 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key": {
+                "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PublicKeyHandle"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "finality": {
                 "$ref": "#/components/schemas/Finality"
+              },
+              "limit": {
+                "description": "Maximum number of access keys to return in this page.",
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -9926,6 +9966,26 @@
             "properties": {
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
+              },
+              "after_key": {
+                "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PublicKeyHandle"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "limit": {
+                "description": "Maximum number of access keys to return in this page.",
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "sync_checkpoint": {
                 "$ref": "#/components/schemas/SyncCheckpoint"
@@ -9958,6 +10018,17 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -14107,6 +14178,21 @@
           }
         },
         {
+          "name": "after_key",
+          "required": false,
+          "schema": {
+            "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "block_id",
           "required": false,
           "schema": {
@@ -14118,6 +14204,19 @@
           "required": false,
           "schema": {
             "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "description": "Maximum number of access keys to return in this page.",
+            "format": "uint32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         {

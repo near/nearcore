@@ -1740,7 +1740,11 @@ impl JsonRpcHandler {
         let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
-                QueryRequest::ViewAccessKeyList { account_id: request_data.account_id },
+                QueryRequest::ViewAccessKeyList {
+                    account_id: request_data.account_id,
+                    after_key: request_data.after_key,
+                    limit: request_data.limit,
+                },
             ))
             .await;
         let query_response: QueryResponse =

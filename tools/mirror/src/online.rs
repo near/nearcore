@@ -214,7 +214,11 @@ impl crate::ChainAccess for ChainAccess {
             .view_client
             .send_async(Query {
                 block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
-                request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+                request: QueryRequest::ViewAccessKeyList {
+                    account_id: account_id.clone(),
+                    after_key: None,
+                    limit: None,
+                },
             })
             .await
             .unwrap()?

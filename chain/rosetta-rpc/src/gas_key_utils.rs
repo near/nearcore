@@ -69,8 +69,14 @@ async fn query_gas_key_info(
     account_id: AccountId,
     view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<AccountGasKeysBalance, ErrorKind> {
-    let query =
-        Query::new(block_id, QueryRequest::ViewAccessKeyList { account_id: account_id.clone() });
+    let query = Query::new(
+        block_id,
+        QueryRequest::ViewAccessKeyList {
+            account_id: account_id.clone(),
+            after_key: None,
+            limit: None,
+        },
+    );
     let response = match view_client_addr.send_async(query).await? {
         Ok(r) => r,
         Err(QueryError::UnknownAccount { .. }) => return Ok(HashMap::new()),

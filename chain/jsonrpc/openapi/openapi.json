@@ -1155,6 +1155,20 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page."
           }
         },
         "required": [
@@ -15331,6 +15345,25 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "request_type": {
                     "enum": [
                       "view_access_key_list"
@@ -15679,6 +15712,25 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "request_type": {
                     "enum": [
                       "view_access_key_list"
@@ -16026,6 +16078,25 @@
                 "properties": {
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
+                  },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "request_type": {
                     "enum": [
@@ -18450,6 +18521,27 @@
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
+          },
+          "after_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page."
+          },
+          "limit": {
+            "description": "Maximum number of access keys to return in this page.",
+            "format": "uint32",
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
@@ -18474,6 +18566,20 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page."
           }
         },
         "required": [

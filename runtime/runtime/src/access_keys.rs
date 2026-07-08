@@ -358,8 +358,11 @@ mod tests {
         AccountId, Balance, BlockHeight, EpochId, NonceIndex, StateChangeCause,
     };
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::{ShardUId, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
+    use near_store::{
+        ShardUId, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, set_access_key,
+    };
     use std::collections::HashSet;
+    use std::num::NonZeroU32;
     use std::sync::Arc;
 
     const TEST_NUM_NONCES: NonceIndex = 2;
@@ -794,9 +797,10 @@ mod tests {
         add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key2);
 
         let viewer = TrieViewer::default();
-        let access_keys = viewer
-            .view_access_keys(&state_update, &account_id)
+        let (access_keys, last_key) = viewer
+            .view_access_keys(&state_update, &account_id, None, None)
             .expect("expected to find access keys");
+        assert_eq!(last_key, None, "unpaginated listing should not return a cursor");
         let public_keys =
             access_keys.into_iter().map(|(pk, _)| pk).collect::<HashSet<PublicKeyHandle>>();
         let expected_public_keys = vec![public_key, gas_key_public_key1, gas_key_public_key2]
@@ -804,6 +808,126 @@ mod tests {
             .map(PublicKeyHandle::from)
             .collect::<HashSet<PublicKeyHandle>>();
         assert_eq!(public_keys, expected_public_keys);
+    }
+
+    /// `view_access_keys` has no size cap of its own (unlike `view_state`, which
+    /// is bounded by `TrieViewer::state_size_limit`): it returns every access
+    /// key the account owns. This checks that even a very large list is returned
+    /// in full — nothing truncated, nothing dropped, no error — and that the
+    /// gas-key-nonce rows sharing the `ACCESS_KEY` column are still correctly
+    /// filtered out at scale.
+    #[test]
+    fn test_view_access_keys_returns_massive_list() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        // The account starts with the single full-access key from `setup_account`.
+        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
+        expected.insert(PublicKeyHandle::from(public_key));
+
+        // A large batch of plain full-access keys. There is no protocol limit on
+        // the number of access keys per account, so "maxed out" just means "a lot".
+        const NUM_PLAIN_KEYS: usize = 10000;
+        for i in 0..NUM_PLAIN_KEYS {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("plain_key_{i}"));
+            set_access_key(&mut state_update, account_id.clone(), pk.clone(), &access_key);
+            assert!(expected.insert(PublicKeyHandle::from(pk)), "seeded a duplicate plain key");
+        }
+
+        // A handful of gas keys. Each one also writes `TEST_NUM_NONCES` gas-key
+        // nonce rows under the same `ACCESS_KEY` column; those extend the access
+        // key's trie key with a `NonceIndex` suffix and must NOT appear in the
+        // result. Their presence exercises the nonce-filtering path at scale.
+        const NUM_GAS_KEYS: usize = 5;
+        for i in 0..NUM_GAS_KEYS {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}"));
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &pk);
+            assert!(expected.insert(PublicKeyHandle::from(pk)), "seeded a duplicate gas key");
+        }
+
+        let viewer = TrieViewer::default();
+        let (access_keys, last_key) = viewer
+            .view_access_keys(&state_update, &account_id, None, None)
+            .expect("view_access_keys should succeed even for a maxed-out list");
+
+        // An unpaginated call returns the whole list uncapped, with no cursor.
+        assert_eq!(last_key, None, "unpaginated listing should not return a cursor");
+        // Every access key is returned exactly once, and the gas-key-nonce rows
+        // are excluded from the count.
+        assert_eq!(
+            access_keys.len(),
+            expected.len(),
+            "expected {} keys ({NUM_PLAIN_KEYS} plain + 1 setup + {NUM_GAS_KEYS} gas), got {}",
+            expected.len(),
+            access_keys.len(),
+        );
+        let returned: HashSet<PublicKeyHandle> =
+            access_keys.into_iter().map(|(pk, _)| pk).collect();
+        assert_eq!(returned, expected, "returned key set does not match the seeded set");
+    }
+
+    /// Walking the list one page at a time returns exactly the same keys as an
+    /// unpaginated call — no duplicates, no omissions — with gas-key-nonce rows
+    /// filtered across page boundaries.
+    #[test]
+    fn test_view_access_keys_pagination_walks_all_keys() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
+        expected.insert(PublicKeyHandle::from(public_key));
+
+        // Enough plain keys to span many pages, interleaved with gas keys so the
+        // page boundaries land near gas-key-nonce rows that must be skipped.
+        const NUM_PLAIN_KEYS: usize = 50;
+        for i in 0..NUM_PLAIN_KEYS {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("plain_key_{i}"));
+            set_access_key(&mut state_update, account_id.clone(), pk.clone(), &access_key);
+            assert!(expected.insert(PublicKeyHandle::from(pk)));
+        }
+        const NUM_GAS_KEYS: usize = 4;
+        for i in 0..NUM_GAS_KEYS {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}"));
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &pk);
+            assert!(expected.insert(PublicKeyHandle::from(pk)));
+        }
+
+        let viewer = TrieViewer::default();
+        let page_size = NonZeroU32::new(7).unwrap();
+
+        let mut collected: Vec<PublicKeyHandle> = Vec::new();
+        let mut after: Option<PublicKeyHandle> = None;
+        let mut pages = 0;
+        loop {
+            let (page, cursor) = viewer
+                .view_access_keys(&state_update, &account_id, after.as_ref(), Some(page_size))
+                .expect("paginated view_access_keys should succeed");
+            pages += 1;
+            assert!(pages <= expected.len() + 2, "pagination did not terminate");
+            match &cursor {
+                // Non-final pages are filled to the page size.
+                Some(_) => assert_eq!(
+                    page.len(),
+                    page_size.get() as usize,
+                    "a non-final page should be full"
+                ),
+                None => assert!(page.len() <= page_size.get() as usize),
+            }
+            collected.extend(page.into_iter().map(|(pk, _)| pk));
+            match cursor {
+                Some(c) => after = Some(c),
+                None => break,
+            }
+        }
+
+        assert!(pages > 1, "test should exercise more than one page");
+        // No duplicates across pages.
+        let unique: HashSet<PublicKeyHandle> = collected.iter().cloned().collect();
+        assert_eq!(unique.len(), collected.len(), "a key was returned on more than one page");
+        // Exactly the seeded set, nothing missing or extra.
+        assert_eq!(unique, expected, "paged walk did not cover the full key set");
     }
 
     fn transfer_to_gas_key(

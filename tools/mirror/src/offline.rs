@@ -202,7 +202,11 @@ impl crate::ChainAccess for ChainAccess {
                 header.prev_hash(),
                 header.hash(),
                 header.epoch_id(),
-                &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+                &QueryRequest::ViewAccessKeyList {
+                    account_id: account_id.clone(),
+                    after_key: None,
+                    limit: None,
+                },
             )?
             .kind
         {

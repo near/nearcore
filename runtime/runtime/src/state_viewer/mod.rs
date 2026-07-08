@@ -4,18 +4,20 @@ use crate::ext::RuntimeExt;
 use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use itertools::Itertools;
+use borsh::object_length;
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::{
     self, parse_key_handle_from_access_key_key, parse_nonce_index_from_gas_key_key,
 };
@@ -26,7 +28,10 @@ use near_primitives::version::assert_supported_protocol_version;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::trie::AccessOptions;
-use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
+use near_store::{
+    TrieAccess as _, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
+    get_gas_key_nonce,
+};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::num::NonZeroU32;
@@ -147,48 +152,95 @@ impl TrieViewer {
         })
     }
 
+    /// Lists an account's access keys, optionally paginated.
+    /// 
+    /// Pagination: pass `after` to resume, and `limit` to
+    /// bound the page size. When a page is truncated the returned cursor is
+    /// `Some(last_key)`; `None` means the listing is complete. A request is
+    /// paginated if either `after` or `limit` is set — unpaginated callers
+    /// get the full, uncapped list.
     pub fn view_access_keys(
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKeyHandle, AccessKey)>, errors::ViewAccessKeyError> {
+        after: Option<&PublicKeyHandle>,
+        limit: Option<NonZeroU32>,
+    ) -> Result<
+        (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
+        errors::ViewAccessKeyError,
+    > {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-        let access_keys =
-            state_update
-                .iter(&prefix)?
-                .map(|key| {
-                    let key = key?;
-                    let key_handle = parse_key_handle_from_access_key_key(&key, account_id)
-                        .map_err(|_| errors::ViewAccessKeyError::InternalError {
-                            error_message: "Unexpected invalid access key from iterator"
-                                .to_string(),
-                        })?;
-                    if let Some(_index) =
-                        parse_nonce_index_from_gas_key_key(&key, account_id, &key_handle).map_err(
-                            |_| errors::ViewAccessKeyError::InternalError {
-                                error_message: "could not parse nonce index".to_string(),
-                            },
-                        )?
-                    {
-                        // This is a gas key nonce, skip it.
-                        return Ok(None);
-                    }
-                    let access_key = near_store::get_access_key_by_handle(
-                        state_update,
-                        account_id,
-                        &key_handle,
-                    )?
-                    .ok_or_else(|| {
-                        near_primitives::errors::StorageError::StorageInconsistentState(format!(
-                            "iterator yielded an access-key trie key with no value: {key_handle}"
-                        ))
-                    })?;
+        // The iterator yields this account's access-key rows in ascending raw-key
+        // order. To resume after a cursor we skip forward until strictly past its
+        // raw access-key key.
+        let after_key =
+            after.map(|handle| TrieKey::access_key(account_id.clone(), handle.clone()).to_vec());
+        let mut iter = state_update.iter(&prefix)?;
 
-                    Ok(Some((key_handle, access_key)))
-                })
-                .filter_map_ok(|x| x)
-                .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
-        access_keys
+        // Per-page caps, matching `view_state`. The byte cap is soft: it is
+        // checked before appending, so a page may run one item over.
+        const MAX_VIEW_ACCESS_KEY_LIST_PAGE_ITEMS: u32 = 10_000;
+        const MAX_VIEW_ACCESS_KEY_LIST_PAGE_BYTES: u64 = 50_000;
+
+        let paginated = after.is_some() || limit.is_some();
+        let (item_cap, byte_cap) = if paginated {
+            let items = limit
+                .map_or(MAX_VIEW_ACCESS_KEY_LIST_PAGE_ITEMS, NonZeroU32::get)
+                .min(MAX_VIEW_ACCESS_KEY_LIST_PAGE_ITEMS);
+            (Some(items), Some(MAX_VIEW_ACCESS_KEY_LIST_PAGE_BYTES))
+        } else {
+            (None, None)
+        };
+
+        // Pre-allocate only for an explicit `limit`; the default page size is too big to assume.
+        let mut keys = match (limit, item_cap) {
+            (Some(_), Some(cap)) => Vec::with_capacity(cap as usize),
+            _ => Vec::new(),
+        };
+        let mut used_bytes: u64 = 0;
+        let mut last_key = None;
+
+        for raw_key in &mut iter {
+            let raw_key = raw_key?;
+            if let Some(after_key) = &after_key {
+                if raw_key.as_slice() <= after_key.as_slice() {
+                    continue;
+                }
+            }
+            let key_handle =
+                parse_key_handle_from_access_key_key(&raw_key, account_id).map_err(|_| {
+                    errors::ViewAccessKeyError::InternalError {
+                        error_message: "unexpected invalid access key from iterator".to_string(),
+                    }
+                })?;
+            if parse_nonce_index_from_gas_key_key(&raw_key, account_id, &key_handle)
+                .map_err(|_| errors::ViewAccessKeyError::InternalError {
+                    error_message: "could not parse nonce index".to_string(),
+                })?
+                .is_some()
+            {
+                // This is a gas key nonce, skip it.
+                continue;
+            }
+            // A genuine access key. If the page is already full, its existence
+            // proves more remain: emit a cursor at the last kept key and stop.
+            let hit_items = item_cap.is_some_and(|cap| keys.len() as u64 >= u64::from(cap));
+            let hit_bytes = byte_cap.is_some_and(|cap| used_bytes >= cap);
+            if hit_items || hit_bytes {
+                last_key =
+                    keys.last().map(|(handle, _): &(PublicKeyHandle, AccessKey)| handle.clone());
+                break;
+            }
+            let access_key = get_access_key_by_handle(state_update, account_id, &key_handle)?
+                .ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "iterator yielded an access-key trie key with no value: {key_handle}"
+                    ))
+                })?;
+            used_bytes += raw_key.len() as u64 + object_length(&access_key).unwrap_or(0) as u64;
+            keys.push((key_handle, access_key));
+        }
+        Ok((keys, last_key))
     }
 
     pub fn view_gas_key_nonces(

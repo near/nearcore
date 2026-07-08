@@ -91,7 +91,11 @@ pub(crate) fn keys_from_source_db(
             header.prev_hash(),
             header.hash(),
             header.epoch_id(),
-            &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+            &QueryRequest::ViewAccessKeyList {
+                account_id: account_id.clone(),
+                after_key: None,
+                limit: None,
+            },
         )
         .with_context(|| format!("failed fetching access keys for {}", &account_id))?
         .kind
@@ -132,7 +136,11 @@ pub(crate) async fn keys_from_rpc(
     };
     let request = RpcQueryRequest {
         block_reference,
-        request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+        request: QueryRequest::ViewAccessKeyList {
+            account_id: account_id.clone(),
+            after_key: None,
+            limit: None,
+        },
     };
 
     let response = match rpc_client.query(request).await {
