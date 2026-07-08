@@ -152,27 +152,40 @@ fn test_sha3_pre_activation_call_fails() {
     // sha3_host_fns is turned on at protocol version 156 (see 156.yaml), so 155
     // is the last version without it.
     let pre_activation_pv = 155;
-    let user = create_account_id("user");
-    let mut env = TestLoopBuilder::new()
-        .enable_rpc()
-        .protocol_version(pre_activation_pv)
-        .add_user_account(&user, Balance::from_near(100))
-        .build();
+    let fns = ["sha3_256", "sha3_384", "sha3_512"];
 
-    let wasm = sha3_wasm("sha3_256", b"abc");
-    let deploy_tx = env.rpc_node().tx_deploy_contract(&user, wasm);
-    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
+    // Give each function its own account so the baked-in contracts don't clobber
+    // each other.
+    let users: Vec<_> = fns.iter().map(|func| create_account_id(func)).collect();
+    let mut builder = TestLoopBuilder::new().enable_rpc().protocol_version(pre_activation_pv);
+    for user in &users {
+        builder = builder.add_user_account(user, Balance::from_near(100));
+    }
+    let mut env = builder.build();
 
-    let call_tx =
-        env.rpc_node().tx_call(&user, &user, "main", vec![], Balance::ZERO, Gas::from_teragas(300));
-    let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
-    // The exact error variant (LinkError vs CompilationError) is VM-specific and
-    // protocol-dependent, so just assert that the function call failed.
-    assert_matches!(
-        &outcome.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-            kind: ActionErrorKind::FunctionCallError(_),
-            ..
-        }))
-    );
+    for (user, func) in users.iter().zip(fns) {
+        let wasm = sha3_wasm(func, b"abc");
+        let deploy_tx = env.rpc_node().tx_deploy_contract(user, wasm);
+        env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+        let call_tx = env.rpc_node().tx_call(
+            user,
+            user,
+            "main",
+            vec![],
+            Balance::ZERO,
+            Gas::from_teragas(300),
+        );
+        let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+        // The exact error variant (LinkError vs CompilationError) is VM-specific
+        // and protocol-dependent, so just assert that the function call failed.
+        assert_matches!(
+            &outcome.status,
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::FunctionCallError(_),
+                ..
+            })),
+            "{func} import should fail pre-activation"
+        );
+    }
 }
