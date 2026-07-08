@@ -4,6 +4,7 @@ use near_chain_configs::{
 };
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
+use near_primitives::gas::Gas;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_vm_runner::{
     ContractRuntimeCache, FilesystemContractRuntimeCache, noop_background_spawner,
@@ -48,6 +49,7 @@ impl NightshadeRuntime {
         is_cloud_archival_writer: bool,
         snapshot_every_n_epochs: u64,
         save_receipt_to_tx: bool,
+        max_gas_burnt_view: Option<Gas>,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -55,7 +57,7 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             None,
-            None,
+            max_gas_burnt_view,
             runtime_config_store,
             gc_num_epochs_to_keep,
             trie_config,
