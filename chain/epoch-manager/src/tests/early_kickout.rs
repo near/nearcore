@@ -51,6 +51,24 @@ fn tracker(
     HashMap::from([(shard_id, inner)])
 }
 
+/// Builds an `EpochInfo` matching `layout`: `num_producers` chunk producers (ids
+/// `0..num_producers`) settled identically on EVERY shard. Used by the resharding
+/// test, where parent and child layouts need distinct shard counts.
+fn epoch_info_for_layout(layout: &ShardLayout, num_producers: u64) -> EpochInfo {
+    let accounts: Vec<_> =
+        (0..num_producers).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
+    let settlement: Vec<ValidatorId> = (0..num_producers).collect();
+    let num_shards = layout.num_shards() as usize;
+    crate::test_utils::epoch_info(
+        0,
+        accounts,
+        settlement.clone(),
+        vec![settlement; num_shards],
+        PROTOCOL_VERSION,
+        layout.clone(),
+    )
+}
+
 /// Runs the math and returns just the blacklist map (drops observability stats).
 fn blacklist(
     st: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
@@ -437,4 +455,216 @@ fn get_chunk_producer_blacklist_safety_valve_metric_increments() {
     let after =
         crate::metrics::EARLY_KICKOUT_SAFETY_VALVE_FIRED.with_label_values(&[label.as_str()]).get();
     assert_eq!(after, before + 1, "safety valve counter must increment once: {before} -> {after}");
+}
+
+// --- resharding x blacklist: the ShardId-keyed blacklist maps to the current
+//     layout's shard ids and does not leak across a shard split ---
+
+// 12. The blacklist is keyed by `ShardId` and resolved against the layout it is
+//     computed for. Split one shard of a 2-shard parent into two children, then feed
+//     a single `shard_tracker` that carries BOTH the retired parent shard id and a
+//     child shard id. Against the parent layout the child id is dropped; against the
+//     child layout the retired parent id is dropped. The unchanged (surviving) shard
+//     resolves in both. This proves per-shard stats map to the correct parent/child
+//     `ShardId` and never leak across the split.
+#[test]
+fn blacklist_resharding_maps_to_current_layout_shard_ids() {
+    let num_producers = 4u64;
+    // Parent layout with two (non-contiguous) shard ids.
+    let parent = ShardLayout::multi_shard(2, 0);
+    let parent_ids: Vec<ShardId> = parent.shard_ids().collect();
+    // Split one shard on a fresh boundary account -> three shards.
+    let child = ShardLayout::derive_shard_layout(&parent, "aaa".parse().unwrap());
+    let child_ids: Vec<ShardId> = child.shard_ids().collect();
+    assert_eq!(child.num_shards(), 3, "split must add exactly one shard");
+
+    // Classify the parent shards: exactly one is retired (split), one survives.
+    let split_parent = *parent_ids
+        .iter()
+        .find(|id| !child_ids.contains(id))
+        .expect("exactly one parent shard is split/retired");
+    let surviving = *parent_ids
+        .iter()
+        .find(|id| child_ids.contains(id))
+        .expect("exactly one parent shard survives the split");
+    let children = child.get_children_shards_ids(split_parent).expect("split parent has children");
+    assert_eq!(children.len(), 2, "a split yields two children");
+
+    // Child ids are brand new (not reused from the parent layout), and each maps back
+    // to the retired parent.
+    for c in &children {
+        assert!(!parent_ids.contains(c), "child id {c} must not reuse a parent shard id");
+        assert_eq!(
+            child.get_parent_shard_id(*c).unwrap(),
+            split_parent,
+            "child {c} must map to the retired parent {split_parent}",
+        );
+    }
+
+    let parent_ei = epoch_info_for_layout(&parent, num_producers);
+    let child_ei = epoch_info_for_layout(&child, num_producers);
+
+    // One failing producer per shard; the rest healthy (single candidate -> no valve).
+    let one_bad = |bad_id: ValidatorId| -> HashMap<ValidatorId, ChunkStats> {
+        (0..num_producers)
+            .map(|id| {
+                let stats = if id == bad_id {
+                    ChunkStats::new_with_production(0, 100)
+                } else {
+                    ChunkStats::new_with_production(100, 100)
+                };
+                (id, stats)
+            })
+            .collect()
+    };
+    // Distinct bad producer per shard so results are unambiguous.
+    let st: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> = HashMap::from([
+        (surviving, one_bad(0)),
+        (split_parent, one_bad(1)),
+        (children[0], one_bad(2)),
+    ]);
+
+    // Against the PARENT layout: the child id has no shard index and is dropped; the
+    // surviving and retired-parent ids resolve.
+    let bl_parent = blacklist(&st, &parent_ei, &parent);
+    assert_eq!(
+        bl_parent,
+        HashMap::from([(surviving, HashSet::from([0])), (split_parent, HashSet::from([1]))]),
+    );
+    assert!(!bl_parent.contains_key(&children[0]), "child id must not resolve on parent layout");
+    assert!(!bl_parent.contains_key(&children[1]), "child id must not resolve on parent layout");
+
+    // Against the CHILD layout: the retired parent id has no shard index and is
+    // dropped; the surviving and child ids resolve.
+    let bl_child = blacklist(&st, &child_ei, &child);
+    assert_eq!(
+        bl_child,
+        HashMap::from([(surviving, HashSet::from([0])), (children[0], HashSet::from([2]))]),
+    );
+    assert!(
+        !bl_child.contains_key(&split_parent),
+        "retired parent id must not resolve on child layout",
+    );
+    assert!(
+        !bl_child.contains_key(&children[1]),
+        "child shard with no stats must be absent from the blacklist",
+    );
+}
+
+// --- empty-blacklist sampler equivalence: an empty exclusion set must not change
+//     the sampled producer at the sampler ---
+
+// 13. `sample_chunk_producer_excluding(&empty)` must return EXACTLY the same producer
+//     as `sample_chunk_producer` for the same `(shard, height)`. This is the
+//     meaningful "feature does nothing when there is nothing to exclude" guarantee:
+//     it lives at the sampler, not at the (nightly-only) seeded rows. Checked across
+//     several settlement variants and many heights.
+#[test]
+fn sample_chunk_producer_excluding_empty_matches_plain_sample() {
+    let empty: HashSet<ValidatorId> = HashSet::new();
+    let check = |epoch_info: &EpochInfo, layout: &ShardLayout, num_producers: u64| {
+        for shard_id in layout.shard_ids() {
+            for height in 0..64u64 {
+                let sampled =
+                    epoch_info.sample_chunk_producer_excluding(layout, shard_id, height, &empty);
+                let plain = epoch_info.sample_chunk_producer(layout, shard_id, height);
+                assert_eq!(
+                    sampled, plain,
+                    "empty exclusion changed the sample (shard={shard_id}, height={height})",
+                );
+                assert!(
+                    matches!(sampled, Some(id) if id < num_producers),
+                    "sampled producer {sampled:?} must be a real settlement id",
+                );
+            }
+        }
+    };
+    // Single-shard settlements of varying size.
+    for num_producers in [2u64, 3, 5] {
+        let (epoch_info, layout, _shard_id) = single_shard_epoch(num_producers);
+        check(&epoch_info, &layout, num_producers);
+    }
+    // Multi-shard settlement (two shards, same producers on each).
+    let num_producers = 3u64;
+    let layout = ShardLayout::multi_shard(2, 0);
+    let epoch_info = epoch_info_for_layout(&layout, num_producers);
+    check(&epoch_info, &layout, num_producers);
+}
+
+// --- fork/reorg x blacklist isolation: the accessor is anchored on a block hash, so
+//     stats accumulated on an abandoned fork never resolve on the canonical chain ---
+
+/// Drives `count` blocks descending from `fork_point` (at height `fork_point_height`),
+/// missing the single shard's chunk exactly when `target` is the scheduled producer.
+/// `salt` disambiguates block hashes so sibling forks never collide. Returns the tip.
+#[cfg(feature = "nightly")]
+fn drive_fork(
+    handle: &EpochManagerHandle,
+    fork_point: CryptoHash,
+    fork_point_height: u64,
+    count: u64,
+    target: ValidatorId,
+    salt: u64,
+) -> CryptoHash {
+    let fork_hash = |height: u64| hash(&[salt.to_le_bytes(), height.to_le_bytes()].concat());
+    let epoch_id = handle.get_epoch_id(&fork_point).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    let mut prev = fork_point;
+    for i in 1..=count {
+        let height = fork_point_height + i;
+        let cur = fork_hash(height);
+        let scheduled = epoch_info.sample_chunk_producer(&layout, shard_id, height).unwrap();
+        let produced = scheduled != target;
+        record_block_with_mask(&mut handle.write(), prev, cur, height, vec![produced]);
+        prev = cur;
+    }
+    prev
+}
+
+// 14. v152+ protocol: two forks share a common prefix, then diverge with different
+//     miss stats (canonical starves producer 0, abandoned fork starves producer 1).
+//     The accessor is keyed on the anchor block hash and aggregates only along that
+//     anchor's own chain, so each anchor resolves to ITS OWN chain's blacklist. The
+//     abandoned fork's blacklisted producer never appears on the canonical anchor and
+//     vice versa. The epoch-manager harness DOES support real forks (arbitrary
+//     prev/cur in `record_block_info`), so this exercises the real production path.
+#[cfg(feature = "nightly")]
+#[test]
+fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    // Large epoch length so both forks stay inside epoch 0 (no boundary reset).
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+
+    // Common prefix: genesis + a single shared epoch-0 first block to fork from.
+    let genesis = hash(&0u64.to_le_bytes());
+    let common = hash(&1u64.to_le_bytes());
+    record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
+    record_block_with_mask(&mut handle.write(), genesis, common, 1, vec![true]);
+
+    // Build the canonical chain FIRST so it advances finality (the aggregator
+    // checkpoint), leaving the second fork non-final ("abandoned").
+    let canonical_tip = drive_fork(&handle, common, 1, 160, 0, 1);
+    let fork_tip = drive_fork(&handle, common, 1, 160, 1, 2);
+    assert_ne!(canonical_tip, fork_tip, "forks must have distinct anchor hashes");
+
+    let epoch_id = handle.get_epoch_id_from_prev_block(&canonical_tip).unwrap();
+    let shard_id = handle.get_shard_layout(&epoch_id).unwrap().shard_ids().next().unwrap();
+
+    let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
+    let fork_bl = handle.get_chunk_producer_blacklist(&fork_tip).unwrap();
+
+    // Each anchor resolves to its own chain's starved producer.
+    assert_eq!(canonical_bl, HashMap::from([(shard_id, HashSet::from([0]))]));
+    assert_eq!(fork_bl, HashMap::from([(shard_id, HashSet::from([1]))]));
+    // Cross-isolation: neither fork's stats leak onto the other's anchor.
+    assert!(
+        !canonical_bl[&shard_id].contains(&1),
+        "abandoned-fork stats must not resolve on the canonical anchor",
+    );
+    assert!(
+        !fork_bl[&shard_id].contains(&0),
+        "canonical stats must not resolve on the abandoned-fork anchor",
+    );
 }
