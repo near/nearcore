@@ -17,7 +17,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
     ShardIndex, ValidatorId, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
@@ -1137,25 +1137,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         anchor_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(anchor_hash)?;
-        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
-        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
-            return Ok(HashMap::new());
-        }
-        let epoch_manager = self.read();
-        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(anchor_hash)?;
-        // Aggregator belongs to the anchor's epoch. If the next block starts a new epoch,
-        // stats reset -> empty blacklist (boundary reset).
-        if aggregator.epoch_id != epoch_id {
-            return Ok(HashMap::new());
-        }
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        Ok(crate::compute_chunk_producer_blacklist(
-            &aggregator.shard_tracker,
-            epoch_info.as_ref(),
-            &shard_layout,
-        ))
+        self.read().chunk_producer_blacklist_at(anchor_hash)
     }
 
     fn get_chunk_validator_assignments(

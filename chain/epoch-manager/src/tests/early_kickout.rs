@@ -304,3 +304,183 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
     let bl = handle.get_chunk_producer_blacklist(boundary).unwrap();
     assert!(bl.is_empty(), "epoch boundary must reset blacklist, got {bl:?}");
 }
+
+// --- Writer tests: `seed_chunk_producers` stores the blacklist-adjusted producer,
+// resolved end-to-end through the DB-backed `get_chunk_producer_info_from_prev_block`. ---
+
+/// Drives `count` blocks, deciding each chunk's produced/missed flag from the
+/// producer that consensus actually resolves (the seeded `DBCol::ChunkProducers`
+/// row via the grandparent anchor), not the plain sampler. A chunk is missed iff
+/// the resolved producer is `target`, so only `target` accrues misses; once the
+/// writer starts excluding `target`, the replacement is resolved and produces,
+/// which freezes `target`'s stats (the anti-flap dynamic under test).
+#[cfg(feature = "nightly")]
+fn drive_anchored_misses(
+    handle: &EpochManagerHandle,
+    count: u64,
+    target: ValidatorId,
+) -> Vec<CryptoHash> {
+    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
+    let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let target_account =
+        handle.get_epoch_info(&epoch_id).unwrap().get_validator(target).account_id().clone();
+    let mut prev = h[0];
+    for height in 1..=count {
+        let resolved = handle.get_chunk_producer_info_from_prev_block(&prev, shard_id).unwrap();
+        let produced = resolved.account_id() != &target_account;
+        record_block_with_mask(
+            &mut handle.write(),
+            prev,
+            h[height as usize],
+            height,
+            vec![produced],
+        );
+        prev = h[height as usize];
+    }
+    h
+}
+
+// 12. Anti-flap: once `target` is blacklisted, the seeded row (read back through the
+//     resolver) excludes it in favour of the replacement, and because the aggregator
+//     credits the replacement, `target` accrues no new expected and stays out on the
+//     next anchor (does not flap back in).
+#[cfg(feature = "nightly")]
+#[test]
+fn seeded_producer_excludes_blacklisted_and_does_not_flap_back() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let count = 160u64;
+    let h = drive_anchored_misses(&handle, count, 0);
+
+    let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    let target_account = epoch_info.get_validator(0).account_id().clone();
+
+    // Target 0 is blacklisted by the end of the run.
+    let bl = handle.get_chunk_producer_blacklist(&h[count as usize]).unwrap();
+    assert_eq!(
+        bl.get(&shard_id),
+        Some(&HashSet::from([0])),
+        "target must be blacklisted at the tip, got {bl:?}"
+    );
+
+    // The two latest chunk heights whose PLAIN producer is the blacklisted target.
+    // For both, the resolver (reading the seeded row) must pick the replacement, and
+    // it must stay excluded across both anchors -- i.e. it does not flap back in.
+    let mut target_heights: Vec<u64> = (3..=count)
+        .filter(|&hh| epoch_info.sample_chunk_producer(&layout, shard_id, hh) == Some(0))
+        .collect();
+    assert!(target_heights.len() >= 2, "need >=2 target slots, got {target_heights:?}");
+    let last_two = target_heights.split_off(target_heights.len() - 2);
+
+    for hh in last_two {
+        // Plain sampler would pick the blacklisted target here...
+        assert_eq!(epoch_info.sample_chunk_producer(&layout, shard_id, hh), Some(0));
+        // ...and the anchor seeding this chunk (grandparent = h[hh-2]) has it blacklisted.
+        let anchor_bl = handle.get_chunk_producer_blacklist(&h[(hh - 2) as usize]).unwrap();
+        assert_eq!(anchor_bl.get(&shard_id), Some(&HashSet::from([0])));
+        // ...so the stored (resolved) producer is the replacement, not the target.
+        let resolved = handle
+            .get_chunk_producer_info_from_prev_block(&h[(hh - 1) as usize], shard_id)
+            .unwrap();
+        assert_ne!(
+            resolved.account_id(),
+            &target_account,
+            "blacklisted producer flapped back in at height {hh}"
+        );
+    }
+
+    // Anti-flap invariant: once excluded, the target accrues no new expected. Its
+    // aggregator `expected` is frozen across the late tail because the aggregator
+    // credits the seeded replacement instead of the (never-resolved) target.
+    let expected_of_target = |anchor: &CryptoHash| -> u64 {
+        handle
+            .read()
+            .get_epoch_info_aggregator_upto_last(anchor)
+            .unwrap()
+            .shard_tracker
+            .get(&shard_id)
+            .and_then(|m| m.get(&0))
+            .map(|s| s.expected())
+            .unwrap_or(0)
+    };
+    let early = count - 20;
+    // Precondition: the target is already blacklisted at `early`...
+    assert!(
+        !handle.get_chunk_producer_blacklist(&h[early as usize]).unwrap().is_empty(),
+        "target must already be blacklisted at the earlier anchor"
+    );
+    // ...so its expected does not grow between `early` and the tip.
+    assert_eq!(
+        expected_of_target(&h[early as usize]),
+        expected_of_target(&h[count as usize]),
+        "blacklisted target must accrue no new expected"
+    );
+}
+
+// 13. Empty-blacklist path end-to-end (nightly, feature ON): with no misses nothing is
+//     blacklisted, so the seeded/resolved producer equals the plain sampler at every
+//     height. Proves the writer never excludes spuriously.
+#[cfg(feature = "nightly")]
+#[test]
+fn seeded_producer_matches_plain_sampler_without_kickouts() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let count = 40u64;
+    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
+    let mut prev = h[0];
+    for height in 1..=count {
+        record_block_with_mask(&mut handle.write(), prev, h[height as usize], height, vec![true]);
+        prev = h[height as usize];
+    }
+
+    let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    // No blacklist accrued.
+    assert!(handle.get_chunk_producer_blacklist(&h[count as usize]).unwrap().is_empty());
+    for height in 2..=count {
+        let plain = epoch_info.sample_chunk_producer(&layout, shard_id, height).unwrap();
+        let resolved = handle
+            .get_chunk_producer_info_from_prev_block(&h[(height - 1) as usize], shard_id)
+            .unwrap();
+        assert_eq!(
+            resolved.account_id(),
+            epoch_info.get_validator(plain).account_id(),
+            "empty-blacklist resolver must match plain sampler at height {height}"
+        );
+    }
+}
+
+// 14. Feature OFF (stable, pre-v152): even with a miss-heavy target the resolver never
+//     excludes -- the resolved producer equals the plain sampler at every height.
+#[cfg(not(feature = "nightly"))]
+#[test]
+fn feature_off_resolved_producer_matches_plain_sampler() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let count = 160u64;
+    let h = drive_targeted_misses(&handle, count, 0);
+    let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    for height in 2..=count {
+        let plain = epoch_info.sample_chunk_producer(&layout, shard_id, height).unwrap();
+        let resolved = handle
+            .get_chunk_producer_info_from_prev_block(&h[(height - 1) as usize], shard_id)
+            .unwrap();
+        assert_eq!(
+            resolved.account_id(),
+            epoch_info.get_validator(plain).account_id(),
+            "feature-off resolver must match plain sampler at height {height}"
+        );
+    }
+}

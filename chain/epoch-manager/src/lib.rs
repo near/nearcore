@@ -1019,7 +1019,7 @@ impl EpochManager {
                     &genesis_epoch_info,
                     &genesis_epoch_info,
                     &genesis_shard_layout,
-                );
+                )?;
             } else {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
 
@@ -1071,7 +1071,7 @@ impl EpochManager {
                         &own_epoch_info,
                         &sample_epoch_info,
                         &sample_shard_layout,
-                    );
+                    )?;
                 }
                 if block_info.last_finalized_height() > self.largest_final_height {
                     self.largest_final_height = block_info.last_finalized_height();
@@ -2107,6 +2107,54 @@ impl EpochManager {
         }
     }
 
+    /// Per-shard chunk-producer blacklist for chunks anchored at `anchor_hash`.
+    ///
+    /// Deterministic pure function of the anchor's committed chain: the epoch
+    /// info aggregator's stats *through* `anchor_hash`
+    /// ([`Self::get_epoch_info_aggregator_upto_last`], which never reads the
+    /// per-anchor-undefined `self.epoch_info_aggregator` window directly), the
+    /// anchor's own epoch settlement, and [`compute_chunk_producer_blacklist`].
+    ///
+    /// This is the single source of truth for the blacklist, shared by the
+    /// `get_chunk_producer_blacklist` read accessor and the `seed_chunk_producers`
+    /// writer so their window and epoch-boundary guard can never diverge
+    /// (writer==reader agreement is consensus-critical).
+    ///
+    /// `epoch_id` is derived exactly like the seeder's sample epoch (the epoch a
+    /// child of the anchor belongs to). Returns an empty blacklist when:
+    ///   - EarlyKickout is disabled for that epoch, or
+    ///   - the anchor is the last block of its epoch: the aggregator sits in the
+    ///     anchor's own epoch, so `aggregator.epoch_id != epoch_id` resets stats
+    ///     across the boundary. This also guarantees the seeder never excludes
+    ///     own-epoch `ValidatorId`s from a next-epoch settlement (the ids index
+    ///     different settlements across the boundary).
+    pub fn chunk_producer_blacklist_at(
+        &self,
+        anchor_hash: &CryptoHash,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
+        let epoch_id = if self.is_next_block_epoch_start(anchor_hash)? {
+            self.get_next_epoch_id(anchor_hash)?
+        } else {
+            self.get_epoch_id(anchor_hash)?
+        };
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
+            return Ok(HashMap::new());
+        }
+        let aggregator = self.get_epoch_info_aggregator_upto_last(anchor_hash)?;
+        // The aggregator belongs to the anchor's own epoch. If a child of the
+        // anchor starts a new epoch, stats reset -> empty blacklist.
+        if aggregator.epoch_id != epoch_id {
+            return Ok(HashMap::new());
+        }
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        Ok(compute_chunk_producer_blacklist(
+            &aggregator.shard_tracker,
+            epoch_info.as_ref(),
+            &shard_layout,
+        ))
+    }
+
     /// Seed `DBCol::ChunkProducers` for chunks anchored at `block_hash` (the
     /// grandparent anchor of chunks at height `block_height +
     /// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`). No-op unless EarlyKickout is
@@ -2127,17 +2175,28 @@ impl EpochManager {
         own_epoch_info: &EpochInfo,
         sample_epoch_info: &EpochInfo,
         sample_shard_layout: &ShardLayout,
-    ) {
+    ) -> Result<(), EpochError> {
         #[cfg(feature = "nightly")]
         {
             if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
-                return;
+                return Ok(());
             }
+            // Blacklist from the anchor's committed chain, via the same helper the
+            // read accessor uses so the stored producer matches what the reader
+            // would resolve. Empty at an epoch boundary (own epoch != sample
+            // epoch), so `sample_epoch_info`'s settlement is never filtered by
+            // own-epoch ids.
+            let blacklist = self.chunk_producer_blacklist_at(block_hash)?;
+            let empty = HashSet::new();
             let height = block_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
             for shard_id in sample_shard_layout.shard_ids() {
-                if let Some(validator_id) =
-                    sample_epoch_info.sample_chunk_producer(sample_shard_layout, shard_id, height)
-                {
+                let exclude = blacklist.get(&shard_id).unwrap_or(&empty);
+                if let Some(validator_id) = sample_epoch_info.sample_chunk_producer_excluding(
+                    sample_shard_layout,
+                    shard_id,
+                    height,
+                    exclude,
+                ) {
                     let validator_stake = sample_epoch_info.get_validator(validator_id);
                     store_update.set_chunk_producer(block_hash, shard_id, &validator_stake);
                 }
@@ -2152,6 +2211,7 @@ impl EpochManager {
             sample_epoch_info,
             sample_shard_layout,
         );
+        Ok(())
     }
 
     /// Seed chunk producers for a block that is the first block of its epoch, so
@@ -2166,6 +2226,13 @@ impl EpochManager {
         let epoch_id = block_info.epoch_id();
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let shard_layout = self.get_shard_layout(epoch_id)?;
+        // The epoch-sync first block is written straight into `store_update`
+        // (bypassing `record_block_info`/`save_block_info`), so it is not yet in
+        // the store or the block cache. `chunk_producer_blacklist_at` resolves the
+        // anchor via `get_block_info`; make the block visible to that lookup. Its
+        // aggregator stats are empty (it is the first block of its epoch), so the
+        // resulting blacklist is empty regardless.
+        self.blocks_info.put(*block_info.hash(), Arc::new(block_info.clone()));
         self.seed_chunk_producers(
             store_update,
             block_info.hash(),
@@ -2173,8 +2240,7 @@ impl EpochManager {
             &epoch_info,
             &epoch_info,
             &shard_layout,
-        );
-        Ok(())
+        )
     }
 
     /// Get the shard split to include in the block header, if any.
