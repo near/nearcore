@@ -4,6 +4,7 @@ Test case classes for release tests on forknet.
 from .base import TestSetup, NodeHardware
 
 import copy
+from mirror import CommandContext, run_env_cmd
 from utils import PartitionSelector
 from datetime import datetime, timedelta
 
@@ -13,7 +14,6 @@ class TestReleaseCandidate(TestSetup):
     Test case:
     - Runs an upgrade test from the previous release to the current release candidate.
     Features:
-        - Shard shuffle for chunk producers to enable state sync.
         - No state dumper.
         - Upgrade happens over 2 epochs.
         - Archival nodes.
@@ -30,19 +30,31 @@ class TestReleaseCandidate(TestSetup):
         super().__init__(args)
         self.node_hardware_config = NodeHardware.SameConfig(
             num_chunk_producer_seats=9, num_chunk_validator_seats=11)
-        self.epoch_len = 14500  # 14500 blocks / 2 bps / 60 / 60 = 2h
+        self.epoch_len = 3600  # 3600 blocks / 2 bps / 60 = 30 min
         self.has_state_dumper = False
         self.has_archival = True
         self.regions = "us-east1,europe-west4,asia-east1,us-west1"
 
-        # Upgrade 1/2 nodes in the second epoch. A quarter at a time.
-        self.upgrade_interval_minutes = 15  # 15 minutes between each upgrade batch.
-        self.upgrade_delay_minutes = 120  # 2 hours after the test starts. This falls in the second and third epochs.
+        # Upgrade a quarter of the nodes at a time, spanning two epochs.
+        self.upgrade_interval_minutes = 5
+        self.upgrade_delay_minutes = 15
+
+    def amend_configs_before_test_start(self):
+        super().amend_configs_before_test_start()
+        self._override_protocol_upgrade_voting()
+
+    def _override_protocol_upgrade_voting(self):
+        # Release binaries gate protocol upgrade voting behind a mainnet
+        # calendar date. Vote immediately so the upgrade happens during the test.
+        env_args = copy.deepcopy(self.args)
+        env_args.clear_all = False
+        env_args.key_value = ["NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE=now"]
+        run_env_cmd(CommandContext(env_args))
 
     def amend_epoch_config(self):
         super().amend_epoch_config()
         self._amend_epoch_config(
-            ".shuffle_shard_assignment_for_chunk_producers = true")
+            ".shuffle_shard_assignment_for_chunk_producers = false")
 
     def _upgrade_nodes_in_four_batches(self):
         """
