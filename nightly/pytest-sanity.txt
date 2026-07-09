@@ -61,10 +61,6 @@ pytest sanity/validator_switch.py --features nightly
 # pytest sanity/rpc_state_changes.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/rpc_state_changes.py --features nightly,protocol_feature_spice
-pytest sanity/rpc_max_gas_burnt.py
-pytest sanity/rpc_max_gas_burnt.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/rpc_max_gas_burnt.py --features nightly,protocol_feature_spice
 pytest sanity/rpc_tx_status.py
 pytest sanity/rpc_tx_status.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
@@ -139,11 +135,6 @@ pytest sanity/rosetta.py
 pytest sanity/rosetta.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/rosetta.py --features nightly,protocol_feature_spice
-
-# This is the test for meta transactions.
-pytest sanity/meta_tx.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/meta_tx.py --features nightly,protocol_feature_spice
 
 # Tests for resharding
 # TODO(resharding) Tests for resharding are disabled because resharding is not

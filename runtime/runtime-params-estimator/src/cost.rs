@@ -432,6 +432,18 @@ pub enum Cost {
     /// Estimates `sha3_256_byte`, the cost charged per input byte in calls to the
     /// sha3-256-hash host function.
     Sha3256Byte,
+    /// Estimates `sha3_384_base`, the cost charged once per call to the
+    /// sha3-384-hash host function.
+    Sha3384Base,
+    /// Estimates `sha3_384_byte`, the cost charged per input byte in calls to the
+    /// sha3-384-hash host function.
+    Sha3384Byte,
+    /// Estimates `sha3_512_base`, the cost charged once per call to the
+    /// sha3-512-hash host function.
+    Sha3512Base,
+    /// Estimates `sha3_512_byte`, the cost charged per input byte in calls to the
+    /// sha3-512-hash host function.
+    Sha3512Byte,
     /// Estimates `ripemd160_base`, the cost charged once per call to the
     /// ripemd160-hash host function.
     Ripemd160Base,
