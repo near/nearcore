@@ -137,6 +137,8 @@ struct ReshardingInfo {
     /// The first epoch with the new shard layout.
     new_epoch_id: EpochId,
     new_layout: ShardLayout,
+    /// Child shards' chunks at or below this height carry inverse state changes.
+    sync_point: BlockHeight,
 }
 
 /// Context about archiving one shard's batch.
@@ -144,6 +146,7 @@ struct ShardBatchToArchive {
     shard_uid: ShardUId,
     layout: ShardLayout,
     range: BatchRange,
+    sync_point: Option<BlockHeight>,
 }
 
 /// Creates the cloud archival writer if it is configured.
@@ -436,14 +439,35 @@ impl CloudArchivalWriter {
                 new: new_layout.version(),
             });
         }
+        let sync_point = self.resharding_sync_point(&new_epoch_id)?;
         let info = ReshardingInfo {
             old_epoch_id,
             old_layout,
             resharding_block_height,
             new_epoch_id,
             new_layout,
+            sync_point,
         };
         Ok(Some(info))
+    }
+
+    /// Early in a resharding epoch, below its state snapshot, a new child shard
+    /// has no snapshot of its own; this run of blocks is the resharding gap, and
+    /// the reader recovers those shards by walking inverse changes back from the
+    /// snapshot. Returns the gap's top height (`sync_prev_prev`), or
+    /// `BlockHeight::MAX` until the epoch's sync hash is recorded.
+    fn resharding_sync_point(
+        &self,
+        resharding_epoch_id: &EpochId,
+    ) -> Result<BlockHeight, near_chain_primitives::Error> {
+        let chain_store = self.hot_store.chain_store();
+        let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(resharding_epoch_id) else {
+            return Ok(BlockHeight::MAX);
+        };
+        let sync_header = chain_store.get_block_header(&sync_hash)?;
+        let sync_prev_header = chain_store.get_block_header(sync_header.prev_hash())?;
+        let sync_prev_prev_header = chain_store.get_block_header(sync_prev_header.prev_hash())?;
+        Ok(sync_prev_prev_header.height())
     }
 
     /// Uploads epoch data for the epoch whose last block is `last_block_hash`.
@@ -534,6 +558,7 @@ impl CloudArchivalWriter {
                     &shard_batch.layout,
                     &shard_batch.range,
                     shard_batch.shard_uid,
+                    shard_batch.sync_point,
                 )
                 .await?;
             self.cloud_storage.update_cloud_shard_head(shard_id, batch_end).await?;
@@ -571,6 +596,7 @@ impl CloudArchivalWriter {
                     shard_uid,
                     layout: layout.clone(),
                     range: *batch_range,
+                    sync_point: None,
                 })
                 .collect());
         };
@@ -592,13 +618,16 @@ impl CloudArchivalWriter {
                     shard_uid,
                     layout: resharding.new_layout.clone(),
                     range: *batch_range,
+                    sync_point: None,
                 });
             } else {
-                // A new child shard exists only from the boundary onward.
+                // A new child shard carries inverse changes for the reader's
+                // backward walk.
                 shard_batches.push(ShardBatchToArchive {
                     shard_uid,
                     layout: resharding.new_layout.clone(),
                     range: BatchRange::new(child_shard_batch_start, batch_range.end()),
+                    sync_point: Some(resharding.sync_point),
                 });
             }
         }
@@ -614,6 +643,7 @@ impl CloudArchivalWriter {
                     shard_uid,
                     layout: resharding.old_layout.clone(),
                     range: BatchRange::new(batch_range.start(), resharding.resharding_block_height),
+                    sync_point: None,
                 });
             }
         }
