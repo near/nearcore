@@ -96,6 +96,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     false,
                     1,
                     true,
+                    None,
                 )
             };
         let dummy_runtime_configs =

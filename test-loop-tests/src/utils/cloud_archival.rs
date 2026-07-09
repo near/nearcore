@@ -18,6 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
@@ -30,7 +31,7 @@ use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -420,6 +421,7 @@ pub fn assert_writer_inverse_deltas(
     // one that is new is a child of the split.
     let base_shards: HashSet<ShardUId> = info.base_shard_uids.iter().copied().collect();
 
+    let mut checked = 0;
     for height in info.new_epoch_first_height..=info.sync_block_height {
         let Ok(block_hash) = store.chain_store().get_block_hash_by_height(height) else {
             continue;
@@ -443,9 +445,9 @@ pub fn assert_writer_inverse_deltas(
             let inverse = shard_data
                 .inverse_state_changes()
                 .expect("child gap block carries inverse state changes");
-            let forward_keys: HashSet<Vec<u8>> =
-                shard_data.state_changes().iter().map(|change| change.trie_key.to_vec()).collect();
-            let inverse_keys: HashSet<Vec<u8>> = inverse.keys().map(|key| key.to_vec()).collect();
+            let forward_keys: BTreeSet<&TrieKey> =
+                shard_data.state_changes().iter().map(|change| &change.trie_key).collect();
+            let inverse_keys: BTreeSet<&TrieKey> = inverse.keys().collect();
             assert_eq!(
                 inverse_keys, forward_keys,
                 "inverse keys mirror forward keys at height {height}"
@@ -464,8 +466,11 @@ pub fn assert_writer_inverse_deltas(
                     "recorded pre-image matches state at height {height}"
                 );
             }
+            checked += 1;
         }
     }
+
+    assert!(checked > 0, "no child gap block was verified; gap window is empty");
 
     // The removed parent shard sits below the anchor but is gone in the new
     // layout, so it carries no inverse changes at its last block.

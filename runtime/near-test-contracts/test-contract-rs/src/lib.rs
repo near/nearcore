@@ -683,7 +683,7 @@ pub unsafe fn sum_n() {
 }
 
 /// Calculates Fibonacci numbers in inefficient way.  Used to burn gas for the
-/// sanity/max_gas_burnt_view.py test.  The implementation has exponential
+/// max_gas_burnt_view test-loop test.  The implementation has exponential
 /// complexity (1.62^n to be exact) so even small increase in argument result in
 /// large increase in gas use.
 #[unsafe(no_mangle)]
