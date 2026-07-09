@@ -192,10 +192,7 @@ impl TrieViewer {
             after.map(|handle| TrieKey::access_key(account_id.clone(), handle.clone()).to_vec());
         let mut iter = state_update.iter(&prefix)?;
 
-        let mut keys = match item_cap {
-            Some(cap) => Vec::with_capacity(cap as usize),
-            None => Vec::new(),
-        };
+        let mut keys = Vec::new();
         let mut last_key = None;
 
         for raw_key in &mut iter {
