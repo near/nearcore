@@ -130,6 +130,67 @@ fn test_sha3_256() {
 }
 
 #[test]
+fn test_sha3_384() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let data = logic.internal_mem_write(b"tesdsst");
+    logic.sha3_384(data.len, data.ptr, 0).unwrap();
+    logic.assert_read_register(
+        &[
+            242, 215, 24, 150, 206, 244, 244, 177, 75, 196, 68, 64, 5, 105, 127, 232, 139, 44, 133,
+            160, 31, 91, 128, 219, 135, 94, 231, 130, 110, 62, 189, 78, 118, 95, 71, 178, 71, 245,
+            65, 212, 153, 8, 196, 116, 67, 54, 83, 240,
+        ],
+        0,
+    );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 48,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 48,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 48,
+        ExtCosts::sha3_384_base: 1,
+        ExtCosts::sha3_384_byte: data.len,
+    });
+}
+
+#[test]
+fn test_sha3_512() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let data = logic.internal_mem_write(b"tesdsst");
+    logic.sha3_512(data.len, data.ptr, 0).unwrap();
+    logic.assert_read_register(
+        &[
+            133, 196, 48, 30, 203, 238, 194, 158, 186, 246, 118, 238, 42, 158, 212, 27, 178, 72,
+            90, 229, 98, 108, 195, 221, 222, 161, 96, 219, 252, 99, 2, 48, 224, 15, 95, 220, 35,
+            209, 27, 250, 43, 168, 250, 10, 21, 25, 97, 135, 235, 61, 5, 142, 182, 85, 36, 179, 23,
+            126, 161, 14, 21, 118, 180, 231,
+        ],
+        0,
+    );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 64,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 64,
+        ExtCosts::sha3_512_base: 1,
+        ExtCosts::sha3_512_byte: data.len,
+    });
+}
+
+#[test]
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();

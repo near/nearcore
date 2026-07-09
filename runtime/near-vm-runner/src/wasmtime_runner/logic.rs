@@ -1596,6 +1596,36 @@ pub fn keccak512(
     )
 }
 
+/// Hashes the given value using the SHA3 (FIPS-202) digest `D` and returns it into
+/// `register_id`, charging `base_cost` once plus `byte_cost` per input byte.
+fn sha3_generic<D: sha3::Digest>(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    value_len: u64,
+    value_ptr: u64,
+    register_id: u64,
+    base_cost: ExtCosts,
+    byte_cost: ExtCosts,
+) -> Result<()> {
+    ctx.result_state.gas_counter.pay_base(base_cost)?;
+    let value = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        value_ptr,
+        value_len,
+    )?;
+    ctx.result_state.gas_counter.pay_per(byte_cost, value.len() as u64)?;
+
+    let value_hash = D::digest(&value);
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.config.limit_config,
+        register_id,
+        &value_hash[..],
+    )
+}
+
 /// Hashes the given value using sha3-256 (FIPS-202) and returns it into `register_id`.
 ///
 /// # Errors
@@ -1613,24 +1643,70 @@ pub fn sha3_256(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<()> {
-    ctx.result_state.gas_counter.pay_base(sha3_256_base)?;
-    let value = get_memory_or_register(
-        &mut ctx.result_state.gas_counter,
+    sha3_generic::<sha3::Sha3_256>(
+        ctx,
         memory,
-        &ctx.registers,
-        value_ptr,
         value_len,
-    )?;
-    ctx.result_state.gas_counter.pay_per(sha3_256_byte, value.len() as u64)?;
-
-    use sha3::Digest;
-
-    let value_hash = sha3::Sha3_256::digest(&value);
-    ctx.registers.set(
-        &mut ctx.result_state.gas_counter,
-        &ctx.config.limit_config,
+        value_ptr,
         register_id,
-        &value_hash[..],
+        sha3_256_base,
+        sha3_256_byte,
+    )
+}
+
+/// Hashes the given value using sha3-384 (FIPS-202) and returns it into `register_id`.
+///
+/// # Errors
+///
+/// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+/// the limit with `MemoryAccessViolation`.
+///
+/// # Cost
+///
+/// `base + write_register_base + write_register_byte * num_bytes + sha3_384_base + sha3_384_byte * num_bytes`
+pub fn sha3_384(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    value_len: u64,
+    value_ptr: u64,
+    register_id: u64,
+) -> Result<()> {
+    sha3_generic::<sha3::Sha3_384>(
+        ctx,
+        memory,
+        value_len,
+        value_ptr,
+        register_id,
+        sha3_384_base,
+        sha3_384_byte,
+    )
+}
+
+/// Hashes the given value using sha3-512 (FIPS-202) and returns it into `register_id`.
+///
+/// # Errors
+///
+/// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+/// the limit with `MemoryAccessViolation`.
+///
+/// # Cost
+///
+/// `base + write_register_base + write_register_byte * num_bytes + sha3_512_base + sha3_512_byte * num_bytes`
+pub fn sha3_512(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    value_len: u64,
+    value_ptr: u64,
+    register_id: u64,
+) -> Result<()> {
+    sha3_generic::<sha3::Sha3_512>(
+        ctx,
+        memory,
+        value_len,
+        value_ptr,
+        register_id,
+        sha3_512_base,
+        sha3_512_byte,
     )
 }
 
