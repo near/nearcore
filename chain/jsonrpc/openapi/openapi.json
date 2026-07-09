@@ -17996,9 +17996,20 @@
             "type": "object"
           },
           {
+            "description": "`None` when the response comes from a node running an older version that omitted the\ncause, so newer clients can still parse it.",
             "properties": {
               "info": {
-                "$ref": "#/components/schemas/TimeoutErrorCause"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TimeoutErrorCause"
+                  },
+                  {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true
+                  }
+                ]
               },
               "name": {
                 "enum": [

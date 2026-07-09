@@ -53,8 +53,10 @@ pub enum RpcTransactionError {
     UnknownTransaction { requested_transaction_hash: near_primitives::hash::CryptoHash },
     #[error("The node reached its limits. Try again later. More details: {debug_info}")]
     InternalError { debug_info: String },
+    /// `None` when the response comes from a node running an older version that omitted the
+    /// cause, so newer clients can still parse it.
     #[error("Timeout")]
-    TimeoutError(TimeoutErrorCause),
+    TimeoutError(Option<TimeoutErrorCause>),
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
@@ -178,12 +180,12 @@ mod tests {
     /// retain full information and can re-poll for a higher finality.
     #[test]
     fn timeout_error_reports_pending() {
-        let error = RpcTransactionError::TimeoutError(TimeoutErrorCause::Pending {
+        let error = RpcTransactionError::TimeoutError(Some(TimeoutErrorCause::Pending {
             status: Box::new(RpcTransactionResponse {
                 final_execution_outcome: None,
                 final_execution_status: TxExecutionStatus::Included,
             }),
-        });
+        }));
 
         // The cause and last-known status survive the conversion to the wire `RpcError`.
         let rpc_error: crate::errors::RpcError = error.into();
@@ -197,7 +199,7 @@ mod tests {
     /// The `NotObserved` reason serializes as a bare tag with no payload.
     #[test]
     fn timeout_error_reports_not_observed() {
-        let error = RpcTransactionError::TimeoutError(TimeoutErrorCause::NotObserved);
+        let error = RpcTransactionError::TimeoutError(Some(TimeoutErrorCause::NotObserved));
         let value = serde_json::to_value(&error).unwrap();
         assert_eq!(value["name"], "TIMEOUT_ERROR");
         assert_eq!(value["info"]["cause"], "NOT_OBSERVED");
@@ -207,17 +209,51 @@ mod tests {
     /// `Pending`.
     #[test]
     fn timeout_error_round_trips() {
-        let error = RpcTransactionError::TimeoutError(TimeoutErrorCause::Pending {
+        let error = RpcTransactionError::TimeoutError(Some(TimeoutErrorCause::Pending {
             status: Box::new(RpcTransactionResponse {
                 final_execution_outcome: None,
                 final_execution_status: TxExecutionStatus::Included,
             }),
-        });
+        }));
         let json = serde_json::to_string(&error).unwrap();
         let decoded: RpcTransactionError = serde_json::from_str(&json).unwrap();
         assert!(matches!(
             decoded,
-            RpcTransactionError::TimeoutError(TimeoutErrorCause::Pending { .. })
+            RpcTransactionError::TimeoutError(Some(TimeoutErrorCause::Pending { .. }))
         ));
+    }
+
+    /// Backwards compatibility (old node -> new client): a node running the previous code
+    /// serializes the unit `TimeoutError` as `{"name":"TIMEOUT_ERROR"}` with no `info`; a newer
+    /// client must still parse that, as `TimeoutError(None)`.
+    #[test]
+    fn old_timeout_format_parses_on_new_client() {
+        let old_wire = r#"{"name":"TIMEOUT_ERROR"}"#;
+        let decoded: RpcTransactionError = serde_json::from_str(old_wire).unwrap();
+        assert!(matches!(decoded, RpcTransactionError::TimeoutError(None)));
+    }
+
+    /// Backwards compatibility (new node -> old client): a newer node serializes the cause under
+    /// `info`. A client strictly typed against the previous schema (the *unit* `TimeoutError`)
+    /// CANNOT parse that — the `Option` wrapper does not fix this direction, because it's the
+    /// already-deployed old client's deserializer that rejects the unexpected `info` map. This
+    /// test pins that known limitation.
+    #[test]
+    fn new_timeout_format_breaks_strict_old_client() {
+        #[derive(serde::Deserialize, Debug)]
+        #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
+        enum OldRpcTransactionError {
+            #[allow(dead_code)]
+            InternalError {
+                debug_info: String,
+            },
+            TimeoutError,
+        }
+        let new_wire = serde_json::to_string(&RpcTransactionError::TimeoutError(Some(
+            TimeoutErrorCause::NotObserved,
+        )))
+        .unwrap();
+        // Fails with "invalid type: map, expected unit variant".
+        assert!(serde_json::from_str::<OldRpcTransactionError>(&new_wire).is_err());
     }
 }

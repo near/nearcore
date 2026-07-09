@@ -932,7 +932,7 @@ impl JsonRpcHandler {
                 let debug_info = format!("tx_exists timeout, last error: {:?}", last_error);
                 let cause = TimeoutErrorCause::Error { debug_info };
                 near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError(
-                    cause,
+                    Some(cause),
                 )
             })?
     }
@@ -1054,7 +1054,7 @@ impl JsonRpcHandler {
             timeout = ?self.polling_config.polling_timeout,
             "timeout: tx_status_fetch method"
         );
-        Err(RpcTransactionError::TimeoutError(cause))
+        Err(RpcTransactionError::TimeoutError(Some(cause)))
     }
 
     /// Detects an invalid transaction when we were handed the full signed transaction (rather
