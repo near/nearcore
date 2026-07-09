@@ -132,6 +132,12 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownGasKey { public_key, block_height, block_hash } => {
                 Self::UnknownGasKey { public_key, block_height, block_hash }
             }
+            QueryError::TooManyAccessKeys {
+                requested_account_id,
+                limit,
+                block_height,
+                block_hash,
+            } => Self::TooManyAccessKeys { requested_account_id, limit, block_height, block_hash },
             QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
                 Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }
