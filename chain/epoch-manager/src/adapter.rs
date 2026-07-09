@@ -607,15 +607,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         )
     }
 
-    /// Per-shard chunk-producer blacklist keyed on `anchor_hash`, the grandparent of the
-    /// chunks it serves (sampled at anchor.height()+2, absent skipped heights, in
-    /// save_chunk_producers_for_header). Producers past the mid-epoch miss threshold,
-    /// computed fresh from the aggregator's stats up to `anchor_hash`. The epoch is
-    /// derived from the anchor via get_epoch_id_from_prev_block (the same call the seeder
-    /// makes), so a non-empty blacklist and the ChunkProducers assignment use one epoch
-    /// and settlement. Gated by ProtocolFeature::EarlyKickout (empty when off). Empty at
-    /// an epoch boundary (the aggregator sits in the anchor's epoch; a new epoch on the
-    /// next block resets the stats).
+    /// Returns the per-shard set of chunk producers whose cumulative epoch stats are past the
+    /// early-kickout thresholds, computed from the aggregator's stats up to `anchor_hash`.
+    /// The epoch is derived from `anchor_hash` via `get_epoch_id_from_prev_block`. Gated by
+    /// `ProtocolFeature::EarlyKickout`: empty when the feature is off, and empty at an epoch
+    /// boundary (the aggregator's stats belong to the anchor's epoch).
     fn get_chunk_producer_blacklist(
         &self,
         anchor_hash: &CryptoHash,

@@ -662,13 +662,15 @@ impl EpochInfo {
         validators: &[ValidatorStake],
         seed: [u8; 32],
     ) -> Option<ValidatorId> {
-        let filtered: Vec<ValidatorId> =
-            settlement.iter().copied().filter(|id| !exclude.contains(id)).collect();
+        let (filtered, stakes): (Vec<ValidatorId>, Vec<Balance>) = settlement
+            .iter()
+            .copied()
+            .filter(|id| !exclude.contains(id))
+            .filter_map(|id| validators.get(id as usize).map(|v| (id, v.stake())))
+            .unzip();
         if filtered.is_empty() {
             return None;
         }
-        let stakes: Vec<Balance> =
-            filtered.iter().map(|&id| validators[id as usize].stake()).collect();
         let sampler = StakeWeightedIndex::new(stakes);
         Some(filtered[sampler.sample(seed)])
     }
