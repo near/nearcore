@@ -567,6 +567,81 @@ mod tests {
         }
     }
 
+    /// Normal canonical GC deletes ChunkProducers rows for header-only hashes (fork
+    /// siblings, synced-ahead headers never given a body). Those rows are seeded per header
+    /// but are not covered by clear_block_data (which only clears block-body hashes); the
+    /// clear_chunk_data_and_headers sweep must delete them before HeaderHashesByHeight is
+    /// dropped, else they orphan permanently once the height index is gone.
+    #[test]
+    fn test_chunk_producers_garbage_collected_for_header_only_fork() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Canonical chain: genesis + blocks 1..=6.
+        let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
+        for i in 0..6 {
+            let prev = blocks[i].clone();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            blocks.push(block.clone());
+            chain.process_block_test(block).unwrap();
+        }
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(blocks[1].hash()).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        // Header-only fork sibling at height 2, built on canonical block 1 with a distinct clock
+        // tick so it has a different hash than canonical block 2. No body is ever processed.
+        clock.advance(Duration::milliseconds(1));
+        let fork = TestBlockBuilder::from_prev_block(clock.clock(), &blocks[1], signer).build();
+        let fork_hash = *fork.hash();
+        assert_eq!(fork.header().height(), 2, "fork sibling must be at height 2");
+        assert_ne!(fork_hash, *blocks[2].hash(), "fork must differ from canonical block 2");
+
+        // Mirror what header sync writes: the header (adds fork_hash to HeaderHashesByHeight[2])
+        // plus a ChunkProducers row keyed by (fork_hash, shard_id).
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update.save_block_header(fork.header().clone()).unwrap();
+        store_update.commit().unwrap();
+        let sentinel = ValidatorStake::new(
+            "fork-cp".parse().unwrap(),
+            PublicKey::empty(KeyType::ED25519),
+            Balance::from_yoctonear(1),
+        );
+        let mut store_update = chain.chain_store().store().store_update();
+        store_update.insert_ser(
+            DBCol::ChunkProducers,
+            &get_block_shard_id(&fork_hash, shard_id),
+            &sentinel,
+        );
+        store_update.commit();
+
+        let fork_row = |chain: &crate::Chain| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(&fork_hash, shard_id))
+        };
+        assert!(fork_row(&chain).is_some(), "fork's row should exist before the sweep");
+
+        // Drive the header sweep directly over heights chunk_tail(0)..4 (exclusive), covering
+        // height 2. In TestBlockBuilder chains min_chunk_height stays 0 (blocks reuse the genesis
+        // chunk), so a full clear_data never advances the sweep; calling it directly is the
+        // deterministic way to exercise the header-only deletion.
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update.clear_chunk_data_and_headers(4).unwrap();
+        store_update.commit().unwrap();
+
+        assert!(
+            fork_row(&chain).is_none(),
+            "header-only fork's ChunkProducers row must be deleted by the header sweep"
+        );
+    }
+
     /// Resolution errors on a missing anchor DB row under EarlyKickout (strict read).
     #[test]
     fn test_resolution_errors_on_anchor_db_miss() {

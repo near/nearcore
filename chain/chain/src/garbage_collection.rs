@@ -532,7 +532,10 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
-    fn clear_chunk_data_and_headers(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
+    pub(crate) fn clear_chunk_data_and_headers(
+        &mut self,
+        min_chunk_height: BlockHeight,
+    ) -> Result<(), Error> {
         let chunk_tail = self.chunk_tail();
         for height in chunk_tail..min_chunk_height {
             let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
@@ -565,6 +568,23 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
                 //self.gc_col(DBCol::BlockHeader, header_hash.as_bytes());
+
+                // ChunkProducers rows are written per header (header sync + block
+                // processing), keyed by (block_hash, shard_id). Delete them here before
+                // HeaderHashesByHeight is dropped, so header-only anchors (fork siblings,
+                // synced-ahead headers that never get a body) don't orphan rows. The
+                // block-hash prefix matches every shard_id row for this hash. Nightly-only.
+                #[cfg(feature = "nightly")]
+                {
+                    let cp_keys: Vec<Box<[u8]>> = self
+                        .store()
+                        .iter_prefix(DBCol::ChunkProducers, _header_hash.as_bytes())
+                        .map(|(key, _)| key)
+                        .collect();
+                    for cp_key in cp_keys {
+                        self.gc_col(DBCol::ChunkProducers, &cp_key);
+                    }
+                }
             }
 
             // 4. Delete chunks_tail-related data
