@@ -4,11 +4,11 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
-    assert_reader_writer_parity, assert_resharding_epoch_snapshot_forced, bootstrap_reader,
-    build_shard_tries, check_account_balance, check_data_at_height_for_shards,
-    gc_and_heads_sanity_checks, get_cloud_head, get_cloud_storage, get_writer_handle,
-    has_state_root, run_node_until, run_until_one_epoch_after_resharding, simulate_lagging_shard,
-    snapshots_sanity_check, stop_and_restart_node,
+    assert_reader_writer_parity, assert_resharding_epoch_snapshot_forced,
+    assert_writer_inverse_deltas, bootstrap_reader, build_shard_tries, check_account_balance,
+    check_data_at_height_for_shards, gc_and_heads_sanity_checks, get_cloud_head, get_cloud_storage,
+    get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
+    simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
 };
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use borsh::to_vec;
@@ -337,6 +337,12 @@ impl CloudArchiveHarness {
     fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {
         let reader_id = self.reader_id.as_ref().expect("no reader bootstrapped");
         check_account_balance(&self.env, reader_id, account, expected);
+    }
+
+    /// Asserts the writer attached inverse state changes to the resharding gap
+    /// blocks. Requires `enable_resharding`.
+    fn assert_writer_inverse_deltas(&self, info: &ReshardingInfo) {
+        assert_writer_inverse_deltas(&self.env, &self.archival_id, info);
     }
 
     /// Asserts the resharding epoch's snapshot fired despite being off-cadence.
@@ -1464,6 +1470,51 @@ fn test_cloud_archival_writer_resharding_on_batch_boundary() {
         r.resharding_block_height + 1,
         "new child shard batch must start in the next batch, after the boundary"
     );
+
+    h.shutdown();
+}
+
+/// The writer attaches inverse state changes to the new-layout shards inside the
+/// resharding gap window. At the default batch size the gap sits in the batch
+/// that straddles the resharding boundary.
+#[test]
+// TODO(cloud_archival): un-ignore when the writer attaches inverse state changes.
+#[ignore]
+fn test_cloud_archival_writer_resharding_inverse_deltas() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().build();
+
+    let r = h.run_until_one_epoch_after_resharding();
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let gap_batch = cloud_storage.get_block_batch_for_height(r.new_epoch_first_height).unwrap();
+    assert!(
+        gap_batch.start_height() <= r.resharding_block_height,
+        "the gap block must share the batch that straddles the resharding boundary"
+    );
+
+    h.assert_writer_inverse_deltas(&r);
+
+    h.shutdown();
+}
+
+/// The writer still attaches inverse state changes at `batch_size` 1, where the
+/// resharding boundary and the first gap block fall in separate batches.
+#[test]
+// TODO(cloud_archival): un-ignore when the writer attaches inverse state changes.
+#[ignore]
+fn test_cloud_archival_writer_resharding_inverse_deltas_batch_size_1() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().batch_size(1).build();
+
+    let r = h.run_until_one_epoch_after_resharding();
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let gap_batch = cloud_storage.get_block_batch_for_height(r.new_epoch_first_height).unwrap();
+    assert!(
+        gap_batch.start_height() > r.resharding_block_height,
+        "the resharding boundary and the first gap block must fall in separate batches"
+    );
+
+    h.assert_writer_inverse_deltas(&r);
 
     h.shutdown();
 }
