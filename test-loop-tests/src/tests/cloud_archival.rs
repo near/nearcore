@@ -1536,9 +1536,10 @@ fn test_cloud_archival_resharding_snapshot_forced_off_cadence() {
 }
 
 /// The resharding writer matches carried-over shards by ShardUId and reads them
-/// under the old layout across the boundary, which assumes a resharding keeps the
-/// shard layout version stable. Listing every version forces that assumption to be
-/// re-verified when a new one lands.
+/// under the new layout across the boundary. That is correct only because a
+/// version-stable resharding leaves a carried shard's account-to-shard mapping
+/// unchanged; listing every version forces that assumption to be re-verified when
+/// a new one lands.
 #[test]
 fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
     match CloudArchiveHarness::default_shard_layout() {
