@@ -659,4 +659,6 @@ pub trait External {
     ///
     /// Panics if `ReceiptIndex` is invalid.
     fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId);
+
+    fn post_quantum_keys_enabled(&self) -> bool;
 }

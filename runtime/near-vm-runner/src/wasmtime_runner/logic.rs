@@ -533,8 +533,12 @@ fn get_public_key(
     registers: &Registers,
     ptr: u64,
     len: u64,
+    post_quantum_keys_enabled: bool,
 ) -> Result<PublicKeyBuffer> {
-    Ok(PublicKeyBuffer::new(get_memory_or_register(gas_counter, memory, registers, ptr, len)?))
+    Ok(PublicKeyBuffer::new(
+        get_memory_or_register(gas_counter, memory, registers, ptr, len)?,
+        post_quantum_keys_enabled,
+    ))
 }
 
 // ###############
@@ -3179,6 +3183,7 @@ pub fn promise_batch_action_transfer_to_gas_key(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let amount =
         Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
@@ -3245,6 +3250,7 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
@@ -3319,6 +3325,7 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
     let allowance = Balance::from_yoctonear(get_u128(
@@ -3418,6 +3425,7 @@ pub fn promise_batch_action_stake(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
 
@@ -3464,6 +3472,7 @@ pub fn promise_batch_action_add_key_with_full_access(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     pay_action_base(
@@ -3521,6 +3530,7 @@ pub fn promise_batch_action_add_key_with_function_call(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let allowance = Balance::from_yoctonear(get_u128(
         &mut ctx.result_state.gas_counter,
@@ -3610,6 +3620,7 @@ pub fn promise_batch_action_delete_key(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     pay_action_base(
