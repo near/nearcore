@@ -4,7 +4,7 @@ Test case classes for release tests on forknet.
 from .base import TestSetup, NodeHardware
 
 import copy
-from mirror import CommandContext, run_env_cmd
+from mirror import CommandContext, run_env_cmd, run_remote_cmd
 from utils import PartitionSelector
 from datetime import datetime, timedelta
 
@@ -39,9 +39,29 @@ class TestReleaseCandidate(TestSetup):
         self.upgrade_interval_minutes = 5
         self.upgrade_delay_minutes = 15
 
+    # tx_validity_period must stay below 3 * epoch_len so epoch sync proofs fall
+    # inside the validate_proof age window (see EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS).
+    # The mainnet dump carries 86400, far above 3 * 3600.
+    transaction_validity_period = 7200
+
     def amend_configs_before_test_start(self):
         super().amend_configs_before_test_start()
         self._override_protocol_upgrade_voting()
+        self._amend_genesis(
+            f".transaction_validity_period = {self.transaction_validity_period}")
+
+    def _amend_genesis(self, jq_field):
+        # genesis.json is read fresh into ChainStore at startup and is not part of
+        # the genesis block hash, so amending it before start_network is safe.
+        jq_cmd = f"""jq "{jq_field}" $1 > $1.tmp && mv $1.tmp $1"""
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'nodes'
+        run_cmd_args.cmd = f"sh -c '{jq_cmd}' _ ~/.near/genesis.json"
+        run_remote_cmd(CommandContext(run_cmd_args))
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'traffic'
+        run_cmd_args.cmd = f"sh -c '{jq_cmd}' _ ~/.near/target/genesis.json"
+        run_remote_cmd(CommandContext(run_cmd_args))
 
     def _override_protocol_upgrade_voting(self):
         # Release binaries gate protocol upgrade voting behind a mainnet
@@ -62,6 +82,8 @@ class TestReleaseCandidate(TestSetup):
         At each step, we upgrade half of the nodes at a time.
         In total, we upgrade in 4 batches.
         """
+        if not self._needs_upgrade():
+            return
         first_upgrade_time = datetime.now() + timedelta(
             minutes=self.upgrade_delay_minutes)
         second_upgrade_time = first_upgrade_time + timedelta(
