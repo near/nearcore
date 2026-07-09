@@ -11,7 +11,11 @@ use near_jsonrpc_primitives::types::query::{
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, Finality};
 use near_primitives::views::{AccessKeyPermissionView, QueryRequest, QueryResponseKind};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
+use std::num::NonZeroU32;
 use std::path::Path;
+
+// Access-key list page size; the node clamps it to its own limit.
+pub(crate) const ACCESS_KEY_PAGE_SIZE: Option<NonZeroU32> = NonZeroU32::new(1000);
 
 pub(crate) struct SecretAccessKey {
     pub(crate) original_key: Option<PublicKey>,
@@ -82,41 +86,45 @@ pub(crate) fn keys_from_source_db(
         .context("failed mapping ShardID to ShardUID")?;
     let chunk_extra =
         chain.get_chunk_extra(header.hash(), &shard_uid).context("failed getting chunk extra")?;
-    match runtime
-        .query(
-            shard_uid,
-            chunk_extra.state_root(),
-            header.height(),
-            header.raw_timestamp(),
-            header.prev_hash(),
-            header.hash(),
-            header.epoch_id(),
-            &QueryRequest::ViewAccessKeyList {
-                account_id: account_id.clone(),
-                after_key: None,
-                limit: None,
-            },
-        )
-        .with_context(|| format!("failed fetching access keys for {}", &account_id))?
-        .kind
-    {
-        QueryResponseKind::AccessKeyList(l) => Ok(l
-            .keys
-            .into_iter()
-            .filter_map(|k| {
-                // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
-                // hash-form entries can't be mapped because the full
-                // pubkey is not recoverable. See key_mapping.rs for the
-                // matching panic.
-                let full_pk = k.public_key.full_pubkey()?;
-                Some(SecretAccessKey {
-                    mapped_key: crate::key_mapping::map_key(&full_pk, secret),
-                    original_key: Some(full_pk),
-                    permission: Some(k.access_key.permission),
-                })
-            })
-            .collect()),
-        _ => unreachable!(),
+    let mut keys = Vec::new();
+    let mut after_key = None;
+    loop {
+        let response = runtime
+            .query(
+                shard_uid,
+                chunk_extra.state_root(),
+                header.height(),
+                header.raw_timestamp(),
+                header.prev_hash(),
+                header.hash(),
+                header.epoch_id(),
+                &QueryRequest::ViewAccessKeyList {
+                    account_id: account_id.clone(),
+                    after_key,
+                    limit: ACCESS_KEY_PAGE_SIZE,
+                },
+            )
+            .with_context(|| format!("failed fetching access keys for {}", &account_id))?;
+        let QueryResponseKind::AccessKeyList(l) = response.kind else {
+            unreachable!();
+        };
+        for k in l.keys {
+            // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
+            // hash-form entries can't be mapped because the full pubkey is not
+            // recoverable. See key_mapping.rs for the matching panic.
+            let Some(full_pk) = k.public_key.full_pubkey() else {
+                continue;
+            };
+            keys.push(SecretAccessKey {
+                mapped_key: crate::key_mapping::map_key(&full_pk, secret),
+                original_key: Some(full_pk),
+                permission: Some(k.access_key.permission),
+            });
+        }
+        match l.last_key {
+            Some(cursor) => after_key = Some(cursor),
+            None => return Ok(keys),
+        }
     }
 }
 
@@ -134,39 +142,45 @@ pub(crate) async fn keys_from_rpc(
         Some(h) => BlockReference::BlockId(BlockId::Height(h)),
         None => BlockReference::Finality(Finality::None),
     };
-    let request = RpcQueryRequest {
-        block_reference,
-        request: QueryRequest::ViewAccessKeyList {
-            account_id: account_id.clone(),
-            after_key: None,
-            limit: None,
-        },
-    };
+    let mut keys = Vec::new();
+    let mut after_key = None;
+    loop {
+        let request = RpcQueryRequest {
+            block_reference: block_reference.clone(),
+            request: QueryRequest::ViewAccessKeyList {
+                account_id: account_id.clone(),
+                after_key,
+                limit: ACCESS_KEY_PAGE_SIZE,
+            },
+        };
 
-    let response = match rpc_client.query(request).await {
-        Ok(r) => r,
-        Err(e) => anyhow::bail!("failed making RPC request: {:?}", e),
-    };
+        let response = match rpc_client.query(request).await {
+            Ok(r) => r,
+            Err(e) => anyhow::bail!("failed making RPC request: {:?}", e),
+        };
 
-    match response.kind {
-        RpcQueryResponseKind::AccessKeyList(l) => Ok(l
-            .keys
-            .into_iter()
-            .filter_map(|k| {
-                // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
-                // hash-form entries can't be mapped because the full
-                // pubkey is not recoverable. See key_mapping.rs for the
-                // matching panic.
-                let full_pk = k.public_key.full_pubkey()?;
-                Some(SecretAccessKey {
-                    mapped_key: crate::key_mapping::map_key(&full_pk, secret),
-                    original_key: Some(full_pk),
-                    permission: Some(k.access_key.permission),
-                })
-            })
-            .collect()),
-        k => {
-            anyhow::bail!("received unexpected RPC response for access key query: {:?}", k);
+        let RpcQueryResponseKind::AccessKeyList(l) = response.kind else {
+            anyhow::bail!(
+                "received unexpected RPC response for access key query: {:?}",
+                response.kind
+            );
+        };
+        for k in l.keys {
+            // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
+            // hash-form entries can't be mapped because the full pubkey is not
+            // recoverable. See key_mapping.rs for the matching panic.
+            let Some(full_pk) = k.public_key.full_pubkey() else {
+                continue;
+            };
+            keys.push(SecretAccessKey {
+                mapped_key: crate::key_mapping::map_key(&full_pk, secret),
+                original_key: Some(full_pk),
+                permission: Some(k.access_key.permission),
+            });
+        }
+        match l.last_key {
+            Some(cursor) => after_key = Some(cursor),
+            None => return Ok(keys),
         }
     }
 }

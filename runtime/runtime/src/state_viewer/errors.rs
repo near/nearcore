@@ -32,8 +32,6 @@ pub enum ViewAccessKeyError {
         "Account {requested_account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
     )]
     TooManyAccessKeys { requested_account_id: near_primitives::types::AccountId, limit: u32 },
-    #[error("Requested limit {limit} exceeds the maximum allowed page size of {max}")]
-    LimitTooLarge { limit: u32, max: u32 },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
 }

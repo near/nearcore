@@ -174,17 +174,18 @@ impl TrieViewer {
         let max = self.access_keys_limit;
         let paginated = after.is_some() || limit.is_some();
 
-        if let (Some(max), Some(requested)) = (max, limit) {
-            if requested.get() > max {
-                return Err(errors::ViewAccessKeyError::LimitTooLarge {
-                    limit: requested.get(),
-                    max,
-                });
+        let item_cap: Option<u32> = if paginated {
+            match (limit.map(NonZeroU32::get), max) {
+                // An explicit page size larger than the configured maximum is
+                // clamped down rather than rejected.
+                (Some(requested), Some(max)) => Some(requested.min(max)),
+                (Some(requested), None) => Some(requested),
+                // No explicit page size: fall back to the configured maximum.
+                (None, max) => max,
             }
-        }
-
-        let item_cap: Option<u32> =
-            if paginated { limit.map(NonZeroU32::get).or(max) } else { None };
+        } else {
+            None
+        };
 
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let after_key =

@@ -1,3 +1,4 @@
+use crate::key_util::ACCESS_KEY_PAGE_SIZE;
 use crate::{ChainError, SourceBlock, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
@@ -210,33 +211,36 @@ impl crate::ChainAccess for ChainAccess {
         block_hash: &CryptoHash,
     ) -> Result<Vec<PublicKey>, ChainError> {
         let mut ret = Vec::new();
-        match self
-            .view_client
-            .send_async(Query {
-                block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
-                request: QueryRequest::ViewAccessKeyList {
-                    account_id: account_id.clone(),
-                    after_key: None,
-                    limit: None,
-                },
-            })
-            .await
-            .unwrap()?
-            .kind
-        {
-            QueryResponseKind::AccessKeyList(l) => {
-                for k in l.keys {
-                    if k.access_key.permission == AccessKeyPermissionView::FullAccess {
-                        // TODO(post-quantum): Mirror does not support ML-DSA-65
-                        // hash-form entries; skip them silently.
-                        if let Some(pk) = k.public_key.full_pubkey() {
-                            ret.push(pk);
-                        }
+        let mut after_key = None;
+        loop {
+            let response = self
+                .view_client
+                .send_async(Query {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
+                    request: QueryRequest::ViewAccessKeyList {
+                        account_id: account_id.clone(),
+                        after_key,
+                        limit: ACCESS_KEY_PAGE_SIZE,
+                    },
+                })
+                .await
+                .unwrap()?;
+            let QueryResponseKind::AccessKeyList(l) = response.kind else {
+                unreachable!();
+            };
+            for k in l.keys {
+                if k.access_key.permission == AccessKeyPermissionView::FullAccess {
+                    // TODO(post-quantum): Mirror does not support ML-DSA-65
+                    // hash-form entries; skip them silently.
+                    if let Some(pk) = k.public_key.full_pubkey() {
+                        ret.push(pk);
                     }
                 }
             }
-            _ => unreachable!(),
-        };
-        Ok(ret)
+            match l.last_key {
+                Some(cursor) => after_key = Some(cursor),
+                None => return Ok(ret),
+            }
+        }
     }
 }

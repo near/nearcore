@@ -8,6 +8,10 @@ use near_crypto::PublicKeyHandle;
 use near_primitives::types::{AccountId, Balance, BlockReference};
 use near_primitives::views::{AccessKeyPermissionView, QueryRequest, QueryResponseKind};
 use std::collections::HashMap;
+use std::num::NonZeroU32;
+
+// Access-key list page size; the node clamps it to its own limit.
+const ACCESS_KEY_PAGE_SIZE: Option<NonZeroU32> = NonZeroU32::new(1000);
 
 /// Map from account ID to per-key gas key balances.
 pub(crate) struct GasKeyInfo(HashMap<AccountId, AccountGasKeysBalance>);
@@ -69,35 +73,45 @@ async fn query_gas_key_info(
     account_id: AccountId,
     view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<AccountGasKeysBalance, ErrorKind> {
-    let query = Query::new(
-        block_id,
-        QueryRequest::ViewAccessKeyList {
-            account_id: account_id.clone(),
-            after_key: None,
-            limit: None,
-        },
-    );
-    let response = match view_client_addr.send_async(query).await? {
-        Ok(r) => r,
-        Err(QueryError::UnknownAccount { .. }) => return Ok(HashMap::new()),
-        Err(err) => return Err(ErrorKind::InternalError(err.to_string())),
-    };
-    match response.kind {
-        QueryResponseKind::AccessKeyList(list) => {
-            let mut info = HashMap::new();
-            for key_info in &list.keys {
-                let balance = match &key_info.access_key.permission {
-                    AccessKeyPermissionView::GasKeyFunctionCall { balance, .. }
-                    | AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => *balance,
-                    _ => continue,
-                };
-                info.insert(key_info.public_key.clone(), balance);
+    // An account may hold more gas keys than a single `view_access_key_list`
+    // page returns, so walk the pages following `last_key` until the listing is
+    // exhausted
+    let mut info = HashMap::new();
+    let mut after_key = None;
+    loop {
+        let query = Query::new(
+            block_id.clone(),
+            QueryRequest::ViewAccessKeyList {
+                account_id: account_id.clone(),
+                after_key,
+                limit: ACCESS_KEY_PAGE_SIZE,
+            },
+        );
+        let response = match view_client_addr.send_async(query).await? {
+            Ok(r) => r,
+            Err(QueryError::UnknownAccount { .. }) => return Ok(HashMap::new()),
+            Err(err) => return Err(ErrorKind::InternalError(err.to_string())),
+        };
+        let list = match response.kind {
+            QueryResponseKind::AccessKeyList(list) => list,
+            _ => {
+                return Err(ErrorKind::InternalInvariantError(format!(
+                    "queried ViewAccessKeyList, but received {:?}.",
+                    response.kind
+                )));
             }
-            Ok(info)
+        };
+        for key_info in &list.keys {
+            let balance = match &key_info.access_key.permission {
+                AccessKeyPermissionView::GasKeyFunctionCall { balance, .. }
+                | AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => *balance,
+                _ => continue,
+            };
+            info.insert(key_info.public_key.clone(), balance);
         }
-        _ => Err(ErrorKind::InternalInvariantError(format!(
-            "queried ViewAccessKeyList, but received {:?}.",
-            response.kind
-        ))),
+        match list.last_key {
+            Some(cursor) => after_key = Some(cursor),
+            None => return Ok(info),
+        }
     }
 }

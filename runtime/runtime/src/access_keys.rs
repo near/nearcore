@@ -893,17 +893,16 @@ mod tests {
     }
 
     #[test]
-    fn test_view_access_keys_paginated_request_over_limit_errors() {
+    fn test_view_access_keys_paginated_request_over_limit_clamps() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        seed_extra_keys(&mut state_update, &account_id, 6);
 
-        let err = viewer_with_limit(5)
+        let (keys, last_key) = viewer_with_limit(5)
             .view_access_keys(&state_update, &account_id, None, NonZeroU32::new(6))
-            .expect_err("requesting a page larger than the max should error");
-        assert!(
-            matches!(err, ViewAccessKeyError::LimitTooLarge { limit: 6, max: 5 }),
-            "unexpected error: {err:?}"
-        );
+            .expect("a page larger than the max should be clamped, not rejected");
+        assert_eq!(keys.len(), 5, "page should be clamped to the configured max");
+        assert!(last_key.is_some(), "a truncated listing should return a resume cursor");
     }
 
     /// Walks the whole list page by page against a configured limit: the first
