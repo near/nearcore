@@ -625,32 +625,69 @@ impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
 #[repr(u8)]
 pub enum PartialEncodedContractDeploys {
     V1(PartialEncodedContractDeploysV1) = 0,
+    /// Emitted and accepted only under `EarlyKickout`. Carries the grandparent
+    /// anchor (`prev_prev_block_hash`) for anchored producer resolution and the
+    /// parent (`prev_block_hash`) for the anchor cross-check, mirroring
+    /// [`ChunkContractAccesses::V2`].
+    V2(PartialEncodedContractDeploysV2) = 1,
 }
 
 impl PartialEncodedContractDeploys {
     pub fn new(
         key: ChunkProductionKey,
         part: PartialEncodedContractDeploysPart,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
         signer: &ValidatorSigner,
+        protocol_version: ProtocolVersion,
     ) -> Self {
-        Self::V1(PartialEncodedContractDeploysV1::new(key, part, signer))
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            Self::V2(PartialEncodedContractDeploysV2::new(
+                key,
+                part,
+                prev_block_hash,
+                prev_prev_block_hash,
+                signer,
+            ))
+        } else {
+            Self::V1(PartialEncodedContractDeploysV1::new(key, part, signer))
+        }
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match &self {
             Self::V1(v1) => &v1.inner.next_chunk,
+            Self::V2(v2) => &v2.inner.next_chunk,
         }
     }
 
     pub fn part(&self) -> &PartialEncodedContractDeploysPart {
         match &self {
             Self::V1(v1) => &v1.inner.part,
+            Self::V2(v2) => &v2.inner.part,
+        }
+    }
+
+    /// Parent block of the chunk (V2 only).
+    pub fn prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(v2.prev_block_hash()),
+        }
+    }
+
+    /// Grandparent anchor of the chunk (V2 only).
+    pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(v2.prev_prev_block_hash()),
         }
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
         match self {
-            Self::V1(accesses) => accesses.verify_signature(public_key),
+            Self::V1(v1) => v1.verify_signature(public_key),
+            Self::V2(v2) => v2.verify_signature(public_key),
         }
     }
 }
@@ -661,6 +698,9 @@ impl Into<(ChunkProductionKey, PartialEncodedContractDeploysPart)>
     fn into(self) -> (ChunkProductionKey, PartialEncodedContractDeploysPart) {
         match self {
             Self::V1(PartialEncodedContractDeploysV1 { inner, .. }) => {
+                (inner.next_chunk, inner.part)
+            }
+            Self::V2(PartialEncodedContractDeploysV2 { inner, .. }) => {
                 (inner.next_chunk, inner.part)
             }
         }
@@ -719,6 +759,77 @@ impl PartialEncodedContractDeploysInner {
             next_chunk,
             part,
             signature_differentiator: "PartialEncodedContractDeploysInner".to_owned(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysV2 {
+    inner: PartialEncodedContractDeploysV2Inner,
+    signature: Signature,
+}
+
+impl PartialEncodedContractDeploysV2 {
+    pub fn new(
+        key: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = PartialEncodedContractDeploysV2Inner::new(
+            key,
+            part,
+            prev_block_hash,
+            prev_prev_block_hash,
+        );
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Self { inner, signature }
+    }
+
+    /// Parent block of the chunk these deploys belong to.
+    pub fn prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_block_hash
+    }
+
+    /// Grandparent anchor used to resolve the producer under `EarlyKickout`.
+    pub fn prev_prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_prev_block_hash
+    }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysV2Inner {
+    next_chunk: ChunkProductionKey,
+    part: PartialEncodedContractDeploysPart,
+    /// Parent block of the chunk. Signed so the verifier can cross-check the
+    /// signed `next_chunk` key against the anchor before trusting the anchored
+    /// producer resolution.
+    prev_block_hash: CryptoHash,
+    /// Grandparent anchor for producer resolution under `EarlyKickout`.
+    /// `CryptoHash::default()` when the chunk has no real grandparent.
+    prev_prev_block_hash: CryptoHash,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl PartialEncodedContractDeploysV2Inner {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+    ) -> Self {
+        Self {
+            next_chunk,
+            part,
+            prev_block_hash,
+            prev_prev_block_hash,
+            // Distinct from V1 so a V1 signature cannot be grafted onto a V2 struct.
+            signature_differentiator: "PartialEncodedContractDeploysV2Inner".to_owned(),
         }
     }
 }
@@ -878,7 +989,10 @@ impl SpiceContractCodeResponseV1 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ChunkContractAccesses, CodeHash, MainTransitionKey};
+    use super::{
+        ChunkContractAccesses, CodeHash, MainTransitionKey, PartialEncodedContractDeploys,
+        PartialEncodedContractDeploysPart,
+    };
     use crate::stateless_validation::ChunkProductionKey;
     use crate::test_utils::create_test_signer;
     use crate::types::EpochId;
@@ -945,5 +1059,53 @@ mod tests {
         // Signed by `cp`; verifies under cp's key, rejects another key.
         assert!(accesses.verify_signature(&signer.public_key()));
         assert!(!accesses.verify_signature(&create_test_signer("other").public_key()));
+    }
+
+    fn make_part() -> PartialEncodedContractDeploysPart {
+        PartialEncodedContractDeploysPart {
+            part_ord: 3,
+            data: vec![1, 2, 3].into_boxed_slice(),
+            encoded_length: 9,
+        }
+    }
+
+    fn make_deploys(
+        signer: &ValidatorSigner,
+        protocol_version: ProtocolVersion,
+    ) -> PartialEncodedContractDeploys {
+        PartialEncodedContractDeploys::new(
+            test_key(),
+            make_part(),
+            CryptoHash::hash_bytes(b"prev"),
+            CryptoHash::hash_bytes(b"prev_prev"),
+            signer,
+            protocol_version,
+        )
+    }
+
+    #[test]
+    fn v1_deploys_has_no_anchor() {
+        let signer = create_test_signer("cp");
+        let deploys = make_deploys(&signer, pre_kickout_version());
+        assert!(matches!(deploys, PartialEncodedContractDeploys::V1(_)));
+        assert!(deploys.prev_block_hash().is_none());
+        assert!(deploys.prev_prev_block_hash().is_none());
+    }
+
+    #[test]
+    fn v2_deploys_carries_verifies_anchor_and_converts() {
+        let signer = create_test_signer("cp");
+        let deploys = make_deploys(&signer, post_kickout_version());
+        assert!(matches!(deploys, PartialEncodedContractDeploys::V2(_)));
+        assert_eq!(deploys.prev_block_hash(), Some(&CryptoHash::hash_bytes(b"prev")));
+        assert_eq!(deploys.prev_prev_block_hash(), Some(&CryptoHash::hash_bytes(b"prev_prev")));
+        assert_eq!(deploys.chunk_production_key(), &test_key());
+        assert!(deploys.verify_signature(&signer.public_key()));
+        assert!(!deploys.verify_signature(&create_test_signer("other").public_key()));
+        // The deploys tracker consumes via `Into<(ChunkProductionKey, ..Part)>`; the V2
+        // arm must surface the key and part unchanged.
+        let (key, part): (_, PartialEncodedContractDeploysPart) = deploys.into();
+        assert_eq!(key, test_key());
+        assert_eq!(part.part_ord, 3);
     }
 }
