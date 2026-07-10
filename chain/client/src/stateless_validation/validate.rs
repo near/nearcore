@@ -123,28 +123,14 @@ pub fn validate_partial_encoded_state_witness(
         VersionedPartialEncodedStateWitness::V1(_) => {
             epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
         }
-        VersionedPartialEncodedStateWitness::V2(v2) => {
-            // Resolve the producer from the anchor: it is one block older than the parent,
-            // so we have usually processed it even when the witness beats its parent.
-            let info = resolve_anchored_producer(
-                epoch_manager,
-                v2.prev_prev_block_hash(),
-                &epoch_id,
-                height_created,
-                shard_id,
-                "witness",
-            )?;
-            verify_anchored_chunk_key(
-                epoch_manager,
-                &epoch_id,
-                height_created,
-                v2.prev_block_hash(),
-                v2.prev_prev_block_hash(),
-                store,
-                "witness",
-            )?;
-            info
-        }
+        VersionedPartialEncodedStateWitness::V2(v2) => resolve_and_verify_anchored_producer(
+            epoch_manager,
+            &partial_witness.chunk_production_key(),
+            v2.prev_block_hash(),
+            v2.prev_prev_block_hash(),
+            store,
+            "witness",
+        )?,
     };
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
@@ -258,6 +244,38 @@ fn resolve_anchored_producer(
     result
 }
 
+/// Resolve a V2 message's producer from the grandparent anchor, then cross-check the signed
+/// chunk key against the anchor. Shared by the witness, contract-accesses and contract-deploys
+/// V2 paths; `msg_label` names the caller in the metric and errors. Resolve runs before the
+/// cross-check so the lookup metric is recorded even when the key check later rejects.
+fn resolve_and_verify_anchored_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    key: &ChunkProductionKey,
+    prev_block_hash: &CryptoHash,
+    prev_prev_block_hash: &CryptoHash,
+    store: &Store,
+    msg_label: &str,
+) -> Result<ValidatorStake, Error> {
+    let producer = resolve_anchored_producer(
+        epoch_manager,
+        prev_prev_block_hash,
+        &key.epoch_id,
+        key.height_created,
+        key.shard_id,
+        msg_label,
+    )?;
+    verify_anchored_chunk_key(
+        epoch_manager,
+        &key.epoch_id,
+        key.height_created,
+        prev_block_hash,
+        prev_prev_block_hash,
+        store,
+        msg_label,
+    )?;
+    Ok(producer)
+}
+
 pub fn validate_partial_encoded_contract_deploys(
     epoch_manager: &dyn EpochManagerAdapter,
     partial_deploys: &PartialEncodedContractDeploys,
@@ -265,7 +283,20 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
+    // V1 uses the sampler; V2 looks the producer up from the anchor (like the witness
+    // path) and cross-checks the key first. An unresolvable anchor returns `DBNotFoundErr`,
+    // dropped quietly by the caller (this node is behind).
+    let chunk_producer = match partial_deploys {
+        PartialEncodedContractDeploys::V1(_) => epoch_manager.get_chunk_producer_info(key)?,
+        PartialEncodedContractDeploys::V2(v2) => resolve_and_verify_anchored_producer(
+            epoch_manager,
+            key,
+            v2.prev_block_hash(),
+            v2.prev_prev_block_hash(),
+            store,
+            "contract deploys",
+        )?,
+    };
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
@@ -497,26 +528,14 @@ fn validate_witness_contract_accesses_signature(
     // dropped quietly by the caller (this node is behind).
     let chunk_producer = match accesses {
         ChunkContractAccesses::V1(_) => epoch_manager.get_chunk_producer_info(key)?,
-        ChunkContractAccesses::V2(v2) => {
-            let producer = resolve_anchored_producer(
-                epoch_manager,
-                v2.prev_prev_block_hash(),
-                &key.epoch_id,
-                key.height_created,
-                key.shard_id,
-                "contract accesses",
-            )?;
-            verify_anchored_chunk_key(
-                epoch_manager,
-                &key.epoch_id,
-                key.height_created,
-                v2.prev_block_hash(),
-                v2.prev_prev_block_hash(),
-                store,
-                "contract accesses",
-            )?;
-            producer
-        }
+        ChunkContractAccesses::V2(v2) => resolve_and_verify_anchored_producer(
+            epoch_manager,
+            key,
+            v2.prev_block_hash(),
+            v2.prev_prev_block_hash(),
+            store,
+            "contract accesses",
+        )?,
     };
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));

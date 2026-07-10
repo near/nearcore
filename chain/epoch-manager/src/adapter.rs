@@ -618,14 +618,14 @@ pub trait EpochManagerAdapter: Send + Sync {
         )
     }
 
-    /// Per-shard chunk-producer blacklist for the epoch the NEXT block
-    /// (height prev+1) belongs to, computed FRESH from the up-to-date aggregator
-    /// keyed by `prev_block_hash`. Gated by `ProtocolFeature::EarlyKickout`:
-    /// returns an empty map when the feature is off (production), so sampling is
-    /// unchanged. Inert in PR5 (no production callers).
+    /// Returns the per-shard set of chunk producers whose cumulative epoch stats are past the
+    /// early-kickout thresholds, computed from the aggregator's stats up to `anchor_hash`.
+    /// The epoch is derived from `anchor_hash` via `get_epoch_id_from_prev_block`. Gated by
+    /// `ProtocolFeature::EarlyKickout`: empty when the feature is off, and empty at an epoch
+    /// boundary (the aggregator's stats belong to the anchor's epoch).
     fn get_chunk_producer_blacklist(
         &self,
-        prev_block_hash: &CryptoHash,
+        anchor_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError>;
 
     /// Gets the chunk validators for a given height and shard.
@@ -1131,19 +1131,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_chunk_producer_blacklist(
         &self,
-        prev_block_hash: &CryptoHash,
+        anchor_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        // Runtime gate. Off in production (PROTOCOL_VERSION < 152) -> empty blacklist,
-        // math never runs, sampling unchanged. This is the only production-reachable
-        // entry point for the new code.
+        let epoch_id = self.get_epoch_id_from_prev_block(anchor_hash)?;
         let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(HashMap::new());
         }
         let epoch_manager = self.read();
-        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(prev_block_hash)?;
-        // Aggregator belongs to prev_block's epoch. If the next block starts a new epoch,
+        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(anchor_hash)?;
+        // Aggregator belongs to the anchor's epoch. If the next block starts a new epoch,
         // stats reset -> empty blacklist (boundary reset).
         if aggregator.epoch_id != epoch_id {
             return Ok(HashMap::new());

@@ -122,14 +122,18 @@ impl CloudStorage {
 
     /// Builds and uploads a shard batch covering `range`. The caller must
     /// ensure that all heights in the batch share the same `shard_layout`.
+    /// `inverse_ceiling`: when `Some(h)`, attaches inverse state changes
+    /// for present blocks with height `<= h`.
     pub async fn archive_shard_batch(
         &self,
         hot_store: &Store,
         shard_layout: &ShardLayout,
         range: &BatchRange,
         shard_uid: ShardUId,
+        inverse_ceiling: Option<BlockHeight>,
     ) -> Result<(), CloudArchivingError> {
-        let shard_batch = build_shard_batch(hot_store, shard_layout, range, shard_uid)?;
+        let shard_batch =
+            build_shard_batch(hot_store, shard_layout, range, shard_uid, inverse_ceiling)?;
         let batch_id = compute_batch_id(range.start(), self.batch_size());
         let file_id = CloudStorageFileID::ShardBatch(shard_uid.shard_id(), batch_id);
         let blob = borsh::to_vec(&shard_batch).unwrap();
