@@ -7303,6 +7303,15 @@
               "null"
             ]
           },
+          "max_escaped_funcs_per_contract": {
+            "description": "\"Escaped\" functions are those listed in the `defined_func_refs` region.\n\nThis covers:\n- imported functions\n- exported functions\n- the start function\n- functions referenced using `ref.func` in const-expr initializers\n- functions referenced by index or by `ref.func` in an element segment\n\n`max_escaped_funcs_per_contract` caps the used slots in that region,\navailable in `VMOffsets::num_escaped_funcs`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "max_function_body_size": {
             "description": "If present, stores max byte size of a single function body in a contract",
             "format": "uint64",
@@ -8139,6 +8148,11 @@
           {
             "const": "TooManyGlobals",
             "description": "Contract declares too many entries in the wasm global section.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyEscapedFuncs",
+            "description": "Contract contains too many escaped functions.",
             "type": "string"
           }
         ],

@@ -1,1 +1,2 @@
 max_globals_per_contract: { new: 100_000 }
+max_escaped_funcs_per_contract: { new: 10_000 }

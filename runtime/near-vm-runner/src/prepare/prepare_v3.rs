@@ -3,6 +3,7 @@ use crate::logic::errors::PrepareError;
 use crate::{EXPORT_PREFIX, MEMORY_EXPORT};
 use finite_wasm_6::{Fee, wasmparser as wp};
 use near_parameters::vm::{Config, VMKind};
+use std::collections::HashSet;
 use wasm_encoder::{Encode, Section, SectionId};
 
 struct PrepareContext<'a> {
@@ -16,6 +17,9 @@ struct PrepareContext<'a> {
     table_element_limit: u64,
     type_limit: u64,
     global_limit: u64,
+    escaped_func_limit: u64,
+    escaped_funcs: HashSet<u32>,
+    func_import_index: u32,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -46,6 +50,9 @@ impl<'a> PrepareContext<'a> {
             table_element_limit,
             type_limit: limits.max_types_per_contract.unwrap_or(u64::MAX),
             global_limit: limits.max_globals_per_contract.unwrap_or(u64::MAX),
+            escaped_func_limit: limits.max_escaped_funcs_per_contract.unwrap_or(u64::MAX),
+            escaped_funcs: HashSet::new(),
+            func_import_index: 0,
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -147,7 +154,13 @@ impl<'a> PrepareContext<'a> {
                         .global_limit
                         .checked_sub(u64::from(reader.count()))
                         .ok_or(PrepareError::TooManyGlobals)?;
-                    self.copy_section(SectionId::Global, reader.range())?;
+                    let range = reader.range();
+                    for res in reader {
+                        let wp::Global { init_expr, .. } =
+                            res.map_err(|_| PrepareError::Deserialization)?;
+                        self.scan_const_expr(&init_expr)?;
+                    }
+                    self.copy_section(SectionId::Global, range)?;
                 }
                 wp::Payload::ExportSection(reader) => {
                     self.ensure_memory_section();
@@ -164,6 +177,8 @@ impl<'a> PrepareContext<'a> {
                             .unwrap_or_default();
                         match kind {
                             wp::ExternalKind::Func => {
+                                // Exported functions escape (get a VMFuncRef slot).
+                                self.escaped_funcs.insert(index);
                                 new_section.export(
                                     &format!("{prefix}{name}"),
                                     wasm_encoder::ExportKind::Func,
@@ -204,6 +219,8 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .start_section(func, &range)
                         .map_err(|_| PrepareError::Deserialization)?;
+                    // TODO: needed? if so, update other comments
+                    self.escaped_funcs.insert(func);
                     self.copy_section(SectionId::Start, range.clone())?;
                 }
                 wp::Payload::ElementSection(reader) => {
@@ -211,7 +228,30 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .element_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
-                    self.copy_section(SectionId::Element, reader.range())?;
+                    let range = reader.range();
+                    for res in reader {
+                        let wp::Element { kind, items, range: _ } =
+                            res.map_err(|_| PrepareError::Deserialization)?;
+                        match items {
+                            wp::ElementItems::Functions(funcs) => {
+                                for f in funcs {
+                                    self.escaped_funcs
+                                        .insert(f.map_err(|_| PrepareError::Deserialization)?);
+                                }
+                            }
+                            wp::ElementItems::Expressions(_, exprs) => {
+                                for expr in exprs {
+                                    self.scan_const_expr(
+                                        &expr.map_err(|_| PrepareError::Deserialization)?,
+                                    )?;
+                                }
+                            }
+                        }
+                        if let wp::ElementKind::Active { offset_expr, .. } = kind {
+                            self.scan_const_expr(&offset_expr)?;
+                        }
+                    }
+                    self.copy_section(SectionId::Element, range)?;
                 }
                 wp::Payload::DataCountSection { count, range } => {
                     self.ensure_export_section();
@@ -302,7 +342,23 @@ impl<'a> PrepareContext<'a> {
             }
         }
         self.ensure_export_section();
+        if u64::try_from(self.escaped_funcs.len()).unwrap_or(u64::MAX) > self.escaped_func_limit {
+            return Err(PrepareError::TooManyEscapedFuncs);
+        }
         Ok(std::mem::replace(&mut self.output_code, Vec::new()))
+    }
+
+    /// Record any functions referenced via `ref.func` inside an initializer
+    /// const-expr (global initializer, element-segment expression, active
+    /// element offset, table initializer) as escaped.
+    fn scan_const_expr(&mut self, expr: &wp::ConstExpr) -> Result<(), PrepareError> {
+        let mut ops = expr.get_operators_reader();
+        while let Ok(op) = ops.read() {
+            if let wp::Operator::RefFunc { function_index } = op {
+                self.escaped_funcs.insert(function_index);
+            }
+        }
+        Ok(())
     }
 
     fn transform_import_section(
@@ -320,6 +376,9 @@ impl<'a> PrepareContext<'a> {
                     // TODO: validate imported function types here.
                     self.function_limit =
                         self.function_limit.checked_sub(1).ok_or(PrepareError::TooManyFunctions)?;
+                    // Every imported function is conservatively escaped.
+                    self.escaped_funcs.insert(self.func_import_index);
+                    self.func_import_index += 1;
                     wasm_encoder::EntityType::Function(id)
                 }
                 wp::TypeRef::Table(_) => return Err(PrepareError::Instantiate),
