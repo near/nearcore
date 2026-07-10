@@ -512,9 +512,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(DBCol::BlockHeader, key);
                 self.merge(store_update);
 
-                // ChunkProducers rows are written per header (header sync and block
-                // processing) keyed by (block_hash, shard_id). Prefix-scan by the header hash
-                // to delete every shard's row regardless of layout; nightly-only.
+                // A ChunkProducers row is keyed by (block_hash, shard_id); the header-hash
+                // prefix matches every shard's row for this header.
                 #[cfg(feature = "nightly")]
                 {
                     let cp_keys: Vec<Box<[u8]>> = self
@@ -569,11 +568,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 // TODO #3488: enable
                 //self.gc_col(DBCol::BlockHeader, header_hash.as_bytes());
 
-                // ChunkProducers rows are written per header (header sync + block
-                // processing), keyed by (block_hash, shard_id). Delete them here before
-                // HeaderHashesByHeight is dropped, so header-only anchors (fork siblings,
-                // synced-ahead headers that never get a body) don't orphan rows. The
-                // block-hash prefix matches every shard_id row for this hash. Nightly-only.
+                // Delete the header's ChunkProducers rows before the height index is dropped,
+                // else header-only hashes (never given a body, so never seen by
+                // clear_block_data) orphan their rows. Prefix matches every shard's row.
                 #[cfg(feature = "nightly")]
                 {
                     let cp_keys: Vec<Box<[u8]>> = self
@@ -926,9 +923,8 @@ impl<'a> ChainStoreUpdate<'a> {
             self.merge(store_update);
         }
 
-        // ChunkProducers rows are deleted in clear_header_data_for_heights below, which covers
-        // the head_height..=header_head_height range: this head, its fork siblings, and every
-        // header-only anchor synced above it.
+        // ChunkProducers rows for the cleared heights are deleted in
+        // clear_header_data_for_heights below.
 
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());

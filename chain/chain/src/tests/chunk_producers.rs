@@ -433,8 +433,7 @@ mod tests {
     }
 
     /// Hot GC deletes a below-boundary anchor's ChunkProducers rows while retaining rows for
-    /// anchors that later blocks still resolve against. Drives clear_block_data directly (mirrors
-    /// garbage_collection::tests::test_clear_old_data_fixed_height) so the cleared block is exact.
+    /// anchors that later blocks still resolve against.
     #[test]
     fn test_chunk_producers_garbage_collected_with_block() {
         init_test_logger();
@@ -442,7 +441,6 @@ mod tests {
         clock.advance(Duration::milliseconds(3444));
         let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
 
-        // setup() uses epoch_length 1000, so all blocks share one epoch and one shard.
         let mut hashes = vec![*chain.genesis().hash()];
         for _ in 0..9 {
             let prev_hash = *chain.head_header().unwrap().hash();
@@ -465,7 +463,6 @@ mod tests {
                 .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
         };
 
-        // Every anchor has a row before GC.
         for anchor in &hashes {
             assert!(row(&chain, anchor).is_some(), "row should exist before GC for {anchor}");
         }
@@ -545,7 +542,6 @@ mod tests {
                 .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
         };
 
-        // The body head (3) and the header-only anchors (4, 5) all have rows before the undo.
         for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
             for shard_id in shard_layout.shard_ids() {
                 assert!(row(&chain, anchor, shard_id).is_some(), "row should exist for {anchor}");
@@ -556,7 +552,6 @@ mod tests {
         store_update.clear_head_block_data(epoch_manager.as_ref()).unwrap();
         store_update.commit().unwrap();
 
-        // Body head + header-only anchors are all cleared; nothing orphaned.
         for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
             for shard_id in shard_layout.shard_ids() {
                 assert!(
@@ -579,7 +574,6 @@ mod tests {
         clock.advance(Duration::milliseconds(3444));
         let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
 
-        // Canonical chain: genesis + blocks 1..=6.
         let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
         for i in 0..6 {
             let prev = blocks[i].clone();
