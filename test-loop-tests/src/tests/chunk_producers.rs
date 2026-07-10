@@ -306,10 +306,9 @@ mod cold_storage_tests {
 }
 
 /// `DBCol::ChunkProducers` rows are hot-garbage-collected with the anchor block's data: a
-/// below-tail anchor's rows disappear (disk stays bounded) while an in-window anchor's rows
-/// survive and still resolve. The chain advancing past the GC boundary is the deterministic
-/// stand-in for the `miss_db_entry == 0` canary: a wrongly-evicted in-window row would surface
-/// as `ChunkProducerNotInDB` and stall `run_until_head_height`.
+/// below-tail anchor's rows disappear while an in-window anchor's rows survive and still
+/// resolve. A wrongly-evicted in-window row would surface as `ChunkProducerNotInDB` and stall
+/// the chain, so reaching the target height at all is the liveness check.
 #[cfg(feature = "nightly")]
 mod hot_gc_tests {
     use crate::setup::builder::TestLoopBuilder;
@@ -331,7 +330,6 @@ mod hot_gc_tests {
     const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
     #[test]
-    // TestBlockBuilder-independent, but keep parity with the cold-store test's spice guard.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn test_chunk_producers_garbage_collected() {
         init_test_logger();
@@ -373,12 +371,11 @@ mod hot_gc_tests {
         let chain = &node.client().chain;
         let epoch_manager = node.client().epoch_manager.clone();
 
-        // Below-tail anchor's rows are gone: disk stays bounded.
         let old_row: Option<ValidatorStake> = node.store().get_ser(DBCol::ChunkProducers, &old_key);
         assert!(old_row.is_none(), "below-tail anchor's row must be garbage collected");
 
-        // An in-window anchor's rows survive and still resolve. The chunk built on `child`
-        // (height anchor+1) anchors on its grandparent `anchor`.
+        // A chunk built on `child` anchors on its grandparent `anchor` (height anchor+1's
+        // grandparent), so the retained anchor's row must still resolve.
         let head_height = node.head().height;
         let anchor_height = head_height - 3;
         let anchor_hash = chain.get_block_hash_by_height(anchor_height).unwrap();
@@ -398,7 +395,7 @@ mod hot_gc_tests {
     /// leak: clear_block_data iterates get_shard_uids_to_gc (this-epoch ∪ next-epoch), so every
     /// next-layout row for the boundary anchor is dropped once it falls below the GC tail.
     #[test]
-    // TODO(spice-test): assess relevance for spice; keep parity with the cold-store test guard.
+    // TODO(spice-test): assess relevance for spice.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn test_chunk_producers_garbage_collected_at_reshard_boundary() {
         init_test_logger();
