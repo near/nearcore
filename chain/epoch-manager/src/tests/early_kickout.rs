@@ -625,7 +625,7 @@ fn per_shard_blacklist_isolated() {
 /// Records a block whose finality is pinned to `(final_hash, final_height)` with all chunks
 /// produced. Holding those fixed across many blocks freezes `largest_final_height`, so
 /// `record_block_info`'s incremental aggregator update is skipped and the per-block seed walk
-/// re-scans the growing unfinalized suffix — the finality-stall regime.
+/// re-scans the growing not-yet-finalized suffix — the finality-stall regime.
 #[cfg(feature = "nightly")]
 fn record_block_frozen_final(
     em: &mut EpochManager,
@@ -671,8 +671,8 @@ fn record_block_frozen_final(
 }
 
 // Regression guard for the per-block aggregator walk in `seed_chunk_producers`: with finality
-// frozen, the incremental aggregator update is skipped while the seed re-scans the unfinalized
-// suffix every block. Pins the current per-block O(stall-depth) walk as a guard (a future cache
+// frozen, the incremental aggregator update is skipped while the seed re-scans the growing
+// not-yet-finalized suffix every block. Pins the current per-block O(stall-depth) walk as a guard (a future cache
 // tightens it) and catches a worse-than-quadratic regression. Distinct from the walk-count
 // invariant in `test_finalize_epoch_large_epoch_length`, which is gated off nightly.
 #[cfg(feature = "nightly")]
@@ -697,7 +697,7 @@ fn seed_walk_bounded_under_finality_stall() {
         );
     }
     let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    // The seed re-scans the unfinalized suffix each block: total ~ sum_{k=1..count} k. Pin a
+    // The seed re-scans the not-yet-finalized suffix each block: total ~ sum_{k=1..count} k. Pin a
     // generous O(depth^2) upper bound; a future cache drops it toward O(count).
     let upper = (count * (count + 1)) as usize;
     let count = count as usize;
