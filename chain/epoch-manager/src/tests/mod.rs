@@ -1997,6 +1997,11 @@ fn test_finalize_epoch_large_epoch_length() {
             ("test2".parse().unwrap(), stake_amount)
         ]),
     );
+    // EarlyKickout's seed_chunk_producers reads the aggregator once per block, so
+    // the exact per-block walk count only holds with the feature compiled out. The
+    // caching invariant is protocol-independent and stays covered on stable; the
+    // kickout seed path is covered by the early_kickout tests.
+    #[cfg(not(feature = "nightly"))]
     assert_eq!(
         BLOCK_CACHE_SIZE + 2,
         epoch_manager.epoch_info_aggregator_loop_counter.load(std::sync::atomic::Ordering::SeqCst),
