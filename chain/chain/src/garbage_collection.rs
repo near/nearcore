@@ -514,7 +514,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
                 // ChunkProducers rows are written per header (header sync and block
                 // processing) keyed by (block_hash, shard_id). Prefix-scan by the header hash
-                // to delete every shard's row layout-agnostically; nightly-only.
+                // to delete every shard's row regardless of layout; nightly-only.
                 #[cfg(feature = "nightly")]
                 {
                     let cp_keys: Vec<Box<[u8]>> = self
