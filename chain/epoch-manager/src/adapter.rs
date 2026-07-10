@@ -1142,9 +1142,27 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(anchor_hash)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        // Grace window is measured against the aggregator's own epoch. A missing epoch-start
+        // (genesis / pre-genesis) is treated as "just started" -> anchor height ->
+        // `blocks_into_epoch = 0` -> grace (empty); any other error propagates rather than
+        // masking storage corruption. Use the read guard's `EpochManager` methods directly:
+        // adapter methods would re-take `self.read()` and deadlock.
+        let anchor_height = epoch_manager.get_block_info(anchor_hash)?.height();
+        let epoch_start = match epoch_manager.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
+            Ok(start) => start,
+            Err(EpochError::EpochOutOfBounds(_)) => anchor_height,
+            Err(e) => return Err(e),
+        };
+        let blocks_into_epoch = anchor_height.saturating_sub(epoch_start);
         // `blacklist_for_epoch` resets to empty when the aggregator's epoch differs from the
-        // anchor's (a boundary anchor whose next epoch has no stats yet).
-        Ok(crate::blacklist_for_epoch(&aggregator, &epoch_id, epoch_info.as_ref(), &shard_layout))
+        // anchor's (a boundary anchor whose next epoch has no stats yet) or within the grace.
+        Ok(crate::blacklist_for_epoch(
+            &aggregator,
+            &epoch_id,
+            epoch_info.as_ref(),
+            &shard_layout,
+            blocks_into_epoch,
+        ))
     }
 
     fn get_chunk_validator_assignments(

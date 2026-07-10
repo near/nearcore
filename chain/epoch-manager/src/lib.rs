@@ -63,14 +63,15 @@ const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
-const EARLY_KICKOUT_MIN_MISSES: u64 = 20;
+const EARLY_KICKOUT_MIN_MISSES: u64 = 100;
 const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 80;
 const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
-const EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS: u64 = 50;
+/// Grace window at the start of each epoch: no chunk producer is blacklisted until the
+/// anchor is at least this many blocks into the epoch. Absorbs upgrade-restart downtime.
+const EARLY_KICKOUT_EPOCH_GRACE_BLOCKS: u64 = 1000;
 
 /// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
 /// A validator is blacklisted on a shard when, within the current epoch:
-///   - expected >= EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS  (sample-size guard)
 ///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
 ///   - produced * 100 < expected * 80                     (production ratio < 80%)
 /// Safety valve: if blacklisting would remove every distinct producer on a shard,
@@ -98,9 +99,6 @@ pub fn compute_chunk_producer_blacklist(
                 continue;
             }
             let (produced, expected) = (stats.produced(), stats.expected());
-            if expected < EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS {
-                continue;
-            }
             let missed = expected.saturating_sub(produced);
             // u128 keeps the ratio comparison overflow-proof.
             if missed >= EARLY_KICKOUT_MIN_MISSES
@@ -119,21 +117,26 @@ pub fn compute_chunk_producer_blacklist(
     result
 }
 
-/// Per-shard blacklist for `target_epoch_id`, or empty when the aggregator belongs to a
-/// different epoch (a last-of-epoch anchor whose next epoch has no stats yet). Shared by the
-/// record-block seeder and the `get_chunk_producer_blacklist` accessor so the epoch-reset
-/// check can't drift between them.
+/// Per-shard blacklist for `target_epoch_id`, or empty when either the aggregator belongs to
+/// a different epoch (a last-of-epoch anchor whose next epoch has no stats yet) or the anchor
+/// is still within the epoch's start-of-epoch grace window (`blocks_into_epoch` = anchor
+/// height − epoch-start height). Shared by the record-block seeder and the
+/// `get_chunk_producer_blacklist` accessor so the reset and grace checks can't drift between
+/// them.
 pub(crate) fn blacklist_for_epoch(
     aggregator: &EpochInfoAggregator,
     target_epoch_id: &EpochId,
     epoch_info: &EpochInfo,
     shard_layout: &ShardLayout,
+    blocks_into_epoch: BlockHeight,
 ) -> HashMap<ShardId, HashSet<ValidatorId>> {
-    if aggregator.epoch_id == *target_epoch_id {
-        compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
-    } else {
-        HashMap::new()
+    if aggregator.epoch_id != *target_epoch_id {
+        return HashMap::new();
     }
+    if blocks_into_epoch < EARLY_KICKOUT_EPOCH_GRACE_BLOCKS {
+        return HashMap::new();
+    }
+    compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
 }
 
 /// In the current architecture, various components have access to the same
@@ -2164,11 +2167,22 @@ impl EpochManager {
             // `store_update`, so it uses `seed_chunk_producers_for_first_block` (empty
             // blacklist, no walk) instead.
             let aggregator = self.get_epoch_info_aggregator_upto_last(block_hash)?;
+            // Grace window is measured against the aggregator's own epoch. At genesis the
+            // `EpochStart` row for `EpochId::default()` does not exist yet -> treat the missing
+            // start as "just started" (blocks_into_epoch = 0 -> grace, empty). Propagate any
+            // other error rather than masking storage corruption as an empty blacklist.
+            let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
+                Ok(start) => start,
+                Err(EpochError::EpochOutOfBounds(_)) => block_height,
+                Err(e) => return Err(e),
+            };
+            let blocks_into_epoch = block_height.saturating_sub(epoch_start);
             let blacklist = blacklist_for_epoch(
                 &aggregator,
                 sample_epoch_id,
                 sample_epoch_info,
                 sample_shard_layout,
+                blocks_into_epoch,
             );
             self.seed_chunk_producer_rows(
                 store_update,
