@@ -6,7 +6,8 @@ use near_chain_primitives::Error;
 use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Versioned container for block-related data stored in the cloud archival.
@@ -15,6 +16,10 @@ pub enum BlockData {
     V1(BlockDataV1),
 }
 
+// Cloud archival is still pre-stabilization (see `mod.rs` dev-stage note), so this
+// layout has no committed-to blob-format contract yet. Appending a field to `V1` is
+// therefore fine: no stable blobs exist to break. Once the format freezes, add a new
+// `BlockData::V2` variant instead of appending here.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BlockDataV1 {
     /// Read from `DBCol::Block`.
@@ -23,6 +28,9 @@ pub struct BlockDataV1 {
     block_info: BlockInfo,
     /// Read from `DBCol::NextBlockHashes`.
     next_block_hash: CryptoHash,
+    /// Rows of `DBCol::ChunkProducers` for this block, keyed by shard_id; empty
+    /// when EarlyKickout/nightly is off.
+    chunk_producers: Vec<(ShardId, ValidatorStake)>,
 }
 
 /// Builds a `BlockData` object for the given block height by reading data
@@ -44,8 +52,29 @@ pub fn build_block_data(
     let block = (*store.get_block(&block_hash)?).clone();
     let block_info = store.epoch_store().get_block_info(&block_hash)?;
     let next_block_hash = store.get_next_block_hash(&block_hash)?;
-    let block_data = BlockDataV1 { block, block_info, next_block_hash };
+    // `read_chunk_producers` needs the base `Store`, not the chain-store adapter
+    // that shadows `store` above.
+    let chunk_producers = read_chunk_producers(store.store_ref(), &block_hash);
+    let block_data = BlockDataV1 { block, block_info, next_block_hash, chunk_producers };
     Ok(Some(BlockData::V1(block_data)))
+}
+
+#[cfg(feature = "nightly")]
+fn read_chunk_producers(store: &Store, block_hash: &CryptoHash) -> Vec<(ShardId, ValidatorStake)> {
+    use crate::DBCol;
+    use near_primitives::utils::get_block_shard_id_rev;
+    store
+        .iter_prefix_ser::<ValidatorStake>(DBCol::ChunkProducers, block_hash.as_ref())
+        .map(|(key, stake)| (get_block_shard_id_rev(&key).unwrap().1, stake))
+        .collect()
+}
+
+#[cfg(not(feature = "nightly"))]
+fn read_chunk_producers(
+    _store: &Store,
+    _block_hash: &CryptoHash,
+) -> Vec<(ShardId, ValidatorStake)> {
+    Vec::new()
 }
 
 impl BlockData {
@@ -64,6 +93,12 @@ impl BlockData {
     pub fn next_block_hash(&self) -> &CryptoHash {
         match self {
             BlockData::V1(data) => &data.next_block_hash,
+        }
+    }
+
+    pub fn chunk_producers(&self) -> &[(ShardId, ValidatorStake)] {
+        match self {
+            BlockData::V1(data) => &data.chunk_producers,
         }
     }
 }

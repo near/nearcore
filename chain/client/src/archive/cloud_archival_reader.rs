@@ -50,6 +50,15 @@ pub fn save_block_data(store: &Store, block_data: &BlockData) {
         update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), &tree);
     }
 
+    #[cfg(feature = "nightly")]
+    for (shard_id, stake) in block_data.chunk_producers() {
+        update.insert_ser(
+            DBCol::ChunkProducers,
+            &get_block_shard_id(&block_hash, *shard_id),
+            stake,
+        );
+    }
+
     update.commit();
 }
 

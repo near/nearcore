@@ -17,20 +17,28 @@ use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_reader::find_snapshot_at_or_before;
+#[cfg(feature = "nightly")]
+use near_client::archive::cloud_archival_reader::save_block_data;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
+#[cfg(feature = "nightly")]
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+#[cfg(feature = "nightly")]
+use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::db::cloud_shard_head_key;
+#[cfg(feature = "nightly")]
+use near_store::test_utils::create_test_store;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -1493,6 +1501,79 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
     match CloudArchiveHarness::default_shard_layout() {
         ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) | ShardLayout::V3(_) => {}
     }
+}
+
+/// Across a resharding boundary, the cloud `BlockData` captures every
+/// `DBCol::ChunkProducers` row for a block, and `save_block_data` reconstructs
+/// them byte-for-byte into a fresh store. The boundary block is the last block
+/// of the pre-split epoch, so its rows are keyed by the NEXT (post-split)
+/// layout's shard_ids - the case that proves BlockData placement captures rows
+/// the own-epoch ShardData would miss.
+#[test]
+#[cfg(feature = "nightly")]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_reader_reconstructs_chunk_producers() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
+    let r = h.run_until_one_epoch_after_resharding();
+
+    let boundary_height = r.resharding_block_height;
+    let writer = h.writer_store();
+    let block_hash = writer.chain_store().get_block_hash_by_height(boundary_height).unwrap();
+
+    // Writer's own ChunkProducers rows for the boundary block, keyed
+    // block_hash‖shard_id.
+    let writer_rows: BTreeMap<Vec<u8>, Vec<u8>> = writer
+        .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
+        .map(|(k, v)| (k.into_vec(), v.into_vec()))
+        .collect();
+    assert!(
+        !writer_rows.is_empty(),
+        "EarlyKickout must be active so the boundary block has seeded ChunkProducers rows"
+    );
+
+    // The captured shard_ids must be the post-split layout's, proving BlockData
+    // placement captures next-epoch-layout rows the own-epoch ShardData would miss.
+    let captured_shards: HashSet<ShardId> =
+        writer_rows.keys().map(|k| get_block_shard_id_rev(k).unwrap().1).collect();
+    let new_shards: HashSet<ShardId> = h.new_shard_layout().shard_ids().collect();
+    let base_shards: HashSet<ShardId> = CloudArchiveHarness::all_shard_ids().into_iter().collect();
+    assert_eq!(captured_shards, new_shards, "boundary rows must use the post-split layout");
+    assert_ne!(captured_shards, base_shards, "post-split layout must differ from the base layout");
+
+    // The cloud blob round-trips those rows: `build_block_data` populated
+    // `chunk_producers`, borsh serialized it, and `get_block_data` deserialized it.
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let block_data = cloud_storage.get_block_data(boundary_height).unwrap().unwrap();
+    let blob_rows: BTreeMap<Vec<u8>, Vec<u8>> = block_data
+        .chunk_producers()
+        .iter()
+        .map(|(shard_id, stake)| {
+            (get_block_shard_id(&block_hash, *shard_id), to_vec(stake).unwrap())
+        })
+        .collect();
+    assert_eq!(blob_rows, writer_rows, "cloud blob rows must match the writer's rows");
+
+    // `save_block_data` writes them back byte-for-byte into a fresh store. It
+    // extends the merkle chain from prev_hash, so seed a placeholder tree to
+    // keep the non-genesis path from panicking; only ChunkProducers is asserted.
+    let fresh = create_test_store();
+    {
+        let mut update = fresh.store_update();
+        update.set_ser(
+            DBCol::BlockMerkleTree,
+            block_data.block().header().prev_hash().as_ref(),
+            &PartialMerkleTree::default(),
+        );
+        update.commit();
+    }
+    save_block_data(&fresh, &block_data);
+    let fresh_rows: BTreeMap<Vec<u8>, Vec<u8>> = fresh
+        .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
+        .map(|(k, v)| (k.into_vec(), v.into_vec()))
+        .collect();
+    assert_eq!(fresh_rows, writer_rows, "reconstructed rows must match the writer byte-for-byte");
+
+    h.shutdown();
 }
 
 /// Bootstraps a reader across a resharding boundary and asserts the reader trie
