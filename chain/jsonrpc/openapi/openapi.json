@@ -11405,6 +11405,13 @@
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
           },
+          "max_globals_per_contract": {
+            "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_instrumented_code_size": {
             "description": "If present, stores max byte size of the wasm code after gas instrumentation.\nThis prevents Cranelift's 24-bit SSA counter from overflowing on\npathologically large contracts.",
             "format": "uint64",
@@ -12172,6 +12179,13 @@
             "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_bytes_per_function`.",
             "enum": [
               "OperandStackTooLarge"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Contract declares too many entries in the wasm global section.",
+            "enum": [
+              "TooManyGlobals"
             ],
             "type": "string"
           }
