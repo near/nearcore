@@ -20,6 +20,7 @@ use crate::sync::handler::SyncHandler;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncShardResult};
+use crate::verified_peer_heights::VerifiedPeerHeights;
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
@@ -192,6 +193,7 @@ pub struct Client {
     /// watch::Sender used to notify watchers about new postprocessed blocks.
     pub block_notification_watch_sender:
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
+    pub(crate) verified_peer_heights: VerifiedPeerHeights,
 }
 
 impl AsRef<Client> for Client {
@@ -512,6 +514,7 @@ impl Client {
             shadow_validation_reed_solomon: OnceLock::new(),
             last_validator_key_check_epoch: None,
             block_notification_watch_sender,
+            verified_peer_heights: VerifiedPeerHeights::default(),
         };
         Ok(client)
     }
@@ -1204,6 +1207,21 @@ impl Client {
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(block))
+    }
+
+    /// Record `peer_id`'s verified height if the relayed block is ahead of us
+    /// and its approvals verify as >2/3 of a known epoch's stake; far-ahead
+    /// blocks (unknown epoch) fail that check and are ignored.
+    pub(crate) fn note_verified_peer_height(&mut self, block: &Block, peer_id: &PeerId) {
+        let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
+        self.verified_peer_heights.prune_at_or_below(head_height);
+        let height = block.header().height();
+        if height <= head_height {
+            return;
+        }
+        self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
+            self.chain.verify_header_approvals_without_ancestry(block.header()).is_ok()
+        });
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.

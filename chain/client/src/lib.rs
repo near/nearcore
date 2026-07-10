@@ -58,4 +58,5 @@ pub mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;
 pub mod test_utils;
+mod verified_peer_heights;
 mod view_client_actor;

@@ -1,4 +1,6 @@
-use crate::approval_verification::verify_approval_with_approvers_info;
+use crate::approval_verification::{
+    verify_approval_with_approvers_info, verify_approvals_and_threshold_orphan,
+};
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
     BlocksInProcessing, OptimisticBlockInfo,
@@ -1483,7 +1485,6 @@ impl Chain {
             &mut self.chain_store,
             self.epoch_manager.clone(),
             self.runtime_adapter.clone(),
-            self.doomslug_threshold_mode,
         )
     }
 
@@ -2441,7 +2442,7 @@ impl Chain {
             }
             block.check_validity()?;
             // TODO: enable after #3729 and #3863
-            // self.verify_orphan_header_approvals(&header)?;
+            // self.verify_header_approvals_without_ancestry(&header)?;
             return Err(Error::Orphan);
         }
 
@@ -4010,6 +4011,44 @@ impl Chain {
     #[inline]
     pub fn is_block_invalid(&self, hash: &CryptoHash) -> bool {
         self.invalid_blocks.contains(hash)
+    }
+
+    /// Verifies that a header carries approvals from >2/3 of the stake of a
+    /// validator set we already know (current or next epoch). Errors if the
+    /// header's epoch is unknown (too far ahead to validate), the approvals fall
+    /// short, or the header is too old to carry a `prev_height` (V1/V2).
+    pub fn verify_header_approvals_without_ancestry(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        // Producer signature first: the header hash covers the approvals, so a
+        // header with any tampered approval dies after one signature check
+        // instead of a full pass over ~100 approval signatures.
+        if !self.partial_verify_orphan_header_signature(header)? {
+            return Err(Error::InvalidSignature);
+        }
+        let prev_hash = header.prev_hash();
+        let Some(prev_height) = header.prev_height() else {
+            return Err(Error::Other("header too old to verify approvals without ancestry".into()));
+        };
+        let height = header.height();
+        let epoch_id = header.epoch_id();
+        let approvals = header.approvals();
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+        verify_approvals_and_threshold_orphan(
+            &|approvals, stakes| {
+                Doomslug::can_approved_block_be_produced(
+                    self.doomslug_threshold_mode,
+                    approvals,
+                    stakes,
+                )
+            },
+            prev_hash,
+            prev_height,
+            height,
+            approvals,
+            epoch_info,
+        )
     }
 
     /// Check that sync_hash matches the one we expect for the epoch containing that block.
