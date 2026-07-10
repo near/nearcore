@@ -41,7 +41,6 @@ skip = [
 
     # wasm-tools
     { name = "wasmparser", version = "=0.78.2" },
-    { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
     { name = "wasmparser", version = "=0.236.1" },
@@ -49,9 +48,6 @@ skip = [
     { name = "wasm-encoder", version = "=0.236.0" },
     { name = "wasmprinter", version = "=0.2.57" },
     { name = "wasmprinter", version = "=0.236.1" },
-
-    # wasmer 0.17.x
-    { name = "target-lexicon", version = "^0.12.0" },
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
@@ -123,8 +119,6 @@ skip = [
     # rust-s3 brings in older versions of these via minidom/rxml/attohttpc
     { name = "quick-xml", version = "^0.32" },
     { name = "quick-xml", version = "^0.36" },
-    { name = "windows-registry", version = "^0.4" },
-    { name = "windows-strings", version = "^0.3" },
 
     # ring and rustls pull in untrusted 0.7; aws-lc-rs (and other newer crates)
     # pull in untrusted 0.9. Both are tiny and serve the same purpose; the
@@ -135,10 +129,6 @@ skip = [
     # okApi uses mostly schemars 0.8 for now, though it's not necessary
     { name = "schemars", version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },
-
-    # Bolero depends on outdated versions of these
-    { name = "gimli", version = "=0.31.1" },
-    { name = "object", version = "=0.36.5" },
 
     { name = "bytesize", version = "=1.1.0" },
     { name = "num-bigint", version = "=0.3.3" },
