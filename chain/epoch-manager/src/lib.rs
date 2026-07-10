@@ -90,7 +90,7 @@ pub fn compute_chunk_producer_blacklist(
         // endorsement-only entries (chunk validators that never produced); they must
         // not be blacklist candidates and must not skew the safety-valve denominator.
         // (Today expected>=MIN skips them since production.expected==0 — but make it
-        // explicit so demo threshold tuning can't silently reintroduce the bug.)
+        // explicit so threshold tuning can't silently reintroduce the bug.)
         let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
         let mut blacklisted = HashSet::new();
         for (&validator_id, stats) in validators {
@@ -102,8 +102,7 @@ pub fn compute_chunk_producer_blacklist(
                 continue;
             }
             let missed = expected.saturating_sub(produced);
-            // u128 keeps the ratio comparison overflow-proof (this feeds consensus
-            // assignment in PR6).
+            // u128 keeps the ratio comparison overflow-proof.
             if missed >= EARLY_KICKOUT_MIN_MISSES
                 && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
                     < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
@@ -2122,16 +2121,6 @@ impl EpochManager {
     /// Writes into `store_update` so the rows commit atomically with the block's
     /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
     /// avoids seeding dead rows for last-of-epoch anchors across an activation edge.
-    ///
-    /// Kickout-aware: once `EarlyKickout` is active the persisted producer is the
-    /// blacklist-excluded sample, so every consensus reader
-    /// (`get_chunk_producer_info_anchored`, chunk production) and the aggregator's
-    /// `anchored_chunk_producers_for_aggregator` credit the replacement, not the
-    /// down node — no forward recompute needed.
-    ///
-    /// Activation prerequisite (met by #15908): the V2 witness path routes producer
-    /// lookup through `DBCol::ChunkProducers` before `EarlyKickout` is activated, so
-    /// witness resolution uses the reassigned producer, not the pre-kickout height sample.
     fn seed_chunk_producers(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,

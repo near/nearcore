@@ -1,7 +1,6 @@
 //! Tests for the early-kickout blacklist math (`compute_chunk_producer_blacklist`)
-//! and the gated `get_chunk_producer_blacklist` accessor. PR5 is pure math with no
-//! production callers; these tests exercise the math directly and the accessor
-//! end-to-end (gate + boundary reset + enabled path).
+//! and the gated `get_chunk_producer_blacklist` accessor: the math directly, and the
+//! accessor end-to-end (gate + boundary reset + enabled path).
 
 #[cfg(feature = "nightly")]
 use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
