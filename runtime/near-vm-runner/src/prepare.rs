@@ -37,6 +37,12 @@ mod tests {
     use super::*;
     use crate::tests::{test_vm_config, with_vm_variants};
     use assert_matches::assert_matches;
+    use std::borrow::Cow;
+    use wasm_encoder::{
+        CodeSection, ConstExpr, ElementSection, Elements, EntityType, ExportKind, ExportSection,
+        Function, FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, Module,
+        RefType, TableSection, TableType, TypeSection, ValType,
+    };
 
     fn parse_and_prepare_wat(
         config: &Config,
@@ -359,6 +365,185 @@ mod tests {
 
             // At the limit: accepted.
             let wasm = near_test_contracts::contract_with_num_globals(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    /// Build a module with `n` imported functions.
+    fn contract_with_n_imported_funcs(n: u32) -> Vec<u8> {
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([], []);
+        module.section(&types);
+        let mut imports = ImportSection::new();
+        for i in 0..n {
+            imports.import("env", &format!("f{i}"), EntityType::Function(0));
+        }
+        module.section(&imports);
+        module.finish()
+    }
+
+    #[test]
+    fn escaped_funcs_via_imports() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 100;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_escaped_funcs_per_contract = Some(limit);
+
+            // Over the limit via imports alone (no exports/elements): rejected.
+            let wasm = contract_with_n_imported_funcs((limit + 1) as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyEscapedFuncs));
+
+            // At the limit: accepted.
+            let wasm = contract_with_n_imported_funcs(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    /// Build a module with `n` functions referenced via `ref.func` in global initializer const-exprs.
+    fn contract_with_n_constexpr_funcs(n: u32) -> Vec<u8> {
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([], []);
+        module.section(&types);
+        let mut functions = FunctionSection::new();
+        for _ in 0..n {
+            functions.function(0);
+        }
+        module.section(&functions);
+        let mut globals = GlobalSection::new();
+        for i in 0..n {
+            globals.global(
+                GlobalType { val_type: ValType::FUNCREF, mutable: false, shared: false },
+                &ConstExpr::ref_func(i),
+            );
+        }
+        module.section(&globals);
+        let mut code = CodeSection::new();
+        for _ in 0..n {
+            let mut f = Function::new([]);
+            f.instruction(&Instruction::End);
+            code.function(&f);
+        }
+        module.section(&code);
+        module.finish()
+    }
+
+    #[test]
+    fn escaped_funcs_via_const_expr() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 100;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_escaped_funcs_per_contract = Some(limit);
+
+            // Over the limit via ref.func in global initializers alone: rejected.
+            let wasm = contract_with_n_constexpr_funcs((limit + 1) as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyEscapedFuncs));
+
+            // At the limit: accepted.
+            let wasm = contract_with_n_constexpr_funcs(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    /// Build a module with `n` exported functions..
+    fn contract_with_n_exported_funcs(n: u32) -> Vec<u8> {
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([], []);
+        module.section(&types);
+        let mut functions = FunctionSection::new();
+        for _ in 0..n {
+            functions.function(0);
+        }
+        module.section(&functions);
+        let mut exports = ExportSection::new();
+        for i in 0..n {
+            exports.export(&format!("f{i}"), ExportKind::Func, i);
+        }
+        module.section(&exports);
+        let mut code = CodeSection::new();
+        for _ in 0..n {
+            let mut f = Function::new([]);
+            f.instruction(&Instruction::End);
+            code.function(&f);
+        }
+        module.section(&code);
+        module.finish()
+    }
+
+    #[test]
+    fn too_many_escaped_funcs() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 100;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_escaped_funcs_per_contract = Some(limit);
+
+            // Over the limit: rejected at prepare time.
+            let wasm = contract_with_n_exported_funcs((limit + 1) as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyEscapedFuncs));
+
+            // At the limit: accepted.
+            let wasm = contract_with_n_exported_funcs(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    /// Functions placed in a funcref table via an element segment.
+    fn contract_with_n_element_segment_funcs(n: u32) -> Vec<u8> {
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([], []);
+        module.section(&types);
+        let mut functions = FunctionSection::new();
+        for _ in 0..n {
+            functions.function(0);
+        }
+        module.section(&functions);
+        let mut tables = TableSection::new();
+        tables.table(TableType {
+            element_type: RefType::FUNCREF,
+            table64: false,
+            minimum: n.into(),
+            maximum: Some(n.into()),
+            shared: false,
+        });
+        module.section(&tables);
+        let funcs: Vec<u32> = (0..n).collect();
+        let mut elements = ElementSection::new();
+        elements.active(None, &ConstExpr::i32_const(0), Elements::Functions(Cow::Borrowed(&funcs)));
+        module.section(&elements);
+        let mut code = CodeSection::new();
+        for _ in 0..n {
+            let mut f = Function::new([]);
+            f.instruction(&Instruction::End);
+            code.function(&f);
+        }
+        module.section(&code);
+        module.finish()
+    }
+
+    #[test]
+    fn escaped_funcs_via_element_segments() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 100;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_escaped_funcs_per_contract = Some(limit);
+
+            // Over the limit via element segments alone (no exports).
+            let wasm = contract_with_n_element_segment_funcs((limit + 1) as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyEscapedFuncs));
+
+            // At the limit: accepted.
+            let wasm = contract_with_n_element_segment_funcs(limit as u32);
             let r = prepare_contract(&wasm, &config, kind);
             assert_matches!(r, Ok(_));
         });

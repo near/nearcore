@@ -212,6 +212,8 @@ pub enum PrepareError {
     OperandStackTooLarge = 18,
     /// Contract declares too many entries in the wasm global section.
     TooManyGlobals = 19,
+    /// Contract contains too many escaped functions.
+    TooManyEscapedFuncs = 20,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -454,6 +456,7 @@ impl fmt::Display for PrepareError {
             TooManyParamsPerFunction => "Too many parameters in a single function",
             OperandStackTooLarge => "A function uses too much operand stack.",
             TooManyGlobals => "Too many globals declared in the contract.",
+            TooManyEscapedFuncs => "Too many escaped functions in the contract.",
         })
     }
 }

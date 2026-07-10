@@ -1368,6 +1368,8 @@ pub enum PrepareError {
     OperandStackTooLarge = 18,
     /// Contract declares too many entries in the wasm global section.
     TooManyGlobals = 19,
+    /// Contract contains too many escaped functions.
+    TooManyEscapedFuncs = 20,
 }
 
 /// A kind of a trap happened during execution of a binary

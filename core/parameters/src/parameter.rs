@@ -235,6 +235,7 @@ pub enum Parameter {
     MaxParamsPerContract,
     MaxOperandStackBytesPerFunction,
     MaxGlobalsPerContract,
+    MaxEscapedFuncsPerContract,
 
     // Contract runtime features
     FlatStorageReads,
@@ -406,6 +407,7 @@ impl Parameter {
             Parameter::MaxParamsPerContract,
             Parameter::MaxOperandStackBytesPerFunction,
             Parameter::MaxGlobalsPerContract,
+            Parameter::MaxEscapedFuncsPerContract,
         ]
         .iter()
     }

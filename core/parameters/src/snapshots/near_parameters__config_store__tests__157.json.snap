@@ -256,6 +256,7 @@ snapshot_kind: text
       "max_blocks_per_contract": 50000,
       "max_types_per_contract": 1024,
       "max_globals_per_contract": 100000,
+      "max_escaped_funcs_per_contract": 10000,
       "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,

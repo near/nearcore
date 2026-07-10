@@ -162,6 +162,19 @@ pub struct LimitConfig {
     /// section) a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
+    /// "Escaped" functions are those listed in the `defined_func_refs` region.
+    ///
+    /// This covers:
+    /// - imported functions
+    /// - exported functions
+    /// - the start function
+    /// - functions referenced using `ref.func` in const-expr initializers
+    /// - functions referenced by index or by `ref.func` in an element segment
+    ///
+    /// `max_escaped_funcs_per_contract` caps the used slots in that region,
+    /// available in `VMOffsets::num_escaped_funcs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_escaped_funcs_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
