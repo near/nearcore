@@ -39,3 +39,16 @@ pub(crate) static RESHARDING_ASSIGNMENT_STRATEGY: LazyLock<IntCounterVec> = Lazy
     )
     .unwrap()
 });
+
+// Nightly-only: the seeder that increments it is gated on `feature = "nightly"`.
+#[cfg(feature = "nightly")]
+pub(crate) static EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_early_kickout_chunk_producer_reassigned_total",
+            "Number of times the early-kickout seeder reassigned a chunk-producer slot away \
+             from a blacklisted producer, by shard",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
