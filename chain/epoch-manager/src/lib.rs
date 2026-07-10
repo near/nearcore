@@ -2129,9 +2129,9 @@ impl EpochManager {
     /// `anchored_chunk_producers_for_aggregator` credit the replacement, not the
     /// down node — no forward recompute needed.
     ///
-    /// Activation dependency (#15640): the V2 witness path must route producer
-    /// lookup through `DBCol::ChunkProducers` before `EarlyKickout` is activated,
-    /// otherwise witness resolution would still use the pre-kickout height sample.
+    /// Activation prerequisite (met by #15908): the V2 witness path routes producer
+    /// lookup through `DBCol::ChunkProducers` before `EarlyKickout` is activated, so
+    /// witness resolution uses the reassigned producer, not the pre-kickout height sample.
     fn seed_chunk_producers(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
