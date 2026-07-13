@@ -388,6 +388,9 @@ pub enum ProtocolFeature {
     /// (sequential ordering). Transactions with a nonce gap are held in the
     /// pool rather than discarded.
     StrictNonce,
+    /// Verify a chunk header's producer signature at arrival, before its parent block is
+    /// processed, by resolving the producer from the chunk's grandparent anchor.
+    VerifiedChunkCache,
     /// Pre-compute and persist chunk producer assignments in `DBCol::ChunkProducers`
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
@@ -577,6 +580,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::VerifiedChunkCache => 150,
             ProtocolFeature::EarlyKickout => 152,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
