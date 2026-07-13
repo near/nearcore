@@ -30,15 +30,16 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::collections::HashSet;
 
-/// Lowest protocol version with `EarlyKickout` enabled — forces the V2 wire
-/// variant regardless of the compile-time `nightly` feature.
+/// Lowest protocol version with `EarlyKickout` enabled. This forces the V2 wire variant
+/// (gated at `VerifiedChunkCache`, which is <= `EarlyKickout`) and additionally turns on the
+/// `DBCol::ChunkProducers` producer source, which the anchored-db-row tests below rely on.
 fn early_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version()
 }
 
-/// One protocol version below `EarlyKickout` — forces the V1 wire variant.
-fn pre_kickout_version() -> ProtocolVersion {
-    ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
+/// One protocol version below `VerifiedChunkCache` — forces the V1 wire variant.
+fn pre_verified_chunk_cache_version() -> ProtocolVersion {
+    ProtocolFeature::VerifiedChunkCache.protocol_version().checked_sub(1).unwrap()
 }
 
 fn make_accesses(
@@ -578,7 +579,7 @@ fn v1_accesses_from_canonical_producer_is_accepted() {
         genesis_hash,
         CryptoHash::default(),
         signer.as_ref(),
-        pre_kickout_version(),
+        pre_verified_chunk_cache_version(),
     );
     assert!(matches!(accesses, ChunkContractAccesses::V1(_)));
 
@@ -928,7 +929,7 @@ fn v1_deploys_from_canonical_producer_is_accepted() {
         genesis_hash,
         CryptoHash::default(),
         signer.as_ref(),
-        pre_kickout_version(),
+        pre_verified_chunk_cache_version(),
     );
     assert!(matches!(deploys, PartialEncodedContractDeploys::V1(_)));
 

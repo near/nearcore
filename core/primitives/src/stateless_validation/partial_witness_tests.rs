@@ -14,11 +14,11 @@ fn test_epoch_id() -> EpochId {
     EpochId(CryptoHash::hash_bytes(b"test_epoch"))
 }
 
-/// Any protocol version strictly below EarlyKickout. `checked_sub` is
-/// infallible (EarlyKickout > 0) but we keep it defensive so if the
+/// Any protocol version strictly below VerifiedChunkCache. `checked_sub` is
+/// infallible (VerifiedChunkCache > 0) but we keep it defensive so if the
 /// feature ever moves to protocol version 1 a reviewer notices.
-fn pre_kickout_version() -> ProtocolVersion {
-    ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
+fn pre_verified_chunk_cache_version() -> ProtocolVersion {
+    ProtocolFeature::VerifiedChunkCache.protocol_version().checked_sub(1).unwrap()
 }
 
 fn post_kickout_version() -> ProtocolVersion {
@@ -48,7 +48,7 @@ fn make_witness(
 #[test]
 fn test_v1_construction_and_accessors() {
     let signer = test_signer();
-    let w = make_witness(&signer, pre_kickout_version());
+    let w = make_witness(&signer, pre_verified_chunk_cache_version());
     assert!(matches!(w, VersionedPartialEncodedStateWitness::V1(_)));
     assert!(w.prev_block_hash().is_none());
     assert!(w.prev_prev_block_hash().is_none());
@@ -61,7 +61,7 @@ fn test_v1_construction_and_accessors() {
 #[test]
 fn test_version_label() {
     let signer = test_signer();
-    assert_eq!(make_witness(&signer, pre_kickout_version()).version_label(), "v1");
+    assert_eq!(make_witness(&signer, pre_verified_chunk_cache_version()).version_label(), "v1");
     assert_eq!(make_witness(&signer, post_kickout_version()).version_label(), "v2");
 }
 
@@ -86,7 +86,7 @@ fn test_v2_construction_and_accessors() {
 #[test]
 fn test_borsh_roundtrip_v1() {
     let signer = test_signer();
-    let w = make_witness(&signer, pre_kickout_version());
+    let w = make_witness(&signer, pre_verified_chunk_cache_version());
     let bytes = borsh::to_vec(&w).unwrap();
     let decoded: VersionedPartialEncodedStateWitness = borsh::from_slice(&bytes).unwrap();
     assert_eq!(w, decoded);
@@ -107,7 +107,7 @@ fn test_borsh_roundtrip_v2() {
 #[test]
 fn test_versioned_discriminants_are_stable() {
     let signer = test_signer();
-    let v1 = make_witness(&signer, pre_kickout_version());
+    let v1 = make_witness(&signer, pre_verified_chunk_cache_version());
     let v2 = make_witness(&signer, post_kickout_version());
     let v1_bytes = borsh::to_vec(&v1).unwrap();
     let v2_bytes = borsh::to_vec(&v2).unwrap();
@@ -122,7 +122,7 @@ fn test_versioned_discriminants_are_stable() {
 #[test]
 fn test_v2_signature_differentiator_prevents_cross_version_replay() {
     let signer = test_signer();
-    let v1 = make_witness(&signer, pre_kickout_version());
+    let v1 = make_witness(&signer, pre_verified_chunk_cache_version());
     let v2 = make_witness(&signer, post_kickout_version());
 
     let v1_sig = match &v1 {
@@ -152,7 +152,7 @@ fn test_v2_signature_differentiator_prevents_cross_version_replay() {
 #[test]
 fn test_v1_signature_differentiator_prevents_cross_version_replay() {
     let signer = test_signer();
-    let v1 = make_witness(&signer, pre_kickout_version());
+    let v1 = make_witness(&signer, pre_verified_chunk_cache_version());
     let v2 = make_witness(&signer, post_kickout_version());
 
     let v2_sig = match &v2 {
@@ -180,7 +180,7 @@ fn test_v1_signature_differentiator_prevents_cross_version_replay() {
 #[test]
 fn test_coexistence_v1_and_v2_both_accepted() {
     let signer = test_signer();
-    let v1 = make_witness(&signer, pre_kickout_version());
+    let v1 = make_witness(&signer, pre_verified_chunk_cache_version());
     let v2 = make_witness(&signer, post_kickout_version());
 
     for (witness, label) in [(&v1, "v1"), (&v2, "v2")] {
@@ -195,7 +195,8 @@ fn test_coexistence_v1_and_v2_both_accepted() {
 fn test_from_partial_encoded_state_witness() {
     let signer = test_signer();
     let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-    let chunk_header = test_chunk_header(prev_block_hash, &signer, pre_kickout_version());
+    let chunk_header =
+        test_chunk_header(prev_block_hash, &signer, pre_verified_chunk_cache_version());
     let v1 = PartialEncodedStateWitness::new(
         test_epoch_id(),
         chunk_header,

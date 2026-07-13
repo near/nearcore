@@ -34,8 +34,8 @@ fn post_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version()
 }
 
-fn pre_kickout_version() -> ProtocolVersion {
-    ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
+fn pre_verified_chunk_cache_version() -> ProtocolVersion {
+    ProtocolFeature::VerifiedChunkCache.protocol_version().checked_sub(1).unwrap()
 }
 
 fn make_witness(
@@ -61,7 +61,7 @@ fn make_witness(
 fn anchor_hashes_absent_for_v1_present_for_v2() {
     let signer = create_test_signer("test_account");
     let block = CryptoHash::hash_bytes(b"block");
-    let v1 = make_witness(&signer, block, pre_kickout_version());
+    let v1 = make_witness(&signer, block, pre_verified_chunk_cache_version());
     assert!(v1.prev_block_hash().is_none(), "V1 witness must not carry prev_block_hash");
     assert!(v1.prev_prev_block_hash().is_none(), "V1 witness must not carry prev_prev_block_hash");
     let v2 = make_witness(&signer, block, post_kickout_version());
@@ -72,7 +72,7 @@ fn anchor_hashes_absent_for_v1_present_for_v2() {
 // Kickout gate is a pure function: test the drop boundary without standing up an actor.
 
 fn v1_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
-    make_witness(signer, CryptoHash::hash_bytes(b"v1_block"), pre_kickout_version())
+    make_witness(signer, CryptoHash::hash_bytes(b"v1_block"), pre_verified_chunk_cache_version())
 }
 
 fn v2_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
@@ -82,8 +82,14 @@ fn v2_witness(signer: &ValidatorSigner) -> VersionedPartialEncodedStateWitness {
 #[test]
 fn witness_version_mismatch_pre_kickout_drops_v2_proceeds_v1() {
     let signer = create_test_signer("test_account");
-    assert!(!witness_version_mismatch(Some(pre_kickout_version()), &v1_witness(&signer)));
-    assert!(witness_version_mismatch(Some(pre_kickout_version()), &v2_witness(&signer)));
+    assert!(!witness_version_mismatch(
+        Some(pre_verified_chunk_cache_version()),
+        &v1_witness(&signer)
+    ));
+    assert!(witness_version_mismatch(
+        Some(pre_verified_chunk_cache_version()),
+        &v2_witness(&signer)
+    ));
 }
 
 #[test]
@@ -107,10 +113,10 @@ fn witness_version_mismatch_unknown_epoch_proceeds_both_variants() {
 #[test]
 fn version_mismatch_boundary() {
     // is_v2 = false (V1 message)
-    assert!(!version_mismatch(Some(pre_kickout_version()), false));
+    assert!(!version_mismatch(Some(pre_verified_chunk_cache_version()), false));
     assert!(version_mismatch(Some(post_kickout_version()), false));
     // is_v2 = true (V2 message)
-    assert!(version_mismatch(Some(pre_kickout_version()), true));
+    assert!(version_mismatch(Some(pre_verified_chunk_cache_version()), true));
     assert!(!version_mismatch(Some(post_kickout_version()), true));
     // Unknown epoch: never drop.
     assert!(!version_mismatch(None, false));
@@ -221,7 +227,7 @@ fn forward_drops_kicked_witness_before_spawn() {
         )
     };
     #[cfg(feature = "nightly")]
-    let witness = make_witness(signer.as_ref(), genesis_hash, pre_kickout_version());
+    let witness = make_witness(signer.as_ref(), genesis_hash, pre_verified_chunk_cache_version());
 
     let spawn_count = Arc::new(AtomicUsize::new(0));
     let spawner = Arc::new(CountingSpawner { count: spawn_count.clone() });
@@ -315,7 +321,7 @@ fn build_accesses(
     )
 }
 
-/// The version gate drops a V2 accesses message that arrives before EarlyKickout is
+/// The version gate drops a V2 accesses message that arrives before VerifiedChunkCache is
 /// active, before it reaches validation. We sign it with a non-producer key so that
 /// without the gate the bad signature would come back as `Err`; with the gate it is a
 /// quiet `Ok` drop instead.
@@ -341,7 +347,7 @@ fn accesses_receiver_gate_drops_v2_pre_kickout() {
     actor.handle_chunk_contract_accesses(accesses).unwrap();
 }
 
-/// The version gate drops a V1 accesses message that arrives at or after EarlyKickout is
+/// The version gate drops a V1 accesses message that arrives at or after VerifiedChunkCache is
 /// active, before it reaches validation. This is the mirror of the V2-before-activation
 /// case above.
 #[cfg(feature = "nightly")]
@@ -358,7 +364,7 @@ fn accesses_receiver_gate_drops_v1_post_kickout() {
         CryptoHash::default(),
         chain.genesis().height() + 1,
         ShardId::new(0),
-        pre_kickout_version(),
+        pre_verified_chunk_cache_version(),
     );
     assert!(matches!(accesses, ChunkContractAccesses::V1(_)));
 
@@ -414,7 +420,7 @@ fn build_deploys(
     )
 }
 
-/// Receiver gate: a V2 deploys message before EarlyKickout activation is dropped
+/// Receiver gate: a V2 deploys message before VerifiedChunkCache activation is dropped
 /// before validation. Signed by a non-producer so that, without the gate, the
 /// invalid signature would surface as `Err` instead of the quiet `Ok` drop.
 #[cfg(not(feature = "nightly"))]
@@ -439,7 +445,7 @@ fn deploys_receiver_gate_drops_v2_pre_kickout() {
     actor.handle_partial_encoded_contract_deploys(deploys).unwrap();
 }
 
-/// Receiver gate: a V1 deploys message at/after EarlyKickout activation is dropped
+/// Receiver gate: a V1 deploys message at/after VerifiedChunkCache activation is dropped
 /// before validation (symmetric to the V2-pre-activation case).
 #[cfg(feature = "nightly")]
 #[test]
@@ -455,7 +461,7 @@ fn deploys_receiver_gate_drops_v1_post_kickout() {
         CryptoHash::default(),
         chain.genesis().height() + 1,
         ShardId::new(0),
-        pre_kickout_version(),
+        pre_verified_chunk_cache_version(),
     );
     assert!(matches!(deploys, PartialEncodedContractDeploys::V1(_)));
 
