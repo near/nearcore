@@ -63,6 +63,62 @@ const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
+const EARLY_KICKOUT_MIN_MISSES: u64 = 20;
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 80;
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
+const EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS: u64 = 50;
+
+/// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
+/// A validator is blacklisted on a shard when, within the current epoch:
+///   - expected >= EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS  (sample-size guard)
+///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
+///   - produced * 100 < expected * 80                     (production ratio < 80%)
+/// Safety valve: if blacklisting would remove every distinct producer on a shard,
+/// that shard is omitted (caller falls through to default sampling).
+pub fn compute_chunk_producer_blacklist(
+    shard_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+) -> HashMap<ShardId, HashSet<ValidatorId>> {
+    let mut result = HashMap::new();
+    for (shard_id, validators) in shard_tracker {
+        let Ok(shard_index) = shard_layout.get_shard_index(*shard_id) else { continue };
+        let Some(settlement) = epoch_info.chunk_producers_settlement().get(shard_index) else {
+            continue;
+        };
+        // Distinct chunk PRODUCERS for this shard. shard_tracker also holds
+        // endorsement-only entries (chunk validators that never produced); they must
+        // not be blacklist candidates and must not skew the safety-valve denominator.
+        // (Today expected>=MIN skips them since production.expected==0 — but make it
+        // explicit so threshold tuning can't silently reintroduce the bug.)
+        let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
+        let mut blacklisted = HashSet::new();
+        for (&validator_id, stats) in validators {
+            if !producers.contains(&validator_id) {
+                continue;
+            }
+            let (produced, expected) = (stats.produced(), stats.expected());
+            if expected < EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS {
+                continue;
+            }
+            let missed = expected.saturating_sub(produced);
+            // u128 keeps the ratio comparison overflow-proof.
+            if missed >= EARLY_KICKOUT_MIN_MISSES
+                && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
+                    < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
+            {
+                blacklisted.insert(validator_id);
+            }
+        }
+        // Safety valve: never blacklist every distinct producer on a shard. Backstopped
+        // by sample_chunk_producer_excluding -> None on full exclusion.
+        if !blacklisted.is_empty() && blacklisted.len() < producers.len() {
+            result.insert(*shard_id, blacklisted);
+        }
+    }
+    result
+}
+
 /// In the current architecture, various components have access to the same
 /// shared mutable instance of [`EpochManager`]. This handle manages locking
 /// required for such access.

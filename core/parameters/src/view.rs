@@ -253,6 +253,8 @@ pub struct VMConfigView {
     pub one_yocto_on_promise: bool,
     /// See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).
     pub p256_verify_host_fn: bool,
+    /// See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).
+    pub sha3_host_fns: bool,
     /// See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).
     pub yield_with_id_host_fns: bool,
     /// See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).
@@ -296,6 +298,7 @@ impl From<crate::vm::Config> for VMConfigView {
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
+            sha3_host_fns: config.sha3_host_fns,
             yield_with_id_host_fns: config.yield_with_id_host_fns,
             chain_id_host_fn: config.chain_id_host_fn,
             bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
@@ -366,6 +369,16 @@ pub struct ExtCostsConfigView {
     pub sha3_256_base: Gas,
     /// Cost of getting sha3-256 per byte
     pub sha3_256_byte: Gas,
+
+    /// Cost of getting sha3-384 base
+    pub sha3_384_base: Gas,
+    /// Cost of getting sha3-384 per byte
+    pub sha3_384_byte: Gas,
+
+    /// Cost of getting sha3-512 base
+    pub sha3_512_base: Gas,
+    /// Cost of getting sha3-512 per byte
+    pub sha3_512_byte: Gas,
 
     /// Cost of getting ripemd160 base
     pub ripemd160_base: Gas,
@@ -544,6 +557,10 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             keccak512_byte: config.gas_cost(ExtCosts::keccak512_byte),
             sha3_256_base: config.gas_cost(ExtCosts::sha3_256_base),
             sha3_256_byte: config.gas_cost(ExtCosts::sha3_256_byte),
+            sha3_384_base: config.gas_cost(ExtCosts::sha3_384_base),
+            sha3_384_byte: config.gas_cost(ExtCosts::sha3_384_byte),
+            sha3_512_base: config.gas_cost(ExtCosts::sha3_512_base),
+            sha3_512_byte: config.gas_cost(ExtCosts::sha3_512_byte),
             ripemd160_base: config.gas_cost(ExtCosts::ripemd160_base),
             ripemd160_block: config.gas_cost(ExtCosts::ripemd160_block),
             ed25519_verify_base: config.gas_cost(ExtCosts::ed25519_verify_base),
@@ -653,6 +670,10 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::keccak512_byte => view.keccak512_byte,
                 ExtCosts::sha3_256_base => view.sha3_256_base,
                 ExtCosts::sha3_256_byte => view.sha3_256_byte,
+                ExtCosts::sha3_384_base => view.sha3_384_base,
+                ExtCosts::sha3_384_byte => view.sha3_384_byte,
+                ExtCosts::sha3_512_base => view.sha3_512_base,
+                ExtCosts::sha3_512_byte => view.sha3_512_byte,
                 ExtCosts::ripemd160_base => view.ripemd160_base,
                 ExtCosts::ripemd160_block => view.ripemd160_block,
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,

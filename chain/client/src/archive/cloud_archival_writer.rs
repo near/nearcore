@@ -21,6 +21,7 @@ use near_store::db::{
     cloud_shard_head_key,
 };
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
+use std::collections::HashSet;
 use std::io;
 use std::sync::Arc;
 use time::Duration;
@@ -129,12 +130,23 @@ struct ResolvedInitState {
 
 /// Information about a resharding the writer archives across.
 struct ReshardingInfo {
-    /// The last block of the pre-resharding epoch, where the layout changes.
+    old_epoch_id: EpochId,
+    old_layout: ShardLayout,
+    /// The old epoch's last block; the new layout applies from the next block.
     resharding_block_height: BlockHeight,
-    /// The epoch that takes effect after the resharding.
+    /// The first epoch with the new shard layout.
     new_epoch_id: EpochId,
-    /// The shard layout that takes effect after the resharding.
     new_layout: ShardLayout,
+    /// Child shards' chunks at or below this height carry inverse state changes.
+    sync_point: BlockHeight,
+}
+
+/// Context about archiving one shard's batch.
+struct ShardBatchToArchive {
+    shard_uid: ShardUId,
+    layout: ShardLayout,
+    range: BatchRange,
+    sync_point: Option<BlockHeight>,
 }
 
 /// Creates the cloud archival writer if it is configured.
@@ -336,11 +348,6 @@ impl CloudArchivalWriter {
         &self,
         batch_range: &BatchRange,
     ) -> Result<(), CloudArchivingError> {
-        let prev_epoch_end = self.get_local_prev_epoch_end()?;
-        let epoch_id = self.epoch_manager.get_next_epoch_id(&prev_epoch_end)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let tracked_shards =
-            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
         let epoch_ending_block_hash = self.find_epoch_ending_in_batch(batch_range)?;
 
         let block_advanced = if self.config.archive_block_data {
@@ -348,14 +355,8 @@ impl CloudArchivalWriter {
         } else {
             false
         };
-        let advanced_shards = self
-            .archive_shard_batches_if_lagging(
-                batch_range,
-                &shard_layout,
-                &tracked_shards,
-                epoch_ending_block_hash,
-            )
-            .await?;
+        let advanced_shards =
+            self.archive_shard_batches_if_lagging(batch_range, epoch_ending_block_hash).await?;
         if self.config.archive_block_data {
             if let Some(last_block_hash) = epoch_ending_block_hash {
                 self.archive_ending_epoch_data(last_block_hash).await?;
@@ -370,20 +371,103 @@ impl CloudArchivalWriter {
         Ok(())
     }
 
-    /// The resharding at the given block, if any.
+    /// Whether the batch's end lands in a resharding epoch.
+    fn batch_ends_in_resharding_epoch(
+        &self,
+        batch_range: &BatchRange,
+        prev_epoch_end: &CryptoHash,
+        epoch_ending_block_hash: Option<CryptoHash>,
+    ) -> Result<bool, CloudArchivingError> {
+        let Some(epoch_ending) = epoch_ending_block_hash else {
+            // The batch sits within one epoch; it reshards iff that epoch's layout
+            // differs from the previous epoch's.
+            let batch_epoch_id = self.epoch_manager.get_next_epoch_id(prev_epoch_end)?;
+            let prev_epoch_id = self.epoch_manager.get_epoch_id(prev_epoch_end)?;
+            let cur_layout = self.epoch_manager.get_shard_layout(&batch_epoch_id)?;
+            let prev_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
+            return Ok(cur_layout != prev_layout);
+        };
+        if !self.epoch_manager.is_resharding_boundary(&epoch_ending)? {
+            return Ok(false);
+        }
+        // A boundary at the batch's last block leaves the whole batch in the old
+        // epoch.
+        let resharding_block = self.epoch_manager.get_block_info(&epoch_ending)?.height();
+        Ok(resharding_block < batch_range.end())
+    }
+
+    /// Information about the resharding the batch ends in, or `None` when the
+    /// batch ends in no resharding epoch.
     fn resharding_info(
         &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<ReshardingInfo>, near_chain_primitives::Error> {
-        // A resharding boundary is an epoch boundary where the shard layout changes.
-        if !self.epoch_manager.is_resharding_boundary(&block_hash)? {
+        batch_range: &BatchRange,
+        // Last block of the epoch before `batch_range.start()`.
+        prev_epoch_end: &CryptoHash,
+        // Last block of the epoch ending in the batch, set only when the batch
+        // overlaps two epochs.
+        epoch_ending_block_hash: Option<CryptoHash>,
+    ) -> Result<Option<ReshardingInfo>, CloudArchivingError> {
+        if !self.batch_ends_in_resharding_epoch(
+            batch_range,
+            prev_epoch_end,
+            epoch_ending_block_hash,
+        )? {
             return Ok(None);
         }
-        let resharding_block_height = self.epoch_manager.get_block_info(&block_hash)?.height();
-        let new_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block_hash)?;
+        let batch_start_epoch_id = self.epoch_manager.get_next_epoch_id(prev_epoch_end)?;
+        let (old_epoch_id, resharding_block_height, new_epoch_id) = if let Some(epoch_ending) =
+            epoch_ending_block_hash
+        {
+            let resharding_block_height =
+                self.epoch_manager.get_block_info(&epoch_ending)?.height();
+            let new_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&epoch_ending)?;
+            (batch_start_epoch_id, resharding_block_height, new_epoch_id)
+        } else {
+            let prev_epoch_id = self.epoch_manager.get_epoch_id(prev_epoch_end)?;
+            // In a fully-inside batch, prev_epoch_end is the old epoch's last block.
+            let resharding_block_height =
+                self.epoch_manager.get_block_info(prev_epoch_end)?.height();
+            (prev_epoch_id, resharding_block_height, batch_start_epoch_id)
+        };
         let new_layout = self.epoch_manager.get_shard_layout(&new_epoch_id)?;
-        let resharding_info = ReshardingInfo { resharding_block_height, new_epoch_id, new_layout };
-        Ok(Some(resharding_info))
+        let old_layout = self.epoch_manager.get_shard_layout(&old_epoch_id)?;
+        // A carried-over shard keeps its ShardUId across the boundary only when
+        // the layout version is stable; a version change needs re-checking.
+        if new_layout.version() != old_layout.version() {
+            return Err(CloudArchivingError::ReshardingLayoutVersionChanged {
+                old: old_layout.version(),
+                new: new_layout.version(),
+            });
+        }
+        let sync_point = self.resharding_sync_point(&new_epoch_id)?;
+        let info = ReshardingInfo {
+            old_epoch_id,
+            old_layout,
+            resharding_block_height,
+            new_epoch_id,
+            new_layout,
+            sync_point,
+        };
+        Ok(Some(info))
+    }
+
+    /// Early in a resharding epoch, below its state snapshot, a new child shard
+    /// has no snapshot of its own; this run of blocks is the resharding gap, and
+    /// the reader recovers those shards by walking inverse changes back from the
+    /// snapshot. Returns the gap's top height (`sync_prev_prev`), or
+    /// `BlockHeight::MAX` until the epoch's sync hash is recorded.
+    fn resharding_sync_point(
+        &self,
+        resharding_epoch_id: &EpochId,
+    ) -> Result<BlockHeight, near_chain_primitives::Error> {
+        let chain_store = self.hot_store.chain_store();
+        let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(resharding_epoch_id) else {
+            return Ok(BlockHeight::MAX);
+        };
+        let sync_header = chain_store.get_block_header(&sync_hash)?;
+        let sync_prev_header = chain_store.get_block_header(sync_header.prev_hash())?;
+        let sync_prev_prev_header = chain_store.get_block_header(sync_prev_header.prev_hash())?;
+        Ok(sync_prev_prev_header.height())
     }
 
     /// Uploads epoch data for the epoch whose last block is `last_block_hash`.
@@ -448,21 +532,15 @@ impl CloudArchivalWriter {
     async fn archive_shard_batches_if_lagging(
         &self,
         batch_range: &BatchRange,
-        shard_layout: &ShardLayout,
-        tracked_shards: &[ShardUId],
         epoch_ending_block_hash: Option<CryptoHash>,
     ) -> Result<Vec<(ShardId, BlockHeight)>, CloudArchivingError> {
-        let shard_batches = self.shard_batches_to_archive(
-            batch_range,
-            shard_layout,
-            tracked_shards,
-            epoch_ending_block_hash,
-        )?;
+        let shard_batches = self.shard_batches_to_archive(batch_range, epoch_ending_block_hash)?;
         let mut advanced_shards = Vec::new();
-        for (shard_uid, shard_batch_layout, shard_batch_range) in shard_batches {
-            let shard_id = shard_uid.shard_id();
+        for shard_batch in shard_batches {
+            let shard_id = shard_batch.shard_uid.shard_id();
+            let batch_end = shard_batch.range.end();
             let lagging = match self.get_local_shard_head(shard_id)? {
-                Some(head) => head < shard_batch_range.end(),
+                Some(head) => head < batch_end,
                 None => true,
             };
             if !lagging {
@@ -471,81 +549,102 @@ impl CloudArchivalWriter {
             // TODO(cloud_archival): Race condition between this check and the upload below.
             // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
             let ext_head = self.cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id).await?;
-            if ext_head.is_some_and(|h| h >= shard_batch_range.end()) {
+            if ext_head.is_some_and(|h| h >= batch_end) {
                 continue;
             }
             self.cloud_storage
                 .archive_shard_batch(
                     &self.hot_store,
-                    &shard_batch_layout,
-                    &shard_batch_range,
-                    shard_uid,
+                    &shard_batch.layout,
+                    &shard_batch.range,
+                    shard_batch.shard_uid,
+                    shard_batch.sync_point,
                 )
                 .await?;
-            self.cloud_storage.update_cloud_shard_head(shard_id, shard_batch_range.end()).await?;
-            advanced_shards.push((shard_id, shard_batch_range.end()));
+            self.cloud_storage.update_cloud_shard_head(shard_id, batch_end).await?;
+            advanced_shards.push((shard_id, batch_end));
         }
         Ok(advanced_shards)
     }
 
-    /// The shards to archive with the layout and height range each batch covers.
-    /// Across a resharding a removed parent ends at the boundary, the new child
-    /// shards start after it, and the survivors cover the whole batch.
+    /// The shards to archive for the batch together with accompanying information.
     fn shard_batches_to_archive(
         &self,
         batch_range: &BatchRange,
-        shard_layout: &ShardLayout,
-        tracked_shards: &[ShardUId],
         epoch_ending_block_hash: Option<CryptoHash>,
-    ) -> Result<Vec<(ShardUId, ShardLayout, BatchRange)>, CloudArchivingError> {
-        let resharding_info = match epoch_ending_block_hash {
-            Some(block_hash) => self.resharding_info(block_hash)?,
-            None => None,
-        };
-        // A resharding block at the batch's last height leaves the whole batch in
-        // the old epoch, so treat it as no resharding.
-        let Some(resharding_info) =
-            resharding_info.filter(|info| info.resharding_block_height < batch_range.end())
-        else {
-            // No resharding within the batch: every tracked shard covers the whole batch.
+    ) -> Result<Vec<ShardBatchToArchive>, CloudArchivingError> {
+        // The last archived epoch's end sits below `batch_range.start()`.
+        let prev_epoch_end = self.get_local_prev_epoch_end()?;
+        let batch_start_epoch_id = self.epoch_manager.get_next_epoch_id(&prev_epoch_end)?;
+        let resharding =
+            self.resharding_info(batch_range, &prev_epoch_end, epoch_ending_block_hash)?;
+
+        // The epoch whose tracked shards to archive: the new epoch on a resharding,
+        // else the batch's start epoch, whose layout carries unchanged across the
+        // batch.
+        let batch_end_epoch_id =
+            resharding.as_ref().map_or(batch_start_epoch_id, |r| r.new_epoch_id);
+        let tracked_shards = self
+            .shard_tracker
+            .get_tracked_shards_for_non_validator_in_epoch(&batch_end_epoch_id)?;
+
+        let Some(resharding) = resharding else {
+            let layout = self.epoch_manager.get_shard_layout(&batch_end_epoch_id)?;
             return Ok(tracked_shards
-                .iter()
-                .map(|&uid| (uid, shard_layout.clone(), *batch_range))
+                .into_iter()
+                .map(|shard_uid| ShardBatchToArchive {
+                    shard_uid,
+                    layout: layout.clone(),
+                    range: *batch_range,
+                    sync_point: None,
+                })
                 .collect());
         };
-        // A carried-over shard keeps its ShardUId and is read under the old layout
-        // across the boundary, which holds only when a resharding keeps the layout
-        // version stable. A new version requires re-checking this handling, so a
-        // version-changing resharding errors out instead.
-        if resharding_info.new_layout.version() != shard_layout.version() {
-            return Err(CloudArchivingError::ReshardingLayoutVersionChanged {
-                old: shard_layout.version(),
-                new: resharding_info.new_layout.version(),
-            });
-        }
-        let resharding_block = resharding_info.resharding_block_height;
-        let new_tracked_shards = self
-            .shard_tracker
-            .get_tracked_shards_for_non_validator_in_epoch(&resharding_info.new_epoch_id)?;
 
+        let old_tracked_shards: HashSet<ShardUId> = self
+            .shard_tracker
+            .get_tracked_shards_for_non_validator_in_epoch(&resharding.old_epoch_id)?
+            .into_iter()
+            .collect();
+
+        let child_shard_batch_start =
+            (resharding.resharding_block_height + 1).max(batch_range.start());
         let mut shard_batches = Vec::new();
-        for &shard_uid in tracked_shards {
-            // A removed parent ends at the boundary; a carried-over shard keeps the
-            // old layout across it, since the resharding leaves its account mapping unchanged.
-            // TODO(cloud_archival): test carried-over reconstruction across the boundary.
-            let batch_end = if new_tracked_shards.contains(&shard_uid) {
-                batch_range.end()
+        for &shard_uid in &tracked_shards {
+            if old_tracked_shards.contains(&shard_uid) {
+                // Carried over: spans the whole batch. A non-split shard maps
+                // accounts identically in both layouts, so the new layout is safe.
+                shard_batches.push(ShardBatchToArchive {
+                    shard_uid,
+                    layout: resharding.new_layout.clone(),
+                    range: *batch_range,
+                    sync_point: None,
+                });
             } else {
-                resharding_block
-            };
-            let range = BatchRange::new(batch_range.start(), batch_end);
-            shard_batches.push((shard_uid, shard_layout.clone(), range));
+                // A new child shard carries inverse changes for the reader's
+                // backward walk.
+                shard_batches.push(ShardBatchToArchive {
+                    shard_uid,
+                    layout: resharding.new_layout.clone(),
+                    range: BatchRange::new(child_shard_batch_start, batch_range.end()),
+                    sync_point: Some(resharding.sync_point),
+                });
+            }
         }
-        let child_range = BatchRange::new(resharding_block + 1, batch_range.end());
-        for &child_uid in &new_tracked_shards {
-            // New child shards are tracked after the resharding but not before.
-            if !tracked_shards.contains(&child_uid) {
-                shard_batches.push((child_uid, resharding_info.new_layout.clone(), child_range));
+        // The removed parents are present only when the batch straddles the
+        // boundary; each ends at the old epoch's last block.
+        if epoch_ending_block_hash.is_some() {
+            let new_tracked_shards: HashSet<ShardUId> = tracked_shards.iter().copied().collect();
+            for shard_uid in old_tracked_shards {
+                if new_tracked_shards.contains(&shard_uid) {
+                    continue;
+                }
+                shard_batches.push(ShardBatchToArchive {
+                    shard_uid,
+                    layout: resharding.old_layout.clone(),
+                    range: BatchRange::new(batch_range.start(), resharding.resharding_block_height),
+                    sync_point: None,
+                });
             }
         }
         Ok(shard_batches)
