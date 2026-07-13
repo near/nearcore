@@ -25,7 +25,7 @@ use near_primitives::stateless_validation::partial_witness::{
 #[cfg(feature = "nightly")]
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{Balance, Gas, ShardId};
+use near_primitives::types::{Balance, EpochId, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::collections::HashSet;
@@ -75,6 +75,8 @@ fn v2_witness_with_height_mismatch_is_rejected() {
     let forged_height = genesis_height + 2;
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         genesis_hash,
+        CryptoHash::default(),
+        EpochId::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -143,6 +145,8 @@ fn v2_witness_with_height_below_anchor_height_is_rejected() {
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         unknown_parent,
         CryptoHash::default(),
+        EpochId::default(),
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         0,
@@ -208,6 +212,8 @@ fn v2_witness_with_height_above_anchor_height_is_rejected() {
     let forged_height = genesis_height + 3;
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         unknown_parent,
+        CryptoHash::default(),
+        EpochId::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -276,6 +282,8 @@ fn v2_witness_with_absent_parent_and_valid_anchor_is_accepted() {
     let height = genesis_height + 2;
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         unknown_parent,
+        CryptoHash::default(),
+        EpochId::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -374,6 +382,8 @@ fn v2_witness_with_parent_known_and_skipped_slot_is_accepted() {
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         parent_hash,
         CryptoHash::default(),
+        EpochId::default(),
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         0,
@@ -435,6 +445,8 @@ fn v2_witness_with_anchor_mismatch_is_rejected() {
     let forged_anchor = CryptoHash::hash_bytes(b"forged_anchor_block");
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         genesis_hash,
+        CryptoHash::default(),
+        EpochId::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -501,6 +513,8 @@ fn v2_witness_with_default_anchor_above_genesis_plus_one_is_rejected() {
     let forged_height = genesis_height + 3;
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         unknown_parent,
+        CryptoHash::default(),
+        EpochId::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),

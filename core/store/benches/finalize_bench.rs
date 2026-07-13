@@ -28,7 +28,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, Gas, ShardId};
+use near_primitives::types::{AccountId, Balance, EpochId, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
@@ -130,6 +130,8 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             CryptoHash::default(),
             CryptoHash::default(),
+            EpochId::default(),
+            CryptoHash::default(),
             CryptoHash::default(),
             CryptoHash::default(),
             1,
@@ -214,6 +216,8 @@ fn create_encoded_shard_chunk(
     } else {
         ShardChunkWithEncoding::new(
             Default::default(),
+            CryptoHash::default(),
+            EpochId::default(),
             Default::default(),
             Default::default(),
             Default::default(),

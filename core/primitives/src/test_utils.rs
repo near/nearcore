@@ -1334,6 +1334,8 @@ pub fn test_chunk_header(
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         prev_block_hash,
         CryptoHash::default(),
+        EpochId::default(),
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         0,

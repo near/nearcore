@@ -5,6 +5,7 @@ use crate::sharding::{
     EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1, ShardChunkWithEncoding,
     TransactionReceipt,
 };
+use crate::types::EpochId;
 use crate::types::StateRoot;
 use crate::validator_signer::EmptyValidatorSigner;
 use near_primitives_core::hash::CryptoHash;
@@ -70,6 +71,8 @@ fn genesis_chunk(
     // TODO(spice): convert genesis chunk into tx-only chunk same as regular chunk.
     let (chunk, _) = ShardChunkWithEncoding::new(
         CryptoHash::default(),
+        CryptoHash::default(),
+        EpochId::default(),
         state_root,
         CryptoHash::default(),
         genesis_height,

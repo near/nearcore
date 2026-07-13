@@ -129,7 +129,7 @@ impl StateSyncInfo {
 
 pub mod shard_chunk_header_inner;
 use self::shard_chunk_header_inner::ShardChunkHeaderInnerV6SpiceTxOnly;
-use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV5;
+use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV5, ShardChunkHeaderInnerV7};
 use crate::trie_split::TrieSplit;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
@@ -267,6 +267,8 @@ impl ShardChunkHeaderV3 {
                 Default::default(),
                 Default::default(),
                 Default::default(),
+                Default::default(),
+                Default::default(),
                 height,
                 shard_id,
                 Default::default(),
@@ -297,6 +299,8 @@ impl ShardChunkHeaderV3 {
 
     pub fn new(
         prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        epoch_id: EpochId,
         prev_state_root: StateRoot,
         prev_outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
@@ -315,7 +319,28 @@ impl ShardChunkHeaderV3 {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        let inner = if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+        let inner = if ProtocolFeature::VerifiedChunkCache.enabled(protocol_version) {
+            ShardChunkHeaderInner::V7(ShardChunkHeaderInnerV7 {
+                prev_block_hash,
+                prev_prev_block_hash,
+                epoch_id,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+                congestion_info,
+                bandwidth_requests,
+                proposed_split,
+            })
+        } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
                 prev_block_hash,
                 prev_state_root,
@@ -1450,6 +1475,8 @@ impl ShardChunkWithEncoding {
     #[cfg(feature = "solomon")]
     pub fn new(
         prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        epoch_id: EpochId,
         prev_state_root: StateRoot,
         prev_outcome_root: CryptoHash,
         height: u64,
@@ -1480,6 +1507,8 @@ impl ShardChunkWithEncoding {
 
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             prev_block_hash,
+            prev_prev_block_hash,
+            epoch_id,
             prev_state_root,
             prev_outcome_root,
             encoded_merkle_root,
