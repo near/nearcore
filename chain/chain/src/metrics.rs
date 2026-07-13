@@ -483,3 +483,18 @@ pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyL
     )
     .unwrap()
 });
+
+pub static ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_anchored_chunk_producer_lookup_total",
+        "Anchored chunk-producer lookups during V2 validation, for state witnesses and \
+         contract-distribution messages. `message_type` is `witness`, `contract accesses`, or \
+         `contract deploys`. `result` is `hit` (producer returned), `miss_anchor_block` \
+         (grandparent anchor not yet processed, node is two or more blocks behind, message \
+         dropped), `miss_db_entry` (anchor known but DBCol::ChunkProducers entry absent, also \
+         dropped; a persistent non-zero rate signals a writer bug), or `error` (other \
+         EpochError).",
+        &["shard_id", "message_type", "result"],
+    )
+    .unwrap()
+});
