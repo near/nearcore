@@ -7,7 +7,7 @@ use crate::transaction::SignedTransaction;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
-use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
+use crate::types::{Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -599,6 +599,27 @@ impl ShardChunkHeader {
         match self {
             ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => None,
             ShardChunkHeader::V3(header) => header.inner.bandwidth_requests(),
+        }
+    }
+
+    /// Grandparent anchor carried by V7+ headers for arrival-time producer resolution
+    /// (`VerifiedChunkCache`). `None` for pre-V7 headers, which don't carry it.
+    #[inline]
+    pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V3(header) => header.inner.prev_prev_block_hash(),
+        }
+    }
+
+    /// The chunk's own epoch id, carried by V7+ headers alongside the grandparent anchor
+    /// (`VerifiedChunkCache`). Disciplined by the producer signature, not trusted (see
+    /// `ShardChunkHeaderInner::epoch_id`). `None` for pre-V7 headers.
+    #[inline]
+    pub fn epoch_id(&self) -> Option<&EpochId> {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V3(header) => header.inner.epoch_id(),
         }
     }
 
