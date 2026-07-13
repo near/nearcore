@@ -4,6 +4,8 @@
 
 #[cfg(feature = "nightly")]
 use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+#[cfg(feature = "nightly")]
+use crate::epoch_info_aggregator::EpochInfoAggregator;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager};
 use crate::{
@@ -353,7 +355,7 @@ fn early_kickout_attribution_does_not_flap() {
 
     // Snapshot validator 0's and the replacement's stats at the blacklist point.
     let agg_before = handle.read().get_epoch_info_aggregator_upto_last(&prev).unwrap();
-    let stats = |agg: &crate::epoch_info_aggregator::EpochInfoAggregator, id: ValidatorId| {
+    let stats = |agg: &EpochInfoAggregator, id: ValidatorId| {
         agg.shard_tracker
             .get(&shard_id)
             .and_then(|m| m.get(&id))
