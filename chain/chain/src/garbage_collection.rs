@@ -502,6 +502,20 @@ impl ChainStore {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
+    /// GC every ChunkProducers row anchored at `header_hash`. Rows are keyed by
+    /// (block_hash, shard_id); the header hash prefixes all shards' rows.
+    #[cfg(feature = "nightly")]
+    fn gc_chunk_producers_for_header(&mut self, header_hash: &CryptoHash) {
+        let cp_keys: Vec<Box<[u8]>> = self
+            .store()
+            .iter_prefix(DBCol::ChunkProducers, header_hash.as_bytes())
+            .map(|(key, _)| key)
+            .collect();
+        for cp_key in cp_keys {
+            self.gc_col(DBCol::ChunkProducers, &cp_key);
+        }
+    }
+
     fn clear_header_data_for_heights(&mut self, start: BlockHeight, end: BlockHeight) {
         for height in start..=end {
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
@@ -512,19 +526,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(DBCol::BlockHeader, key);
                 self.merge(store_update);
 
-                // A ChunkProducers row is keyed by (block_hash, shard_id); the header-hash
-                // prefix matches every shard's row for this header.
                 #[cfg(feature = "nightly")]
-                {
-                    let cp_keys: Vec<Box<[u8]>> = self
-                        .store()
-                        .iter_prefix(DBCol::ChunkProducers, header_hash.as_bytes())
-                        .map(|(key, _)| key)
-                        .collect();
-                    for cp_key in cp_keys {
-                        self.gc_col(DBCol::ChunkProducers, &cp_key);
-                    }
-                }
+                self.gc_chunk_producers_for_header(&header_hash);
             }
             let key = index_to_bytes(height);
             self.gc_col(DBCol::HeaderHashesByHeight, &key);
@@ -570,18 +573,9 @@ impl<'a> ChainStoreUpdate<'a> {
 
                 // Delete the header's ChunkProducers rows before the height index is dropped,
                 // else header-only hashes (never given a body, so never seen by
-                // clear_block_data) orphan their rows. Prefix matches every shard's row.
+                // clear_block_data) orphan their rows.
                 #[cfg(feature = "nightly")]
-                {
-                    let cp_keys: Vec<Box<[u8]>> = self
-                        .store()
-                        .iter_prefix(DBCol::ChunkProducers, _header_hash.as_bytes())
-                        .map(|(key, _)| key)
-                        .collect();
-                    for cp_key in cp_keys {
-                        self.gc_col(DBCol::ChunkProducers, &cp_key);
-                    }
-                }
+                self.gc_chunk_producers_for_header(&_header_hash);
             }
 
             // 4. Delete chunks_tail-related data

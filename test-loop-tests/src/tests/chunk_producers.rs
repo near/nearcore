@@ -209,9 +209,9 @@ mod cold_storage_tests {
         let reshard_done_height = env.archival_node().head().height;
         env.archival_runner().run_until_head_height(reshard_done_height + 4);
 
-        // Capture the anchors + their hot ChunkProducers rows now, BEFORE hot GC removes the
-        // block headers (ChunkProducers rows themselves are never GC'd in this PR, but the
-        // block-header lookups used to locate the anchors would fail once GC catches up).
+        // Capture the anchors + their hot ChunkProducers rows now, BEFORE hot GC removes them
+        // (this PR GCs the ChunkProducers rows together with the anchor's block data, so they
+        // must be read before the GC tail reaches the anchor).
         let (mid_height, expected) = {
             let node = env.archival_node();
             let client = node.client();
