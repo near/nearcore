@@ -319,7 +319,7 @@ impl ShardChunkHeaderV3 {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        let inner = if ProtocolFeature::VerifiedChunkCache.enabled(protocol_version) {
+        let inner = if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             ShardChunkHeaderInner::V7(ShardChunkHeaderInnerV7 {
                 prev_block_hash,
                 prev_prev_block_hash,
@@ -628,7 +628,7 @@ impl ShardChunkHeader {
     }
 
     /// Grandparent anchor carried by V7+ headers for arrival-time producer resolution
-    /// (`VerifiedChunkCache`). `None` for pre-V7 headers, which don't carry it.
+    /// (`EarlyKickout`). `None` for pre-V7 headers, which don't carry it.
     #[inline]
     pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
         match self {
@@ -638,7 +638,7 @@ impl ShardChunkHeader {
     }
 
     /// The chunk's own epoch id, carried by V7+ headers alongside the grandparent anchor
-    /// (`VerifiedChunkCache`). Disciplined by the producer signature, not trusted (see
+    /// (`EarlyKickout`). Disciplined by the producer signature, not trusted (see
     /// `ShardChunkHeaderInner::epoch_id`). `None` for pre-V7 headers.
     #[inline]
     pub fn epoch_id(&self) -> Option<&EpochId> {
@@ -663,9 +663,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V4(_) => true,
                 ShardChunkHeaderInner::V5(_) => ProtocolFeature::DynamicResharding.enabled(version),
                 ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
-                ShardChunkHeaderInner::V7(_) => {
-                    ProtocolFeature::VerifiedChunkCache.enabled(version)
-                }
+                ShardChunkHeaderInner::V7(_) => ProtocolFeature::EarlyKickout.enabled(version),
             },
         };
 

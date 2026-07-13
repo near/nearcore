@@ -300,7 +300,7 @@ impl ShardChunkHeaderInner {
     }
 
     /// Grandparent anchor carried by V7+ headers for arrival-time producer resolution
-    /// (`VerifiedChunkCache`). `None` for pre-V7 headers, which don't carry it.
+    /// (`EarlyKickout`). `None` for pre-V7 headers, which don't carry it.
     #[inline]
     pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
         match self {
@@ -312,7 +312,7 @@ impl ShardChunkHeaderInner {
     }
 
     /// The chunk's own epoch id, carried by V7+ headers alongside the grandparent anchor
-    /// (`VerifiedChunkCache`). It is an index disciplined by the producer signature, not a
+    /// (`EarlyKickout`). It is an index disciplined by the producer signature, not a
     /// trusted value: a forged epoch id resolves the wrong producer and fails signature
     /// verification. `None` for pre-V7 headers.
     #[inline]
@@ -496,7 +496,7 @@ pub struct ShardChunkHeaderInnerV6SpiceTxOnly {
 
 // V5 -> V7: Add the grandparent anchor and the chunk's own epoch id, enabling the chunk
 // producer's signature to be verified at arrival from the grandparent anchor, before the
-// parent block is processed (`VerifiedChunkCache`). Otherwise identical to V5. (V6 is the
+// parent block is processed (`EarlyKickout`). Otherwise identical to V5. (V6 is the
 // unrelated spice tx-only variant; V7 slots into the non-spice ladder after V5.)
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct ShardChunkHeaderInnerV7 {

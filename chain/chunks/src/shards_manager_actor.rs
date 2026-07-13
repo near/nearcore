@@ -1475,7 +1475,7 @@ impl ShardsManagerActor {
             .epoch_manager
             .get_epoch_protocol_version(&epoch_id)
             .map_err(|err| err_mapper(err.into()))?;
-        if ProtocolFeature::VerifiedChunkCache.enabled(protocol_version) {
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             let &prev_prev_block_hash = header
                 .prev_prev_block_hash()
                 .ok_or(Error::InvalidChunkHeader)
@@ -2575,7 +2575,7 @@ mod test {
     }
 
     // Exercises classic orphan-chunk buffering (an unprocessed-parent chunk waits for its block).
-    // That only exists pre-`VerifiedChunkCache`; under the feature such a chunk is dropped at
+    // That only exists pre-`EarlyKickout`; under the feature such a chunk is dropped at
     // arrival, so run only on stable.
     #[cfg(not(feature = "nightly"))]
     #[test]
@@ -2864,7 +2864,7 @@ mod test {
         );
     }
 
-    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`VerifiedChunkCache`,
+    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`EarlyKickout`,
     // so run only on stable. Under the feature the unprocessed-anchor header is dropped at arrival.
     #[cfg(not(feature = "nightly"))]
     #[test]
@@ -3491,7 +3491,7 @@ mod test {
         )
     }
 
-    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`VerifiedChunkCache`,
+    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`EarlyKickout`,
     // so run only on stable. Under the feature the unprocessed-anchor header is dropped at arrival.
     #[cfg(not(feature = "nightly"))]
     #[test]

@@ -65,7 +65,7 @@ use std::sync::Arc;
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
 /// Returns true if a message's version is wrong for its epoch and should be dropped:
-/// a V2 message before VerifiedChunkCache is active, or a V1 message at or after it. If we
+/// a V2 message before EarlyKickout is active, or a V1 message at or after it. If we
 /// cannot resolve the version (for example during header sync), returns false: this gate
 /// only rejects a known-wrong version, so an unknown one is left for downstream validation
 /// to accept or drop. This matters for V2, whose parts are never retransmitted.
@@ -73,7 +73,7 @@ pub(super) fn version_mismatch(version: Option<ProtocolVersion>, is_v2: bool) ->
     let Some(version) = version else {
         return false;
     };
-    is_v2 != ProtocolFeature::VerifiedChunkCache.enabled(version)
+    is_v2 != ProtocolFeature::EarlyKickout.enabled(version)
 }
 
 /// Same check as [`version_mismatch`], for a partial state witness.
@@ -841,7 +841,7 @@ impl PartialWitnessActor {
     }
 
     /// Drop a contract-distribution message whose wire version is wrong for its epoch: a V2
-    /// message before VerifiedChunkCache is active, or a V1 message at or after it. Checked here
+    /// message before EarlyKickout is active, or a V1 message at or after it. Checked here
     /// because the anchored resolver ignores the anchor when the feature is off, so acceptance
     /// must be gated by protocol version, the same as the witness path. Returns whether it was
     /// dropped. `message_type` labels the log.

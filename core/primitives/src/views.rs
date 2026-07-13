@@ -1122,11 +1122,11 @@ pub struct ChunkHeaderView {
     /// `Some(Some(split))`: field present and set
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposed_split: Option<Option<TrieSplit>>,
-    /// Grandparent anchor carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).
+    /// Grandparent anchor carried by `ShardChunkHeaderInnerV7` (`EarlyKickout`).
     /// `None` for pre-V7 headers, which don't carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_prev_block_hash: Option<CryptoHash>,
-    /// The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).
+    /// The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7` (`EarlyKickout`).
     /// `None` for pre-V7 headers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epoch_id: Option<EpochId>,

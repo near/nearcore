@@ -245,13 +245,12 @@ impl PartialEncodedStateWitnessInnerV2 {
 ///
 /// V1 is the legacy format; V2 adds `prev_block_hash` and the grandparent
 /// anchor `prev_prev_block_hash`, enabling the chunk producer to be resolved
-/// from the anchor before the parent block is processed (canonically until
-/// `EarlyKickout` turns on the `DBCol::ChunkProducers` source).
+/// from the anchor before the parent block is processed.
 ///
 /// Rollout policy:
-/// - Before VerifiedChunkCache activation: only V1 is emitted and accepted.
+/// - Before EarlyKickout activation: only V1 is emitted and accepted.
 ///   V2 arriving over the wire is dropped.
-/// - At/after VerifiedChunkCache activation: only V2 is emitted and accepted.
+/// - At/after EarlyKickout activation: only V2 is emitted and accepted.
 ///   V1 arriving over the wire is dropped.
 /// - [`VersionedPartialEncodedStateWitness::new`] selects variant based on
 ///   `protocol_version` argument.
@@ -287,7 +286,7 @@ impl VersionedPartialEncodedStateWitness {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::VerifiedChunkCache.enabled(protocol_version) {
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             Self::V2(PartialEncodedStateWitnessV2::new(
                 epoch_id,
                 chunk_header,

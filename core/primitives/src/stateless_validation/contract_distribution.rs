@@ -29,7 +29,7 @@ pub const MAX_CONTRACTS_PER_REQUEST: usize = 1282;
 #[repr(u8)]
 pub enum ChunkContractAccesses {
     V1(ChunkContractAccessesV1) = 0,
-    /// Emitted and accepted only under `VerifiedChunkCache`. Carries the grandparent
+    /// Emitted and accepted only under `EarlyKickout`. Carries the grandparent
     /// anchor (`prev_prev_block_hash`) so the verifier resolves the producer via
     /// the anchored lookup, and the parent (`prev_block_hash`) so it can
     /// cross-check the signed chunk key against the anchor before trusting it.
@@ -55,7 +55,7 @@ impl ChunkContractAccesses {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::VerifiedChunkCache.enabled(protocol_version) {
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             Self::V2(ChunkContractAccessesV2::new(
                 next_chunk,
                 contracts,
@@ -199,7 +199,7 @@ impl ChunkContractAccessesV2 {
         &self.inner.prev_block_hash
     }
 
-    /// Grandparent anchor used to resolve the producer under `VerifiedChunkCache`.
+    /// Grandparent anchor used to resolve the producer under `EarlyKickout`.
     pub fn prev_prev_block_hash(&self) -> &CryptoHash {
         &self.inner.prev_prev_block_hash
     }
@@ -224,7 +224,7 @@ pub struct ChunkContractAccessesV2Inner {
     /// signed `next_chunk` key against the anchor before trusting the anchored
     /// producer resolution.
     prev_block_hash: CryptoHash,
-    /// Grandparent anchor for producer resolution under `VerifiedChunkCache`.
+    /// Grandparent anchor for producer resolution under `EarlyKickout`.
     /// `CryptoHash::default()` when the chunk has no real grandparent.
     prev_prev_block_hash: CryptoHash,
     signature_differentiator: SignatureDifferentiator,
@@ -625,7 +625,7 @@ impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
 #[repr(u8)]
 pub enum PartialEncodedContractDeploys {
     V1(PartialEncodedContractDeploysV1) = 0,
-    /// Emitted and accepted only under `VerifiedChunkCache`. Carries the grandparent
+    /// Emitted and accepted only under `EarlyKickout`. Carries the grandparent
     /// anchor (`prev_prev_block_hash`) for anchored producer resolution and the
     /// parent (`prev_block_hash`) for the anchor cross-check, mirroring
     /// [`ChunkContractAccesses::V2`].
@@ -641,7 +641,7 @@ impl PartialEncodedContractDeploys {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::VerifiedChunkCache.enabled(protocol_version) {
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             Self::V2(PartialEncodedContractDeploysV2::new(
                 key,
                 part,
@@ -792,7 +792,7 @@ impl PartialEncodedContractDeploysV2 {
         &self.inner.prev_block_hash
     }
 
-    /// Grandparent anchor used to resolve the producer under `VerifiedChunkCache`.
+    /// Grandparent anchor used to resolve the producer under `EarlyKickout`.
     pub fn prev_prev_block_hash(&self) -> &CryptoHash {
         &self.inner.prev_prev_block_hash
     }
@@ -810,7 +810,7 @@ pub struct PartialEncodedContractDeploysV2Inner {
     /// signed `next_chunk` key against the anchor before trusting the anchored
     /// producer resolution.
     prev_block_hash: CryptoHash,
-    /// Grandparent anchor for producer resolution under `VerifiedChunkCache`.
+    /// Grandparent anchor for producer resolution under `EarlyKickout`.
     /// `CryptoHash::default()` when the chunk has no real grandparent.
     prev_prev_block_hash: CryptoHash,
     signature_differentiator: SignatureDifferentiator,
@@ -1002,8 +1002,8 @@ mod tests {
     use near_primitives_core::version::ProtocolFeature;
     use std::collections::HashSet;
 
-    fn pre_verified_chunk_cache_version() -> ProtocolVersion {
-        ProtocolFeature::VerifiedChunkCache.protocol_version().checked_sub(1).unwrap()
+    fn pre_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
     }
 
     fn post_kickout_version() -> ProtocolVersion {
@@ -1042,7 +1042,7 @@ mod tests {
     #[test]
     fn v1_accesses_has_no_anchor() {
         let signer = create_test_signer("cp");
-        let accesses = make_accesses(&signer, pre_verified_chunk_cache_version());
+        let accesses = make_accesses(&signer, pre_kickout_version());
         assert!(matches!(accesses, ChunkContractAccesses::V1(_)));
         assert!(accesses.prev_block_hash().is_none());
         assert!(accesses.prev_prev_block_hash().is_none());
@@ -1086,7 +1086,7 @@ mod tests {
     #[test]
     fn v1_deploys_has_no_anchor() {
         let signer = create_test_signer("cp");
-        let deploys = make_deploys(&signer, pre_verified_chunk_cache_version());
+        let deploys = make_deploys(&signer, pre_kickout_version());
         assert!(matches!(deploys, PartialEncodedContractDeploys::V1(_)));
         assert!(deploys.prev_block_hash().is_none());
         assert!(deploys.prev_prev_block_hash().is_none());
