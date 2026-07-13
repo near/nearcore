@@ -5,7 +5,7 @@ pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData};
 pub use crate::archive::cloud_storage::bucket_config::BucketConfig;
 pub use crate::archive::cloud_storage::epoch_data::EpochData;
 pub use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
-pub use crate::archive::cloud_storage::shards::{ShardBatch, ShardData};
+pub use crate::archive::cloud_storage::shards::{InverseStateChanges, ShardBatch, ShardData};
 use near_external_storage::ExternalConnection;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
@@ -188,6 +188,13 @@ fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
     // TODO(spice): decide how the reader handles spice columns.
     #[cfg(feature = "protocol_feature_spice")]
     if col == DBCol::ReceiptProofs {
+        return true;
+    }
+    // TODO(early-kickout): move ChunkProducers to is_cloud_archive_reader_bootstrapped once it is
+    // wired into cloud ShardData serialization + reader reconstruction (at stabilization, when the
+    // column becomes non-nightly).
+    #[cfg(feature = "nightly")]
+    if col == DBCol::ChunkProducers {
         return true;
     }
     matches!(

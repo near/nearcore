@@ -24,7 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (49, include_config!("49.yaml")),
     (50, include_config!("50.yaml")),
     // max_gas_burnt increased to 300 TGas
     (52, include_config!("52.yaml")),
@@ -62,6 +61,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (86, include_config!("86.yaml")),
     (129, include_config!("129.yaml")),
     (155, include_config!("155.yaml")),
+    // Enable the sha3_256, sha3_384 and sha3_512 host functions.
+    (156, include_config!("156.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

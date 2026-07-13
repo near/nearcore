@@ -13,7 +13,8 @@ use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    ProcessTxResponse, SpiceChunkEndorsementMessage,
+    ProcessTxResponse, SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart,
+    StateResponse, StateResponseReceived,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::spice::data_distribution::{
@@ -30,7 +31,7 @@ use near_network::state_witness::{
 use near_network::types::{
     HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
-    StateSyncEvent, Tier3Request,
+    SnapshotHostEvent, StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
 };
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
@@ -52,6 +53,7 @@ pub struct ClientSenderForTestLoopNetwork {
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
     pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
+    pub state_response: AsyncSender<SpanWrapped<StateResponseReceived>, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -169,11 +171,15 @@ impl TestLoopPeerManagerActor {
             network_message_to_view_client_handler(
                 account_id.clone(),
                 shared_state.clone(),
-                future_spawner,
+                future_spawner.clone(),
             ),
             network_message_to_partial_witness_handler(&account_id, shared_state.clone()),
             network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
-            network_message_to_state_snapshot_handler(),
+            network_message_to_state_sync_handler(
+                &account_id,
+                shared_state.clone(),
+                future_spawner,
+            ),
             network_message_to_spice_data_distributor_handler(&account_id, shared_state.clone()),
         ];
         Self {
@@ -241,12 +247,18 @@ struct TestLoopNetworkSharedStateInner {
     archival_peer_ids: BTreeSet<PeerId>,
     /// Per-account tracked-shards config, populated when a client is added.
     tracked_shards_config: BTreeMap<AccountId, TrackedShardsConfig>,
+    /// Per-shard set of accounts advertising a state snapshot; ordered for
+    /// deterministic peer selection.
+    snapshot_hosts: BTreeMap<ShardId, BTreeSet<AccountId>>,
+    /// Counter for deterministic round-robin peer selection in state sync.
+    snapshot_host_selection_counter: u64,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
 pub(crate) struct OneClientSenders {
     pub(crate) client_sender: ClientSenderForTestLoopNetwork,
     pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
+    pub(crate) state_request_sender: StateRequestSenderForNetwork,
     rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
     chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
@@ -277,6 +289,7 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
     Arc::new(OneClientSenders {
         client_sender: s.clone().into_multi_sender(),
         view_client_sender: s.clone().into_multi_sender(),
+        state_request_sender: s.clone().into_multi_sender(),
         rpc_handler_sender: s.clone().into_multi_sender(),
         chunk_endorsement_handler_sender: s.clone().into_multi_sender(),
         partial_witness_sender: s.clone().into_multi_sender(),
@@ -297,6 +310,8 @@ impl TestLoopNetworkSharedState {
             disallowed_peer_links: BTreeMap::new(),
             archival_peer_ids: BTreeSet::new(),
             tracked_shards_config: BTreeMap::new(),
+            snapshot_hosts: BTreeMap::new(),
+            snapshot_host_selection_counter: 0,
         };
         Self(Arc::new(Mutex::new(inner)))
     }
@@ -307,6 +322,7 @@ impl TestLoopNetworkSharedState {
         PeerId: From<&'a D>,
         ClientSenderForTestLoopNetwork: From<&'a D>,
         ViewClientSenderForTestLoopNetwork: From<&'a D>,
+        StateRequestSenderForNetwork: From<&'a D>,
         TxRequestHandleSenderForTestLoopNetwork: From<&'a D>,
         ChunkEndorsementSenderForTestLoopNetwork: From<&'a D>,
         PartialWitnessSenderForNetwork: From<&'a D>,
@@ -325,6 +341,7 @@ impl TestLoopNetworkSharedState {
             Arc::new(OneClientSenders {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
+                state_request_sender: StateRequestSenderForNetwork::from(data),
                 rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
                 chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork::from(
                     data,
@@ -422,6 +439,14 @@ impl TestLoopNetworkSharedState {
         guard.senders.get(peer_id).unwrap().clone()
     }
 
+    /// Returns senders for the given peer without checking disallowed links.
+    /// Used for state sync which in production uses routed messages that can
+    /// traverse multiple hops and bypass direct connectivity restrictions.
+    fn senders_for_peer_direct(&self, peer_id: &PeerId) -> Arc<OneClientSenders> {
+        let guard = self.0.lock();
+        guard.senders.get(peer_id).unwrap().clone()
+    }
+
     fn generate_route_back(&self, peer_id: &PeerId) -> CryptoHash {
         let mut guard = self.0.lock();
         let route_id = CryptoHash::hash_borsh(guard.route_back.len());
@@ -455,6 +480,33 @@ impl TestLoopNetworkSharedState {
         let guard = self.0.lock();
         let account_ids = guard.account_to_peer_id.keys().cloned().collect_vec();
         account_ids
+    }
+
+    /// Register an account as having a state snapshot for the given shards.
+    fn register_snapshot_host(&self, account_id: &AccountId, shards: &[ShardId]) {
+        let mut guard = self.0.lock();
+        for &shard_id in shards {
+            guard.snapshot_hosts.entry(shard_id).or_default().insert(account_id.clone());
+        }
+    }
+
+    /// Select a snapshot host for the given shard. Deterministic round-robin.
+    fn select_snapshot_host(
+        &self,
+        requesting_account: &AccountId,
+        shard_id: ShardId,
+    ) -> Option<PeerId> {
+        let mut guard = self.0.lock();
+        let counter = guard.snapshot_host_selection_counter;
+        guard.snapshot_host_selection_counter += 1;
+        let hosts = guard.snapshot_hosts.get(&shard_id)?;
+        // BTreeSet iteration is sorted, giving deterministic ordering across runs.
+        let eligible: Vec<_> = hosts.iter().filter(|a| *a != requesting_account).collect();
+        if eligible.is_empty() {
+            return None;
+        }
+        let idx = (counter as usize) % eligible.len();
+        Some(guard.account_to_peer_id[eligible[idx]].clone())
     }
 }
 
@@ -623,12 +675,6 @@ fn network_message_to_client_handler(
             shared_state.disallow_requests(peer_id, my_peer_id);
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        NetworkRequests::StateRequestHeader { .. } => {
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::StateRequestPart { .. } => {
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
         _ => HandlerResult::Unhandled(request),
     })
 }
@@ -750,10 +796,81 @@ fn network_message_to_partial_witness_handler(
     })
 }
 
-fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
+/// Handles state sync network messages: snapshot host advertisements and
+/// state part/header requests. State sync uses routed messages in production
+/// that can traverse multiple hops, so we bypass the peer blocklist via
+/// `senders_for_peer_direct` to simulate this relay behavior.
+fn network_message_to_state_sync_handler(
+    my_account_id: &AccountId,
+    shared_state: TestLoopNetworkSharedState,
+    future_spawner: Arc<dyn FutureSpawner>,
+) -> NetworkRequestHandler {
+    let my_account_id = my_account_id.clone();
     Box::new(move |request| match request {
-        NetworkRequests::SnapshotHostEvent { .. } => {
+        NetworkRequests::SnapshotHostEvent(event) => {
+            match event {
+                SnapshotHostEvent::SnapshotCreated { shards, .. } => {
+                    shared_state.register_snapshot_host(&my_account_id, &shards);
+                }
+                SnapshotHostEvent::ChainProgressed { .. } => {}
+            }
             HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        NetworkRequests::StateRequestHeader { shard_id, sync_hash, .. } => {
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            let Some(target_peer_id) = shared_state.select_snapshot_host(&my_account_id, shard_id)
+            else {
+                return HandlerResult::Handled(NetworkResponses::NoDestinationsAvailable);
+            };
+
+            let senders = shared_state.senders_for_peer_direct(&target_peer_id);
+            let responder = shared_state.senders_for_peer_direct(&my_peer_id);
+            let response_peer_id = target_peer_id.clone();
+            let request_future = senders
+                .state_request_sender
+                .state_request_header
+                .send_async(StateRequestHeader { shard_id, sync_hash });
+
+            future_spawner.spawn("handle StateRequestHeader", async move {
+                let Ok(Some(state_part_or_header)) = request_future.await else {
+                    return;
+                };
+                let state_response = StateResponse::State(state_part_or_header.0);
+                let future = responder.client_sender.send_async(
+                    StateResponseReceived { peer_id: response_peer_id, state_response }.span_wrap(),
+                );
+                drop(future);
+            });
+
+            HandlerResult::Handled(NetworkResponses::SelectedDestination(target_peer_id))
+        }
+        NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, .. } => {
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            let Some(target_peer_id) = shared_state.select_snapshot_host(&my_account_id, shard_id)
+            else {
+                return HandlerResult::Handled(NetworkResponses::NoDestinationsAvailable);
+            };
+
+            let senders = shared_state.senders_for_peer_direct(&target_peer_id);
+            let responder = shared_state.senders_for_peer_direct(&my_peer_id);
+            let response_peer_id = target_peer_id.clone();
+            let request_future = senders
+                .state_request_sender
+                .state_request_part
+                .send_async(StateRequestPart { shard_id, sync_hash, part_id });
+
+            future_spawner.spawn("handle StateRequestPart", async move {
+                let Ok(Some(state_part_or_header)) = request_future.await else {
+                    return;
+                };
+                let state_response = StateResponse::State(state_part_or_header.0);
+                let future = responder.client_sender.send_async(
+                    StateResponseReceived { peer_id: response_peer_id, state_response }.span_wrap(),
+                );
+                drop(future);
+            });
+
+            HandlerResult::Handled(NetworkResponses::SelectedDestination(target_peer_id))
         }
         _ => HandlerResult::Unhandled(request),
     })

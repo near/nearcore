@@ -15,20 +15,21 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
-    ShardIndex, ValidatorInfoIdentifier,
+    ShardIndex, ValidatorId, ValidatorInfoIdentifier,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Height distance from a chunk's grandparent anchor to the chunk, absent
 /// skipped slots: a chunk anchored at block `A` is nominally at height
-/// `A.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`. The writer
-/// (`save_chunk_producers_for_header`) samples at this offset, and witness
-/// validation uses it as the anchor-implied minimum chunk height.
+/// `A.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`. The chunk-producer
+/// seeder (`EpochManager::seed_chunk_producers`) samples at this offset, and
+/// witness validation uses it as the anchor-implied minimum chunk height.
 pub const CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET: BlockHeight = 2;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -351,6 +352,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(shard_layout != prev_shard_layout)
     }
 
+    /// Whether a resharding took effect at the start of `block_hash`'s epoch:
+    /// that epoch's shard layout differs from the previous epoch's. Accepts any
+    /// block in the epoch.
+    fn is_resharding_epoch(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        let shard_layout = self.get_shard_layout(block_info.epoch_id())?;
+        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(block_info.prev_hash())?;
+        let prev_shard_layout = self.get_shard_layout(&prev_epoch_id)?;
+        Ok(shard_layout != prev_shard_layout)
+    }
+
     /// Get *static* shard layout for the given protocol version. If the protocol version uses
     /// dynamic resharding, there is no specific layout assigned to that version, so this method
     /// returns `None`.
@@ -606,6 +618,16 @@ pub trait EpochManagerAdapter: Send + Sync {
         )
     }
 
+    /// Returns the per-shard set of chunk producers whose cumulative epoch stats are past the
+    /// early-kickout thresholds, computed from the aggregator's stats up to `anchor_hash`.
+    /// The epoch is derived from `anchor_hash` via `get_epoch_id_from_prev_block`. Gated by
+    /// `ProtocolFeature::EarlyKickout`: empty when the feature is off, and empty at an epoch
+    /// boundary (the aggregator's stats belong to the anchor's epoch).
+    fn get_chunk_producer_blacklist(
+        &self,
+        anchor_hash: &CryptoHash,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError>;
+
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
         &self,
@@ -686,6 +708,15 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_info: EpochInfo,
         next_epoch_id: &EpochId,
         next_epoch_info: EpochInfo,
+    ) -> Result<(), EpochError>;
+
+    /// Seed `DBCol::ChunkProducers` for the current epoch's first block after
+    /// epoch sync, which installs that `BlockInfo` outside `record_block_info`.
+    /// Writes into `store_update` so it commits atomically with the block.
+    fn seed_chunk_producers_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
     ) -> Result<(), EpochError>;
 
     /// Verify validator signature for the given epoch.
@@ -1098,6 +1129,31 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.get_chunk_producer_info(&cpk)
     }
 
+    fn get_chunk_producer_blacklist(
+        &self,
+        anchor_hash: &CryptoHash,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(anchor_hash)?;
+        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
+        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            return Ok(HashMap::new());
+        }
+        let epoch_manager = self.read();
+        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(anchor_hash)?;
+        // Aggregator belongs to the anchor's epoch. If the next block starts a new epoch,
+        // stats reset -> empty blacklist (boundary reset).
+        if aggregator.epoch_id != epoch_id {
+            return Ok(HashMap::new());
+        }
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        Ok(crate::compute_chunk_producer_blacklist(
+            &aggregator.shard_tracker,
+            epoch_info.as_ref(),
+            &shard_layout,
+        ))
+    }
+
     fn get_chunk_validator_assignments(
         &self,
         epoch_id: &EpochId,
@@ -1153,6 +1209,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    fn seed_chunk_producers_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
+    ) -> Result<(), EpochError> {
+        self.read().seed_chunk_producers_for_first_block(store_update, block_info)
     }
 
     fn get_shard_layout_history(

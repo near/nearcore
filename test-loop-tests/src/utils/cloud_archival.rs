@@ -18,6 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
@@ -30,7 +31,7 @@ use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -51,6 +52,15 @@ pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_heig
 pub struct ReshardingInfo {
     /// The last block of the epoch before the split.
     pub resharding_block_height: BlockHeight,
+    /// The resharding epoch's first block, a produced block inside the gap.
+    pub new_epoch_first_height: BlockHeight,
+    /// The resharding epoch's sync_hash block height: the reader's snapshot
+    /// anchor, above the gap the inverse walk must cover.
+    pub sync_block_height: BlockHeight,
+    /// Shard UIds of the pre-split layout.
+    pub base_shard_uids: Vec<ShardUId>,
+    /// Shard UIds of the post-split layout.
+    pub new_shard_uids: Vec<ShardUId>,
     /// The shard the resharding removes.
     pub parent_shard: ShardId,
     /// One of the new child shards.
@@ -77,6 +87,7 @@ pub fn run_until_one_epoch_after_resharding(
         timeout,
     );
     let node = env.node_for_account(archival_id);
+    let resharding_epoch_id = node.head().epoch_id;
     let epoch_manager = &node.client().epoch_manager;
     let head = node.head().last_block_hash;
     // Follow prev_hash to the old epoch's last block; it can sit below
@@ -84,16 +95,37 @@ pub fn run_until_one_epoch_after_resharding(
     let epoch_first = *epoch_manager.get_block_info(&head).unwrap().epoch_first_block();
     let resharding_block = *epoch_manager.get_block_info(&epoch_first).unwrap().prev_hash();
     let resharding_block_height = epoch_manager.get_block_info(&resharding_block).unwrap().height();
+    let new_epoch_first_height = epoch_manager.get_block_info(&epoch_first).unwrap().height();
 
-    run_node_until(env, archival_id, resharding_block_height + epoch_length);
+    // Advance one epoch from the resharding epoch's first produced block so the
+    // resharding epoch fully elapses and its sync_hash gets recorded.
+    run_node_until(env, archival_id, new_epoch_first_height + epoch_length);
 
+    let node = env.node_for_account(archival_id);
+    let chain_store = node.client().chain.chain_store().store().chain_store();
+    let sync_hash = chain_store
+        .get_current_epoch_sync_hash(&resharding_epoch_id)
+        .expect("resharding epoch sync_hash recorded one epoch past the split");
+    let sync_block_height = chain_store.get_block_header(&sync_hash).unwrap().height();
+
+    let base_shard_uids: Vec<ShardUId> = base_layout.shard_uids().collect();
+    let new_shard_uids: Vec<ShardUId> = new_layout.shard_uids().collect();
     let parent_shard = base_layout.account_id_to_shard_id(boundary);
     let child_shard = new_layout.account_id_to_shard_id(boundary);
     let carried_shard = base_layout
         .shard_ids()
         .find(|shard_id| *shard_id != parent_shard)
         .expect("layout has a shard other than the resharding parent");
-    ReshardingInfo { resharding_block_height, parent_shard, child_shard, carried_shard }
+    ReshardingInfo {
+        resharding_block_height,
+        new_epoch_first_height,
+        sync_block_height,
+        base_shard_uids,
+        new_shard_uids,
+        parent_shard,
+        child_shard,
+        carried_shard,
+    }
 }
 
 fn execute_future<F: Future>(fut: F) -> F::Output {
@@ -366,6 +398,125 @@ pub fn snapshots_sanity_check(
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
+/// Asserts inverse state changes cover the new child shards' gap blocks only,
+/// with keys mirroring each block's forward changes and pre-values matching the
+/// previous block's state. Carried-over and removed parent shards carry none.
+pub fn assert_writer_inverse_deltas(
+    env: &TestLoopEnv,
+    writer_id: &AccountId,
+    info: &ReshardingInfo,
+) {
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let store = get_hot_store(env, writer_id);
+    let tries = build_shard_tries(&store);
+
+    // Inverse changes cover the gap window up to sync_prev_prev, the resharding
+    // epoch's snapshot anchor; blocks above it carry none.
+    let sync_hash = store.chain_store().get_block_hash_by_height(info.sync_block_height).unwrap();
+    let sync_prev = *store.chain_store().get_block_header(&sync_hash).unwrap().prev_hash();
+    let sync_prev_prev = *store.chain_store().get_block_header(&sync_prev).unwrap().prev_hash();
+    let inverse_ceiling = store.chain_store().get_block_header(&sync_prev_prev).unwrap().height();
+
+    // A new-layout shard that also exists in the old layout is carried over;
+    // one that is new is a child of the split.
+    let base_shards: HashSet<ShardUId> = info.base_shard_uids.iter().copied().collect();
+
+    let mut checked = 0;
+    for height in info.new_epoch_first_height..=info.sync_block_height {
+        let Ok(block_hash) = store.chain_store().get_block_hash_by_height(height) else {
+            continue;
+        };
+        let prev_block_hash =
+            *store.chain_store().get_block_header(&block_hash).unwrap().prev_hash();
+        for &shard_uid in &info.new_shard_uids {
+            let shard_data = cloud_storage
+                .get_shard_data(height, shard_uid.shard_id())
+                .unwrap()
+                .expect("gap-window shard data archived");
+            let is_child = !base_shards.contains(&shard_uid);
+            if !is_child || height > inverse_ceiling {
+                assert!(
+                    shard_data.inverse_state_changes().is_none(),
+                    "only child shards below the anchor carry inverse changes \
+                     (shard {shard_uid}, height {height})"
+                );
+                continue;
+            }
+            let inverse = shard_data
+                .inverse_state_changes()
+                .expect("child gap block carries inverse state changes");
+            let forward_keys: BTreeSet<&TrieKey> =
+                shard_data.state_changes().iter().map(|change| &change.trie_key).collect();
+            let inverse_keys: BTreeSet<&TrieKey> = inverse.keys().collect();
+            assert_eq!(
+                inverse_keys, forward_keys,
+                "inverse keys mirror forward keys at height {height}"
+            );
+
+            let prev_state_root = *store
+                .chunk_store()
+                .get_chunk_extra(&prev_block_hash, &shard_uid)
+                .unwrap()
+                .state_root();
+            let trie = tries.get_trie_for_shard(shard_uid, prev_state_root);
+            for (key, recorded_prev_value) in inverse {
+                let state_prev_value = trie.get(&key.to_vec(), AccessOptions::DEFAULT).unwrap();
+                assert_eq!(
+                    *recorded_prev_value, state_prev_value,
+                    "recorded pre-image matches state at height {height}"
+                );
+            }
+            checked += 1;
+        }
+    }
+
+    assert!(checked > 0, "no child gap block was verified; gap window is empty");
+
+    // The removed parent shard sits below the anchor but is gone in the new
+    // layout, so it carries no inverse changes at its last block.
+    let parent_data = cloud_storage
+        .get_shard_data(info.resharding_block_height, info.parent_shard)
+        .unwrap()
+        .expect("parent shard data archived at the resharding block");
+    assert!(
+        parent_data.inverse_state_changes().is_none(),
+        "removed parent shard carries no inverse changes at the resharding block"
+    );
+}
+
+/// Asserts the resharding epoch took a state snapshot for every new-layout shard
+/// even though its epoch height is off the snapshot cadence.
+pub fn assert_resharding_epoch_snapshot_forced(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+    info: &ReshardingInfo,
+    snapshot_every_n_epochs: u64,
+) {
+    let cloud_storage = get_cloud_storage(env, archival_id);
+    let store = get_hot_store(env, archival_id);
+    let node = env.node_for_account(archival_id);
+    let epoch_manager = &node.client().epoch_manager;
+
+    let gap_block_hash =
+        store.chain_store().get_block_hash_by_height(info.new_epoch_first_height).unwrap();
+    let resharding_epoch_id = epoch_manager.get_epoch_id(&gap_block_hash).unwrap();
+    let resharding_epoch_height =
+        epoch_manager.get_epoch_info(&resharding_epoch_id).unwrap().epoch_height();
+    assert_ne!(
+        resharding_epoch_height % snapshot_every_n_epochs,
+        0,
+        "test needs the resharding epoch off the snapshot cadence"
+    );
+    for &shard_uid in &info.new_shard_uids {
+        let state_header = execute_future(cloud_storage.retrieve_state_header(
+            resharding_epoch_height,
+            resharding_epoch_id,
+            shard_uid.shard_id(),
+        ));
+        assert!(state_header.is_ok(), "resharding epoch snapshot forced for {shard_uid}");
+    }
+}
+
 /// Bootstraps a reader node by downloading blocks from cloud and applying
 /// state sync to reconstruct the state at `target_block_height`.
 pub fn bootstrap_reader(
@@ -396,12 +547,7 @@ pub fn bootstrap_reader(
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
-    let tries = ShardTries::new(
-        store.trie_store(),
-        TrieConfig::default(),
-        FlatStorageManager::new(store.flat_store()),
-        StateSnapshotConfig::Disabled,
-    );
+    let tries = build_shard_tries(&store);
 
     // TODO(cloud_archival): support resharding; the shard layout can change
     // between the snapshot epoch and the target, which this loop assumes constant.
@@ -458,7 +604,22 @@ pub fn bootstrap_reader(
     }
 }
 
-fn has_state_root(tries: &ShardTries, shard_uid: ShardUId, state_root: CryptoHash) -> bool {
+/// Builds a `ShardTries` over `store` with state snapshots disabled.
+pub(crate) fn build_shard_tries(store: &Store) -> ShardTries {
+    ShardTries::new(
+        store.trie_store(),
+        TrieConfig::default(),
+        FlatStorageManager::new(store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    )
+}
+
+/// Whether `state_root` resolves to a reachable root node in `shard_uid`'s trie.
+pub(crate) fn has_state_root(
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    state_root: CryptoHash,
+) -> bool {
     let trie = tries.get_trie_for_shard(shard_uid, state_root);
     trie.retrieve_root_node().is_ok()
 }

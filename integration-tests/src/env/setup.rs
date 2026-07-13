@@ -4,11 +4,11 @@
 
 use crate::utils::peer_manager_mock::PeerManagerMock;
 use near_async::ActorSystem;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::{Clock, Duration, Utc};
 use near_async::tokio::TokioRuntimeHandle;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;

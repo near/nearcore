@@ -172,21 +172,6 @@ pub fn new_owned_future_spawner(description: &str) -> Box<dyn FutureSpawner> {
     })
 }
 
-/// Spawns a multithreaded actor which is NOT owned by any ActorSystem.
-/// Rather, the returned handle, when dropped, will stop the actor and its runtime.
-pub fn new_owned_multithread_actor<A: Actor + Send + 'static>(
-    num_threads: usize,
-    make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
-) -> MultithreadRuntimeHandle<A> {
-    let (cancellation_signal, cancellation_receiver) = crossbeam_channel::bounded::<()>(0);
-    spawn_multithread_actor(
-        num_threads,
-        make_actor_fn,
-        cancellation_receiver,
-        Some(cancellation_signal), // never cancelled
-    )
-}
-
 struct OwnedFutureSpawner {
     handle: TokioRuntimeHandle<EmptyActor>,
 }

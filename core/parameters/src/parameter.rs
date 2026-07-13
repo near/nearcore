@@ -114,6 +114,18 @@ pub enum Parameter {
     WasmKeccak256Byte,
     WasmKeccak512Base,
     WasmKeccak512Byte,
+    #[strum(serialize = "wasm_sha3_256_base")]
+    WasmSha3256Base,
+    #[strum(serialize = "wasm_sha3_256_byte")]
+    WasmSha3256Byte,
+    #[strum(serialize = "wasm_sha3_384_base")]
+    WasmSha3384Base,
+    #[strum(serialize = "wasm_sha3_384_byte")]
+    WasmSha3384Byte,
+    #[strum(serialize = "wasm_sha3_512_base")]
+    WasmSha3512Base,
+    #[strum(serialize = "wasm_sha3_512_byte")]
+    WasmSha3512Byte,
     WasmRipemd160Base,
     WasmRipemd160Block,
     WasmEcrecoverBase,
@@ -287,6 +299,10 @@ pub enum Parameter {
 
     // Flag to enable the P-256 verification host function
     P256VerifyHostFn,
+
+    // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
+    #[strum(serialize = "sha3_host_fns")]
+    Sha3HostFns,
 
     // Flag to enable yield_create_with_id and yield_resume_with_id host functions
     YieldWithIdHostFns,

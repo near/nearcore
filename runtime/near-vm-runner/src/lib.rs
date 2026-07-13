@@ -9,8 +9,6 @@ mod imports;
 pub mod logic;
 #[cfg(feature = "metrics")]
 mod metrics;
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-mod near_vm_runner;
 #[cfg(feature = "prepare")]
 pub mod prepare;
 mod profile;
@@ -24,7 +22,7 @@ mod wasmtime_runner;
 pub use crate::logic::with_ext_cost_counter;
 #[cfg(not(windows))]
 pub use cache::FilesystemContractRuntimeCache;
-#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+#[cfg(feature = "wasmtime_vm")]
 pub use cache::config_cache_key_signature;
 pub use cache::{
     CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
@@ -56,30 +54,4 @@ pub mod internal {
     pub use crate::runner::VMKindExt;
     #[cfg(feature = "prepare")]
     pub use wasmparser;
-}
-
-/// Drop something somewhat lazily.
-///
-/// The memory destruction is sorta expensive process, but not expensive enough to offload it into
-/// a thread for individual instances.
-///
-/// Instead this method will gather up a number of things before initiating a release in a thread,
-/// thus working in batches of sorts and amortizing the thread overhead.
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-pub(crate) fn lazy_drop(what: Box<dyn std::any::Any + Send>) {
-    // TODO: this would benefit from a lock-free array (should be straightforward enough to
-    // implement too...) But for the time being this mutex is not really contended much so…
-    // whatever.
-    const CHUNK_SIZE: usize = 8;
-    static WAITLIST: std::sync::OnceLock<parking_lot::Mutex<Vec<Box<dyn std::any::Any + Send>>>> =
-        std::sync::OnceLock::new();
-    let waitlist = WAITLIST.get_or_init(|| parking_lot::Mutex::new(Vec::with_capacity(CHUNK_SIZE)));
-    let mut waitlist = waitlist.lock();
-    if waitlist.capacity() > waitlist.len() {
-        waitlist.push(Box::new(what));
-    }
-    if waitlist.capacity() == waitlist.len() {
-        let chunk = std::mem::replace(&mut *waitlist, Vec::with_capacity(CHUNK_SIZE));
-        rayon::spawn(move || drop(chunk));
-    }
 }

@@ -79,9 +79,14 @@ class ShadowTrackingTest(unittest.TestCase):
         logger.info('## Initial shard assignment: {}'.format(
             self._get_shard_assignment('latest', nodes[4])))
 
-        # Stop the failover node for 1 epoch, so that it has to state sync to a new shard tracked by "test0".
+        # Stop the failover node for a few epochs, so that it has to state sync
+        # to a new shard tracked by "test0". We keep it down for more than the
+        # state-sync horizon (`epoch_sync_horizon_num_epochs`, default 2) so that
+        # on restart it syncs state to the current (peer-servable) epoch rather
+        # than block-syncing and catching up an older epoch whose state parts
+        # peers no longer serve.
         nodes[3].kill()
-        wait_for_blocks(nodes[4], count=EPOCH_LENGTH)
+        wait_for_blocks(nodes[4], count=3 * EPOCH_LENGTH)
         nodes[3].start(boot_node=nodes[4])
         # Give it some time to catch up.
         wait_for_blocks(nodes[4], count=EPOCH_LENGTH)

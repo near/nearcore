@@ -811,7 +811,7 @@ impl StateDumper {
                 self.clock.sleep(iteration_delay).await;
                 continue;
             };
-            if !self.should_dump_epoch(sync_header.epoch_id())? {
+            if !self.should_dump_epoch(&sync_header)? {
                 return Ok(());
             }
             match self.get_dump_state(&sync_header)? {
@@ -909,7 +909,7 @@ impl StateDumper {
             }
             CurrentDump::None => {}
         };
-        if !self.should_dump_epoch(sync_header.epoch_id())? {
+        if !self.should_dump_epoch(&sync_header)? {
             return Ok(());
         }
         match self.get_dump_state(&sync_header)? {
@@ -925,14 +925,22 @@ impl StateDumper {
         Ok(())
     }
 
-    /// Returns whether the configured snapshot cadence allows dumping state for this epoch.
-    /// Cadence `1` (default) always dumps; larger cadences skip epochs whose `epoch_height`
-    /// is not a multiple of the configured value.
-    fn should_dump_epoch(&self, epoch_id: &EpochId) -> anyhow::Result<bool> {
+    /// Returns whether state for this epoch should be dumped. Cadence `1`
+    /// (default) always dumps. Larger cadences dump only epochs whose
+    /// `epoch_height` is a multiple of the cadence, plus every resharding epoch.
+    fn should_dump_epoch(&self, sync_header: &BlockHeader) -> anyhow::Result<bool> {
         let snapshot_cadence = self.runtime.get_tries().state_snapshot_config().snapshot_cadence();
         if snapshot_cadence <= 1 {
             return Ok(true);
         }
+        if self
+            .epoch_manager
+            .is_resharding_epoch(sync_header.hash())
+            .context("Failed checking whether epoch is a resharding epoch")?
+        {
+            return Ok(true);
+        }
+        let epoch_id = sync_header.epoch_id();
         let epoch_info = self
             .epoch_manager
             .get_epoch_info(epoch_id)

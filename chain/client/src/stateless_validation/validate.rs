@@ -14,10 +14,11 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
-use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
+use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store, get_genesis_height};
 use strum::IntoStaticStr;
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
@@ -122,104 +123,157 @@ pub fn validate_partial_encoded_state_witness(
         VersionedPartialEncodedStateWitness::V1(_) => {
             epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
         }
-        VersionedPartialEncodedStateWitness::V2(v2) => {
-            let shard_id_label = shard_id.to_string();
-            let prev_prev_block_hash = v2.prev_prev_block_hash();
-            // Resolve the producer from the signed (anchor, epoch, height). The
-            // anchor is one block older than the parent, so it is reliably
-            // already processed even when the witness races its parent block.
-            let result = epoch_manager.get_chunk_producer_info_anchored(
-                Some(prev_prev_block_hash),
-                &epoch_id,
-                height_created,
-                shard_id,
-            );
-            let label = match &result {
-                Ok(_) => "hit",
-                // Anchor not processed: node is two or more blocks behind. Drop.
-                Err(EpochError::MissingBlock(_)) => "miss_anchor_block",
-                // Anchor processed but its `DBCol::ChunkProducers` row is missing; ~never
-                // in normal operation, a persistent miss means a row-writer bug.
-                Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
-                Err(_) => "error",
-            };
-            metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
-                .with_label_values(&[shard_id_label.as_str(), label])
-                .inc();
-            let info = result?;
-            // Cross-check the signed chunk key against the signed anchor, otherwise an
-            // authenticated producer could sign under a forged (epoch_id, height_created).
-            // Parent known: the key must match exactly what the parent implies. Parent
-            // absent (witness raced it): the anchor pins the height to exactly anchor + 2.
-            match epoch_manager.get_block_info(v2.prev_block_hash()) {
-                Ok(parent_info) => {
-                    let expected_epoch_id =
-                        epoch_manager.get_epoch_id_from_prev_block(v2.prev_block_hash())?;
-                    if parent_info.prev_hash() != prev_prev_block_hash
-                        || parent_info.height() + 1 != height_created
-                        || expected_epoch_id != epoch_id
-                    {
-                        return Err(Error::InvalidPartialChunkStateWitness(format!(
-                            "V2 witness chunk key mismatch: signed (epoch_id={:?}, height={}, \
-                             prev_prev={:?}) does not match prev_block_hash-implied \
-                             (epoch_id={:?}, height={}, prev_prev={:?})",
-                            epoch_id,
-                            height_created,
-                            prev_prev_block_hash,
-                            expected_epoch_id,
-                            parent_info.height() + 1,
-                            parent_info.prev_hash(),
-                        )));
-                    }
-                }
-                Err(EpochError::MissingBlock(_)) => {
-                    if prev_prev_block_hash != &CryptoHash::default() {
-                        // Parent unknown (witness raced it): pin the height to exactly
-                        // anchor + 2 for a non-default same-epoch anchor, so one anchor maps
-                        // to one ChunkProductionKey per shard and cannot fan across cache
-                        // slots. Cross-epoch anchors fall back to canonical sampling and are
-                        // not pinned here. This intentionally drops a legitimately
-                        // skipped-slot chunk whose parent is not yet processed (the skip's
-                        // wall-clock elapses before the parent exists, so it does not buy time
-                        // for the parent to land first); witnesses are lossy and the
-                        // anchor-keyed fix is tracked as a follow-up.
-                        let anchor_height =
-                            epoch_manager.get_block_info(prev_prev_block_hash)?.height();
-                        let expected_height =
-                            anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-                        if height_created != expected_height {
-                            return Err(Error::InvalidPartialChunkStateWitness(format!(
-                                "V2 witness height {height_created} does not match \
-                                 anchor-implied height {expected_height}"
-                            )));
-                        }
-                    } else {
-                        // Default anchor with the parent absent: no anchor to pin the height
-                        // and the resolver falls back to canonical sampling. A legitimate
-                        // default anchor only occurs for a chunk at genesis or genesis + 1, so
-                        // reject anything higher to keep the default-anchor path from being an
-                        // unpinned height escape hatch.
-                        let genesis_height = near_store::get_genesis_height(store)
-                            .ok_or_else(|| Error::Other("genesis height not found".to_owned()))?;
-                        if height_created > genesis_height + 1 {
-                            return Err(Error::InvalidPartialChunkStateWitness(format!(
-                                "V2 witness with default anchor at height {height_created} \
-                                 above genesis + 1 ({})",
-                                genesis_height + 1
-                            )));
-                        }
-                    }
-                }
-                Err(err) => return Err(err.into()),
-            }
-            info
-        }
+        VersionedPartialEncodedStateWitness::V2(v2) => resolve_and_verify_anchored_producer(
+            epoch_manager,
+            &partial_witness.chunk_production_key(),
+            v2.prev_block_hash(),
+            v2.prev_prev_block_hash(),
+            store,
+            "witness",
+        )?,
     };
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
 
     Ok(ChunkRelevance::Relevant)
+}
+
+/// Cross-check the signed (epoch, height) against the signed anchor before trusting the
+/// producer resolved from it. The anchored lookup is keyed by anchor and shard only, not
+/// height, so without this a producer could sign under any height and we would store or
+/// forward under a forged key.
+///
+/// Parent known: must match the parent exactly. Parent absent, real anchor: height must be
+/// anchor + 2. Parent absent, default anchor: only valid at genesis or genesis + 1.
+/// `msg_label` names the caller in the error.
+fn verify_anchored_chunk_key(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    height_created: BlockHeight,
+    prev_block_hash: &CryptoHash,
+    prev_prev_block_hash: &CryptoHash,
+    store: &Store,
+    msg_label: &str,
+) -> Result<(), Error> {
+    match epoch_manager.get_block_info(prev_block_hash) {
+        Ok(parent_info) => {
+            let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+            if parent_info.prev_hash() != prev_prev_block_hash
+                || parent_info.height() + 1 != height_created
+                || &expected_epoch_id != epoch_id
+            {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "V2 {msg_label} chunk key mismatch: signed (epoch_id={:?}, height={}, \
+                     prev_prev={:?}) does not match prev_block_hash-implied \
+                     (epoch_id={:?}, height={}, prev_prev={:?})",
+                    epoch_id,
+                    height_created,
+                    prev_prev_block_hash,
+                    expected_epoch_id,
+                    parent_info.height() + 1,
+                    parent_info.prev_hash(),
+                )));
+            }
+        }
+        Err(EpochError::MissingBlock(_)) => {
+            if prev_prev_block_hash != &CryptoHash::default() {
+                // Parent not here yet, so only the anchor is known. Requiring height ==
+                // anchor + 2 ties one anchor to one chunk key per shard, so a producer
+                // cannot reuse it across many cache slots. (Cross-epoch anchors fall back
+                // to the resolver.) A skipped slot with a missing parent is dropped here;
+                // that is fine, best-effort.
+                let anchor_height = epoch_manager.get_block_info(prev_prev_block_hash)?.height();
+                let expected_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+                if height_created != expected_height {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 {msg_label} height {height_created} does not match \
+                         anchor-implied height {expected_height}"
+                    )));
+                }
+            } else {
+                // Default (genesis) anchor with no parent: nothing pins the height. A real
+                // default anchor only happens at genesis or genesis + 1, so reject higher
+                // to avoid an any-height hole.
+                let genesis_height = get_genesis_height(store)
+                    .ok_or_else(|| Error::Other("genesis height not found".to_owned()))?;
+                if height_created > genesis_height + 1 {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 {msg_label} with default anchor at height {height_created} \
+                         above genesis + 1 ({})",
+                        genesis_height + 1
+                    )));
+                }
+            }
+        }
+        Err(err) => return Err(err.into()),
+    }
+    Ok(())
+}
+
+/// Look up the producer from the anchor and record the lookup-outcome metric (hit, anchor
+/// block missing, or `DBCol::ChunkProducers` row missing). Error returned unchanged;
+/// callers turn the node-behind cases (`MissingBlock`, `ChunkProducerNotInDB`) into a
+/// quiet drop.
+fn resolve_anchored_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_prev_block_hash: &CryptoHash,
+    epoch_id: &EpochId,
+    height_created: BlockHeight,
+    shard_id: ShardId,
+    message_type: &str,
+) -> Result<ValidatorStake, EpochError> {
+    let result = epoch_manager.get_chunk_producer_info_anchored(
+        Some(prev_prev_block_hash),
+        epoch_id,
+        height_created,
+        shard_id,
+    );
+    let label = match &result {
+        Ok(_) => "hit",
+        // Anchor block not processed yet: this node is two or more blocks behind.
+        Err(EpochError::MissingBlock(_)) => "miss_anchor_block",
+        // Anchor is processed but has no `DBCol::ChunkProducers` row. Should be ~0
+        // normally; if it persists, something that writes that row has a bug.
+        Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
+        Err(_) => "error",
+    };
+    metrics::ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL
+        .with_label_values(&[shard_id.to_string().as_str(), message_type, label])
+        .inc();
+    result
+}
+
+/// Resolve a V2 message's producer from the grandparent anchor, then cross-check the signed
+/// chunk key against the anchor. Shared by the witness, contract-accesses and contract-deploys
+/// V2 paths; `msg_label` names the caller in the metric and errors. Resolve runs before the
+/// cross-check so the lookup metric is recorded even when the key check later rejects.
+fn resolve_and_verify_anchored_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    key: &ChunkProductionKey,
+    prev_block_hash: &CryptoHash,
+    prev_prev_block_hash: &CryptoHash,
+    store: &Store,
+    msg_label: &str,
+) -> Result<ValidatorStake, Error> {
+    let producer = resolve_anchored_producer(
+        epoch_manager,
+        prev_prev_block_hash,
+        &key.epoch_id,
+        key.height_created,
+        key.shard_id,
+        msg_label,
+    )?;
+    verify_anchored_chunk_key(
+        epoch_manager,
+        &key.epoch_id,
+        key.height_created,
+        prev_block_hash,
+        prev_prev_block_hash,
+        store,
+        msg_label,
+    )?;
+    Ok(producer)
 }
 
 pub fn validate_partial_encoded_contract_deploys(
@@ -229,7 +283,20 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
+    // V1 uses the sampler; V2 looks the producer up from the anchor (like the witness
+    // path) and cross-checks the key first. An unresolvable anchor returns `DBNotFoundErr`,
+    // dropped quietly by the caller (this node is behind).
+    let chunk_producer = match partial_deploys {
+        PartialEncodedContractDeploys::V1(_) => epoch_manager.get_chunk_producer_info(key)?,
+        PartialEncodedContractDeploys::V2(v2) => resolve_and_verify_anchored_producer(
+            epoch_manager,
+            key,
+            v2.prev_block_hash(),
+            v2.prev_prev_block_hash(),
+            store,
+            "contract deploys",
+        )?,
+    };
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
@@ -277,7 +344,7 @@ pub fn validate_chunk_contract_accesses(
         signer.validator_id(),
         store
     )?);
-    validate_witness_contract_accesses_signature(epoch_manager, accesses)?;
+    validate_witness_contract_accesses_signature(epoch_manager, accesses, store)?;
 
     Ok(ChunkRelevance::Relevant)
 }
@@ -453,8 +520,23 @@ fn validate_witness_contract_code_request_signature(
 fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
+    store: &Store,
 ) -> Result<(), Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
+    let key = accesses.chunk_production_key();
+    // V1 uses the sampler; V2 looks the producer up from the anchor (like the witness
+    // path) and cross-checks the key first. An unresolvable anchor returns `DBNotFoundErr`,
+    // dropped quietly by the caller (this node is behind).
+    let chunk_producer = match accesses {
+        ChunkContractAccesses::V1(_) => epoch_manager.get_chunk_producer_info(key)?,
+        ChunkContractAccesses::V2(v2) => resolve_and_verify_anchored_producer(
+            epoch_manager,
+            key,
+            v2.prev_block_hash(),
+            v2.prev_prev_block_hash(),
+            store,
+            "contract accesses",
+        )?,
+    };
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
     }

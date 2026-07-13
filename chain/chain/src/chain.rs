@@ -1539,11 +1539,6 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
-            chain_store_update.save_chunk_producers_for_header(
-                self.epoch_manager.as_ref(),
-                header,
-                current_protocol_version,
-            )?;
             chain_store_update.commit()?;
         }
 
@@ -2242,14 +2237,10 @@ impl Chain {
         }
 
         let tries = self.runtime_adapter.get_tries();
-        if tries.get_memtries(parent_shard_uid).is_some() {
-            return Ok(());
-        }
-
         tracing::info!(
             target: "memtrie",
             ?parent_shard_uid,
-            "detected upcoming resharding, starting background memtrie load"
+            "detected upcoming resharding, ensuring parent shard memtrie is loaded"
         );
         tries.spawn_background_memtrie_loading_for_shard(
             parent_shard_uid,
@@ -3722,7 +3713,12 @@ impl Chain {
         let epoch_height =
             self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
         if epoch_height % snapshot_every_n_epochs != 0 {
-            return Ok(SnapshotAction::None);
+            // Force the resharding epoch's snapshot even off-cadence; cloud
+            // archival requires it. A node snapshotting every epoch (cadence 1)
+            // never reaches this branch.
+            if !self.epoch_manager.is_resharding_epoch(&head.last_block_hash)? {
+                return Ok(SnapshotAction::None);
+            }
         }
         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
     }

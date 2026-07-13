@@ -637,6 +637,21 @@ pub async fn start_with_config_and_synchronization_impl(
         block_notification_watch_sender,
         spice_client_config,
     );
+
+    let head = storage.get_hot_store().chain_store().head()?;
+    let epoch_info = epoch_manager.get_epoch_info(&head.epoch_id)?;
+    let epoch_start_height = epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
+    tracing::info!(
+        target: "near",
+        block_height = head.height,
+        block_hash = %head.last_block_hash,
+        epoch_id = ?head.epoch_id,
+        epoch_height = epoch_info.epoch_height(),
+        epoch_start_height,
+        protocol_version = epoch_info.protocol_version(),
+        "starting from chain head",
+    );
+
     // Spawn after start_client so that Chain::new has initialized FINAL_HEAD_KEY in the store.
     spawn_trie_metrics_loop(
         actor_system.clone(),

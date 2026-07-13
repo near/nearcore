@@ -1,0 +1,2 @@
+# Enable the sha3_256, sha3_384 and sha3_512 (FIPS-202) host functions.
+sha3_host_fns: { old: false, new: true }

@@ -1157,6 +1157,9 @@ class NeardRunner:
         self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
     def set_state_sync_config(self, config, location):
+        # Nodes always take state snapshots so they can serve state parts to
+        # peers; state sync itself is peer-to-peer (the default), so no `sync`
+        # config is set. A `location` is only used to configure a state dumper.
         config['store']['state_snapshot_config'] = {
             'state_snapshot_type': "Enabled"
         }
@@ -1164,11 +1167,6 @@ class NeardRunner:
             return config
 
         config['state_sync'] = config.get('state_sync', {})
-        config['state_sync']['sync'] = {
-            'ExternalStorage': {
-                'location': location
-            }
-        }
         if self.want_state_dump():
             config['state_sync']['dump'] = {'location': location}
 

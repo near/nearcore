@@ -88,7 +88,7 @@ struct Metrics {
     compiled_contract_memory_cache_hits: u64,
 }
 
-#[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
+#[cfg(feature = "wasmtime_vm")]
 pub(crate) fn compilation_duration(duration: Duration) {
     METRICS.with_borrow_mut(|m| m.compilation_time += duration);
 }
@@ -98,7 +98,7 @@ pub(crate) fn record_execution_duration(duration: Duration) {
 }
 
 /// Records the result of a compiled-contract cache lookup.
-#[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
+#[cfg(feature = "wasmtime_vm")]
 pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool, is_memory_hit: bool) {
     METRICS.with_borrow_mut(|m| {
         m.compiled_contract_cache_lookups += 1;

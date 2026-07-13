@@ -3,7 +3,7 @@
 //! These tests build a tiny WASM contract that imports `p256_verify`, loads
 //! inputs into memory, invokes the host function, and traps or returns
 //! depending on the result. The tests exercise the full pipeline through the
-//! real WASM VM (NearVm / Wasmtime), so they cover the imports wiring, memory
+//! real WASM VM (Wasmtime), so they cover the imports wiring, memory
 //! marshalling, and gas accounting in a way that the logic-only unit tests
 //! cannot.
 

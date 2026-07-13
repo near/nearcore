@@ -753,14 +753,12 @@ pub(crate) fn is_descendant_of_final_execution_head(
     chain_store: &ChainStoreAdapter,
     header: &BlockHeader,
 ) -> bool {
-    let final_execution_head = match chain_store.spice_final_execution_head() {
-        Ok(final_header) => final_header,
-        // Without final execution head we are either executing on genesis and don't have it yet or
-        // executing on top of non-spice blocks. In both cases we can assume that all blocks are on
-        // top of final_execution_head until it's set.
-        Err(Error::DBNotFoundErr(_)) => return true,
-        Err(err) => panic!("failed to find final execution head: {err:?}"),
-    };
+    // The final execution head is seeded at genesis whenever spice is enabled, and
+    // this runs only on spice-gated paths, so its absence is a bug rather than a
+    // recoverable "not set yet" state — fail loud.
+    let final_execution_head = chain_store
+        .spice_final_execution_head()
+        .expect("spice final execution head is seeded at genesis when spice is enabled");
     let mut height = header.height();
     if height <= final_execution_head.height {
         return false;

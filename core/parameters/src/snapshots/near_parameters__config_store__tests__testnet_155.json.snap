@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -129,6 +128,12 @@ snapshot_kind: text
       "keccak256_byte": 21471105,
       "keccak512_base": 5811388236,
       "keccak512_byte": 36649701,
+      "sha3_256_base": 5879491275,
+      "sha3_256_byte": 21471105,
+      "sha3_384_base": 5811388236,
+      "sha3_384_byte": 36649701,
+      "sha3_512_base": 5811388236,
+      "sha3_512_byte": 36649701,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
       "ed25519_verify_base": 210000000000,
@@ -210,6 +215,7 @@ snapshot_kind: text
     "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
+    "sha3_host_fns": false,
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,
     "bls12381_not_in_group_fix": true,

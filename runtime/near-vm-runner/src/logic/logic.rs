@@ -1,3 +1,4 @@
+// cspell:words wycheproof
 use super::context::VMContext;
 use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};
@@ -1629,6 +1630,89 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         )
     }
 
+    /// Hashes the given value using the SHA3 (FIPS-202) digest `D` and returns it into
+    /// `register_id`, charging `base_cost` once plus `byte_cost` per input byte.
+    fn sha3_generic<D: sha3::Digest>(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+        base_cost: ExtCosts,
+        byte_cost: ExtCosts,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base_cost)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
+        self.result_state.gas_counter.pay_per(byte_cost, value.len() as u64)?;
+
+        let value_hash = D::digest(&value);
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            &value_hash[..],
+        )
+    }
+
+    /// Hashes the given value using sha3-256 (FIPS-202) and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3_256_base + sha3_256_byte * num_bytes`
+    pub fn sha3_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.sha3_generic::<sha3::Sha3_256>(
+            value_len,
+            value_ptr,
+            register_id,
+            sha3_256_base,
+            sha3_256_byte,
+        )
+    }
+
+    /// Hashes the given value using sha3-384 (FIPS-202) and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3_384_base + sha3_384_byte * num_bytes`
+    pub fn sha3_384(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.sha3_generic::<sha3::Sha3_384>(
+            value_len,
+            value_ptr,
+            register_id,
+            sha3_384_base,
+            sha3_384_byte,
+        )
+    }
+
+    /// Hashes the given value using sha3-512 (FIPS-202) and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3_512_base + sha3_512_byte * num_bytes`
+    pub fn sha3_512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.sha3_generic::<sha3::Sha3_512>(
+            value_len,
+            value_ptr,
+            register_id,
+            sha3_512_base,
+            sha3_512_byte,
+        )
+    }
+
     /// Hashes the given value using RIPEMD-160 and returns it into `register_id`.
     ///
     /// # Errors
@@ -1858,6 +1942,28 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///   to 64, returns [HostError::P256VerifyInvalidInput].
     /// * If any of the signature, message or public key arguments are out of
     ///   memory bounds, returns [`HostError::MemoryAccessViolation`]
+    ///
+    /// # Malleability
+    ///
+    /// ECDSA signatures are malleable: if `(r, s)` verifies, so does
+    /// `(r, n - s)`, and this function accepts both. It delegates to a
+    /// FIPS 186-5 compliant implementation and does not enforce low-s
+    /// normalization (low-s is a Bitcoin convention from BIP-62, not an ECDSA
+    /// requirement). This is deliberate: WebAuthn does not require low-s and
+    /// real authenticators — notably Apple's Secure Enclave — routinely emit
+    /// high-s signatures, so rejecting them would break passkey flows.
+    /// Ethereum's RIP-7212 `P256VERIFY` precompile makes the same choice, and
+    /// unlike `ecrecover` this function takes no malleability flag.
+    ///
+    /// Malleability only matters to callers that use the signature bytes
+    /// themselves for uniqueness or replay protection. Such callers must either
+    /// enforce low-s themselves — with the raw `r || s` encoding, `s` is bytes
+    /// 32..64 big-endian, so the check is a lexicographic comparison against
+    /// ⌊n/2⌋ =
+    /// `0x7FFFFFFF800000007FFFFFFFFFFFFFFFDE737D56D38BCF4279DCE5617E3192A8` — or
+    /// have clients normalize `s = n - s` before submission. This behavior is
+    /// pinned by `test_p256_verify_wycheproof_high_s_accepted`; changing it
+    /// would be protocol-breaking.
     ///
     /// # Cost
     ///
@@ -4377,7 +4483,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// This is meant for use in tests and implementation of VMs only. Implementations of host
     /// functions should be using `pay_*` functions instead.
     // TODO(wasmtime): remove once legacy VMLogic test path is fully retired.
-    #[cfg(any(test, all(feature = "near_vm", target_arch = "x86_64")))]
+    #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.result_state.gas_counter

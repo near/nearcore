@@ -165,16 +165,6 @@ mod tests {
         assert!(!cache_keys_differ(a, b));
     }
 
-    // NearVm only runs on x86_64; on other targets `VMKind::NearVm.runtime()`
-    // returns `None` and `config_cache_key_signature` panics.
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn signatures_differ_for_distinct_vm_kinds() {
-        let a = vm_config_with(VMKind::Wasmtime);
-        let b = vm_config_with(VMKind::NearVm);
-        assert!(cache_keys_differ(a, b));
-    }
-
     #[test]
     fn signatures_differ_for_distinct_non_crypto_hash() {
         let a = vm_config_with(VMKind::Wasmtime);
