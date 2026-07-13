@@ -14,6 +14,8 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
+#[cfg(feature = "nightly")]
+use near_primitives::types::EpochId;
 use near_primitives::types::{Balance, ChunkStats, ShardId, ValidatorId};
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::{HashMap, HashSet};
@@ -52,13 +54,39 @@ fn tracker(
     HashMap::from([(shard_id, inner)])
 }
 
+/// Runs the math and returns just the applied blacklist map (drops observability stats).
+fn blacklist(
+    st: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    epoch_info: &EpochInfo,
+    layout: &ShardLayout,
+) -> HashMap<ShardId, HashSet<ValidatorId>> {
+    compute_chunk_producer_blacklist(st, epoch_info, layout).blacklist
+}
+
+/// On an all-bad shard the keep-one valve leaves exactly one survivor. Returns the
+/// id of that survivor (the least-bad producer that keeps its slot).
+fn kept_survivor(
+    st: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    epoch_info: &EpochInfo,
+    layout: &ShardLayout,
+    shard_id: ShardId,
+    producers: &[ValidatorId],
+) -> ValidatorId {
+    let bl = blacklist(st, epoch_info, layout);
+    let excluded = bl.get(&shard_id).cloned().unwrap_or_default();
+    let survivors: Vec<ValidatorId> =
+        producers.iter().copied().filter(|id| !excluded.contains(id)).collect();
+    assert_eq!(survivors.len(), 1, "keep-one must leave exactly one survivor, got {survivors:?}");
+    survivors[0]
+}
+
 // 1. produced/expected < 80%, missed >= 20, expected >= 50 -> blacklisted.
 #[test]
 fn blacklist_below_threshold() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(4);
     // id 0: 50/100 = 50% < 80%, missed 50; others healthy.
     let st = tracker(shard_id, &[(0, 50, 100), (1, 100, 100), (2, 100, 100), (3, 100, 100)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let bl = blacklist(&st, &epoch_info, &layout);
     assert_eq!(bl, HashMap::from([(shard_id, HashSet::from([0]))]));
 }
 
@@ -68,7 +96,7 @@ fn blacklist_exactly_at_threshold() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(4);
     // id 0: 320/400 = exactly 80%, missed 80 (>= 20). Strict `<` must exclude it.
     let st = tracker(shard_id, &[(0, 320, 400), (1, 400, 400), (2, 400, 400), (3, 400, 400)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let bl = blacklist(&st, &epoch_info, &layout);
     assert!(bl.is_empty());
 }
 
@@ -78,26 +106,35 @@ fn blacklist_under_min_misses() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(4);
     // id 0: 31/50 = 62% < 80% but missed only 19 (< 20); expected >= 50.
     let st = tracker(shard_id, &[(0, 31, 50), (1, 100, 100), (2, 100, 100), (3, 100, 100)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let bl = blacklist(&st, &epoch_info, &layout);
     assert!(bl.is_empty());
 }
 
-// 4. every producer would be blacklisted -> shard omitted (safety valve).
+// 4. every producer would be blacklisted -> keep exactly one least-bad. Both here
+//    have identical stats, so the tiebreak (lower validator_id) keeps id 0 and
+//    blacklists id 1. The valve stat records the firing.
 #[test]
 fn blacklist_safety_valve_all_producers() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(2);
     let st = tracker(shard_id, &[(0, 0, 100), (1, 0, 100)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
-    assert!(bl.is_empty());
+    let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    assert_eq!(res.blacklist, HashMap::from([(shard_id, HashSet::from([1]))]));
+    let stats = &res.shard_stats[&shard_id];
+    assert_eq!(stats.raw_candidate_count, 2);
+    assert!(stats.safety_valve_fired, "valve must fire when every producer is a candidate");
 }
 
-// 5. lone producer would be blacklisted -> omitted (safety valve).
+// 5. lone producer would be blacklisted -> keep-one leaves it eligible, so the shard
+//    has no blacklist entry, and the stats record that the valve fired.
 #[test]
 fn blacklist_single_producer_shard() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(1);
     let st = tracker(shard_id, &[(0, 0, 100)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
-    assert!(bl.is_empty());
+    let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    assert!(res.blacklist.is_empty(), "1-producer shard must never be blacklisted");
+    let stats = &res.shard_stats[&shard_id];
+    assert_eq!(stats.raw_candidate_count, 1);
+    assert!(stats.safety_valve_fired, "valve must fire when the only producer is a candidate");
 }
 
 // 6. expected < 50 at 0% production -> not blacklisted (sample-size guard).
@@ -106,7 +143,7 @@ fn blacklist_minimum_observed_blocks() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(2);
     // id 0: 0/49, below the observed-blocks floor.
     let st = tracker(shard_id, &[(0, 0, 49), (1, 100, 100)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let bl = blacklist(&st, &epoch_info, &layout);
     assert!(bl.is_empty());
 }
 
@@ -123,7 +160,7 @@ fn blacklist_ignores_endorsement_only_entries() {
     inner.insert(1, ChunkStats::new_with_production(100, 100));
     inner.insert(2, ChunkStats::new_with_production(100, 100));
     let st = HashMap::from([(shard_id, inner)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let bl = blacklist(&st, &epoch_info, &layout);
     assert_eq!(bl, HashMap::from([(shard_id, HashSet::from([0]))]));
 }
 
@@ -132,7 +169,7 @@ fn blacklist_ignores_endorsement_only_entries() {
 fn blacklist_empty_when_healthy() {
     let (epoch_info, layout, shard_id) = single_shard_epoch(3);
     let st = tracker(shard_id, &[(0, 100, 100), (1, 96, 100), (2, 100, 100)]);
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let bl = blacklist(&st, &epoch_info, &layout);
     assert!(bl.is_empty());
 }
 
@@ -171,8 +208,71 @@ fn blacklist_multi_shard_independent() {
             (2, ChunkStats::new_with_production(100, 100)),
         ]),
     );
-    let bl = compute_chunk_producer_blacklist(&st, &epoch_info, &shard_layout);
+    let bl = blacklist(&st, &epoch_info, &shard_layout);
     assert_eq!(bl, HashMap::from([(shard_ids[0], HashSet::from([0]))]));
+}
+
+// --- keep-one safety-valve behavior (all producers are candidates) ---
+
+// (a) recovering holder keeps its slot while its ratio is the highest among the
+//     frozen candidates. All three producers are below threshold; id 1 has the
+//     highest ratio and must be the survivor.
+#[test]
+fn keep_one_keeps_highest_ratio_holder() {
+    let (epoch_info, layout, shard_id) = single_shard_epoch(3);
+    // ratios: id 0 = 40%, id 1 = 79% (holder), id 2 = 50%. All candidates.
+    let st = tracker(shard_id, &[(0, 40, 100), (1, 79, 100), (2, 50, 100)]);
+    assert_eq!(kept_survivor(&st, &epoch_info, &layout, shard_id, &[0, 1, 2]), 1);
+    // The two frozen candidates are blacklisted; the holder is not.
+    assert_eq!(
+        blacklist(&st, &epoch_info, &layout),
+        HashMap::from([(shard_id, HashSet::from([0, 2]))])
+    );
+}
+
+// (b) the slot rotates to a different frozen candidate once the current holder's
+//     ratio drops below it. Same producer set, only ratios move.
+#[test]
+fn keep_one_rotates_when_holder_ratio_drops() {
+    let (epoch_info, layout, shard_id) = single_shard_epoch(3);
+    // id 0 is the holder with the highest ratio (79%).
+    let holding = tracker(shard_id, &[(0, 79, 100), (1, 50, 100), (2, 40, 100)]);
+    assert_eq!(kept_survivor(&holding, &epoch_info, &layout, shard_id, &[0, 1, 2]), 0);
+    // id 0 collapses to 10%; id 1 (50%) is now the least-bad and takes the slot.
+    let dropped = tracker(shard_id, &[(0, 10, 100), (1, 50, 100), (2, 40, 100)]);
+    assert_eq!(kept_survivor(&dropped, &epoch_info, &layout, shard_id, &[0, 1, 2]), 1);
+}
+
+// (c) the worst producer is never the survivor. id 0 has the lowest ratio and must
+//     always be blacklisted; the best producer (id 2) is kept.
+#[test]
+fn keep_one_never_keeps_worst() {
+    let (epoch_info, layout, shard_id) = single_shard_epoch(3);
+    // ratios: id 0 = 5% (worst), id 1 = 40%, id 2 = 79% (best).
+    let st = tracker(shard_id, &[(0, 5, 100), (1, 40, 100), (2, 79, 100)]);
+    let bl = blacklist(&st, &epoch_info, &layout);
+    assert!(bl[&shard_id].contains(&0), "worst producer must be blacklisted");
+    assert_eq!(kept_survivor(&st, &epoch_info, &layout, shard_id, &[0, 1, 2]), 2);
+}
+
+// (d) after keep-one, exclusion always leaves >= 1 eligible producer, so
+//     `sample_chunk_producer_excluding` never returns None on an all-bad shard.
+#[test]
+fn keep_one_leaves_sampler_nonempty() {
+    let (epoch_info, layout, shard_id) = single_shard_epoch(3);
+    // all three below threshold; id 2 is least-bad and kept.
+    let st = tracker(shard_id, &[(0, 5, 100), (1, 40, 100), (2, 79, 100)]);
+    let exclude = blacklist(&st, &epoch_info, &layout)[&shard_id].clone();
+    assert_eq!(exclude.len(), 2, "two of three producers must be excluded");
+    for height in 0..50 {
+        let sampled =
+            epoch_info.sample_chunk_producer_excluding(&layout, shard_id, height, &exclude);
+        assert_eq!(
+            sampled,
+            Some(2),
+            "sampler must always yield the single surviving producer at height {height}"
+        );
+    }
 }
 
 // --- Accessor tests (end-to-end through EpochManagerHandle) ---
@@ -706,4 +806,54 @@ fn seed_walk_bounded_under_finality_stall() {
         walked <= upper,
         "seed walk cost {walked} exceeds O(depth^2) bound {upper} — regression?"
     );
+}
+
+/// Drives `count` blocks in epoch 0 where the single shard's chunk is ALWAYS missed,
+/// so every scheduled producer accumulates 0 produced / many expected -> all
+/// producers become blacklist candidates (all-bad shard). Returns block hashes.
+#[cfg(feature = "nightly")]
+fn drive_all_chunks_missed(handle: &EpochManagerHandle, count: u64) -> Vec<CryptoHash> {
+    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
+    let mut prev = h[0];
+    for height in 1..=count {
+        record_block_with_mask(&mut handle.write(), prev, h[height as usize], height, vec![false]);
+        prev = h[height as usize];
+    }
+    h
+}
+
+// 12. v152+ protocol: an all-bad shard fires the safety valve on the SEEDER (the
+//     production write path that runs once per recorded block), so the
+//     `safety_valve_fired` counter increments as blocks are recorded. The accessor
+//     then applies keep-one, keeping exactly one of the two producers eligible.
+//     Emission lives ONLY at the seeder — the accessor is a pure read and must not
+//     double-count.
+#[cfg(feature = "nightly")]
+#[test]
+fn seed_chunk_producers_fires_safety_valve_metric() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    // Single shard; its label is stable across the whole drive (epoch length 10_000
+    // keeps every block in epoch 0).
+    let shard_id =
+        handle.get_shard_layout(&EpochId::default()).unwrap().shard_ids().next().unwrap();
+    let label = shard_id.to_string();
+    // Snapshot before driving: the counter is a process-global monotonic counter, and
+    // this is the only test whose seeder fires the valve for this shard (down-one-node
+    // tests never blacklist every producer), so a strict increase is the robust check.
+    let before =
+        crate::metrics::EARLY_KICKOUT_SAFETY_VALVE_FIRED.with_label_values(&[label.as_str()]).get();
+    let h = drive_all_chunks_missed(&handle, 160);
+    let after =
+        crate::metrics::EARLY_KICKOUT_SAFETY_VALVE_FIRED.with_label_values(&[label.as_str()]).get();
+    assert!(
+        after > before,
+        "seeder must fire the safety-valve counter on an all-bad shard: {before} -> {after}"
+    );
+    // The applied blacklist keeps exactly one of the two producers eligible.
+    let prev = *h.last().unwrap();
+    let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
+    assert_eq!(bl.len(), 1, "expected exactly one shard in the blacklist, got {bl:?}");
+    assert_eq!(bl[&shard_id].len(), 1, "keep-one must blacklist exactly one of two producers");
 }
