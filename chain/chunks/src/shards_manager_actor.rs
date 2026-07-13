@@ -1482,15 +1482,26 @@ impl ShardsManagerActor {
                 .map_err(err_mapper)?;
             let &header_epoch_id =
                 header.epoch_id().ok_or(Error::InvalidChunkHeader).map_err(err_mapper)?;
-            // When the chunk's epoch is confirmed (derived from a processed parent or the request
-            // ancestor) it is authoritative, so the header's epoch id must equal it — a
-            // signature-independent check that also covers the parent-absent-but-epoch-known case
-            // `verify_anchored_chunk_key` skips. When the epoch is only guessed we don't compare
-            // (the guess can be wrong at an epoch boundary) and rely on the anchored producer +
-            // signature; bounding the guessed case to the anchor's candidate epochs is left as a
-            // follow-up (see `verify_anchored_chunk_key`).
-            if epoch_id_confirmed && header_epoch_id != epoch_id {
-                return Err(Error::InvalidChunkHeader);
+            // Bound the header's epoch id before trusting the resolved producer, mirroring the
+            // witness path (`validate_chunk_relevant`). When the chunk's epoch is confirmed
+            // (derived from a processed parent or the request ancestor) it is authoritative, so
+            // the header's epoch id must equal it — a signature-independent check that also covers
+            // the parent-absent-but-epoch-known case `verify_anchored_chunk_key` skips. When the
+            // epoch is only guessed, require it to be among the plausible epochs for this height
+            // around our head (a single epoch when clearly interior, two near a boundary); if it
+            // isn't — or our head lags — drop and retry via `err_mapper` rather than hard-reject.
+            if epoch_id_confirmed {
+                if header_epoch_id != epoch_id {
+                    return Err(Error::InvalidChunkHeader);
+                }
+            } else {
+                let possible_epochs = self
+                    .epoch_manager
+                    .possible_epochs_of_height_around_tip(&self.chain_head, header.height_created())
+                    .map_err(|err| err_mapper(err.into()))?;
+                if !possible_epochs.contains(&header_epoch_id) {
+                    return Err(err_mapper(Error::InvalidChunkHeader));
+                }
             }
             let key = ChunkProductionKey {
                 epoch_id: header_epoch_id,
