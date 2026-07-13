@@ -55,12 +55,15 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self { bytes, _permit: None }
-    }
-
     pub fn with_permit(bytes: Vec<u8>, permit: OutgoingPermit) -> Self {
         Self { bytes, _permit: Some(permit) }
+    }
+}
+
+#[cfg(test)]
+impl Frame {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, _permit: None }
     }
 }
 
