@@ -108,10 +108,11 @@ impl ChunkTestFixture {
         // generate a random block hash for the block at height 1
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
+        let mock_grandparent_hash =
+            if orphan_chunk { CryptoHash::hash_bytes(&[1]) } else { CryptoHash::default() };
 
         // No ChunkProducers DB seeding needed: the fixture's height-1 chunks have
-        // no real grandparent, so anchored resolution falls back to the canonical
-        // sampler (and the orphan fixture exercises the MissingBlock path).
+        // no real grandparent, so anchored resolution falls back to the canonical sampler.
         let mock_shard_id = shard_layout.shard_ids().next().unwrap();
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
@@ -158,8 +159,8 @@ impl ChunkTestFixture {
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkle_paths) = ShardChunkWithEncoding::new(
             mock_parent_hash,
-            CryptoHash::default(),
-            EpochId::default(),
+            mock_grandparent_hash,
+            mock_epoch_id,
             Default::default(),
             Default::default(),
             mock_height,

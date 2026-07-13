@@ -96,7 +96,8 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
-    verify_chunk_header_signature_by_hash, verify_chunk_header_signature_by_hash_and_parts,
+    resolve_and_verify_anchored_producer, verify_chunk_header_signature_by_hash,
+    verify_chunk_header_signature_by_hash_and_parts,
 };
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
@@ -127,6 +128,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
@@ -1429,9 +1431,11 @@ impl ShardsManagerActor {
         let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
             .entered();
 
-        // Signature is intentionally NOT checked here — it requires the chunk
-        // producer from the DB (via prev_block_hash), which may not be available yet.
-        // Signature is verified later in `validate_chunk_header_full`.
+        // For pre-V7 headers the signature is intentionally NOT checked here — it requires the
+        // chunk producer resolved from `prev_block_hash`, which may not be available yet, so it is
+        // verified later in `validate_chunk_header_full`. V7 headers carry
+        // the grandparent anchor and epoch id, so their signature IS verified here at arrival — see
+        // the V7 block at the end of this function.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1466,6 +1470,45 @@ impl ShardsManagerActor {
 
         self.verify_chunk_shard_id(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_protocol_version(header, epoch_id).map_err(err_mapper)?;
+
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&epoch_id)
+            .map_err(|err| err_mapper(err.into()))?;
+        if ProtocolFeature::VerifiedChunkCache.enabled(protocol_version) {
+            let &prev_prev_block_hash = header
+                .prev_prev_block_hash()
+                .ok_or(Error::InvalidChunkHeader)
+                .map_err(err_mapper)?;
+            let &header_epoch_id =
+                header.epoch_id().ok_or(Error::InvalidChunkHeader).map_err(err_mapper)?;
+            // When the chunk's epoch is confirmed (derived from a processed parent or the request
+            // ancestor) it is authoritative, so the header's epoch id must equal it — a
+            // signature-independent check that also covers the parent-absent-but-epoch-known case
+            // `verify_anchored_chunk_key` skips. When the epoch is only guessed we don't compare
+            // (the guess can be wrong at an epoch boundary) and rely on the anchored producer +
+            // signature; bounding the guessed case to the anchor's candidate epochs is left as a
+            // follow-up (see `verify_anchored_chunk_key`).
+            if epoch_id_confirmed && header_epoch_id != epoch_id {
+                return Err(Error::InvalidChunkHeader);
+            }
+            let key = ChunkProductionKey {
+                epoch_id: header_epoch_id,
+                shard_id: header.shard_id(),
+                height_created: header.height_created(),
+            };
+            let producer = resolve_and_verify_anchored_producer(
+                self.epoch_manager.as_ref(),
+                &key,
+                header.prev_block_hash(),
+                &prev_prev_block_hash,
+                self.store.store_ref(),
+                "chunk",
+            )?;
+            if !header.signature().verify(chunk_hash.as_ref(), producer.public_key()) {
+                return Err(Error::InvalidChunkSignature);
+            }
+        }
 
         Ok(())
     }
@@ -2520,6 +2563,10 @@ mod test {
         );
     }
 
+    // Exercises classic orphan-chunk buffering (an unprocessed-parent chunk waits for its block).
+    // That only exists pre-`VerifiedChunkCache`; under the feature such a chunk is dropped at
+    // arrival, so run only on stable.
+    #[cfg(not(feature = "nightly"))]
     #[test]
     fn test_resend_chunk_requests() {
         // Test that resending chunk requests won't request for parts the node already received
@@ -2806,6 +2853,9 @@ mod test {
         );
     }
 
+    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`VerifiedChunkCache`,
+    // so run only on stable. Under the feature the unprocessed-anchor header is dropped at arrival.
+    #[cfg(not(feature = "nightly"))]
     #[test]
     // Test that when a validator receives a chunk before the chunk header, it should store
     // the forward and use it when it receives the header
@@ -3430,6 +3480,9 @@ mod test {
         )
     }
 
+    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`VerifiedChunkCache`,
+    // so run only on stable. Under the feature the unprocessed-anchor header is dropped at arrival.
+    #[cfg(not(feature = "nightly"))]
     #[test]
     fn test_orphan_chunk_request_graceful_degradation() {
         // Orphan request path: prev_block_hash is unknown to the epoch manager (parent

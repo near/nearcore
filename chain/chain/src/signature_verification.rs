@@ -119,6 +119,13 @@ fn verify_anchored_chunk_key(
                          anchor-implied height {expected_height}"
                     )));
                 }
+                // TODO(verified-chunk-cache): also bound `epoch_id` to this anchor's candidate
+                // epochs ({ get_epoch_id(anchor), next epoch }; the chunk crosses at most one
+                // epoch boundary). Here the epoch is disciplined only by the signature, so a
+                // validator assigned as producer in an unrelated *known* epoch can self-sign a
+                // header at this height and transiently poison the cache (racing out the real
+                // chunk via the (height, shard) dedup) until the parent lands. Shared with the
+                // witness path.
             } else {
                 // Default (genesis) anchor with no parent: nothing pins the height. A real
                 // default anchor only happens at genesis or genesis + 1, so reject higher
