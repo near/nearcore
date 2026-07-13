@@ -257,6 +257,7 @@ fn test_early_kickout_reassignment() {
 /// rationale); it is covered by the epoch-manager unit tests and the cold-storage
 /// boundary test.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_early_kickout_epoch_sync_bootstrap() {
     init_test_logger();
 
