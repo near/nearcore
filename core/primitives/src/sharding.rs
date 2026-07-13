@@ -617,6 +617,9 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V4(_) => true,
                 ShardChunkHeaderInner::V5(_) => ProtocolFeature::DynamicResharding.enabled(version),
                 ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
+                ShardChunkHeaderInner::V7(_) => {
+                    ProtocolFeature::VerifiedChunkCache.enabled(version)
+                }
             },
         };
 
