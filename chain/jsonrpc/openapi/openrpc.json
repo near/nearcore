@@ -2735,6 +2735,17 @@
           "encoded_merkle_root": {
             "$ref": "#/components/schemas/CryptoHash"
           },
+          "epoch_id": {
+            "description": "The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EpochId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "gas_limit": {
             "$ref": "#/components/schemas/NearGas"
           },
@@ -2759,6 +2770,17 @@
           },
           "prev_block_hash": {
             "$ref": "#/components/schemas/CryptoHash"
+          },
+          "prev_prev_block_hash": {
+            "description": "Grandparent anchor carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers, which don't carry it.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"

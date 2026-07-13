@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.12"
+    "version": "1.2.13"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3816,6 +3816,20 @@
           "encoded_merkle_root": {
             "$ref": "#/components/schemas/CryptoHash"
           },
+          "epoch_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpochId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers."
+          },
           "gas_limit": {
             "$ref": "#/components/schemas/NearGas"
           },
@@ -3840,6 +3854,20 @@
           },
           "prev_block_hash": {
             "$ref": "#/components/schemas/CryptoHash"
+          },
+          "prev_prev_block_hash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Grandparent anchor carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers, which don't carry it."
           },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
