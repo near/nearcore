@@ -14,12 +14,11 @@ pub mod protocol;
 mod sandbox;
 
 pub use child::daemon_main;
+#[cfg(feature = "test_features")]
+pub use parent::spawned_worker_high_water;
 pub use parent::{
     compile_in_subprocess, is_daemon_configured, set_daemon_binary, set_daemon_pool_size,
 };
-
-#[cfg(feature = "test_features")]
-pub use parent::spawned_worker_high_water;
 
 /// Minimum per-worker virtual memory budget.
 ///
@@ -30,9 +29,9 @@ pub use parent::spawned_worker_high_water;
 /// If compilation fails for any reason, it will be retried once.
 /// (TODO: increase the memory budget on retry)
 ///
-/// With 6 threads, most contracts compile using less than 450MB virutal memory
+/// With 6 threads, most contracts compile using less than 450MB virtual memory
 /// and less than 35MB physical memory. Known valid cases use 600 MB virtual and
-/// 170 MB physical memory at the extreme. Using more than 1GiB virutal memory
+/// 170 MB physical memory at the extreme. Using more than 1GiB virtual memory
 /// might be possible but almost certainly would be a maliciously crafted Wasm.
 const MIN_WORKER_MEMORY_LIMIT_BYTES: u64 = 1 * bytesize::GIB;
 

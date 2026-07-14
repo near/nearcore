@@ -4,6 +4,8 @@
 //! not need pathname-based filesystem access. Linux workers therefore enter a
 //! Landlock domain with no allow rules before processing untrusted Wasm.
 
+// cspell:words landlock
+
 #[cfg(target_os = "linux")]
 mod linux {
     use landlock::{
@@ -30,7 +32,7 @@ mod linux {
 
         let status = Ruleset::default()
             // A Linux compiler worker must have at least baseline filesystem
-            // mediation. Continuing without it would silently run unsandboxed.
+            // mediation. Continuing without it would silently run without sandbox.
             .set_compatibility(CompatLevel::HardRequirement)
             .handle_access(AccessFs::from_all(ABI::V1))
             .map_err(|err| format!("failed to require landlock filesystem access rights: {err}"))?
@@ -54,6 +56,7 @@ mod linux {
             .restrict_self()
             .map_err(|err| format!("failed to enforce landlock ruleset: {err}"))?;
 
+        // cspell:words privs
         if !status.no_new_privs {
             return Err("landlock did not enable no_new_privs".to_owned());
         }
@@ -109,6 +112,7 @@ mod linux {
     #[cfg(feature = "test_features")]
     fn expect_denied<T>(operation: &str, result: IoResult<T>) -> Result<(), String> {
         match result {
+            // cspell:words EACCES
             Err(err) if err.raw_os_error() == Some(libc::EACCES) => Ok(()),
             Err(err) => {
                 Err(format!("landlock probe failed to {operation} with unexpected error: {err}"))
@@ -118,11 +122,10 @@ mod linux {
     }
 }
 
-#[cfg(target_os = "linux")]
-pub use linux::{SandboxStatus, apply};
-
 #[cfg(all(target_os = "linux", feature = "test_features"))]
 pub use linux::run_probe;
+#[cfg(target_os = "linux")]
+pub use linux::{SandboxStatus, apply};
 
 #[cfg(not(target_os = "linux"))]
 #[derive(Debug)]

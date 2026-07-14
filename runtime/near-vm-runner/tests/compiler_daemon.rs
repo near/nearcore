@@ -2,6 +2,8 @@
 //!
 //! The tests spawn the dedicated daemon binary Cargo builds for this package.
 
+// cspell:words landlock sandboxed
+
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_vm_runner::CompilePriority;

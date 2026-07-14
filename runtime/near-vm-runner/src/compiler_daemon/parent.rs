@@ -1,7 +1,7 @@
 //! Parent-side client for the out-of-process compiler daemon.
 //!
 //! A pool of worker subprocesses serves compilations in parallel, so
-//! independent compilations shards run concurrently with independet memory
+//! independent compilations shards run concurrently with independent memory
 //! limits . The pool spawns workers lazily up to a configured maximum and
 //! blocks callers when all workers are busy.
 //!
@@ -301,7 +301,7 @@ struct Lease {
 
 impl Lease {
     /// Return a healthy worker to the idle set, releasing it for reuse.
-    fn checkin(mut self) {
+    fn check_in(mut self) {
         if let Some(worker) = self.worker.take() {
             let mut inner = self.pool.inner.lock();
             inner.idle.push(worker);
@@ -322,7 +322,7 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        // Fail-safe reached only if neither checkin nor discard ran (e.g. a
+        // Fail-safe reached only if neither check_in nor discard ran (e.g. a
         // panic mid compile). Drop the worker and free the permit.
         if let Some(worker) = self.worker.take() {
             drop(worker);
@@ -405,16 +405,16 @@ pub fn compile_in_subprocess(
         };
         match lease.worker.as_mut().unwrap().compile_raw(&request) {
             Ok(Ok(bytes)) => {
-                lease.checkin();
+                lease.check_in();
                 return Ok(Ok(bytes));
             }
             Ok(Err(msg)) => {
                 // Compilation error: the worker is healthy, not retryable.
-                lease.checkin();
+                lease.check_in();
                 return Ok(Err(CompilationError::WasmtimeCompileError { msg }));
             }
             Err(ipc_err) => {
-                tracing::warn!(attempt, err = %ipc_err, "compiler daemon worker failed, respawning");
+                tracing::warn!(attempt, err = %ipc_err, "compiler daemon worker failed, re-spawning");
                 last_err = ipc_err;
                 lease.discard();
             }

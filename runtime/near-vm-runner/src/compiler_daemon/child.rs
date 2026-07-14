@@ -6,6 +6,8 @@
 //!
 //! Limits and sandboxing are only implemented for Linux.
 
+// cspell:words landlock landlocks sandboxing
+
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
 use super::protocol::{CompileRequest, CompileResponse, DaemonStartup, read_frame, write_frame};
 use super::sandbox::{self, SandboxStatus};
@@ -97,10 +99,12 @@ fn handle_compile(
 #[cfg(unix)]
 fn set_memory_limit() {
     let ret = unsafe {
+        // cspell:words rlim
         let limit = libc::rlimit {
             rlim_cur: MIN_WORKER_MEMORY_LIMIT_BYTES,
             rlim_max: MIN_WORKER_MEMORY_LIMIT_BYTES,
         };
+        // cspell:words setrlimit
         libc::setrlimit(libc::RLIMIT_AS, &limit)
     };
     if ret != 0 {
