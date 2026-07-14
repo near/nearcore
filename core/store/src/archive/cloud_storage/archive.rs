@@ -7,6 +7,7 @@ use crate::archive::cloud_storage::epoch_data::build_epoch_data;
 use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shards::build_shard_batch;
+use crate::metrics;
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId, ShardVersion};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -183,6 +184,13 @@ impl CloudStorage {
         value: Vec<u8>,
     ) -> Result<(), CloudArchivingError> {
         let path = self.file_path(&file_id);
+        let object_type = file_id.object_type();
+        metrics::CLOUD_ARCHIVAL_UPLOAD_SIZE_BYTES
+            .with_label_values(&[object_type])
+            .observe(value.len() as f64);
+        let _timer = metrics::CLOUD_ARCHIVAL_UPLOAD_DURATION_SECONDS
+            .with_label_values(&[object_type])
+            .start_timer();
         self.external
             .put(&path, &value)
             .await

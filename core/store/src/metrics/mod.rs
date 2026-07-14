@@ -244,6 +244,26 @@ pub static COLD_COPY_DURATION: LazyLock<Histogram> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub static CLOUD_ARCHIVAL_UPLOAD_SIZE_BYTES: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_cloud_archival_upload_size_bytes",
+        "Size in bytes of objects uploaded to the cloud archive, by object type",
+        &["object_type"],
+        Some(exponential_buckets(64.0, 4.0, 12).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static CLOUD_ARCHIVAL_UPLOAD_DURATION_SECONDS: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_cloud_archival_upload_duration_seconds",
+        "Latency of object uploads to the cloud archive, by object type",
+        &["object_type"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static HAS_STATE_SNAPSHOT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_has_state_snapshot", "Whether a node has a state snapshot open")
         .unwrap()
