@@ -120,8 +120,8 @@ fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
         for _ in 0..3 {
             let vm = WasmtimeVM::new(config.clone());
             let exec = match vm.compile_uncached(&code) {
-                Ok(e) => e,
-                Err(_) => return,
+                Ok(Ok(e)) => e,
+                Ok(Err(_)) | Err(_) => return,
             };
             let hash = CryptoHash::hash_bytes(&exec);
             match first_hash {

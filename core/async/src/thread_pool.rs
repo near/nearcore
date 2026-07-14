@@ -2,7 +2,8 @@ use crate::futures::AsyncComputationSpawner;
 use near_o11y::metrics::{IntGaugeVec, try_create_int_gauge_vec};
 use parking_lot::{Condvar, Mutex};
 use std::collections::VecDeque;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
+use std::thread::available_parallelism;
 use std::time::Duration;
 #[cfg(unix)]
 use thread_priority::{
@@ -297,9 +298,9 @@ const PRIORITY_BACKGROUND_RUNTIME_TASKS: u8 = 10;
 
 /// Shared thread pool for contract compilation and pipelining.
 pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
-    static POOL: std::sync::OnceLock<Arc<ThreadPool>> = std::sync::OnceLock::new();
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
     POOL.get_or_init(|| {
-        let thread_limit = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let thread_limit = available_parallelism().map_or(4, |n| n.get());
         Arc::new(ThreadPool::new(
             "contract_compilation",
             Duration::from_hours(1),
@@ -309,10 +310,30 @@ pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
     })
 }
 
+/// Pool for bulk background contract compilation when compilation runs in a
+/// subprocess.
+///
+/// This must be separate from [`contract_compilation_pool`]. Daemon calls block
+/// their parent-side thread while waiting on IPC. If background calls occupied
+/// every thread in the shared pool, a critical compile queued there could not
+/// reach the daemon's priority-aware worker checkout.
+pub fn background_contract_compilation_pool() -> &'static Arc<ThreadPool> {
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let thread_limit = available_parallelism().map_or(4, |n| n.get());
+        Arc::new(ThreadPool::new(
+            "background_contract_compilation",
+            Duration::from_hours(1),
+            thread_limit,
+            PRIORITY_BACKGROUND_RUNTIME_TASKS,
+        ))
+    })
+}
+
 /// Shared pool for low-priority, fire-and-forget contract-runtime maintenance.
 /// Runs at the low (realtime) priority.
 pub fn background_runtime_tasks() -> &'static Arc<ThreadPool> {
-    static POOL: std::sync::OnceLock<Arc<ThreadPool>> = std::sync::OnceLock::new();
+    static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
     POOL.get_or_init(|| {
         Arc::new(ThreadPool::new(
             "background_runtime_tasks",
@@ -535,6 +556,25 @@ mod tests {
         let outcome1 = handle1.wait_executed();
         let outcome2 = handle2.wait_executed();
         assert_eq!(outcome1.thread_id, outcome2.thread_id);
+    }
+
+    #[test]
+    fn background_compilation_does_not_block_critical_pool() {
+        let background_pool =
+            ThreadPool::new("test_background_pool", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
+        let critical_pool =
+            ThreadPool::new("test_critical_pool", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
+
+        let (background_job, background_handle) = create_job();
+        background_pool.spawn_boxed(background_job);
+        background_handle.wait_scheduled();
+
+        let (critical_job, critical_handle) = create_job();
+        critical_pool.spawn_boxed(critical_job);
+        critical_handle.wait_scheduled();
+
+        critical_handle.wait_executed();
+        background_handle.wait_executed();
     }
 
     #[test]

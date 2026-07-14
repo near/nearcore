@@ -56,6 +56,7 @@ use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::{env, fs};
 use tokio::sync::broadcast;
 
 pub mod append_only_map;
@@ -90,6 +91,135 @@ pub fn get_default_home() -> PathBuf {
     }
 
     PathBuf::default()
+}
+
+fn resolve_compiler_daemon_binary(
+    home_dir: &Path,
+    configured_path: Option<&Path>,
+    current_exe: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(configured_path) = configured_path {
+        let configured_path = if configured_path.is_relative() {
+            home_dir.join(configured_path)
+        } else {
+            configured_path.to_path_buf()
+        };
+        if is_usable_compiler_daemon_binary(&configured_path) {
+            return Some(configured_path);
+        }
+        tracing::warn!(
+            path = %configured_path.display(),
+            "configured compiler daemon binary is not usable"
+        );
+    }
+
+    let sibling =
+        current_exe?.parent()?.join(format!("near-vm-compiler-daemon{}", env::consts::EXE_SUFFIX));
+    is_usable_compiler_daemon_binary(&sibling).then_some(sibling)
+}
+
+fn is_usable_compiler_daemon_binary(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+#[cfg(test)]
+mod compiler_daemon_binary_tests {
+    use super::resolve_compiler_daemon_binary;
+    use std::env;
+    use std::fs::{self, File};
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
+    use tempfile::TempDir;
+
+    fn daemon_binary_name() -> String {
+        format!("near-vm-compiler-daemon{}", env::consts::EXE_SUFFIX)
+    }
+
+    fn create_executable(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        File::create(&path).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    fn current_exe(dir: &Path) -> PathBuf {
+        create_executable(dir, "neard")
+    }
+
+    #[test]
+    fn configured_daemon_binary_takes_precedence() {
+        let temp_dir = TempDir::new().unwrap();
+        let configured = create_executable(temp_dir.path(), "configured-daemon");
+        let current_exe = current_exe(temp_dir.path());
+        let _sibling = create_executable(temp_dir.path(), &daemon_binary_name());
+
+        assert_eq!(
+            resolve_compiler_daemon_binary(
+                temp_dir.path(),
+                Some(configured.as_path()),
+                Some(current_exe.as_path())
+            ),
+            Some(configured)
+        );
+    }
+
+    #[test]
+    fn relative_configured_daemon_binary_is_resolved_from_home() {
+        let temp_dir = TempDir::new().unwrap();
+        let configured = create_executable(temp_dir.path(), "configured-daemon");
+
+        assert_eq!(
+            resolve_compiler_daemon_binary(
+                temp_dir.path(),
+                Some(Path::new("configured-daemon")),
+                None
+            ),
+            Some(configured)
+        );
+    }
+
+    #[test]
+    fn sibling_is_used_after_invalid_configured_daemon_binary() {
+        let temp_dir = TempDir::new().unwrap();
+        let current_exe = current_exe(temp_dir.path());
+        let sibling = create_executable(temp_dir.path(), &daemon_binary_name());
+
+        assert_eq!(
+            resolve_compiler_daemon_binary(
+                temp_dir.path(),
+                Some(Path::new("missing-daemon")),
+                Some(current_exe.as_path())
+            ),
+            Some(sibling)
+        );
+    }
+
+    #[test]
+    fn no_daemon_binary_returns_none() {
+        let temp_dir = TempDir::new().unwrap();
+        let current_exe = current_exe(temp_dir.path());
+
+        assert_eq!(
+            resolve_compiler_daemon_binary(temp_dir.path(), None, Some(current_exe.as_path())),
+            None
+        );
+    }
 }
 
 /// Opens node’s storage performing migrations and checks when necessary.
@@ -392,6 +522,18 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    let current_exe = env::current_exe().ok();
+    if let Some(daemon_binary) = resolve_compiler_daemon_binary(
+        home_dir,
+        config.config.compiler_daemon_binary_path.as_deref(),
+        current_exe.as_deref(),
+    ) {
+        tracing::info!(path = %daemon_binary.display(), "using compiler daemon binary");
+        near_vm_runner::compiler_daemon::set_daemon_binary(daemon_binary);
+    } else {
+        tracing::debug!("compiler daemon binary unavailable, WASM compilation will run in-process");
+    }
+
     let storage = open_storage(home_dir, &config)?;
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;

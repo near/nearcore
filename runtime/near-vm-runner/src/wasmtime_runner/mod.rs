@@ -1,4 +1,5 @@
 use crate::cache::get_contract_cache_key;
+use crate::compile_priority::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
@@ -8,11 +9,12 @@ use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
+use crate::metrics::COMPILATION_PATH_TOTAL;
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
     EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
-    imports, prepare,
+    compiler_daemon, imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
@@ -154,10 +156,10 @@ fn guest_memory_size(pages: u32) -> Option<usize> {
 }
 
 /// Apply the compiler settings shared between the in-process engine and the
-/// out-of-process compiler daemon. Everything that influences the serialized
-/// artifact lives here; only the instance allocation strategy differs between
-/// the two engines. Keeping these in sync is critical for artifact
-/// compatibility.
+/// out-of-process compiler daemon.
+///
+/// Everything that influences the serialized artifact lives here, only the
+/// instance allocation strategy differs between the two engines.
 fn apply_compiler_config(config: &mut wasmtime::Config, max_memory_size: usize) {
     config
         // From official documentation:
@@ -499,6 +501,9 @@ pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
     engine: wasmtime::Engine,
     concurrency: ConcurrencySemaphore,
+    /// Priority for compilations this handle triggers if the out-of-process
+    /// compiler daemon is enabled. Unused otherwise.
+    priority: CompilePriority,
 }
 
 #[derive(Clone)]
@@ -572,7 +577,7 @@ impl WasmtimeVM {
             let config = Arc::clone(&vm_key.config);
             let engine = Engine::new(&engine_config).expect("failed to construct Wasmtime engine");
             let concurrency = ConcurrencySemaphore::new(max_tables);
-            Self { config, engine, concurrency }
+            Self { config, engine, concurrency, priority: CompilePriority::default() }
         });
         Ok(vm.clone())
     }
@@ -589,20 +594,44 @@ impl WasmtimeVM {
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
-    pub(crate) fn compile_uncached(&self, code: &ContractCode) -> CachedArtifact {
+    pub(crate) fn compile_uncached(
+        &self,
+        code: &ContractCode,
+    ) -> Result<CachedArtifact, VMRunnerError> {
         let start = std::time::Instant::now();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
-            .map_err(CompilationError::PrepareError)?;
-        let serialized = self.engine.precompile_module(&prepared_code).map_err(|err| {
-            tracing::debug!(
-                target: "vm",
-                ?err,
-                code_hash = %code.hash(),
-                code_size = code.code().len(),
-                "wasmtime contract compilation failed",
-            );
-            CompilationError::WasmtimeCompileError { msg: err.to_string() }
-        })?;
+        let prepared_code =
+            match prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime) {
+                Ok(code) => code,
+                Err(err) => return Ok(Err(CompilationError::PrepareError(err))),
+            };
+
+        let serialized = if compiler_daemon::is_daemon_configured() {
+            COMPILATION_PATH_TOTAL.with_label_values(&["daemon"]).inc();
+            compiler_daemon::compile_in_subprocess(
+                &prepared_code,
+                &self.config.limit_config,
+                self.priority,
+            )?
+        } else {
+            COMPILATION_PATH_TOTAL.with_label_values(&["in_process"]).inc();
+            match self.engine.precompile_module(&prepared_code) {
+                Ok(serialized) => Ok(serialized),
+                Err(err) => {
+                    tracing::debug!(
+                        target: "vm",
+                        ?err,
+                        code_hash = %code.hash(),
+                        code_size = code.code().len(),
+                        "wasmtime contract compilation failed",
+                    );
+                    Err(CompilationError::WasmtimeCompileError { msg: err.to_string() })
+                }
+            }
+        };
+        let serialized = match serialized {
+            Ok(serialized) => serialized,
+            Err(err) => return Ok(Err(err)),
+        };
 
         let elapsed = start.elapsed();
         tracing::debug!(
@@ -615,7 +644,7 @@ impl WasmtimeVM {
         );
 
         crate::metrics::compilation_duration(elapsed);
-        Ok(serialized)
+        Ok(Ok(serialized))
     }
 
     #[tracing::instrument(
@@ -632,7 +661,7 @@ impl WasmtimeVM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<CachedArtifact, CacheError> {
+    ) -> Result<CachedArtifact, VMRunnerError> {
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
 
         // Double-checked locking — outer step. An unlocked cache check before
@@ -658,7 +687,7 @@ impl WasmtimeVM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Option<CachedArtifact>, CacheError> {
+    ) -> Result<Option<CachedArtifact>, VMRunnerError> {
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
         if cache.has(&key).map_err(CacheError::ReadError)? {
             return Ok(None);
@@ -682,12 +711,14 @@ impl WasmtimeVM {
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
         _lock_guard: MutexGuard<'_, ()>,
-    ) -> Result<CachedArtifact, CacheError> {
+    ) -> Result<CachedArtifact, VMRunnerError> {
         // The cache may have been populated while we waited on the per-key lock.
         if let Some(compiled) = read_cache(cache, &key)? {
             return Ok(compiled);
         }
-        let serialized_or_error = self.compile_uncached(code);
+        // Failures which prevent compilation from returning a result propagate
+        // without producing a cache record.
+        let serialized_or_error = self.compile_uncached(code)?;
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &serialized_or_error {
@@ -864,6 +895,10 @@ impl crate::runner::VM for WasmtimeVM {
         WasmtimeVM::vm_hash(self)
     }
 
+    fn set_compile_priority(&mut self, priority: CompilePriority) {
+        self.priority = priority;
+    }
+
     fn contract_cached(
         &self,
         cache: &dyn ContractRuntimeCache,
@@ -878,10 +913,7 @@ impl crate::runner::VM for WasmtimeVM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<
-        Result<ContractPrecompilatonResult, CompilationError>,
-        crate::logic::errors::CacheError,
-    > {
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError> {
         if self.contract_cached(cache, *code.hash())? {
             return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
         }
@@ -894,10 +926,7 @@ impl crate::runner::VM for WasmtimeVM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<
-        Result<ContractPrecompilatonResult, CompilationError>,
-        crate::logic::errors::CacheError,
-    > {
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError> {
         if self.contract_cached(cache, *code.hash())? {
             return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
         }

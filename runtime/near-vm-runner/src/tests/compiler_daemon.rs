@@ -20,7 +20,7 @@ fn test_artifact_compatible_with_pooled_engine() {
 
     // Compile with the in-process pooled engine (same as production parent).
     let pooled_vm = WasmtimeVM::new_for_target(Arc::new(config), None).unwrap();
-    let pooled_artifact = pooled_vm.compile_uncached(&contract).unwrap();
+    let pooled_artifact = pooled_vm.compile_uncached(&contract).unwrap().unwrap();
 
     assert_eq!(daemon_artifact, pooled_artifact);
 }
