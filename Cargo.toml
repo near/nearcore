@@ -314,7 +314,7 @@ reqwest = { version = "0.13", features = ["blocking", "native-tls-vendored", "fo
 ripemd = "0.1.1"
 rlimit = "0.7"
 rlp = "0.5.2"
-rocksdb = { version = "0.21.0", default-features = false }
+rocksdb = { version = "0.24.0", default-features = false }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rust-s3 = { version = "0.36", features = ["blocking"] }
 rustix = "1"
@@ -342,7 +342,7 @@ tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
 thiserror = "2.0"
 thread-priority = "1.2.0"
-tikv-jemallocator = "0.5.0"
+tikv-jemallocator = "0.6.0"
 time = { version = "0.3.47", default-features = false }
 tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
