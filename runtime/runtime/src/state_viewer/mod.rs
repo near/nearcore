@@ -60,13 +60,18 @@ pub struct ViewApplyState {
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
 }
 
+/// Fallback cap on the number of access keys returned by `view_access_keys`,
+/// used by `TrieViewer::default()`. Kept in sync with
+/// `near_chain_configs::default_view_access_keys_limit()`.
+const DEFAULT_VIEW_ACCESS_KEYS_LIMIT: u32 = 100;
+
 pub struct TrieViewer {
     runtime_config_store: RuntimeConfigStore,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
     /// Upper bound on the number of access keys returned by `view_access_keys`.
-    /// Applies to both paginated and unpaginated requests. None is no limit.
-    access_keys_limit: Option<u32>,
+    /// Applies to both paginated and unpaginated requests.
+    access_keys_limit: u32,
     /// Gas limit used when handling call_function queries. If None, resolved
     /// from the runtime config for the current protocol version.
     max_gas_burnt_view: Option<Gas>,
@@ -78,7 +83,7 @@ impl Default for TrieViewer {
         Self {
             runtime_config_store,
             state_size_limit: None,
-            access_keys_limit: None,
+            access_keys_limit: DEFAULT_VIEW_ACCESS_KEYS_LIMIT,
             max_gas_burnt_view: None,
         }
     }
@@ -88,7 +93,7 @@ impl TrieViewer {
     pub fn new(
         runtime_config_store: RuntimeConfigStore,
         state_size_limit: Option<u64>,
-        access_keys_limit: Option<u32>,
+        access_keys_limit: u32,
         max_gas_burnt_view: Option<Gas>,
     ) -> Self {
         Self { runtime_config_store, state_size_limit, access_keys_limit, max_gas_burnt_view }
@@ -175,14 +180,10 @@ impl TrieViewer {
         let paginated = after.is_some() || limit.is_some();
 
         let item_cap: Option<u32> = if paginated {
-            match (limit.map(NonZeroU32::get), max) {
-                // An explicit page size larger than the configured maximum is
-                // clamped down rather than rejected.
-                (Some(requested), Some(max)) => Some(requested.min(max)),
-                (Some(requested), None) => Some(requested),
-                // No explicit page size: fall back to the configured maximum.
-                (None, max) => max,
-            }
+            // An explicit page size larger than the configured maximum is
+            // clamped down rather than rejected; with no explicit page size we
+            // fall back to the configured maximum.
+            Some(limit.map_or(max, |requested| requested.get().min(max)))
         } else {
             None
         };
@@ -226,14 +227,12 @@ impl TrieViewer {
                         .map(|(handle, _): &(PublicKeyHandle, AccessKey)| handle.clone());
                     break;
                 }
-            } else if let Some(max) = max {
+            } else if keys.len() as u64 >= u64::from(max) {
                 // Unpaginated request that exceeds the configured limit.
-                if keys.len() as u64 >= u64::from(max) {
-                    return Err(errors::ViewAccessKeyError::TooManyAccessKeys {
-                        requested_account_id: account_id.clone(),
-                        limit: max,
-                    });
-                }
+                return Err(errors::ViewAccessKeyError::TooManyAccessKeys {
+                    requested_account_id: account_id.clone(),
+                    limit: max,
+                });
             }
             let access_key = get_access_key_by_handle(state_update, account_id, &key_handle)?
                 .ok_or_else(|| {

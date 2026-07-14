@@ -819,30 +819,8 @@ mod tests {
         assert_eq!(returned, expected);
     }
 
-    /// With no configured limit (`TrieViewer::default()`), an unpaginated call
-    /// returns every access key the account owns, however many there are.
-    #[test]
-    fn test_view_access_keys_returns_massive_list() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-
-        // Setup key plus a large batch of plain keys.
-        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
-        expected.insert(PublicKeyHandle::from(public_key));
-        expected.extend(seed_extra_keys(&mut state_update, &account_id, 1_000));
-
-        let (access_keys, last_key) = TrieViewer::default()
-            .view_access_keys(&state_update, &account_id, None, None)
-            .expect("unpaginated listing with no configured limit should succeed");
-        assert_eq!(last_key, None, "a complete listing should not return a cursor");
-        assert_eq!(access_keys.len(), expected.len(), "wrong number of keys (or duplicates)");
-        let returned: HashSet<PublicKeyHandle> =
-            access_keys.into_iter().map(|(pk, _)| pk).collect();
-        assert_eq!(returned, expected, "returned key set does not match the seeded set");
-    }
-
     fn viewer_with_limit(limit: u32) -> TrieViewer {
-        TrieViewer::new(RuntimeConfigStore::new(None), None, Some(limit), None)
+        TrieViewer::new(RuntimeConfigStore::new(None), None, limit, None)
     }
 
     /// Seeds `count` extra plain full-access keys on top of the account's setup

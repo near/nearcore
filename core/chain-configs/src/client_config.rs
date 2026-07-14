@@ -545,8 +545,9 @@ pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-pub fn default_view_access_keys_limit() -> Option<u32> {
-    Some(100)
+// Kept in sync with `node_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
+pub fn default_view_access_keys_limit() -> u32 {
+    100
 }
 
 pub fn default_transaction_pool_size_limit() -> Option<u64> {
@@ -769,8 +770,8 @@ pub struct ClientConfig {
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
     /// Upper bound on the number of access keys returned by a `view_access_key_list`
-    /// query. None is no limit.
-    pub view_access_keys_limit: Option<u32>,
+    /// query.
+    pub view_access_keys_limit: u32,
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.

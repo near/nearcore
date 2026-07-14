@@ -341,8 +341,9 @@ pub struct Config {
     /// Number of threads for StateRequestActor pool.
     pub state_request_server_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
-    /// Upper bound on the number of access keys returned by a `view_access_key_list`
-    /// query. None is no limit.
+    /// Upper bound on the number of access keys returned by a
+    /// `view_access_key_list` query.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub view_access_keys_limit: Option<u32>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -505,7 +506,7 @@ impl Default for Config {
             state_requests_per_throttle_period: default_state_requests_per_throttle_period(),
             state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
-            view_access_keys_limit: default_view_access_keys_limit(),
+            view_access_keys_limit: None,
             max_gas_burnt_view: None,
             store,
             cold_store: None,
@@ -807,7 +808,9 @@ impl NearConfig {
                 state_requests_per_throttle_period: config.state_requests_per_throttle_period,
                 state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
-                view_access_keys_limit: config.view_access_keys_limit,
+                view_access_keys_limit: config
+                    .view_access_keys_limit
+                    .unwrap_or_else(default_view_access_keys_limit),
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,

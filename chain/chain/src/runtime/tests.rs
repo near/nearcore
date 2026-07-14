@@ -11,6 +11,7 @@ use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, Genesis,
     MutableConfigValue, default_produce_chunk_add_transactions_time_limit,
+    default_view_access_keys_limit,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
@@ -153,7 +154,7 @@ impl TestEnv {
             &genesis.config,
             epoch_manager.clone(),
             None,
-            None,
+            default_view_access_keys_limit(),
             None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
