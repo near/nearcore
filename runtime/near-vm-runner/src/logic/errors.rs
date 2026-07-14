@@ -26,6 +26,10 @@ pub enum VMRunnerError {
     ExternalError(AnyError),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
+    /// The VM could not complete contract compilation, for example because a
+    /// compiler worker crashed or ran out of resources.
+    #[error("unknown error during contract compilation: {debug_message}")]
+    WasmCompilationUnknownError { debug_message: String },
     #[error("account has no associated contract code")]
     ContractCodeNotPresent,
 }
@@ -62,6 +66,11 @@ pub enum FunctionCallError {
     WasmUnknownError {
         msg: String,
     },
+    /// The VM runner could not complete compilation, for example because a
+    /// compiler worker crashed or ran out of resources.
+    WasmCompilationUnknownError {
+        msg: String,
+    },
 }
 
 impl FunctionCallError {
@@ -71,7 +80,8 @@ impl FunctionCallError {
             FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
             FunctionCallError::LinkError { msg }
             | FunctionCallError::LoadingError { msg }
-            | FunctionCallError::WasmUnknownError { msg } => BASE_SIZE + msg.len(),
+            | FunctionCallError::WasmUnknownError { msg }
+            | FunctionCallError::WasmCompilationUnknownError { msg } => BASE_SIZE + msg.len(),
             FunctionCallError::MethodResolveError(_)
             | FunctionCallError::WasmTrap(_)
             | FunctionCallError::HostError(_) => BASE_SIZE,
@@ -465,6 +475,9 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::LoadingError { msg } => write!(f, "Loading error: {}", msg),
             FunctionCallError::WasmUnknownError { msg } => {
                 write!(f, "Unknown error during contract execution: {}", msg)
+            }
+            FunctionCallError::WasmCompilationUnknownError { msg } => {
+                write!(f, "unknown error during contract compilation: {}", msg)
             }
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
         }
