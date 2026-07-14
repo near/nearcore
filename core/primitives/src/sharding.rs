@@ -637,8 +637,8 @@ impl ShardChunkHeader {
         }
     }
 
-    /// The chunk's own epoch id, carried by V7+ headers alongside the grandparent anchor
-    /// (`EarlyKickout`). Disciplined by the producer signature, not trusted (see
+    /// The chunk's own epoch id, carried by V7+ headers alongside the grandparent anchor.
+    /// Disciplined by the producer signature, not trusted (see
     /// `ShardChunkHeaderInner::epoch_id`). `None` for pre-V7 headers.
     #[inline]
     pub fn epoch_id(&self) -> Option<&EpochId> {

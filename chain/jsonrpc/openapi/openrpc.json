@@ -2736,7 +2736,7 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "epoch_id": {
-            "description": "The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers.",
+            "description": "The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7`\n`None` for pre-V7 headers.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/EpochId"
@@ -2772,7 +2772,7 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "prev_prev_block_hash": {
-            "description": "Grandparent anchor carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers, which don't carry it.",
+            "description": "Grandparent anchor carried by `ShardChunkHeaderInnerV7`\n`None` for pre-V7 headers, which don't carry it.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/CryptoHash"

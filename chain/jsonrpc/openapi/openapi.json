@@ -3828,7 +3828,7 @@
                 "nullable": true
               }
             ],
-            "description": "The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers."
+            "description": "The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7`\n`None` for pre-V7 headers."
           },
           "gas_limit": {
             "$ref": "#/components/schemas/NearGas"
@@ -3867,7 +3867,7 @@
                 "nullable": true
               }
             ],
-            "description": "Grandparent anchor carried by `ShardChunkHeaderInnerV7` (`VerifiedChunkCache`).\n`None` for pre-V7 headers, which don't carry it."
+            "description": "Grandparent anchor carried by `ShardChunkHeaderInnerV7`\n`None` for pre-V7 headers, which don't carry it."
           },
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
