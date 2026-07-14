@@ -2487,12 +2487,11 @@ mod test {
     use near_chain_configs::MutableConfigValue;
     use near_network::types::NetworkRequests;
     use near_primitives::hash::CryptoHash;
-    #[cfg(feature = "nightly")]
     use near_primitives::sharding::ShardChunkHeaderInner;
-    #[cfg(feature = "nightly")]
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
     use std::sync::Arc;
 
     fn mutable_validator_signer(account_id: &AccountId) -> MutableValidatorSigner {
@@ -2579,13 +2578,11 @@ mod test {
     }
 
     // Exercises classic orphan-chunk buffering (an unprocessed-parent chunk waits for its block).
-    // That only exists pre-`EarlyKickout`; under the feature such a chunk is dropped at
-    // arrival, so run only on stable.
-    #[cfg(not(feature = "nightly"))]
+    // That only exists pre-`EarlyKickout`; under the feature such a chunk is dropped at arrival.
     #[test]
     fn test_resend_chunk_requests() {
         // Test that resending chunk requests won't request for parts the node already received
-        let mut fixture = ChunkTestFixture::new(true, 3, 6, 1, true);
+        let mut fixture = ChunkTestFixture::new(true, 3, 6, 1, true, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -2835,7 +2832,7 @@ mod test {
     // will wait for chunks being forwarded
     fn test_chunk_forward_non_validator() {
         // A non-validator that tracks all shards should request immediately.
-        let mut fixture = ChunkTestFixture::new(false, 3, 12, 12, true);
+        let mut fixture = ChunkTestFixture::new(false, 3, 12, 12, true, PROTOCOL_VERSION);
         assert_eq!(
             run_request_chunks_with_account(&mut fixture, None),
             RequestChunksResult {
@@ -2869,8 +2866,8 @@ mod test {
     }
 
     // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`EarlyKickout`,
-    // so run only on stable. Under the feature the unprocessed-anchor header is dropped at arrival.
-    #[cfg(not(feature = "nightly"))]
+    // so the fixture is pinned one version below it. Under the feature the unprocessed-anchor
+    // header is dropped at arrival.
     #[test]
     // Test that when a validator receives a chunk before the chunk header, it should store
     // the forward and use it when it receives the header
@@ -2878,7 +2875,7 @@ mod test {
         // Here we test the case when the chunk is received, its previous block is not processed yet
         // We want to verify that the chunk forward can be stored and wait to be processed in this
         // case too
-        let fixture = ChunkTestFixture::new(true, 2, 4, 4, false);
+        let fixture = ChunkTestFixture::new(true, 2, 4, 4, false, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -3104,10 +3101,9 @@ mod test {
         assert_eq!(response.parts.len(), fixture.all_part_ords.len());
     }
 
-    #[cfg(feature = "nightly")]
     #[test]
     fn test_v7_mismatched_height_rejected_at_arrival() {
-        let fixture = ChunkTestFixture::default();
+        let fixture = early_kickout_fixture();
         let mut shards_manager = make_shards_manager(&fixture);
 
         let epoch_id = *fixture.mock_chunk_header.epoch_id().expect("fixture builds a V7 header");
@@ -3129,7 +3125,7 @@ mod test {
             panic!("fixture must produce a V3 chunk header");
         };
         let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
-            panic!("fixture must produce a V7 inner under nightly");
+            panic!("early_kickout_fixture must produce a V7 inner");
         };
         inner.height_created = bad_height;
         v3.init(); // recompute the chunk_hash for the modified inner
@@ -3548,16 +3544,32 @@ mod test {
         )
     }
 
-    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`EarlyKickout`,
-    // so run only on stable. Under the feature the unprocessed-anchor header is dropped at arrival.
-    #[cfg(not(feature = "nightly"))]
+    /// A fixture whose epoch runs at the `EarlyKickout` protocol version, so its chunk headers are
+    /// V7 and arrival-time signature verification is active.
+    fn early_kickout_fixture() -> ChunkTestFixture {
+        ChunkTestFixture::new(
+            false,
+            3,
+            6,
+            6,
+            true,
+            ProtocolFeature::EarlyKickout.protocol_version(),
+        )
+    }
+
+    fn pre_early_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version() - 1
+    }
+
+    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`EarlyKickout`.
+    // Under the feature the unprocessed-anchor header is dropped at arrival.
     #[test]
     fn test_orphan_chunk_request_graceful_degradation() {
         // Orphan request path: prev_block_hash is unknown to the epoch manager (parent
         // unprocessed). Verify it executes without panic and still emits network requests
         // across request_partial_encoded_chunk, should_wait_for_chunk_forwarding and
         // resend_chunk_requests.
-        let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
+        let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -3786,10 +3798,16 @@ mod test {
 
     /// An orphan chunk forward (unprocessed prev block) is cached, not rejected,
     /// via the MissingBlock -> DBNotFoundErr mapping.
-    #[cfg(feature = "nightly")]
     #[test]
     fn test_forward_cached_on_unprocessed_prev_block() {
-        let fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
+        let fixture = ChunkTestFixture::new(
+            true,
+            3,
+            6,
+            6,
+            true,
+            ProtocolFeature::EarlyKickout.protocol_version(),
+        );
         let mut shards_manager = make_shards_manager(&fixture);
 
         let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
@@ -3824,10 +3842,9 @@ mod test {
     /// A chunk whose producer signature does not verify against the resolved producer is
     /// rejected at arrival in `validate_chunk_header_preliminary` (the V7 arrival check) and
     /// never enters the cache. Complements `test_v7_mismatched_height_rejected_at_arrival`.
-    #[cfg(feature = "nightly")]
     #[test]
     fn test_bad_signature_chunk_rejected_at_arrival() {
-        let fixture = ChunkTestFixture::default();
+        let fixture = early_kickout_fixture();
 
         // Re-sign the chunk header with a key that does not belong to the
         // resolved chunk producer, so the hash-based signature check fails
@@ -3873,10 +3890,9 @@ mod test {
     /// then run `try_process_chunk_parts_and_receipts` (full validation, now that the parent is
     /// available). Full validation re-resolves the real producer from the parent, rejects the
     /// signature, and evicts the chunk.
-    #[cfg(feature = "nightly")]
     #[test]
     fn test_cached_bad_chunk_evicted_by_full_validation() {
-        let fixture = ChunkTestFixture::default();
+        let fixture = early_kickout_fixture();
         let mut shards_manager = make_shards_manager(&fixture);
 
         let mut header = fixture.mock_chunk_header.clone();
@@ -3884,7 +3900,7 @@ mod test {
             panic!("fixture must produce a V3 chunk header");
         };
         let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
-            panic!("fixture must produce a V7 inner under nightly");
+            panic!("early_kickout_fixture must produce a V7 inner");
         };
         inner.epoch_id = EpochId(CryptoHash::hash_bytes(b"misstated_epoch"));
         v3.init(); // recompute the chunk_hash over the misstated inner

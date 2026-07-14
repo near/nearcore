@@ -26,7 +26,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -54,11 +54,12 @@ pub struct ChunkTestFixture {
     pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
     pub mock_chain_head: Tip,
     pub rs: ReedSolomon,
+    pub protocol_version: ProtocolVersion,
 }
 
 impl Default for ChunkTestFixture {
     fn default() -> Self {
-        Self::new(false, 3, 6, 6, true)
+        Self::new(false, 3, 6, 6, true, PROTOCOL_VERSION)
     }
 }
 
@@ -69,6 +70,7 @@ impl ChunkTestFixture {
         num_block_producers: usize,
         num_chunk_only_producers: usize,
         track_all_shards: bool,
+        protocol_version: ProtocolVersion,
     ) -> Self {
         if num_shards > num_block_producers as u64 {
             panic!("Invalid setup: there must be at least as many block producers as shards");
@@ -86,6 +88,7 @@ impl ChunkTestFixture {
                 .collect(),
             num_shards,
             2,
+            protocol_version,
         );
         let epoch_manager = epoch_manager.into_handle();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
@@ -178,7 +181,7 @@ impl ChunkTestFixture {
             None,
             &signer,
             &rs,
-            PROTOCOL_VERSION,
+            protocol_version,
         );
 
         let mock_encoded_chunk = mock_chunk.into_parts().1;
@@ -223,6 +226,7 @@ impl ChunkTestFixture {
                 next_epoch_id: EpochId::default(),
             },
             rs,
+            protocol_version,
         }
     }
 
@@ -282,7 +286,7 @@ impl ChunkTestFixture {
             BandwidthRequests::empty(),
             None,
             &signer,
-            PROTOCOL_VERSION,
+            self.protocol_version,
         ));
         let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
         let all_part_ords: Vec<u64> = (0..self.rs.total_shard_count()).map(|p| p as u64).collect();

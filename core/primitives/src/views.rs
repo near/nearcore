@@ -3125,7 +3125,6 @@ impl CongestionInfoView {
 }
 
 #[cfg(test)]
-#[cfg(not(feature = "nightly"))]
 mod tests {
     use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
     use crate::profile_data_v2::ProfileDataV2;
@@ -3203,6 +3202,7 @@ mod tests {
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
+    #[cfg(not(feature = "nightly"))]
     #[test]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
