@@ -158,12 +158,17 @@ run_cmd make $release_type
 
 if [[ -n "${SPLIT_DEBUG_INFO}" ]]; then
   split_debug_info "target/release/neard"
+  split_debug_info "target/release/near-vm-compiler-daemon"
   split_debug_info "target/release/near-sandbox"
 fi
 
 if [ "$upload_action" = "upload-release" ]
 then
   upload_release_binary neard
+  # The compiler daemon is experimental. Publish it only when the opt-in build produced it.
+  if [[ -x "target/release/near-vm-compiler-daemon" ]]; then
+    upload_release_binary near-vm-compiler-daemon
+  fi
   # near-sandbox is used by near-workspaces which is an SDK for end-to-end contracts testing that automatically 
   # spins up localnet using near-sandbox (neard with extra features useful for testing - state patching, time travel). 
   # There are JS and Rust SDKs and it wouldn’t be efficient to build nearcore from scratch on the 
@@ -172,4 +177,8 @@ then
   upload_release_binary near-sandbox
 else
   upload_binary neard
+  # The compiler daemon is experimental; publish it only when the opt-in build produced it.
+  if [[ -x "target/release/near-vm-compiler-daemon" ]]; then
+    upload_binary near-vm-compiler-daemon
+  fi
 fi

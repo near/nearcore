@@ -5,6 +5,8 @@ export CARGO_BUILD_RUSTFLAGS = -D warnings
 export OPENSSL_STATIC = 1
 export CARGO_TARGET_DIR = target
 
+# The compiler daemon is experimental, set BUILD_COMPILER_DAEMON=1 to include it.
+BUILD_COMPILER_DAEMON ?= 0
 
 # By default, build a regular release
 #? all: build a regular release of neard
@@ -35,9 +37,11 @@ neard: neard-release
 
 neard-release:
 	cargo build -p neard --release
+	@if [ "$(BUILD_COMPILER_DAEMON)" = "1" ]; then cargo build -p near-vm-runner --release --bin near-vm-compiler-daemon; fi
 
 neard-debug:
 	cargo build -p neard
+	@if [ "$(BUILD_COMPILER_DAEMON)" = "1" ]; then cargo build -p near-vm-runner --bin near-vm-compiler-daemon; fi
 
 #? debug: build debug version of neard, store-validator and genesis-populate
 debug: neard-debug
@@ -52,6 +56,7 @@ nightly-release: neard-nightly-release
 
 neard-nightly-release:
 	cargo build -p neard --release --features nightly
+	@if [ "$(BUILD_COMPILER_DAEMON)" = "1" ]; then cargo build -p near-vm-runner --release --features nightly --bin near-vm-compiler-daemon; fi
 
 
 #? nightly-debug: build debug version of neard, store-validator and genesis-populate with nightly features
@@ -63,6 +68,7 @@ nightly-debug:
 #? assertions-release: build release version of neard with open debug_assertions
 assertions-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release
+	@if [ "$(BUILD_COMPILER_DAEMON)" = "1" ]; then CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p near-vm-runner --release --bin near-vm-compiler-daemon; fi
 
 #? sandbox: build debug version of neard with sandbox feature
 sandbox: CARGO_TARGET_DIR=sandbox
@@ -73,6 +79,7 @@ sandbox: neard-sandbox
 
 neard-sandbox:
 	cargo build -p neard --features sandbox
+	@if [ "$(BUILD_COMPILER_DAEMON)" = "1" ]; then cargo build -p near-vm-runner --features sandbox --bin near-vm-compiler-daemon; fi
 
 
 sandbox-release: CARGO_TARGET_DIR=sandbox
@@ -83,10 +90,12 @@ sandbox-release: neard-sandbox-release
 
 neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
+	@if [ "$(BUILD_COMPILER_DAEMON)" = "1" ]; then cargo build -p near-vm-runner --features sandbox --release --bin near-vm-compiler-daemon; fi
 
 #? test-features-release: build release version of neard with test_features feature
 test-features-release:
 	cargo build -p neard --release --features test_features
+	@if [ "$(BUILD_COMPILER_DAEMON)" = "1" ]; then cargo build -p near-vm-runner --release --features test_features --bin near-vm-compiler-daemon; fi
 
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
