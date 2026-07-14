@@ -40,7 +40,6 @@ skip = [
     { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
-    { name = "wasmparser", version = "=0.78.2" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
@@ -71,6 +70,9 @@ skip = [
 
     # criterion, rocksdb depend on this older version of the crate.
     { name = "rustc-hash", version = "<2" },
+
+    # bindgen (build-dep of librocksdb-sys) pulls an older itertools.
+    { name = "itertools", version = "<0.14" },
 
     # Hashbrowns
     { name = "hashbrown", version = "0.12.0" },

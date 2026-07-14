@@ -18,6 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
@@ -30,7 +31,7 @@ use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -395,6 +396,92 @@ pub fn snapshots_sanity_check(
     .unwrap();
     let expected_epoch_data = HashSet::from_iter(1..=last_archived_epoch_info.epoch_height());
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
+}
+
+/// Asserts inverse state changes cover the new child shards' gap blocks only,
+/// with keys mirroring each block's forward changes and pre-values matching the
+/// previous block's state. Carried-over and removed parent shards carry none.
+pub fn assert_writer_inverse_deltas(
+    env: &TestLoopEnv,
+    writer_id: &AccountId,
+    info: &ReshardingInfo,
+) {
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let store = get_hot_store(env, writer_id);
+    let tries = build_shard_tries(&store);
+
+    // Inverse changes cover the gap window up to sync_prev_prev, the resharding
+    // epoch's snapshot anchor; blocks above it carry none.
+    let sync_hash = store.chain_store().get_block_hash_by_height(info.sync_block_height).unwrap();
+    let sync_prev = *store.chain_store().get_block_header(&sync_hash).unwrap().prev_hash();
+    let sync_prev_prev = *store.chain_store().get_block_header(&sync_prev).unwrap().prev_hash();
+    let inverse_ceiling = store.chain_store().get_block_header(&sync_prev_prev).unwrap().height();
+
+    // A new-layout shard that also exists in the old layout is carried over;
+    // one that is new is a child of the split.
+    let base_shards: HashSet<ShardUId> = info.base_shard_uids.iter().copied().collect();
+
+    let mut checked = 0;
+    for height in info.new_epoch_first_height..=info.sync_block_height {
+        let Ok(block_hash) = store.chain_store().get_block_hash_by_height(height) else {
+            continue;
+        };
+        let prev_block_hash =
+            *store.chain_store().get_block_header(&block_hash).unwrap().prev_hash();
+        for &shard_uid in &info.new_shard_uids {
+            let shard_data = cloud_storage
+                .get_shard_data(height, shard_uid.shard_id())
+                .unwrap()
+                .expect("gap-window shard data archived");
+            let is_child = !base_shards.contains(&shard_uid);
+            if !is_child || height > inverse_ceiling {
+                assert!(
+                    shard_data.inverse_state_changes().is_none(),
+                    "only child shards below the anchor carry inverse changes \
+                     (shard {shard_uid}, height {height})"
+                );
+                continue;
+            }
+            let inverse = shard_data
+                .inverse_state_changes()
+                .expect("child gap block carries inverse state changes");
+            let forward_keys: BTreeSet<&TrieKey> =
+                shard_data.state_changes().iter().map(|change| &change.trie_key).collect();
+            let inverse_keys: BTreeSet<&TrieKey> = inverse.keys().collect();
+            assert_eq!(
+                inverse_keys, forward_keys,
+                "inverse keys mirror forward keys at height {height}"
+            );
+
+            let prev_state_root = *store
+                .chunk_store()
+                .get_chunk_extra(&prev_block_hash, &shard_uid)
+                .unwrap()
+                .state_root();
+            let trie = tries.get_trie_for_shard(shard_uid, prev_state_root);
+            for (key, recorded_prev_value) in inverse {
+                let state_prev_value = trie.get(&key.to_vec(), AccessOptions::DEFAULT).unwrap();
+                assert_eq!(
+                    *recorded_prev_value, state_prev_value,
+                    "recorded pre-image matches state at height {height}"
+                );
+            }
+            checked += 1;
+        }
+    }
+
+    assert!(checked > 0, "no child gap block was verified; gap window is empty");
+
+    // The removed parent shard sits below the anchor but is gone in the new
+    // layout, so it carries no inverse changes at its last block.
+    let parent_data = cloud_storage
+        .get_shard_data(info.resharding_block_height, info.parent_shard)
+        .unwrap()
+        .expect("parent shard data archived at the resharding block");
+    assert!(
+        parent_data.inverse_state_changes().is_none(),
+        "removed parent shard carries no inverse changes at the resharding block"
+    );
 }
 
 /// Asserts the resharding epoch took a state snapshot for every new-layout shard

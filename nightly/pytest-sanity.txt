@@ -136,11 +136,6 @@ pytest sanity/rosetta.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/rosetta.py --features nightly,protocol_feature_spice
 
-# This is the test for meta transactions.
-pytest sanity/meta_tx.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/meta_tx.py --features nightly,protocol_feature_spice
-
 # Tests for resharding
 # TODO(resharding) Tests for resharding are disabled because resharding is not
 # compatible with stateless validation, state sync and congestion control.

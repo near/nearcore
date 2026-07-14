@@ -6598,6 +6598,38 @@
             ],
             "description": "Cost of getting sha3-256 per byte"
           },
+          "sha3_384_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-384 base"
+          },
+          "sha3_384_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-384 per byte"
+          },
+          "sha3_512_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-512 base"
+          },
+          "sha3_512_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha3-512 per byte"
+          },
           "storage_has_key_base": {
             "allOf": [
               {
@@ -21292,6 +21324,10 @@
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
+          },
+          "sha3_host_fns": {
+            "description": "See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).",
+            "type": "boolean"
           },
           "storage_get_mode": {
             "allOf": [
