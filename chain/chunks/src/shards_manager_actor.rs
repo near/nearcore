@@ -2487,6 +2487,10 @@ mod test {
     use near_chain_configs::MutableConfigValue;
     use near_network::types::NetworkRequests;
     use near_primitives::hash::CryptoHash;
+    #[cfg(feature = "nightly")]
+    use near_primitives::sharding::ShardChunkHeaderInner;
+    #[cfg(feature = "nightly")]
+    use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use std::sync::Arc;
@@ -3098,6 +3102,59 @@ mod test {
             });
         assert_eq!(source, PartialEncodedChunkResponseSource::InMemoryCache);
         assert_eq!(response.parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_v7_mismatched_height_rejected_at_arrival() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let epoch_id = *fixture.mock_chunk_header.epoch_id().expect("fixture builds a V7 header");
+        let shard_id = fixture.mock_chunk_header.shard_id();
+        let bad_height = fixture.mock_chunk_header.height_created() + 3;
+        let producer = fixture
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                shard_id,
+                height_created: bad_height,
+            })
+            .unwrap()
+            .take_account_id();
+        let signer = create_test_signer(producer.as_str());
+
+        let mut header = fixture.mock_chunk_header.clone();
+        let ShardChunkHeader::V3(ref mut v3) = header else {
+            panic!("fixture must produce a V3 chunk header");
+        };
+        let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
+            panic!("fixture must produce a V7 inner under nightly");
+        };
+        inner.height_created = bad_height;
+        v3.init(); // recompute the chunk_hash for the modified inner
+        v3.signature = signer.sign_bytes(v3.hash.as_ref());
+
+        let chunk_hash = header.chunk_hash().clone();
+        let partial = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header,
+            parts: fixture.mock_chunk_parts.clone(),
+            prev_outgoing_receipts: Vec::new(),
+        });
+
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial),
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        assert_matches!(
+            result,
+            Err(Error::ChainError(near_chain::Error::InvalidPartialChunkStateWitness(_)))
+        );
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "a header whose height does not match its anchor must not be cached at arrival"
+        );
     }
 
     #[test]
@@ -3764,19 +3821,12 @@ mod test {
         );
     }
 
-    /// Test that a chunk whose signature is invalid is evicted from
-    /// `encoded_chunks` (and `requested_partial_encoded_chunks`) when full
-    /// validation runs in `try_process_chunk_parts_and_receipts`.
-    ///
-    /// This exercises the deferred-rejection path: preliminary validation
-    /// (no signature check) lets the chunk into the cache, but full validation
-    /// catches the bad signature and evicts it.
+    /// A chunk whose producer signature does not verify against the resolved producer is
+    /// rejected at arrival in `validate_chunk_header_preliminary` (the V7 arrival check) and
+    /// never enters the cache. Complements `test_v7_mismatched_height_rejected_at_arrival`.
     #[cfg(feature = "nightly")]
     #[test]
-    fn test_bad_signature_chunk_evicted_on_full_validation() {
-        use near_primitives::sharding::PartialEncodedChunkV2;
-        use near_primitives::test_utils::create_test_signer;
-
+    fn test_bad_signature_chunk_rejected_at_arrival() {
         let fixture = ChunkTestFixture::default();
 
         // Re-sign the chunk header with a key that does not belong to the
@@ -3800,10 +3850,8 @@ mod test {
             prev_outgoing_receipts: Vec::new(),
         });
 
-        // process_partial_encoded_chunk: preliminary validation passes (no sig
-        // check), parts are merged into encoded_chunks, then
-        // try_process_chunk_parts_and_receipts runs validate_chunk_header_full
-        // which detects the bad signature and evicts the entry.
+        // preliminary validation resolves the producer from the anchor
+        // and verifies the signature, so the bad signature is caught before the chunk is cached.
         let result = shards_manager.process_partial_encoded_chunk(
             MaybeValidated::from(partial_encoded_chunk),
             Some(&fixture.mock_shard_tracker),
@@ -3811,10 +3859,56 @@ mod test {
 
         assert_matches!(result, Err(Error::InvalidChunkSignature));
 
-        // The chunk entry should have been evicted from encoded_chunks.
         assert!(
             shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
-            "chunk entry should be evicted from encoded_chunks after bad signature"
+            "a header with an invalid producer signature must not be cached at arrival"
+        );
+    }
+
+    /// Full validation is the backstop for a chunk that reaches the cache *without* passing the
+    /// arrival check — e.g. a chunk with a misstated `epoch_id` accepted at arrival near an epoch
+    /// boundary (via `possible_epochs_of_height_around_tip`) whose epoch turns out unchanged once
+    /// the parent lands. We reproduce that state directly: deposit such a chunk into the cache
+    /// (signed by a non-producer, standing in for the wrong-epoch producer), confirm it is cached,
+    /// then run `try_process_chunk_parts_and_receipts` (full validation, now that the parent is
+    /// available). Full validation re-resolves the real producer from the parent, rejects the
+    /// signature, and evicts the chunk.
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_cached_bad_chunk_evicted_by_full_validation() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let mut header = fixture.mock_chunk_header.clone();
+        let ShardChunkHeader::V3(ref mut v3) = header else {
+            panic!("fixture must produce a V3 chunk header");
+        };
+        let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
+            panic!("fixture must produce a V7 inner under nightly");
+        };
+        inner.epoch_id = EpochId(CryptoHash::hash_bytes(b"misstated_epoch"));
+        v3.init(); // recompute the chunk_hash over the misstated inner
+        let wrong_producer = create_test_signer("not_the_real_producer");
+        v3.signature = wrong_producer.sign_bytes(v3.hash.as_ref());
+        let chunk_hash = header.chunk_hash().clone();
+
+        // Deposit the chunk directly into the cache, bypassing arrival verification, and confirm
+        // it is there — this is the state a chunk reaches when it slips past arrival.
+        shards_manager.encoded_chunks.get_or_insert_from_header(&header);
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_some(),
+            "chunk should be deposited in the cache before validation"
+        );
+
+        // Full validation (the parent is genesis, already processed) re-resolves the real producer
+        // from the parent, rejects the bad signature, and evicts the entry.
+        let result = shards_manager
+            .try_process_chunk_parts_and_receipts(&header, Some(&fixture.mock_shard_tracker));
+
+        assert_matches!(result, Err(Error::InvalidChunkSignature));
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "an invalid chunk must be evicted from the cache by full validation"
         );
     }
 }
