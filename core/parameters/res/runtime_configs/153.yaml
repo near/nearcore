@@ -1,0 +1,3 @@
+# Price gas-key exec (storage) fees on trie_id_len() and send (transmission)
+# fees on len(), instead of pricing the exec fee on the wire length.
+fix_gas_key_fee_charging: { old: false, new: true }

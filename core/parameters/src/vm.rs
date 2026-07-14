@@ -225,6 +225,12 @@ pub struct Config {
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
 
+    /// Enable the `FixGasKeyFeeCharging` protocol feature: price the gas-key
+    /// exec (storage) fee on the on-trie identifier length (`trie_id_len()`) and
+    /// the send (transmission) fee on the wire length (`len()`), rather than
+    /// pricing the exec fee on the wire length.
+    pub fix_gas_key_fee_charging: bool,
+
     /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
     /// call without requiring the calling contract to have sufficient balance.
     pub one_yocto_on_promise: bool,
@@ -282,6 +288,7 @@ impl Config {
         self.eth_implicit_accounts = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
+        self.fix_gas_key_fee_charging = true;
         self.p256_verify_host_fn = true;
         self.sha3_host_fns = true;
         self.yield_with_id_host_fns = true;

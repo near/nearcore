@@ -3328,7 +3328,8 @@ pub fn promise_batch_action_transfer_to_gas_key(
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
     let send = gas_key_transfer_send_fee(&ctx.fees_config, sir, pk_len);
-    let exec = gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), pk_len);
+    let exec_pk_len = gas_key_exec_pk_len(&public_key_res, &ctx.config, pk_len);
+    let exec = gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), exec_pk_len);
     let burn_base = send.base;
     let use_base = burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
@@ -3401,8 +3402,12 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
     )?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
     let send_fee = gas_key_add_key_send_fee(&ctx.fees_config, sir);
-    let exec_fee =
-        gas_key_add_key_exec_fee(&ctx.fees_config, receiver_id.len(), pk_len, num_nonces);
+    let exec_fee = gas_key_add_key_exec_fee(
+        &ctx.fees_config,
+        receiver_id.len(),
+        gas_key_exec_pk_len(&public_key_res, &ctx.config, pk_len),
+        num_nonces,
+    );
     ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_full_access(receipt_idx, public_key_res?, num_nonces);
     Ok(())
@@ -3500,8 +3505,12 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
     )?;
     let receipt_receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
     let send_fee = gas_key_add_key_send_fee(&ctx.fees_config, sir);
-    let exec_fee =
-        gas_key_add_key_exec_fee(&ctx.fees_config, receipt_receiver_id.len(), pk_len, num_nonces);
+    let exec_fee = gas_key_add_key_exec_fee(
+        &ctx.fees_config,
+        receipt_receiver_id.len(),
+        gas_key_exec_pk_len(&public_key_res, &ctx.config, pk_len),
+        num_nonces,
+    );
     ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_function_call(
         receipt_idx,

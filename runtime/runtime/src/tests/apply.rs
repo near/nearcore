@@ -1,6 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::tx_cost;
+use crate::config::{total_send_fees, tx_cost};
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -11,7 +11,7 @@ use crate::{
 };
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -4390,5 +4390,176 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
             )),
             ..
         }))
+    );
+}
+
+/// Contract exporting `main`, which reads a borsh pubkey from the function-call
+/// input and calls `promise_batch_action_add_gas_key_with_full_access` on a
+/// self-promise with `num_nonces` nonces. Used by the gas-key charging tests.
+fn gas_key_adder_contract(num_nonces: u64) -> Vec<u8> {
+    let wat = format!(
+        r#"
+(module
+  (import "env" "input" (func $input (param i64)))
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (import "env" "current_account_id" (func $current (param i64)))
+  (import "env" "promise_batch_create" (func $pbc (param i64 i64) (result i64)))
+  (import "env" "promise_batch_action_add_gas_key_with_full_access" (func $agk (param i64 i64 i64 i64)))
+  (memory 1)
+  (export "memory" (memory 0))
+  (func (export "main")
+    (local $p i64)
+    (local $key_len i64)
+    (call $input (i64.const 0))
+    (local.set $key_len (call $register_len (i64.const 0)))
+    (call $read_register (i64.const 0) (i64.const 0))
+    (call $current (i64.const 1))
+    (local.set $p (call $pbc (i64.const -1) (i64.const 1)))
+    (call $agk (local.get $p) (local.get $key_len) (i64.const 0) (i64.const {num_nonces}))))
+"#
+    );
+    near_test_contracts::wat_contract(&wat)
+}
+
+/// A contract that creates an ML-DSA-65 gas key must not leak total supply.
+///
+/// The pre-execution / refund path prices the key on `trie_id_len()` (33 bytes)
+/// while the host path reserves the exec fee on `len()` (1953). The extra
+/// reserved gas is neither burnt nor refunded, so total supply silently drops.
+/// This asserts the DESIRED state - supply is conserved - so it is red until the
+/// host exec fee uses `trie_id_len()`.
+#[test]
+fn test_gas_key_add_key_conserves_supply() {
+    if !ProtocolFeature::FixGasKeyFeeCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixGasKeyFeeCharging not enabled at PROTOCOL_VERSION");
+        return;
+    }
+    let initial_balance = Balance::from_near(1_000_000);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let shard_uid = ShardUId::single_shard();
+    let gas_key: PublicKey = SecretKey::from_seed(KeyType::MLDSA65, "gas-key-seed").public_key();
+
+    let alice_amount = |root: CryptoHash| {
+        get_account(&tries.new_trie_update(shard_uid, root), &alice_account())
+            .unwrap()
+            .unwrap()
+            .amount()
+    };
+    let before = alice_amount(root);
+
+    // Single signed tx (deploy + call), so alice is fully debited up front and the
+    // scenario is closed: total supply == alice's amount plus everything burnt.
+    let tx = SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        alice_account(),
+        &*signers[0],
+        vec![
+            Action::DeployContract(DeployContractAction { code: gas_key_adder_contract(3) }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: borsh::to_vec(&gas_key).unwrap(),
+                gas: MAX_ATTACHED_GAS,
+                deposit: Balance::ZERO,
+            })),
+        ],
+        CryptoHash::default(),
+    );
+
+    let mut incoming: Vec<Receipt> = vec![];
+    let mut destroyed = Balance::ZERO;
+    let mut settled = false;
+    for round in 0..12 {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root),
+                &None,
+                &apply_state,
+                &incoming,
+                if round == 0 {
+                    SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true])
+                } else {
+                    SignedValidPeriodTransactions::empty()
+                },
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        // Value that left circulation this round. Receiver/validator rewards stay
+        // in accounts (not counted here); subsidies and gas deficit are minted.
+        let b = &apply_result.stats.balance;
+        destroyed = destroyed
+            .checked_add(b.tx_burnt_amount)
+            .unwrap()
+            .checked_add(b.slashed_burnt_amount)
+            .unwrap()
+            .checked_add(b.other_burnt_amount)
+            .unwrap()
+            .checked_sub(b.subsidized_amount)
+            .unwrap()
+            .checked_sub(b.gas_deficit_amount)
+            .unwrap();
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        incoming = apply_result.outgoing_receipts.clone();
+        apply_state.block_height += 1;
+        if round > 0 && incoming.is_empty() && apply_result.delayed_receipts_count == 0 {
+            settled = true;
+            break;
+        }
+    }
+    // The supply accounting below is only meaningful once the whole receipt
+    // cascade has drained; a run that hit the round cap would measure a partial
+    // state and could mask (or fake) a leak.
+    assert!(settled, "receipt cascade did not settle within the round budget");
+
+    let supply_drop = before.checked_sub(alice_amount(root)).unwrap();
+    assert_eq!(
+        supply_drop.as_yoctonear(),
+        destroyed.as_yoctonear(),
+        "supply leak: alice lost {} yocto but only {} was recorded as destroyed",
+        supply_drop.as_yoctonear(),
+        destroyed.as_yoctonear(),
+    );
+}
+
+/// The gas-key SEND fee prices bytes put on the wire, so it must scale with
+/// `public_key.len()` (1953 for ML-DSA-65), not the on-trie `trie_id_len()`
+/// (33). A "use `trie_id_len` everywhere" fix would leave this wrong; only the
+/// split (send = `len`, exec = `trie_id_len`) is correct. Asserts the DESIRED
+/// state, so it is red until `config.rs` prices the send fee on `len()`.
+#[test]
+fn test_gas_key_transfer_send_fee_uses_wire_length() {
+    if !ProtocolFeature::FixGasKeyFeeCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixGasKeyFeeCharging not enabled at PROTOCOL_VERSION");
+        return;
+    }
+    let config = RuntimeConfig::test();
+    let receiver = alice_account();
+    let ed25519_key = SecretKey::from_seed(KeyType::ED25519, "gas-key-seed").public_key();
+    let ml_dsa_65_key = SecretKey::from_seed(KeyType::MLDSA65, "gas-key-seed").public_key();
+
+    let send_fee = |public_key: &PublicKey| -> u64 {
+        let actions = [Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: public_key.clone(),
+            deposit: Balance::ZERO,
+        }))];
+        total_send_fees(&config, false, &actions, &receiver).unwrap().gas.as_gas()
+    };
+    let wire_len = |public_key: &PublicKey| public_key.len() as u64;
+
+    let gas_key_byte_send = config.fees.fee(ActionCosts::gas_key_byte).send_fee(false).gas.as_gas();
+    // Send fee scales with wire length, so the ML-DSA-65 vs ed25519 gap is the
+    // difference in their `len()`; the (equal) base fee cancels.
+    let expected_delta = gas_key_byte_send * (wire_len(&ml_dsa_65_key) - wire_len(&ed25519_key));
+    let measured_delta = send_fee(&ml_dsa_65_key) - send_fee(&ed25519_key);
+    assert_eq!(
+        measured_delta, expected_delta,
+        "gas-key send fee must scale with wire length (len), not trie_id_len",
     );
 }

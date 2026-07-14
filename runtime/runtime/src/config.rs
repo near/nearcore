@@ -67,6 +67,19 @@ pub(crate) fn storage_removes_compute(
         + ext.compute_cost(ExtCosts::storage_remove_ret_value_byte) * total_value_bytes
 }
 
+/// Public-key byte length for a gas-key SEND (transmission) fee computation.
+fn gas_key_send_pk_len(config: &RuntimeConfig, public_key: &PublicKey) -> usize {
+    if config.wasm_config.fix_gas_key_fee_charging {
+        // This is the proper value - send fee should be based on how many bytes
+        // the key occupies on the wire, not in storage.
+        public_key.len()
+    } else {
+        // Preserve the (incorrect) existing behavior if the fix is not enabled.
+        // Otherwise, we would break protocol consensus.
+        public_key.trie_id_len()
+    }
+}
+
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
     config: &RuntimeConfig,
@@ -111,10 +124,12 @@ pub fn total_send_fees(
                     receiver_id.get_account_type(),
                 )
             }
-            TransferToGasKey(action) => {
-                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.trie_id_len())
-                    .total()
-            }
+            TransferToGasKey(action) => gas_key_transfer_send_fee(
+                fees,
+                sender_is_receiver,
+                gas_key_send_pk_len(config, &action.public_key),
+            )
+            .total(),
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => permission_send_fees(
                 &add_key_action.access_key.permission,
@@ -188,10 +203,12 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
-            WithdrawFromGasKey(action) => {
-                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.trie_id_len())
-                    .total()
-            }
+            WithdrawFromGasKey(action) => gas_key_transfer_send_fee(
+                fees,
+                sender_is_receiver,
+                gas_key_send_pk_len(config, &action.public_key),
+            )
+            .total(),
         };
         result = result.checked_add_result(delta)?;
     }

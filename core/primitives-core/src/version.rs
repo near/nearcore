@@ -445,6 +445,10 @@ pub enum ProtocolFeature {
     FixContractLoadingError,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
+    /// Price the gas-key exec (storage) fee on the on-trie identifier length
+    /// (`trie_id_len()`) and the send (transmission) fee on the wire length
+    /// (`len()`), rather than pricing the exec fee on the wire length.
+    FixGasKeyFeeCharging,
 }
 
 impl ProtocolFeature {
@@ -581,6 +585,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
+            ProtocolFeature::FixGasKeyFeeCharging => 153,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

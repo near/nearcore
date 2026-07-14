@@ -60,6 +60,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (85, include_config!("85.yaml")),
     (86, include_config!("86.yaml")),
     (129, include_config!("129.yaml")),
+    // Price gas-key exec fees on trie_id_len() and send fees on len().
+    (153, include_config!("153.yaml")),
     (155, include_config!("155.yaml")),
     // Enable the sha3_256, sha3_384 and sha3_512 host functions.
     (156, include_config!("156.yaml")),
