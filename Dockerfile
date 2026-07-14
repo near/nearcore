@@ -11,6 +11,7 @@ RUN apt-get update -qq && apt-get install -y \
     curl \
     llvm \
     clang \
+    libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
 VOLUME [ /near ]
@@ -39,7 +40,7 @@ FROM ubuntu:22.04
 EXPOSE 3030 24567
 
 RUN apt-get update -qq && apt-get install -y \
-    libssl-dev ca-certificates \
+    libssl-dev ca-certificates llvm clang libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/run_docker.sh /usr/local/bin/run.sh
