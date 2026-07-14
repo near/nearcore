@@ -33,28 +33,50 @@ impl<'a> Iterator for MergeIter<'a> {
     }
 }
 
-pub struct TrieUpdateIterator<'a>(Option<(Peekable<TrieIterator<'a>>, Peekable<MergeIter<'a>>)>);
+pub struct TrieUpdateIterator<'a> {
+    /// Keys straight from the trie.
+    trie: Peekable<TrieIterator<'a>>,
+    /// Keys from the uncommitted overlay (committed + prospective changes).
+    overlay: Peekable<MergeIter<'a>>,
+    /// Exclusive upper bound at which iteration stops. Only set when iterating
+    /// from an explicit `start`
+    end: Option<Vec<u8>>,
+    /// Set once iteration has finished
+    done: bool,
+}
 
 impl<'a> TrieUpdateIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     pub fn new(
         state_update: &'a TrieUpdate,
         prefix: &[u8],
+        start: Bound<&[u8]>,
         lock: Option<&'a TrieWithReadLock<'_>>,
     ) -> Result<Self, StorageError> {
         let mut trie_iter = match lock {
             Some(lock) => lock.iter()?,
             None => TrieIterator::Disk(state_update.trie.disk_iter()?),
         };
-        trie_iter.seek_prefix(prefix)?;
 
-        let end_bound = make_prefix_range_end_bound(prefix);
-        let end_bound = if let Some(end_bound) = &end_bound {
-            Bound::Excluded(end_bound.as_slice())
+        let prefix_end = make_prefix_range_end_bound(prefix);
+
+        let (range_start, end) = match start {
+            Bound::Unbounded => {
+                trie_iter.seek_prefix(prefix)?;
+                (Bound::Included(prefix), None)
+            }
+            start => {
+                trie_iter.seek(start)?;
+                (start, prefix_end.clone())
+            }
+        };
+
+        let end_bound = if let Some(prefix_end) = &prefix_end {
+            Bound::Excluded(prefix_end.as_slice())
         } else {
             Bound::Unbounded
         };
-        let range = (Bound::Included(prefix), end_bound);
+        let range = (range_start, end_bound);
 
         let committed_iter = state_update.committed.range::<[u8], _>(range).map(
             |(raw_key, changes_with_trie_key)| {
@@ -78,7 +100,21 @@ impl<'a> TrieUpdateIterator<'a> {
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
         }
         .peekable();
-        Ok(TrieUpdateIterator(Some((trie_iter.peekable(), overlay_iter))))
+        Ok(TrieUpdateIterator {
+            trie: trie_iter.peekable(),
+            overlay: overlay_iter,
+            end,
+            done: false,
+        })
+    }
+
+    /// Wraps a yielded key, terminating iteration once `end` is reached.
+    fn bounded(&mut self, key: Vec<u8>) -> Option<Result<Vec<u8>, StorageError>> {
+        if self.end.as_deref().is_some_and(|end| key.as_slice() >= end) {
+            self.done = true;
+            return None;
+        }
+        Some(Ok(key))
     }
 }
 
@@ -93,12 +129,14 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
             Both,
         }
         // Usually one iteration, unless need to skip None values in prospective / committed.
-        let iterators = self.0.as_mut()?;
         loop {
-            let res = match (iterators.0.peek(), iterators.1.peek()) {
+            if self.done {
+                return None;
+            }
+            let res = match (self.trie.peek(), self.overlay.peek()) {
                 (Some(Err(_)), _) => {
-                    let err = iterators.0.next().unwrap().unwrap_err();
-                    self.0 = None;
+                    let err = self.trie.next().unwrap().unwrap_err();
+                    self.done = true;
                     return Some(Err(err));
                 }
 
@@ -112,7 +150,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                 (Some(_), None) => Ordering::Trie,
                 (None, Some(_)) => Ordering::Overlay,
                 (None, None) => {
-                    self.0 = None;
+                    self.done = true;
                     return None;
                 }
             };
@@ -120,18 +158,24 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
             // Check which element comes first and advance the corresponding
             // iterator only.  If both keys are equal, check if overlay doesn’t
             // delete the value.
-            let trie_item = if res != Ordering::Overlay { iterators.0.next() } else { None };
-            if res == Ordering::Trie {
-                if let Some(Ok((key, _))) = trie_item {
-                    return Some(Ok(key));
+            let trie_item = if res != Ordering::Overlay { self.trie.next() } else { None };
+            let key = if res == Ordering::Trie {
+                match trie_item {
+                    Some(Ok((key, _))) => Some(key),
+                    _ => None,
                 }
-            } else if let Some((overlay_key, Some(_))) = iterators.1.next() {
-                return Some(Ok(if let Some(Ok((trie_key, _))) = trie_item {
+            } else if let Some((overlay_key, Some(_))) = self.overlay.next() {
+                Some(if let Some(Ok((trie_key, _))) = trie_item {
                     debug_assert_eq!(trie_key.as_slice(), overlay_key);
                     trie_key
                 } else {
                     overlay_key.to_vec()
-                }));
+                })
+            } else {
+                None
+            };
+            if let Some(key) = key {
+                return self.bounded(key);
             }
         }
     }

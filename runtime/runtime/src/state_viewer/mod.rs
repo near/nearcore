@@ -190,18 +190,17 @@ impl TrieViewer {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let after_key =
             after.map(|handle| TrieKey::access_key(account_id.clone(), handle.clone()).to_vec());
-        let mut iter = state_update.iter(&prefix)?;
+        let start = match &after_key {
+            Some(after_key) => Bound::Excluded(after_key.as_slice()),
+            None => Bound::Unbounded,
+        };
+        let mut iter = state_update.iter_from(&prefix, start)?;
 
         let mut keys = Vec::new();
         let mut last_key = None;
 
         for raw_key in &mut iter {
             let raw_key = raw_key?;
-            if let Some(after_key) = &after_key {
-                if raw_key.as_slice() <= after_key.as_slice() {
-                    continue;
-                }
-            }
             let key_handle =
                 parse_key_handle_from_access_key_key(&raw_key, account_id).map_err(|_| {
                     errors::ViewAccessKeyError::InternalError {

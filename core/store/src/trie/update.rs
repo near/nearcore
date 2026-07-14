@@ -13,6 +13,7 @@ use near_primitives::types::{
 };
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
+use std::ops::Bound;
 
 mod iterator;
 
@@ -262,7 +263,15 @@ impl TrieUpdate {
 
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix, None)
+        TrieUpdateIterator::new(self, key_prefix, Bound::Unbounded, None)
+    }
+
+    pub fn iter_from(
+        &self,
+        key_prefix: &[u8],
+        start: Bound<&[u8]>,
+    ) -> Result<TrieUpdateIterator<'_>, StorageError> {
+        TrieUpdateIterator::new(self, key_prefix, start, None)
     }
 
     pub fn locked_iter<'a>(
@@ -270,7 +279,7 @@ impl TrieUpdate {
         key_prefix: &[u8],
         lock: &'a TrieWithReadLock<'_>,
     ) -> Result<TrieUpdateIterator<'a>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix, Some(lock))
+        TrieUpdateIterator::new(self, key_prefix, Bound::Unbounded, Some(lock))
     }
 
     pub fn get_root(&self) -> &StateRoot {
