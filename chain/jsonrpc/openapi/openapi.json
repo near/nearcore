@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.12"
+    "version": "1.2.13"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -13722,10 +13722,9 @@
             "description": "Version of the binary."
           },
           "view_access_keys_limit": {
-            "description": "Upper bound on the number of access keys returned by a `view_access_key_list`\nquery. None is no limit.",
+            "description": "Upper bound on the number of access keys returned by a `view_access_key_list`\nquery.",
             "format": "uint32",
             "minimum": 0,
-            "nullable": true,
             "type": "integer"
           },
           "view_client_threads": {
