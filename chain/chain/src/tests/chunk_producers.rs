@@ -1,5 +1,6 @@
 #[cfg(feature = "nightly")]
 mod tests {
+    use crate::Chain;
     use crate::ChainStoreAccess;
     use crate::garbage_collection::GCMode;
     use crate::test_utils::{setup, setup_with_tx_validity_period};
@@ -456,7 +457,7 @@ mod tests {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
 
-        let row = |chain: &crate::Chain, anchor: &CryptoHash| -> Option<ValidatorStake> {
+        let row = |chain: &Chain, anchor: &CryptoHash| -> Option<ValidatorStake> {
             chain
                 .chain_store()
                 .store()
@@ -535,7 +536,7 @@ mod tests {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(blocks[1].hash()).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
-        let row = |chain: &crate::Chain, anchor: &CryptoHash, shard_id| -> Option<ValidatorStake> {
+        let row = |chain: &Chain, anchor: &CryptoHash, shard_id| -> Option<ValidatorStake> {
             chain
                 .chain_store()
                 .store()
@@ -614,7 +615,7 @@ mod tests {
         );
         store_update.commit();
 
-        let fork_row = |chain: &crate::Chain| -> Option<ValidatorStake> {
+        let fork_row = |chain: &Chain| -> Option<ValidatorStake> {
             chain
                 .chain_store()
                 .store()

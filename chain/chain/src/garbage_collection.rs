@@ -566,7 +566,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
-            for _header_hash in header_hashes {
+            for header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
                 //self.gc_col(DBCol::BlockHeader, header_hash.as_bytes());
@@ -575,7 +575,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 // else header-only hashes (never given a body, so never seen by
                 // clear_block_data) orphan their rows.
                 #[cfg(feature = "nightly")]
-                self.gc_chunk_producers_for_header(&_header_hash);
+                self.gc_chunk_producers_for_header(&header_hash);
+                #[cfg(not(feature = "nightly"))]
+                let _ = header_hash;
             }
 
             // 4. Delete chunks_tail-related data
@@ -918,7 +920,9 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // ChunkProducers rows for the cleared heights are deleted in
-        // clear_header_data_for_heights below.
+        // clear_header_data_for_heights below; this head's own hash is in
+        // HeaderHashesByHeight[head_height] (recorded when it was saved), so that
+        // range covers the body head too, not just header-only anchors above it.
 
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
