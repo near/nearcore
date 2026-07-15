@@ -2210,6 +2210,18 @@ impl ShardsManagerActor {
 
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+
+        let (prev_prev_block_hash, anchor_epoch_id) = if ProtocolFeature::EarlyKickout
+            .enabled(self.epoch_manager.get_epoch_protocol_version(&epoch_id)?)
+            && !chunk_header.is_spice_chunk()
+        {
+            let prev_prev_block_hash =
+                self.epoch_manager.grandparent_anchor(&prev_block_hash)?.unwrap_or_default();
+            (Some(prev_prev_block_hash), Some(epoch_id))
+        } else {
+            (None, None)
+        };
+
         for part_ord in 0..self.epoch_manager.num_total_parts() {
             let part_ord = part_ord as u64;
             let to_whom = self.epoch_manager.get_part_owner(&epoch_id, part_ord).unwrap();
@@ -2256,6 +2268,8 @@ impl ShardsManagerActor {
                     part_ords,
                     part_receipt_proofs,
                     &merkle_paths,
+                    prev_prev_block_hash,
+                    anchor_epoch_id,
                 );
 
             if Some(&to_whom) != me {

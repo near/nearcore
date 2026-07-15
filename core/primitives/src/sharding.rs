@@ -1020,19 +1020,28 @@ pub struct PartialEncodedChunkWithArcReceipts {
     pub header: ShardChunkHeader,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub prev_outgoing_receipts: Vec<Arc<ReceiptProof>>,
+    pub prev_prev_block_hash: Option<CryptoHash>,
+    pub epoch_id: Option<EpochId>,
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for PartialEncodedChunk {
     fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
-        Self::V2(PartialEncodedChunkV2 {
-            header: pec.header,
-            parts: pec.parts,
-            prev_outgoing_receipts: pec
-                .prev_outgoing_receipts
-                .into_iter()
-                .map(|r| ReceiptProof::clone(&r))
-                .collect(),
-        })
+        let prev_outgoing_receipts =
+            pec.prev_outgoing_receipts.into_iter().map(|r| ReceiptProof::clone(&r)).collect();
+        match (pec.prev_prev_block_hash, pec.epoch_id) {
+            (Some(prev_prev_block_hash), Some(epoch_id)) => Self::V3(PartialEncodedChunkV3 {
+                header: pec.header,
+                parts: pec.parts,
+                prev_outgoing_receipts,
+                prev_prev_block_hash,
+                epoch_id,
+            }),
+            _ => Self::V2(PartialEncodedChunkV2 {
+                header: pec.header,
+                parts: pec.parts,
+                prev_outgoing_receipts,
+            }),
+        }
     }
 }
 
@@ -1481,13 +1490,21 @@ impl EncodedShardChunk {
         part_ords: Vec<u64>,
         prev_outgoing_receipts: Vec<Arc<ReceiptProof>>,
         merkle_paths: &[MerklePath],
+        prev_prev_block_hash: Option<CryptoHash>,
+        epoch_id: Option<EpochId>,
     ) -> PartialEncodedChunkWithArcReceipts {
         let parts = self.part_ords_to_parts(part_ords, merkle_paths);
         let header = match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
             Self::V2(chunk) => chunk.header.clone(),
         };
-        PartialEncodedChunkWithArcReceipts { header, parts, prev_outgoing_receipts }
+        PartialEncodedChunkWithArcReceipts {
+            header,
+            parts,
+            prev_outgoing_receipts,
+            prev_prev_block_hash,
+            epoch_id,
+        }
     }
 
     pub fn decode_chunk(&self) -> Result<ShardChunk, std::io::Error> {
