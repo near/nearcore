@@ -10303,6 +10303,7 @@
               },
               "after_key_base64": {
                 "default": null,
+                "description": "Resume listing after this key (exclusive); must start with `prefix`.",
                 "oneOf": [
                   {
                     "$ref": "#/components/schemas/StoreKey"
@@ -10321,6 +10322,7 @@
               },
               "limit": {
                 "default": null,
+                "description": "Maximum number of entries to return in this page.",
                 "format": "uint32",
                 "minimum": 1,
                 "type": [
@@ -10347,6 +10349,7 @@
               },
               "after_key_base64": {
                 "default": null,
+                "description": "Resume listing after this key (exclusive); must start with `prefix`.",
                 "oneOf": [
                   {
                     "$ref": "#/components/schemas/StoreKey"
@@ -10365,6 +10368,7 @@
               },
               "limit": {
                 "default": null,
+                "description": "Maximum number of entries to return in this page.",
                 "format": "uint32",
                 "minimum": 1,
                 "type": [
@@ -10391,6 +10395,7 @@
               },
               "after_key_base64": {
                 "default": null,
+                "description": "Resume listing after this key (exclusive); must start with `prefix`.",
                 "oneOf": [
                   {
                     "$ref": "#/components/schemas/StoreKey"
@@ -10406,6 +10411,7 @@
               },
               "limit": {
                 "default": null,
+                "description": "Maximum number of entries to return in this page.",
                 "format": "uint32",
                 "minimum": 1,
                 "type": [
@@ -10444,6 +10450,7 @@
             "type": "integer"
           },
           "last_key": {
+            "description": "Cursor to resume from: present when more entries remain, absent when the listing is complete.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"
@@ -13999,6 +14006,7 @@
           "required": false,
           "schema": {
             "default": null,
+            "description": "Resume listing after this key (exclusive); must start with `prefix`.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"
@@ -14036,6 +14044,7 @@
           "required": false,
           "schema": {
             "default": null,
+            "description": "Maximum number of entries to return in this page.",
             "format": "uint32",
             "minimum": 1,
             "type": [

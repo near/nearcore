@@ -19291,7 +19291,8 @@
                 "nullable": true
               }
             ],
-            "default": null
+            "default": null,
+            "description": "Resume listing after this key (exclusive); must start with `prefix`."
           },
           "include_proof": {
             "default": false,
@@ -19299,6 +19300,7 @@
           },
           "limit": {
             "default": null,
+            "description": "Maximum number of entries to return in this page.",
             "format": "uint32",
             "minimum": 1,
             "nullable": true,
@@ -19337,7 +19339,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Cursor to resume from: present when more entries remain, absent when the listing is complete."
           },
           "proof": {
             "items": {
@@ -21534,7 +21537,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Cursor to resume from: present when more entries remain, absent when the listing is complete."
           },
           "proof": {
             "items": {
