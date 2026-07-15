@@ -4,8 +4,8 @@ use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
-    Disconnect, PeerMessage, PeersRequest, PeersResponse, RoutedMessageV3, RoutingTableUpdate,
-    SyncAccountsData, TieredMessageBody,
+    Disconnect, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, PeerMessage, PeersRequest, PeersResponse,
+    RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
 };
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
@@ -109,6 +109,8 @@ pub enum ParseSnapshotHostInfoError {
     SyncHash(ParseRequiredError<ParseCryptoHashError>),
     #[error("signature {0}")]
     Signature(ParseRequiredError<ParseSignatureError>),
+    #[error("shards: {count} > {max} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)")]
+    TooManyShards { count: usize, max: usize },
 }
 
 impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
@@ -127,6 +129,16 @@ impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
 impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
     type Error = ParseSnapshotHostInfoError;
     fn try_from(x: &proto::SnapshotHostInfo) -> Result<Self, Self::Error> {
+        // Reject before the per-shard `Vec<ShardId>` allocation. This message is decoded
+        // pre-authentication, so an unbounded `shards` list would let any peer force
+        // multi-GB allocations from a single message. `verify()` also checks this cap, but
+        // only after decoding, which is too late. Mirrors the tracked_shards handshake cap.
+        if x.shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
+            return Err(Self::Error::TooManyShards {
+                count: x.shards.len(),
+                max: MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
+            });
+        }
         Ok(Self {
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
             sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,

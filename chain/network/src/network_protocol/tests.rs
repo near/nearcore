@@ -468,3 +468,36 @@ mod versioned_witness_tests {
         assert_eq!(wrapped_fwd_v2.variant(), "VersionedPartialEncodedStateWitnessForward");
     }
 }
+
+#[test]
+fn snapshot_host_info_too_many_shards() {
+    use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
+    use crate::network_protocol::proto;
+    use crate::network_protocol::proto_conv::ParseSnapshotHostInfoError;
+    use crate::network_protocol::state_sync::SnapshotHostInfo;
+
+    let mut rng = make_rng(2847510394);
+    // A host info with empty shards, so converting it to proto does not trip the
+    // send-side debug_assert. We then set `shards` on the proto directly.
+    let signer = data::make_secret_key(&mut rng);
+    let peer_id = PeerId::new(signer.public_key());
+    let info = SnapshotHostInfo::new(peer_id, CryptoHash::default(), 0, vec![], &signer);
+    let base = proto::SnapshotHostInfo::from(&info);
+
+    // len == cap: must succeed.
+    let mut ok_proto = base.clone();
+    ok_proto.shards = (0..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64).collect();
+    let parsed = SnapshotHostInfo::try_from(&ok_proto).expect("at-cap parse should succeed");
+    assert_eq!(parsed.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+
+    // len == cap + 1: must fail with TooManyShards, before any per-shard allocation.
+    let mut too_many = base;
+    too_many.shards = (0..=MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64).collect();
+    match SnapshotHostInfo::try_from(&too_many) {
+        Err(ParseSnapshotHostInfoError::TooManyShards { count, max }) => {
+            assert_eq!(count, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO + 1);
+            assert_eq!(max, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+        }
+        other => panic!("expected TooManyShards, got: {other:?}"),
+    }
+}
