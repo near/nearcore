@@ -9,6 +9,7 @@ mod rs_contract;
 mod runtime_errors;
 pub(crate) mod test_builder;
 mod ts_contract;
+mod view_call_gas_limit;
 mod wasm_validation;
 
 use crate::logic::VMContext;
