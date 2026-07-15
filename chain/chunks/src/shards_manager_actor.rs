@@ -1473,7 +1473,7 @@ impl ShardsManagerActor {
             .epoch_manager
             .get_epoch_protocol_version(&epoch_id)
             .map_err(|err| err_mapper(err.into()))?;
-        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) && !header.is_spice_chunk() {
             let &prev_prev_block_hash = header
                 .prev_prev_block_hash()
                 .ok_or(Error::InvalidChunkHeader)

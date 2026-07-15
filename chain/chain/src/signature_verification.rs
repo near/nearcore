@@ -10,7 +10,6 @@ use near_primitives::{
     types::{BlockHeight, EpochId, ShardId, validator_stake::ValidatorStake},
 };
 use near_store::{Store, get_genesis_height};
-
 use crate::metrics::ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL;
 
 pub fn verify_block_vrf(
@@ -98,17 +97,13 @@ fn verify_anchored_chunk_key(
         }
         Err(EpochError::MissingBlock(_)) => {
             if prev_prev_block_hash != &CryptoHash::default() {
-                // Parent not here yet, so only the anchor is known. Requiring height ==
-                // anchor + 2 ties one anchor to one chunk key per shard, so a producer
-                // cannot reuse it across many cache slots. (Cross-epoch anchors fall back
-                // to the resolver.) A skipped slot with a missing parent is dropped here;
-                // that is fine, best-effort.
+                // Parent not here yet, so only the anchor is known.
                 let anchor_height = epoch_manager.get_block_info(prev_prev_block_hash)?.height();
-                let expected_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-                if height_created != expected_height {
+                let min_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+                if height_created < min_height {
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
-                        "V2 {msg_label} height {height_created} does not match \
-                         anchor-implied height {expected_height}"
+                        "V2 {msg_label} height {height_created} below \
+                         anchor-implied minimum height {min_height}"
                     )));
                 }
             } else {

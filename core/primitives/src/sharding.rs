@@ -1068,6 +1068,7 @@ pub struct ShardChunkV2 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShardChunk {
     V1(ShardChunkV1) = 0,
     V2(ShardChunkV2) = 1,
@@ -1289,6 +1290,7 @@ pub struct EncodedShardChunkV2 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum EncodedShardChunk {
     V1(EncodedShardChunkV1) = 0,
     V2(EncodedShardChunkV2) = 1,
@@ -1617,6 +1619,7 @@ pub struct ArcedShardChunkV2 {
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum ArcedShardChunk {
     V1(ArcedShardChunkV1) = 0,
     V2(ArcedShardChunkV2) = 1,
