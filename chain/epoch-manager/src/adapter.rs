@@ -1138,14 +1138,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(HashMap::new());
         }
+        // Must mirror `EpochManager::seed_chunk_producers`: same last-final basis, else the
+        // `seeded_rows_match_*` tests would only agree by accident. Read-guard methods used
+        // directly since adapter methods would re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
-        // Match the seeder basis: compute as of the anchor's last-final block, not the
-        // unfinalized anchor. See `EpochManager::seed_chunk_producers` for why the seeded row
-        // must be deterministic from the last-final block. Use the read guard's `EpochManager`
-        // methods directly: adapter methods would re-take `self.read()` and deadlock.
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
-        // A default final hash means nothing is finalized yet -> empty blacklist, no walk.
         if final_block_hash == CryptoHash::default() {
             return Ok(HashMap::new());
         }
@@ -1153,18 +1151,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(&final_block_hash)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        // Grace window is measured against the last-final block's height in the aggregator's own
-        // epoch, matching the blacklist basis. A missing epoch-start (genesis / pre-genesis) is
-        // treated as "just started" -> `blocks_into_epoch = 0` -> grace (empty); any other error
-        // propagates rather than masking storage corruption.
+        // Missing epoch-start (genesis) -> treat as start -> grace (empty); other errors propagate.
         let epoch_start = match epoch_manager.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
             Ok(start) => start,
             Err(EpochError::EpochOutOfBounds(_)) => final_block_height,
             Err(e) => return Err(e),
         };
         let blocks_into_epoch = final_block_height.saturating_sub(epoch_start);
-        // `blacklist_for_epoch` resets to empty when the aggregator's epoch differs from the
-        // anchor's (a boundary anchor whose next epoch has no stats yet) or within the grace.
         Ok(crate::blacklist_for_epoch(
             &aggregator,
             &epoch_id,

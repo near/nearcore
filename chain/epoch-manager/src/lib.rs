@@ -1032,8 +1032,7 @@ impl EpochManager {
                 // the genesis epoch info; chunks at genesis + 1 and below have no
                 // grandparent and use the canonical sampler.
                 let genesis_shard_layout = self.get_shard_layout(&pre_genesis_epoch_id)?;
-                // Genesis has no finalized ancestor; pass a default final hash so the seeder
-                // takes the empty-blacklist branch (no aggregator walk).
+                // No finalized ancestor at genesis; default final hash -> empty branch.
                 self.seed_chunk_producers(
                     &mut store_update,
                     &current_hash,
@@ -2149,16 +2148,11 @@ impl EpochManager {
     /// avoids seeding dead rows for last-of-epoch anchors across an activation edge.
     ///
     /// The blacklist is computed as of the anchor's last-final block
-    /// (`final_block_hash` / `final_block_height`), not the unfinalized anchor. This
-    /// is required for consensus: the seeded row is read verbatim by
-    /// `get_chunk_producer_info_anchored`, so it must be identical across nodes for a
-    /// given canonical anchor. `final_block_hash` is copied from the block header
-    /// (`BlockInfo::last_final_block_hash`) and is therefore fixed per anchor,
-    /// independent of block-processing order or the local finality frontier. It also
-    /// bounds the per-block aggregator walk: the walk covers only blocks finalized
-    /// since the previous record (~1 in steady state, 0 during a finality stall,
-    /// because the aggregator's sync point already sits at the pinned final block),
-    /// never the growing unfinalized suffix.
+    /// (`final_block_hash`), which comes from the block header and so is identical
+    /// across nodes for a given canonical anchor. This determinism is required: the
+    /// seeded row is read verbatim by `get_chunk_producer_info_anchored`. Anchoring on
+    /// the final block also keeps the aggregator walk off the growing unfinalized
+    /// suffix during a finality stall.
     fn seed_chunk_producers(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
@@ -2176,23 +2170,16 @@ impl EpochManager {
             if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
                 return Ok(());
             }
-            // A default `final_block_hash` means nothing is finalized yet (genesis and the
-            // first blocks of the chain): no stats exist, so seed an empty blacklist without
-            // walking. Walking to a nonexistent block would error, and these anchors sit deep
-            // inside the start-of-epoch grace anyway.
+            // Default hash: nothing finalized yet (genesis / first blocks). Walking would
+            // error, and these anchors sit deep in the grace anyway, so seed empty.
             let blacklist = if final_block_hash == &CryptoHash::default() {
                 HashMap::new()
             } else {
-                // Compute the blacklist as of the last-final block via the shared
-                // `blacklist_for_epoch` helper. `get_epoch_info_aggregator_upto_last` is an
-                // `EpochManager` method (`&self`, no lock); the adapter
-                // `get_chunk_producer_blacklist` would re-take `self.read()` and deadlock,
-                // since the seeder already runs under the write lock.
+                // Not `get_chunk_producer_blacklist` (adapter): it re-takes `self.read()` and
+                // would deadlock against the write lock the seeder runs under.
                 let aggregator = self.get_epoch_info_aggregator_upto_last(final_block_hash)?;
-                // Grace window is measured against the last-final block's height in the
-                // aggregator's own epoch, matching the blacklist basis. A missing `EpochStart`
-                // row (genesis) is treated as "just started" (blocks_into_epoch = 0 -> grace,
-                // empty). Propagate any other error rather than masking storage corruption.
+                // Missing `EpochStart` (genesis) -> treat as start -> grace (empty). Any other
+                // error propagates rather than masking storage corruption.
                 let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
                     Ok(start) => start,
                     Err(EpochError::EpochOutOfBounds(_)) => final_block_height,

@@ -192,9 +192,8 @@ fn record_block_with_mask(
 ) {
     let epoch_id = em.get_epoch_id(&prev).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-    // Model ~2-block finality: the last-final block is the grandparent (prev's parent), at
-    // height - 2, matching `last_finalized_height`. The seeder now bases the blacklist on the
-    // last-final block, so this hash and height must be self-consistent.
+    // ~2-block finality: last-final = grandparent (height - 2), consistent with the
+    // `last_finalized_height` below. The seeder bases the blacklist on this hash.
     let last_final = *em.get_block_info(&prev).unwrap().prev_hash();
     // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that
     // shard; only produced chunks include endorsements.
@@ -457,13 +456,12 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-    // blocks_into_epoch is measured against the anchor's last-final block (grandparent, at
-    // anchor height - 2), so the grace boundary sits 2 blocks later in anchor height than the
-    // raw grace count. Pin it against the actual epoch start.
+    // Grace is measured against the anchor's last-final block (grandparent, anchor height - 2),
+    // so the boundary in anchor height is the raw grace count + 2.
     let epoch_start = handle.get_epoch_start_from_epoch_id(&epoch_id).unwrap();
 
-    // Last anchor inside the grace (last-final blocks_into_epoch == GRACE - 1): the down node is
-    // already miss-heavy, so the empty result is due to the grace, not a lack of misses.
+    // Last anchor inside the grace: down node is already miss-heavy, so empty is the grace, not
+    // a lack of misses.
     let in_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 1) as usize;
     let bl_grace = handle.get_chunk_producer_blacklist(&h[in_grace]).unwrap();
     assert!(bl_grace.is_empty(), "anchor inside the grace window must be empty, got {bl_grace:?}");
@@ -477,7 +475,7 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
         .unwrap();
     assert_eq!(stored_in_grace, plain_in_grace, "in-grace seeded row must be the plain pick");
 
-    // First anchor at the grace boundary (last-final blocks_into_epoch == GRACE): blacklist active.
+    // First anchor past the grace: blacklist active.
     let past_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 2) as usize;
     let bl_past = handle.get_chunk_producer_blacklist(&h[past_grace]).unwrap();
     assert_eq!(
@@ -771,30 +769,22 @@ fn record_block_frozen_final(
     .commit();
 }
 
-// Regression guard for the per-block aggregator walk in `seed_chunk_producers`: with finality
-// frozen, the seeder bases the blacklist on the pinned last-final block instead of the growing
-// unfinalized anchor, so each block's walk is O(1) (it stops at the pinned final block) rather
-// than O(stall-depth). Total cost is linear in the number of blocks, not quadratic. Distinct
-// from the walk-count invariant in `test_finalize_epoch_large_epoch_length`, which is gated off
-// nightly.
-//
-// Uses two stall depths and asserts the per-block walk stays constant across them: a regression
-// that reintroduced the unfinalized-suffix rescan would make the longer run super-linear.
+// Regression guard: with finality frozen the seeder walks to the pinned last-final block, so the
+// per-block walk is O(1) and total cost is linear, not the old O(stall-depth) suffix rescan. Two
+// stall depths pin that the per-block walk does not grow with depth.
 #[cfg(feature = "nightly")]
 #[test]
 fn seed_walk_bounded_under_finality_stall() {
     use std::sync::atomic::Ordering;
 
-    // Runs a `count`-block stall with finality frozen at genesis and returns the total aggregator
-    // walk iterations attributable to the per-block seeding.
+    // Total per-block seeding walk iterations over a `count`-block stall frozen at genesis.
     fn stall_walk(count: u64) -> usize {
         let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
         let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
         let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
         record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
         let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
-        // Every block reports finality frozen at genesis, so `largest_final_height` never
-        // advances and the seeder walks to the pinned final block (genesis) each time.
+        // Finality frozen at genesis: `largest_final_height` never advances.
         for height in 1..=count {
             record_block_frozen_final(
                 &mut em,
@@ -812,8 +802,7 @@ fn seed_walk_bounded_under_finality_stall() {
     let long = 120u64;
     let walked_short = stall_walk(short);
     let walked_long = stall_walk(long);
-    // Each block's walk stops at the pinned final block, so cost is a small constant per block.
-    // Allow a generous constant factor; the point is it does NOT grow with stall depth.
+    // Generous constant-per-block cap; the point is it does not grow with stall depth.
     let per_block_cap = 4;
     assert!(
         walked_short >= short as usize,
@@ -827,8 +816,7 @@ fn seed_walk_bounded_under_finality_stall() {
         walked_long <= per_block_cap * long as usize,
         "long stall walk {walked_long} exceeds {per_block_cap}/block — suffix rescan regression?"
     );
-    // Linearity: tripling the stall depth must not more than triple the walk (a quadratic
-    // rescan would grow ~9x). Compare per-block averages directly.
+    // Linearity: 3x the depth must not more than 3x the walk (a quadratic rescan would ~9x).
     assert!(
         walked_long * short as usize <= 2 * walked_short * long as usize,
         "per-block walk grew with stall depth ({walked_short} over {short} vs {walked_long} over \
