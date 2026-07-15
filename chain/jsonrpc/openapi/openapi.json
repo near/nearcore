@@ -1355,12 +1355,18 @@
         "description": "Describes access key permission scope and nonce.",
         "properties": {
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -1506,10 +1512,20 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "code_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
           },
           "global_contract_account_id": {
             "anyOf": [
@@ -1522,7 +1538,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by the deploying account id."
           },
           "global_contract_hash": {
             "anyOf": [
@@ -1535,19 +1552,26 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by code hash."
           },
           "locked": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Staked balance locked for validation, in yoctoNEAR."
           },
           "storage_paid_at": {
             "default": 0,
-            "description": "TODO(2271): deprecated.",
+            "description": "Deprecated and unused. TODO(2271): remove.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "storage_usage": {
+            "description": "Total storage used by the account, in bytes.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -18578,12 +18602,18 @@
             "type": "integer"
           },
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -18773,7 +18803,12 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "block_hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -18784,7 +18819,12 @@
             "type": "integer"
           },
           "code_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
           },
           "global_contract_account_id": {
             "anyOf": [
@@ -18797,7 +18837,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by the deploying account id."
           },
           "global_contract_hash": {
             "anyOf": [
@@ -18810,19 +18851,26 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by code hash."
           },
           "locked": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Staked balance locked for validation, in yoctoNEAR."
           },
           "storage_paid_at": {
             "default": 0,
-            "description": "TODO(2271): deprecated.",
+            "description": "Deprecated and unused. TODO(2271): remove.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "storage_usage": {
+            "description": "Total storage used by the account, in bytes.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -20162,10 +20210,20 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "amount": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
                   "code_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/CryptoHash"
+                      }
+                    ],
+                    "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
                   },
                   "global_contract_account_id": {
                     "anyOf": [
@@ -20178,7 +20236,8 @@
                         ],
                         "nullable": true
                       }
-                    ]
+                    ],
+                    "description": "Set when the account uses a global contract referenced by the deploying account id."
                   },
                   "global_contract_hash": {
                     "anyOf": [
@@ -20191,19 +20250,26 @@
                         ],
                         "nullable": true
                       }
-                    ]
+                    ],
+                    "description": "Set when the account uses a global contract referenced by code hash."
                   },
                   "locked": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Staked balance locked for validation, in yoctoNEAR."
                   },
                   "storage_paid_at": {
                     "default": 0,
-                    "description": "TODO(2271): deprecated.",
+                    "description": "Deprecated and unused. TODO(2271): remove.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
                   },
                   "storage_usage": {
+                    "description": "Total storage used by the account, in bytes.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
