@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_early_kickout_version_upgrade() {
     init_test_logger();
 
