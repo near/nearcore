@@ -827,6 +827,7 @@ impl ShardChunkHeaderV1 {
 pub enum PartialEncodedChunk {
     V1(PartialEncodedChunkV1) = 0,
     V2(PartialEncodedChunkV2) = 1,
+    V3(PartialEncodedChunkV3) = 2,
 }
 
 impl PartialEncodedChunk {
@@ -853,6 +854,13 @@ impl PartialEncodedChunk {
             Self::V2(PartialEncodedChunkV2 { header: _, parts, prev_outgoing_receipts }) => {
                 (parts.into_iter(), prev_outgoing_receipts.into_iter())
             }
+            Self::V3(PartialEncodedChunkV3 {
+                header: _,
+                parts,
+                prev_outgoing_receipts,
+                prev_prev_block_hash: _,
+                epoch_id: _,
+            }) => (parts.into_iter(), prev_outgoing_receipts.into_iter()),
         }
     }
 
@@ -860,6 +868,7 @@ impl PartialEncodedChunk {
         match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
             Self::V2(chunk) => chunk.header.clone(),
+            Self::V3(chunk) => chunk.header.clone(),
         }
     }
 
@@ -867,6 +876,7 @@ impl PartialEncodedChunk {
         match self {
             Self::V1(chunk) => &chunk.header.hash,
             Self::V2(chunk) => chunk.header.chunk_hash(),
+            Self::V3(chunk) => chunk.header.chunk_hash(),
         }
     }
 
@@ -874,6 +884,7 @@ impl PartialEncodedChunk {
         match self {
             Self::V1(chunk) => chunk.header.height_included,
             Self::V2(chunk) => chunk.header.height_included(),
+            Self::V3(chunk) => chunk.header.height_included(),
         }
     }
 
@@ -882,6 +893,7 @@ impl PartialEncodedChunk {
         match self {
             Self::V1(chunk) => &chunk.parts,
             Self::V2(chunk) => &chunk.parts,
+            Self::V3(chunk) => &chunk.parts,
         }
     }
 
@@ -890,6 +902,7 @@ impl PartialEncodedChunk {
         match self {
             Self::V1(chunk) => &chunk.prev_outgoing_receipts,
             Self::V2(chunk) => &chunk.prev_outgoing_receipts,
+            Self::V3(chunk) => &chunk.prev_outgoing_receipts,
         }
     }
 
@@ -898,6 +911,7 @@ impl PartialEncodedChunk {
         match &self {
             PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
             PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash(),
+            PartialEncodedChunk::V3(chunk) => chunk.header.prev_block_hash(),
         }
     }
 
@@ -905,12 +919,30 @@ impl PartialEncodedChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.height_created,
             Self::V2(chunk) => chunk.header.height_created(),
+            Self::V3(chunk) => chunk.header.height_created(),
         }
     }
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::V1(chunk) => chunk.header.inner.shard_id,
             Self::V2(chunk) => chunk.header.shard_id(),
+            Self::V3(chunk) => chunk.header.shard_id(),
+        }
+    }
+
+    pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            Self::V1(_) | Self::V2(_) => None,
+            Self::V3(chunk) => Some(&chunk.prev_prev_block_hash),
+        }
+    }
+
+    /// Not trusted: a forged value resolves the wrong producer, so the
+    /// signature check fails.
+    pub fn epoch_id(&self) -> Option<&EpochId> {
+        match self {
+            Self::V1(_) | Self::V2(_) => None,
+            Self::V3(chunk) => Some(&chunk.epoch_id),
         }
     }
 
@@ -928,6 +960,13 @@ impl PartialEncodedChunk {
                 parts: Vec::new(),
                 prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
             }),
+            Self::V3(chunk) => Self::V3(PartialEncodedChunkV3 {
+                header: chunk.header.clone(),
+                parts: Vec::new(),
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
+                prev_prev_block_hash: chunk.prev_prev_block_hash,
+                epoch_id: chunk.epoch_id,
+            }),
         }
     }
 }
@@ -939,6 +978,18 @@ pub struct PartialEncodedChunkV2 {
     pub prev_outgoing_receipts: Vec<ReceiptProof>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+pub struct PartialEncodedChunkV3 {
+    pub header: ShardChunkHeader,
+    pub parts: Vec<PartialEncodedChunkPart>,
+    pub prev_outgoing_receipts: Vec<ReceiptProof>,
+    /// Grandparent anchor (`parent.prev_hash()`); `CryptoHash::default()` when there is no
+    /// real grandparent (parent is genesis).
+    pub prev_prev_block_hash: CryptoHash,
+    /// The chunk's own epoch id. Not trusted.
+    pub epoch_id: EpochId,
+}
+
 impl From<PartialEncodedChunk> for PartialEncodedChunkV2 {
     fn from(pec: PartialEncodedChunk) -> Self {
         match pec {
@@ -948,6 +999,11 @@ impl From<PartialEncodedChunk> for PartialEncodedChunkV2 {
                 prev_outgoing_receipts: chunk.prev_outgoing_receipts,
             },
             PartialEncodedChunk::V2(chunk) => chunk,
+            PartialEncodedChunk::V3(chunk) => PartialEncodedChunkV2 {
+                header: chunk.header,
+                parts: chunk.parts,
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts,
+            },
         }
     }
 }
