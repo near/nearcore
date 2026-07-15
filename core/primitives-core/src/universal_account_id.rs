@@ -321,17 +321,26 @@ mod tests {
 
     #[test]
     fn rejects_non_canonical_padding() {
-        // Build an address whose final data symbol has a non-zero low bit (padding),
-        // with a correct checksum, so only the canonicity check can reject it.
-        let mut data = base32_encode(&[0x00; 32]);
-        data[UAID_DATA_SYMBOLS - 1] = 1;
-        let checksum = create_checksum(&data);
-        let mut s = String::with_capacity(UAID_LEN);
-        s.push_str(UAID_PREFIX);
-        for &v in data.iter().chain(checksum.iter()) {
-            s.push(CROCKFORD[v as usize] as char);
+        // The last data symbol holds 1 real hash bit (its top bit) and 4 padding bits
+        // (its low 4 bits), which must be zero for a canonical encoding. Every non-zero
+        // padding pattern must be rejected.
+        for padding in 1..=0b1111 {
+            let mut data = base32_encode(&[0x00; 32]); // last symbol starts at 0
+            data[UAID_DATA_SYMBOLS - 1] = padding; // inject the padding bits under test
+            let checksum = create_checksum(&data);
+
+            let mut s = String::with_capacity(UAID_LEN);
+            s.push_str(UAID_PREFIX);
+            for &v in data.iter().chain(checksum.iter()) {
+                s.push(CROCKFORD[v as usize] as char);
+            }
+
+            assert_eq!(
+                decode_universal_account_id(&s),
+                Err(ParseUaidError::NonCanonical),
+                "padding pattern {padding:#06b} in the final data symbol was accepted",
+            );
         }
-        assert_eq!(decode_universal_account_id(&s), Err(ParseUaidError::NonCanonical));
     }
 
     #[test]
