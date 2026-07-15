@@ -19,14 +19,14 @@ use near_primitives::receipt::Receipt;
 use near_primitives::reed_solomon::{reed_solomon_encode, reed_solomon_part_length};
 use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, PartialEncodedChunk,
-    PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV3,
-    ShardChunkWithEncoding, TransactionReceipt,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, PartialEncodedChunkV3, ReceiptProof,
+    ShardChunkHeader, ShardChunkHeaderV3, ShardChunkWithEncoding, TransactionReceipt,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -55,6 +55,8 @@ pub struct ChunkTestFixture {
     pub mock_chain_head: Tip,
     pub rs: ReedSolomon,
     pub protocol_version: ProtocolVersion,
+    pub mock_grandparent_hash: CryptoHash,
+    pub mock_epoch_id: EpochId,
 }
 
 impl Default for ChunkTestFixture {
@@ -227,6 +229,8 @@ impl ChunkTestFixture {
             },
             rs,
             protocol_version,
+            mock_grandparent_hash,
+            mock_epoch_id,
         }
     }
 
@@ -237,11 +241,26 @@ impl ChunkTestFixture {
             .filter_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
-        PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: self.mock_chunk_header.clone(),
-            parts,
-            prev_outgoing_receipts: Vec::new(),
-        })
+        self.wrap_partial_encoded_chunk(self.mock_chunk_header.clone(), parts, Vec::new())
+    }
+
+    pub fn wrap_partial_encoded_chunk(
+        &self,
+        header: ShardChunkHeader,
+        parts: Vec<PartialEncodedChunkPart>,
+        prev_outgoing_receipts: Vec<ReceiptProof>,
+    ) -> PartialEncodedChunk {
+        if ProtocolFeature::EarlyKickout.enabled(self.protocol_version) {
+            PartialEncodedChunk::V3(PartialEncodedChunkV3 {
+                header,
+                parts,
+                prev_outgoing_receipts,
+                prev_prev_block_hash: self.mock_grandparent_hash,
+                epoch_id: self.mock_epoch_id,
+            })
+        } else {
+            PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts })
+        }
     }
 
     fn make_malicious_chunk_with_content(

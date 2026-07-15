@@ -1426,14 +1426,18 @@ impl ShardsManagerActor {
     //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
     //    And if the validation fails in this case, we actually can't say if the chunk is actually
     //    invalid. So we must return chain_error instead of return error
-    fn validate_chunk_header_preliminary(&self, header: &ShardChunkHeader) -> Result<(), Error> {
+    fn validate_chunk_header_preliminary(
+        &self,
+        header: &ShardChunkHeader,
+        anchor: Option<(CryptoHash, EpochId)>,
+    ) -> Result<(), Error> {
         let chunk_hash = header.chunk_hash();
         let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
             .entered();
 
-        // For pre-V7 headers the signature is intentionally NOT checked here — it requires the
-        // chunk producer resolved from `prev_block_hash`, which may not be available yet, so it is
-        // verified later in `validate_chunk_header_full`.
+        // For pre-`EarlyKickout` messages the signature is intentionally NOT checked here — it
+        // requires the chunk producer resolved from `prev_block_hash`, which may not be available
+        // yet, so it is verified later in `validate_chunk_header_full`.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1474,12 +1478,9 @@ impl ShardsManagerActor {
             .get_epoch_protocol_version(&epoch_id)
             .map_err(|err| err_mapper(err.into()))?;
         if ProtocolFeature::EarlyKickout.enabled(protocol_version) && !header.is_spice_chunk() {
-            let &prev_prev_block_hash = header
-                .prev_prev_block_hash()
-                .ok_or(Error::InvalidChunkHeader)
-                .map_err(err_mapper)?;
-            let &header_epoch_id =
-                header.epoch_id().ok_or(Error::InvalidChunkHeader).map_err(err_mapper)?;
+            let Some((prev_prev_block_hash, header_epoch_id)) = anchor else {
+                return Err(err_mapper(Error::InvalidChunkHeader));
+            };
             if epoch_id_confirmed {
                 if header_epoch_id != epoch_id {
                     return Err(Error::InvalidChunkHeader);
@@ -1635,12 +1636,20 @@ impl ShardsManagerActor {
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
         me: Option<&AccountId>,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
-        let partial_encoded_chunk =
-            partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
-        let chunk_hash = partial_encoded_chunk.header.chunk_hash();
+        let anchor = {
+            let pec = partial_encoded_chunk.get_inner();
+            match (pec.prev_prev_block_hash(), pec.epoch_id()) {
+                (Some(prev_prev_block_hash), Some(epoch_id)) => {
+                    Some((*prev_prev_block_hash, *epoch_id))
+                }
+                _ => None,
+            }
+        };
+        let chunk = partial_encoded_chunk.get_inner();
+        let chunk_hash = chunk.chunk_hash().clone();
         tracing::debug!(
             target: "chunks",
-            parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            parts = ?chunk.parts().iter().map(|p| p.part_ord).collect::<Vec<_>>(),
             "process partial encoded chunk");
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
@@ -1659,25 +1668,23 @@ impl ShardsManagerActor {
         // 1.b Checking chunk height
         let chunk_requested = self.requested_partial_encoded_chunks.contains_key(&chunk_hash);
         if !chunk_requested {
-            if !self
-                .encoded_chunks
-                .height_within_horizon(partial_encoded_chunk.header.height_created())
-            {
+            let height_created = chunk.height_created();
+            if !self.encoded_chunks.height_within_horizon(height_created) {
                 metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
-                tracing::debug!(target: "chunks", ?chunk_hash, height_created=partial_encoded_chunk.header.height_created(), "Dropping a chunk outside of the horizon");
+                tracing::debug!(target: "chunks", ?chunk_hash, height_created, "Dropping a chunk outside of the horizon");
                 return Ok(ProcessPartialEncodedChunkResult::OutsideHorizon);
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
-            if let Some(hash) = self.encoded_chunks.get_chunk_hash_by_height_and_shard(
-                partial_encoded_chunk.header.height_created(),
-                partial_encoded_chunk.header.shard_id(),
-            ) {
-                if hash != chunk_hash {
+            if let Some(hash) = self
+                .encoded_chunks
+                .get_chunk_hash_by_height_and_shard(height_created, chunk.shard_id())
+            {
+                if *hash != chunk_hash {
                     tracing::warn!(
                         target: "client",
                         ?chunk_hash,
-                        height_created = %partial_encoded_chunk.header.height_created(),
-                        shard_id = %partial_encoded_chunk.header.shard_id(),
+                        height_created,
+                        shard_id = %chunk.shard_id(),
                         ?hash,
                         "rejecting un-requested chunk because mismatched hash"
                     );
@@ -1688,22 +1695,24 @@ impl ShardsManagerActor {
 
         // 1.c checking header validity (preliminary: shard_id + protocol_version only,
         // signature is checked later in validate_chunk_header_full when prev_block is ready)
-        match partial_encoded_chunk
-            .validate_with(|pec| self.validate_chunk_header_preliminary(&pec.header).map(|()| true))
-        {
+        match partial_encoded_chunk.validate_with(|pec| {
+            let header = pec.cloned_header();
+            self.validate_chunk_header_preliminary(&header, anchor).map(|()| true)
+        }) {
             Err(Error::ChainError(chain_error)) => match chain_error {
                 // validate_chunk_header_preliminary returns DBNotFoundError if the previous
-                // block is not ready. In this case, we still return valid result instead of error.
+                // block (or the anchor) is not ready. In this case, we still return a valid
+                // result instead of an error so the chunk is retried later.
                 near_chain::Error::DBNotFoundErr(_) => {
                     tracing::debug!(
                         target: "client",
-                        chunk_hash = ?partial_encoded_chunk.header.chunk_hash(),
-                        height_created = %partial_encoded_chunk.header.height_created(),
-                        shard_id = %partial_encoded_chunk.header.shard_id(),
+                        ?chunk_hash,
+                        height_created = %partial_encoded_chunk.get_inner().height_created(),
+                        shard_id = %partial_encoded_chunk.get_inner().shard_id(),
                         "dropping partial encoded chunk because we don't have enough information to validate it"
                     );
                     return Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(Box::new(
-                        PartialEncodedChunk::V2(partial_encoded_chunk.into_inner()),
+                        partial_encoded_chunk.into_inner(),
                     )));
                 }
                 _ => return Err(chain_error.into()),
@@ -1712,7 +1721,7 @@ impl ShardsManagerActor {
             Ok(_) => (),
         }
         let PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts } =
-            partial_encoded_chunk.into_inner();
+            partial_encoded_chunk.into_inner().into();
 
         // 1.d Checking part_ords' validity
         let num_total_parts = self.epoch_manager.num_total_parts();
@@ -2685,8 +2694,11 @@ mod test {
 
         // part id > num parts
         let mut partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
-        if let PartialEncodedChunk::V2(ref mut chunk) = partial_encoded_chunk {
-            chunk.parts[0].part_ord = fixture.mock_chunk_parts.len() as u64;
+        let bad_part_ord = fixture.mock_chunk_parts.len() as u64;
+        match &mut partial_encoded_chunk {
+            PartialEncodedChunk::V1(chunk) => chunk.parts[0].part_ord = bad_part_ord,
+            PartialEncodedChunk::V2(chunk) => chunk.parts[0].part_ord = bad_part_ord,
+            PartialEncodedChunk::V3(chunk) => chunk.parts[0].part_ord = bad_part_ord,
         }
         let result = shards_manager.process_partial_encoded_chunk(
             MaybeValidated::from(partial_encoded_chunk),
@@ -2906,11 +2918,11 @@ mod test {
                 .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
                 .is_ok()
         );
-        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: fixture.mock_chunk_header.clone(),
-            parts: other_parts,
-            prev_outgoing_receipts: Vec::new(),
-        });
+        let partial_encoded_chunk = fixture.wrap_partial_encoded_chunk(
+            fixture.mock_chunk_header.clone(),
+            other_parts,
+            Vec::new(),
+        );
         // The validator receives a chunk header with the rest of the parts it needed
         let result = shards_manager
             .process_partial_encoded_chunk(
@@ -3131,11 +3143,11 @@ mod test {
         v3.signature = signer.sign_bytes(v3.hash.as_ref());
 
         let chunk_hash = header.chunk_hash().clone();
-        let partial = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+        let partial = fixture.wrap_partial_encoded_chunk(
             header,
-            parts: fixture.mock_chunk_parts.clone(),
-            prev_outgoing_receipts: Vec::new(),
-        });
+            fixture.mock_chunk_parts.clone(),
+            Vec::new(),
+        );
 
         let result = shards_manager.process_partial_encoded_chunk(
             MaybeValidated::from(partial),
@@ -3696,11 +3708,8 @@ mod test {
         let (header, parts) = fixture.make_malicious_encoded_chunk();
         let chunk_hash = header.chunk_hash();
 
-        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: header.clone(),
-            parts,
-            prev_outgoing_receipts: vec![],
-        });
+        let partial_encoded_chunk =
+            fixture.wrap_partial_encoded_chunk(header.clone(), parts, vec![]);
         let result = shards_manager
             .process_partial_encoded_chunk(
                 MaybeValidated::from(partial_encoded_chunk),
@@ -3726,11 +3735,8 @@ mod test {
         let mut shards_manager = make_shards_manager(&fixture);
 
         let (header, parts) = fixture.make_malicious_encoded_chunk();
-        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: header.clone(),
-            parts,
-            prev_outgoing_receipts: vec![],
-        });
+        let partial_encoded_chunk =
+            fixture.wrap_partial_encoded_chunk(header.clone(), parts, vec![]);
         let result = shards_manager
             .process_partial_encoded_chunk(
                 MaybeValidated::from(partial_encoded_chunk),
@@ -3741,11 +3747,7 @@ mod test {
         drain_client_messages(&fixture);
 
         // Send more parts for the same chunk hash. Should be rejected immediately.
-        let late_part = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header,
-            parts: vec![],
-            prev_outgoing_receipts: vec![],
-        });
+        let late_part = fixture.wrap_partial_encoded_chunk(header, vec![], vec![]);
         let result = shards_manager
             .process_partial_encoded_chunk(
                 MaybeValidated::from(late_part),
@@ -3767,11 +3769,7 @@ mod test {
         let (header, parts) = fixture.make_malicious_chunk_bad_proofs();
         let chunk_hash = header.chunk_hash().clone();
 
-        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header,
-            parts,
-            prev_outgoing_receipts: vec![],
-        });
+        let partial_encoded_chunk = fixture.wrap_partial_encoded_chunk(header, parts, vec![]);
         let result = shards_manager
             .process_partial_encoded_chunk(
                 MaybeValidated::from(partial_encoded_chunk),
@@ -3853,11 +3851,11 @@ mod test {
         let mut shards_manager = make_shards_manager(&fixture);
 
         let chunk_hash = bad_header.chunk_hash().clone();
-        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: bad_header,
-            parts: fixture.mock_chunk_parts.clone(),
-            prev_outgoing_receipts: Vec::new(),
-        });
+        let partial_encoded_chunk = fixture.wrap_partial_encoded_chunk(
+            bad_header,
+            fixture.mock_chunk_parts.clone(),
+            Vec::new(),
+        );
 
         // preliminary validation resolves the producer from the anchor
         // and verifies the signature, so the bad signature is caught before the chunk is cached.
