@@ -1433,9 +1433,7 @@ impl ShardsManagerActor {
 
         // For pre-V7 headers the signature is intentionally NOT checked here — it requires the
         // chunk producer resolved from `prev_block_hash`, which may not be available yet, so it is
-        // verified later in `validate_chunk_header_full`. V7 headers carry
-        // the grandparent anchor and epoch id, so their signature IS verified here at arrival — see
-        // the V7 block at the end of this function.
+        // verified later in `validate_chunk_header_full`.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1482,14 +1480,6 @@ impl ShardsManagerActor {
                 .map_err(err_mapper)?;
             let &header_epoch_id =
                 header.epoch_id().ok_or(Error::InvalidChunkHeader).map_err(err_mapper)?;
-            // Bound the header's epoch id before trusting the resolved producer, mirroring the
-            // witness path (`validate_chunk_relevant`). When the chunk's epoch is confirmed
-            // (derived from a processed parent or the request ancestor) it is authoritative, so
-            // the header's epoch id must equal it — a signature-independent check that also covers
-            // the parent-absent-but-epoch-known case `verify_anchored_chunk_key` skips. When the
-            // epoch is only guessed, require it to be among the plausible epochs for this height
-            // around our head (a single epoch when clearly interior, two near a boundary); if it
-            // isn't — or our head lags — drop and retry via `err_mapper` rather than hard-reject.
             if epoch_id_confirmed {
                 if header_epoch_id != epoch_id {
                     return Err(Error::InvalidChunkHeader);
@@ -2577,8 +2567,6 @@ mod test {
         );
     }
 
-    // Exercises classic orphan-chunk buffering (an unprocessed-parent chunk waits for its block).
-    // That only exists pre-`EarlyKickout`; under the feature such a chunk is dropped at arrival.
     #[test]
     fn test_resend_chunk_requests() {
         // Test that resending chunk requests won't request for parts the node already received
@@ -2865,9 +2853,6 @@ mod test {
         );
     }
 
-    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`EarlyKickout`,
-    // so the fixture is pinned one version below it. Under the feature the unprocessed-anchor
-    // header is dropped at arrival.
     #[test]
     // Test that when a validator receives a chunk before the chunk header, it should store
     // the forward and use it when it receives the header
@@ -3544,8 +3529,6 @@ mod test {
         )
     }
 
-    /// A fixture whose epoch runs at the `EarlyKickout` protocol version, so its chunk headers are
-    /// V7 and arrival-time signature verification is active.
     fn early_kickout_fixture() -> ChunkTestFixture {
         ChunkTestFixture::new(
             false,
@@ -3561,8 +3544,6 @@ mod test {
         ProtocolFeature::EarlyKickout.protocol_version() - 1
     }
 
-    // Classic orphan-chunk buffering (see `test_resend_chunk_requests`): only pre-`EarlyKickout`.
-    // Under the feature the unprocessed-anchor header is dropped at arrival.
     #[test]
     fn test_orphan_chunk_request_graceful_degradation() {
         // Orphan request path: prev_block_hash is unknown to the epoch manager (parent
@@ -3839,9 +3820,6 @@ mod test {
         );
     }
 
-    /// A chunk whose producer signature does not verify against the resolved producer is
-    /// rejected at arrival in `validate_chunk_header_preliminary` (the V7 arrival check) and
-    /// never enters the cache. Complements `test_v7_mismatched_height_rejected_at_arrival`.
     #[test]
     fn test_bad_signature_chunk_rejected_at_arrival() {
         let fixture = early_kickout_fixture();
@@ -3882,14 +3860,6 @@ mod test {
         );
     }
 
-    /// Full validation is the backstop for a chunk that reaches the cache *without* passing the
-    /// arrival check — e.g. a chunk with a misstated `epoch_id` accepted at arrival near an epoch
-    /// boundary (via `possible_epochs_of_height_around_tip`) whose epoch turns out unchanged once
-    /// the parent lands. We reproduce that state directly: deposit such a chunk into the cache
-    /// (signed by a non-producer, standing in for the wrong-epoch producer), confirm it is cached,
-    /// then run `try_process_chunk_parts_and_receipts` (full validation, now that the parent is
-    /// available). Full validation re-resolves the real producer from the parent, rejects the
-    /// signature, and evicts the chunk.
     #[test]
     fn test_cached_bad_chunk_evicted_by_full_validation() {
         let fixture = early_kickout_fixture();

@@ -244,8 +244,8 @@ impl PartialEncodedStateWitnessInnerV2 {
 /// Wire-format versioned partial encoded state witness.
 ///
 /// V1 is the legacy format; V2 adds `prev_block_hash` and the grandparent
-/// anchor `prev_prev_block_hash`, enabling the chunk producer to be resolved
-/// from the anchor before the parent block is processed.
+/// anchor `prev_prev_block_hash`, enabling hash-based chunk-producer lookup
+/// against `DBCol::ChunkProducers` before the parent block is processed.
 ///
 /// Rollout policy:
 /// - Before EarlyKickout activation: only V1 is emitted and accepted.

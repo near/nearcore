@@ -853,7 +853,7 @@ impl PartialWitnessActor {
     ) -> bool {
         let version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id).ok();
         if version_mismatch(version, is_v2) {
-            tracing::debug!(target: "client", ?key, message_type, "dropping message: version gate");
+            tracing::debug!(target: "client", ?key, message_type, "dropping message: kickout gate");
             return true;
         }
         false

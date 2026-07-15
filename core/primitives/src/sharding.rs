@@ -627,8 +627,8 @@ impl ShardChunkHeader {
         }
     }
 
-    /// Grandparent anchor carried by V7+ headers for arrival-time producer resolution
-    /// (`EarlyKickout`). `None` for pre-V7 headers, which don't carry it.
+    /// Grandparent anchor carried by V7+ headers for arrival-time producer resolution.
+    /// `None` for pre-V7 headers, which don't carry it.
     #[inline]
     pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
         match self {
@@ -638,8 +638,7 @@ impl ShardChunkHeader {
     }
 
     /// The chunk's own epoch id, carried by V7+ headers alongside the grandparent anchor.
-    /// Disciplined by the producer signature, not trusted (see
-    /// `ShardChunkHeaderInner::epoch_id`). `None` for pre-V7 headers.
+    /// Not trusted. `None` for pre-V7 headers.
     #[inline]
     pub fn epoch_id(&self) -> Option<&EpochId> {
         match self {

@@ -67,14 +67,6 @@ pub fn verify_block_header_signature_with_epoch_manager(
     Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
 }
 
-/// Cross-check the signed (epoch, height) against the signed anchor before trusting the
-/// producer resolved from it. The anchored lookup is keyed by anchor and shard only, not
-/// height, so without this a producer could sign under any height and we would store or
-/// forward under a forged key.
-///
-/// Parent known: must match the parent exactly. Parent absent, real anchor: height must be
-/// anchor + 2. Parent absent, default anchor: only valid at genesis or genesis + 1.
-/// `msg_label` names the caller in the error.
 fn verify_anchored_chunk_key(
     epoch_manager: &dyn EpochManagerAdapter,
     epoch_id: &EpochId,
@@ -139,10 +131,6 @@ fn verify_anchored_chunk_key(
     Ok(())
 }
 
-/// Look up the producer from the anchor and record the lookup-outcome metric (hit, anchor
-/// block missing, or `DBCol::ChunkProducers` row missing). Error returned unchanged;
-/// callers turn the node-behind cases (`MissingBlock`, `ChunkProducerNotInDB`) into a
-/// quiet drop.
 fn resolve_anchored_producer(
     epoch_manager: &dyn EpochManagerAdapter,
     prev_prev_block_hash: &CryptoHash,
@@ -172,10 +160,6 @@ fn resolve_anchored_producer(
     result
 }
 
-/// Resolve a V2 message's producer from the grandparent anchor, then cross-check the signed
-/// chunk key against the anchor. Shared by the witness, contract-accesses and contract-deploys
-/// V2 paths; `msg_label` names the caller in the metric and errors. Resolve runs before the
-/// cross-check so the lookup metric is recorded even when the key check later rejects.
 pub fn resolve_and_verify_anchored_producer(
     epoch_manager: &dyn EpochManagerAdapter,
     key: &ChunkProductionKey,

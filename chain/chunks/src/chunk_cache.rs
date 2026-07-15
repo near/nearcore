@@ -37,7 +37,6 @@ pub const DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON: BlockHeightDelta = 128;
 /// ahead of the head has an unprocessed anchor and is dropped at verification, so the
 /// *effective* front horizon under `EarlyKickout` is 2 even though this constant
 /// stays 5. Keeping it at 5 leaves pre-`EarlyKickout` / stable behavior unchanged.
-/// See docs/design/chunk_ancestor_signature_verification.md.
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 /// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
