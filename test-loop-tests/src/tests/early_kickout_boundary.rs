@@ -28,8 +28,8 @@ fn test_early_kickout_version_upgrade() {
 
     let genesis = TestLoopBuilder::new_genesis_builder()
         .protocol_version(old_protocol)
-        .validators_spec(validators_spec.clone())
-        .shard_layout(shard_layout.clone())
+        .validators_spec(validators_spec)
+        .shard_layout(shard_layout)
         .epoch_length(epoch_length)
         .build();
     let epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
@@ -68,7 +68,7 @@ fn test_early_kickout_version_upgrade() {
             new_epochs.borrow_mut().insert(tip.epoch_id);
         }
         // Stop once we have seen the legacy regime and settled into the new one.
-        old_epochs.borrow().len() >= 1 && new_epochs.borrow().len() >= 2
+        !old_epochs.borrow().is_empty() && new_epochs.borrow().len() >= 2
     };
     env.test_loop.run_until(success_condition, Duration::seconds((12 * epoch_length) as i64));
 

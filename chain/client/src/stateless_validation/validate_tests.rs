@@ -25,6 +25,8 @@ use near_primitives::stateless_validation::partial_witness::{
 #[cfg(feature = "nightly")]
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
+#[cfg(feature = "nightly")]
+use near_primitives::types::BlockHeight;
 use near_primitives::types::{Balance, EpochId, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};

@@ -823,6 +823,7 @@ impl ShardChunkHeaderV1 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum PartialEncodedChunk {
     V1(PartialEncodedChunkV1) = 0,
     V2(PartialEncodedChunkV2) = 1,
