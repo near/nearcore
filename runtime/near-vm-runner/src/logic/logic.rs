@@ -3001,22 +3001,20 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(
+        let public_key_buf = self.get_public_key(
             public_key_ptr,
             public_key_len,
             self.ext.post_quantum_keys_enabled(),
         )?;
+        let public_key_res = public_key_buf.decode();
+        let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
         let amount = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
         );
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
-        let send = gas_key_transfer_send_fee(&self.fees_config, sir, public_key_len as usize);
-        let exec = gas_key_transfer_exec_fee(
-            &self.fees_config,
-            receiver_id.len(),
-            public_key_len as usize,
-        );
+        let send = gas_key_transfer_send_fee(&self.fees_config, sir, pk_len);
+        let exec = gas_key_transfer_exec_fee(&self.fees_config, receiver_id.len(), pk_len);
         let burn_base = send.base;
         let use_base =
             burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
@@ -3034,7 +3032,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             ActionCosts::gas_key_byte,
         )?;
         self.result_state.deduct_balance(amount)?;
-        self.ext.append_action_transfer_to_gas_key(receipt_idx, public_key.decode()?, amount);
+        self.ext.append_action_transfer_to_gas_key(receipt_idx, public_key_res?, amount);
         Ok(())
     }
 
@@ -3069,26 +3067,24 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(
+        let public_key_buf = self.get_public_key(
             public_key_ptr,
             public_key_len,
             self.ext.post_quantum_keys_enabled(),
         )?;
+        let public_key_res = public_key_buf.decode();
+        let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
         let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
         let send_fee = gas_key_add_key_send_fee(&self.fees_config, sir);
-        let exec_fee = gas_key_add_key_exec_fee(
-            &self.fees_config,
-            receiver_id.len(),
-            public_key_len as usize,
-            num_nonces,
-        );
+        let exec_fee =
+            gas_key_add_key_exec_fee(&self.fees_config, receiver_id.len(), pk_len, num_nonces);
         self.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
         self.ext.append_action_add_gas_key_with_full_access(
             receipt_idx,
-            public_key.decode()?,
+            public_key_res?,
             num_nonces,
         );
         Ok(())
@@ -3135,11 +3131,13 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(
+        let public_key_buf = self.get_public_key(
             public_key_ptr,
             public_key_len,
             self.ext.post_quantum_keys_enabled(),
         )?;
+        let public_key_res = public_key_buf.decode();
+        let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
         let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
         let allowance = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
@@ -3157,13 +3155,13 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let exec_fee = gas_key_add_key_exec_fee(
             &self.fees_config,
             receipt_receiver_id.len(),
-            public_key_len as usize,
+            pk_len,
             num_nonces,
         );
         self.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
         self.ext.append_action_add_gas_key_with_function_call(
             receipt_idx,
-            public_key.decode()?,
+            public_key_res?,
             num_nonces,
             allowance,
             receiver_id,

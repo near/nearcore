@@ -3177,7 +3177,7 @@ pub fn promise_batch_action_transfer_to_gas_key(
         }
         .into());
     }
-    let public_key = get_public_key(
+    let public_key_buf = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
@@ -3185,13 +3185,14 @@ pub fn promise_batch_action_transfer_to_gas_key(
         public_key_len,
         ctx.ext.post_quantum_keys_enabled(),
     )?;
+    let public_key_res = public_key_buf.decode();
+    let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
     let amount =
         Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
-    let send = gas_key_transfer_send_fee(&ctx.fees_config, sir, public_key_len as usize);
-    let exec =
-        gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), public_key_len as usize);
+    let send = gas_key_transfer_send_fee(&ctx.fees_config, sir, pk_len);
+    let exec = gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), pk_len);
     let burn_base = send.base;
     let use_base = burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
@@ -3208,7 +3209,7 @@ pub fn promise_batch_action_transfer_to_gas_key(
         ActionCosts::gas_key_byte,
     )?;
     ctx.result_state.deduct_balance(amount)?;
-    ctx.ext.append_action_transfer_to_gas_key(receipt_idx, public_key.decode()?, amount);
+    ctx.ext.append_action_transfer_to_gas_key(receipt_idx, public_key_res?, amount);
     Ok(())
 }
 
@@ -3244,7 +3245,7 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
         }
         .into());
     }
-    let public_key = get_public_key(
+    let public_key_buf = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
@@ -3252,6 +3253,8 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
         public_key_len,
         ctx.ext.post_quantum_keys_enabled(),
     )?;
+    let public_key_res = public_key_buf.decode();
+    let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
     let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     pay_action_base(
@@ -3262,18 +3265,10 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
     )?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
     let send_fee = gas_key_add_key_send_fee(&ctx.fees_config, sir);
-    let exec_fee = gas_key_add_key_exec_fee(
-        &ctx.fees_config,
-        receiver_id.len(),
-        public_key_len as usize,
-        num_nonces,
-    );
+    let exec_fee =
+        gas_key_add_key_exec_fee(&ctx.fees_config, receiver_id.len(), pk_len, num_nonces);
     ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
-    ctx.ext.append_action_add_gas_key_with_full_access(
-        receipt_idx,
-        public_key.decode()?,
-        num_nonces,
-    );
+    ctx.ext.append_action_add_gas_key_with_full_access(receipt_idx, public_key_res?, num_nonces);
     Ok(())
 }
 
@@ -3319,7 +3314,7 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
         }
         .into());
     }
-    let public_key = get_public_key(
+    let public_key_buf = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
@@ -3327,6 +3322,8 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
         public_key_len,
         ctx.ext.post_quantum_keys_enabled(),
     )?;
+    let public_key_res = public_key_buf.decode();
+    let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
     let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
     let allowance = Balance::from_yoctonear(get_u128(
         &mut ctx.result_state.gas_counter,
@@ -3367,16 +3364,12 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
     )?;
     let receipt_receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
     let send_fee = gas_key_add_key_send_fee(&ctx.fees_config, sir);
-    let exec_fee = gas_key_add_key_exec_fee(
-        &ctx.fees_config,
-        receipt_receiver_id.len(),
-        public_key_len as usize,
-        num_nonces,
-    );
+    let exec_fee =
+        gas_key_add_key_exec_fee(&ctx.fees_config, receipt_receiver_id.len(), pk_len, num_nonces);
     ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_function_call(
         receipt_idx,
-        public_key.decode()?,
+        public_key_res?,
         num_nonces,
         allowance,
         receiver_id,
