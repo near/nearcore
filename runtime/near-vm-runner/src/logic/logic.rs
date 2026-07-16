@@ -234,8 +234,24 @@ macro_rules! get_memory_or_register {
 pub(crate) struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
 
 impl PublicKeyBuffer {
-    pub(crate) fn new(data: &[u8]) -> Self {
-        Self(borsh::BorshDeserialize::try_from_slice(data).map_err(|_| ()))
+    pub(crate) fn new(data: &[u8], post_quantum_keys_enabled: bool) -> Self {
+        use near_crypto::PublicKey;
+
+        let deserialize_res: Result<PublicKey, ()> =
+            borsh::BorshDeserialize::try_from_slice(data).map_err(|_| ());
+
+        let final_res = match deserialize_res {
+            Ok(PublicKey::ED25519(_)) | Ok(PublicKey::SECP256K1(_)) | Err(_) => deserialize_res,
+            Ok(PublicKey::MLDSA65(_)) => {
+                if post_quantum_keys_enabled {
+                    deserialize_res
+                } else {
+                    // Post quantum keys not enabled, simulate serialization failure
+                    Err(())
+                }
+            }
+        };
+        Self(final_res)
     }
 
     pub(crate) fn decode(self) -> Result<near_crypto::PublicKey> {
@@ -627,8 +643,16 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    fn get_public_key(&mut self, ptr: u64, len: u64) -> Result<PublicKeyBuffer> {
-        Ok(PublicKeyBuffer::new(&get_memory_or_register!(self, ptr, len)?))
+    fn get_public_key(
+        &mut self,
+        ptr: u64,
+        len: u64,
+        post_quantum_keys_enabled: bool,
+    ) -> Result<PublicKeyBuffer> {
+        Ok(PublicKeyBuffer::new(
+            &get_memory_or_register!(self, ptr, len)?,
+            post_quantum_keys_enabled,
+        ))
     }
 
     // ###############
@@ -3082,7 +3106,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let amount = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
         );
@@ -3146,7 +3174,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
@@ -3208,7 +3240,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
         let allowance = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
@@ -3275,7 +3311,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let amount = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
         );
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
         self.ext.append_action_stake(receipt_idx, amount, public_key.decode()?);
@@ -3313,7 +3353,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
         self.ext.append_action_add_key_with_full_access(receipt_idx, public_key.decode()?, nonce);
@@ -3358,7 +3403,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let allowance = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
         );
@@ -3414,7 +3463,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_key, sir)?;
         self.ext.append_action_delete_key(receipt_idx, public_key.decode()?);
