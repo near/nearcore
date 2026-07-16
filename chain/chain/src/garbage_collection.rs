@@ -502,6 +502,22 @@ impl ChainStore {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
+    /// GC every ChunkProducers row anchored at `block_hash`. Rows are keyed by
+    /// (block_hash, shard_id), so the hash prefixes all shards' rows. Callers delete alongside
+    /// the block's `BlockInfo`, except the `clear_chunk_data_and_headers` sweep, which uses it
+    /// for header-only hashes that never got a body (their `BlockInfo` persists).
+    #[cfg(feature = "nightly")]
+    fn gc_chunk_producers_for_block(&mut self, block_hash: &CryptoHash) {
+        let cp_keys: Vec<Box<[u8]>> = self
+            .store()
+            .iter_prefix(DBCol::ChunkProducers, block_hash.as_bytes())
+            .map(|(key, _)| key)
+            .collect();
+        for cp_key in cp_keys {
+            self.gc_col(DBCol::ChunkProducers, &cp_key);
+        }
+    }
+
     fn clear_header_data_for_heights(&mut self, start: BlockHeight, end: BlockHeight) {
         for height in start..=end {
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
@@ -511,20 +527,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 let key: &[u8] = header_hash.as_bytes();
                 store_update.delete(DBCol::BlockHeader, key);
                 self.merge(store_update);
-
-                // A ChunkProducers row is keyed by (block_hash, shard_id); the header-hash
-                // prefix matches every shard's row for this header.
-                #[cfg(feature = "nightly")]
-                {
-                    let cp_keys: Vec<Box<[u8]>> = self
-                        .store()
-                        .iter_prefix(DBCol::ChunkProducers, header_hash.as_bytes())
-                        .map(|(key, _)| key)
-                        .collect();
-                    for cp_key in cp_keys {
-                        self.gc_col(DBCol::ChunkProducers, &cp_key);
-                    }
-                }
             }
             let key = index_to_bytes(height);
             self.gc_col(DBCol::HeaderHashesByHeight, &key);
@@ -563,25 +565,18 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
-            for _header_hash in header_hashes {
+            for header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
                 //self.gc_col(DBCol::BlockHeader, header_hash.as_bytes());
 
                 // Delete the header's ChunkProducers rows before the height index is dropped,
                 // else header-only hashes (never given a body, so never seen by
-                // clear_block_data) orphan their rows. Prefix matches every shard's row.
+                // clear_block_data) orphan their rows.
                 #[cfg(feature = "nightly")]
-                {
-                    let cp_keys: Vec<Box<[u8]>> = self
-                        .store()
-                        .iter_prefix(DBCol::ChunkProducers, _header_hash.as_bytes())
-                        .map(|(key, _)| key)
-                        .collect();
-                    for cp_key in cp_keys {
-                        self.gc_col(DBCol::ChunkProducers, &cp_key);
-                    }
-                }
+                self.gc_chunk_producers_for_block(&header_hash);
+                #[cfg(not(feature = "nightly"))]
+                let _ = header_hash;
             }
 
             // 4. Delete chunks_tail-related data
@@ -718,13 +713,12 @@ impl<'a> ChainStoreUpdate<'a> {
         for shard_uid in self.get_shard_uids_to_gc(epoch_manager, &block_hash) {
             let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
             self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
-            // ChunkProducers is keyed by ShardId (not ShardUId); insert-only, nightly-only.
-            #[cfg(feature = "nightly")]
-            self.gc_col(
-                DBCol::ChunkProducers,
-                &get_block_shard_id(&block_hash, shard_uid.shard_id()),
-            );
         }
+        // ChunkProducers is keyed by ShardId, not ShardUId; the get_shard_uids_to_gc union can
+        // hold two UIDs sharing one ShardId at a reshard boundary, which would enqueue the same
+        // delete twice. Prefix-scan by block hash deletes each row once, next-layout rows too.
+        #[cfg(feature = "nightly")]
+        self.gc_chunk_producers_for_block(&block_hash);
 
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
@@ -923,9 +917,6 @@ impl<'a> ChainStoreUpdate<'a> {
             self.merge(store_update);
         }
 
-        // ChunkProducers rows for the cleared heights are deleted in
-        // clear_header_data_for_heights below.
-
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
@@ -943,6 +934,11 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
         self.gc_outcomes(&block);
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
+        // ChunkProducers is seeded together with BlockInfo (see record_block_info_impl), so
+        // delete it here alongside BlockInfo. Insert-only, so the stale row must go before
+        // re-processing re-seeds it.
+        #[cfg(feature = "nightly")]
+        self.gc_chunk_producers_for_block(&block_hash);
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
         self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 

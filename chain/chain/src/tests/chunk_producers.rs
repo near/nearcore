@@ -1,5 +1,6 @@
 #[cfg(feature = "nightly")]
 mod tests {
+    use crate::Chain;
     use crate::ChainStoreAccess;
     use crate::garbage_collection::GCMode;
     use crate::test_utils::{setup, setup_with_tx_validity_period};
@@ -456,7 +457,7 @@ mod tests {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
 
-        let row = |chain: &crate::Chain, anchor: &CryptoHash| -> Option<ValidatorStake> {
+        let row = |chain: &Chain, anchor: &CryptoHash| -> Option<ValidatorStake> {
             chain
                 .chain_store()
                 .store()
@@ -477,15 +478,13 @@ mod tests {
             .unwrap();
         store_update.commit().unwrap();
 
-        // The reassigned prev (hashes[4]) is the anchor actually cleared, NOT the input hash.
         assert!(
             row(&chain, &cleared_anchor).is_none(),
             "below-boundary anchor row must be deleted"
         );
         assert!(row(&chain, &input_hash).is_some(), "canonical GC clears prev, not the input hash");
 
-        // A higher anchor's row is retained and still resolves for its child chunk. The chunk
-        // built on hashes[7] anchors on its grandparent hashes[6].
+        // The chunk built on hashes[7] anchors on its grandparent hashes[6].
         assert!(row(&chain, &hashes[6]).is_some(), "above-boundary anchor row must be retained");
         assert!(
             epoch_manager.get_chunk_producer_info_from_prev_block(&hashes[7], shard_id).is_ok(),
@@ -493,10 +492,74 @@ mod tests {
         );
     }
 
-    /// clear_head_block_data (the undo-block path) deletes ChunkProducers rows for the body
-    /// head AND every header-only anchor synced above it. Header sync writes a row per header,
-    /// so a body-head-only delete would orphan the header-only rows; the prefix-scan in
-    /// clear_header_data_for_heights covers the whole head..=header_head range.
+    /// GCMode::Fork deletes a fork block's ChunkProducers rows too. The delete lives in the
+    /// shared clear_block_data body, so Fork and Canonical run the same line today; this is a
+    /// regression guard in case the two ever stop sharing it.
+    #[test]
+    fn test_chunk_producers_garbage_collected_on_fork() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Canonical chain: genesis + blocks 1..=3 (head = height 3).
+        let mut hashes = vec![*chain.genesis().hash()];
+        for _ in 0..3 {
+            let prev_hash = *chain.head_header().unwrap().hash();
+            let prev = chain.get_block(&prev_hash).unwrap();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            hashes.push(*block.hash());
+            chain.process_block_test(block).unwrap();
+        }
+
+        // Fork sibling with a body at height 3 (built on canonical block 2, distinct clock tick
+        // so its hash differs from block 3). It is a leaf, so its refcount is 0 and it can be
+        // cleared as a fork.
+        let parent = chain.get_block(&hashes[2]).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let fork = TestBlockBuilder::from_prev_block(clock.clock(), &parent, signer).build();
+        let fork_hash = *fork.hash();
+        assert_eq!(fork.header().height(), 3, "fork sibling must be at height 3");
+        assert_ne!(fork_hash, hashes[3], "fork must differ from canonical block 3");
+        chain.process_block_test(fork).unwrap();
+
+        // Confirm the fork is off the canonical chain (head did not switch to it), so
+        // GCMode::Fork applies.
+        assert_ne!(
+            chain.head().unwrap().last_block_hash,
+            fork_hash,
+            "fork must not be the canonical head"
+        );
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&hashes[1]).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+        let row = |chain: &Chain| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(&fork_hash, shard_id))
+        };
+        assert!(row(&chain).is_some(), "fork's row should exist before GC");
+
+        // GCMode::Fork clears the given block directly (no prev reassignment).
+        let tries = chain.runtime_adapter.get_tries();
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update
+            .clear_block_data(epoch_manager.as_ref(), fork_hash, GCMode::Fork(tries))
+            .unwrap();
+        store_update.commit().unwrap();
+
+        assert!(row(&chain).is_none(), "fork block's ChunkProducers rows must be deleted");
+    }
+
+    /// clear_head_block_data (the undo-block path) deletes ChunkProducers exactly where it
+    /// deletes BlockInfo: for the body head only. Header-only anchors above the body head keep
+    /// both their BlockInfo and their ChunkProducers rows, so the rows stay valid and survive a
+    /// header re-sync. Mirroring BlockInfo lets re-processing the body head re-seed its row
+    /// cleanly.
     #[test]
     fn test_chunk_producers_garbage_collected_on_undo_block() {
         init_test_logger();
@@ -535,7 +598,7 @@ mod tests {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(blocks[1].hash()).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
-        let row = |chain: &crate::Chain, anchor: &CryptoHash, shard_id| -> Option<ValidatorStake> {
+        let row = |chain: &Chain, anchor: &CryptoHash, shard_id| -> Option<ValidatorStake> {
             chain
                 .chain_store()
                 .store()
@@ -552,11 +615,40 @@ mod tests {
         store_update.clear_head_block_data(epoch_manager.as_ref()).unwrap();
         store_update.commit().unwrap();
 
-        for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
+        // Body head (blocks[3]) row is deleted alongside its BlockInfo.
+        for shard_id in shard_layout.shard_ids() {
+            assert!(
+                row(&chain, blocks[3].hash(), shard_id).is_none(),
+                "undo-block must delete ChunkProducers for the body head {}",
+                blocks[3].hash()
+            );
+        }
+        // Header-only anchors keep their BlockInfo, so their ChunkProducers rows must stay
+        // paired (retained).
+        for anchor in [blocks[4].hash(), blocks[5].hash()] {
             for shard_id in shard_layout.shard_ids() {
                 assert!(
-                    row(&chain, anchor, shard_id).is_none(),
-                    "undo-block must delete ChunkProducers for {anchor}"
+                    row(&chain, anchor, shard_id).is_some(),
+                    "undo-block must retain ChunkProducers for header-only anchor {anchor}"
+                );
+            }
+        }
+
+        // Re-syncing the headers must keep the header-only rows valid (cache-independent: the
+        // rows were never deleted). Do not assert the body head re-seeds in-process:
+        // record_block_info_impl gates on has_block_info, which reads the epoch-manager
+        // blocks_info LRU cache before the store; clear_head_block_data deletes BlockInfo only
+        // from the store, so has_block_info(body_head) may still be true and the seeder is
+        // skipped. tools/undo-block runs a fresh EpochManager (empty cache) and re-seeds
+        // correctly.
+        chain
+            .sync_block_headers(blocks[3..=5].iter().map(|b| b.header().clone().into()).collect())
+            .unwrap();
+        for anchor in [blocks[4].hash(), blocks[5].hash()] {
+            for shard_id in shard_layout.shard_ids() {
+                assert!(
+                    row(&chain, anchor, shard_id).is_some(),
+                    "header re-sync must keep ChunkProducers for header-only anchor {anchor}"
                 );
             }
         }
@@ -614,7 +706,7 @@ mod tests {
         );
         store_update.commit();
 
-        let fork_row = |chain: &crate::Chain| -> Option<ValidatorStake> {
+        let fork_row = |chain: &Chain| -> Option<ValidatorStake> {
             chain
                 .chain_store()
                 .store()

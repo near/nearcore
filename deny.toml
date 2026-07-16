@@ -40,7 +40,6 @@ skip = [
     { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
-    { name = "wasmparser", version = "=0.78.2" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
@@ -72,6 +71,9 @@ skip = [
     # criterion, rocksdb depend on this older version of the crate.
     { name = "rustc-hash", version = "<2" },
 
+    # bindgen (build-dep of librocksdb-sys) pulls an older itertools.
+    { name = "itertools", version = "<0.14" },
+
     # Hashbrowns
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
@@ -96,7 +98,7 @@ skip = [
     # reed-solomon-erasure latest version
     { name = "parking_lot", version = "=0.11.2" },
     { name = "parking_lot_core", version = "=0.8.6" },
-    { name = "spin", version = "=0.9.8" },
+    { name = "spin", version = "=0.9.9" },
 
     # ecosystem migration to 2.0 is in early phases at the time of writing.
     { name = "thiserror", version = "<2.0" },

@@ -1,3 +1,4 @@
+// cspell:words wycheproof
 use super::context::VMContext;
 use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};
@@ -233,8 +234,24 @@ macro_rules! get_memory_or_register {
 pub(crate) struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
 
 impl PublicKeyBuffer {
-    pub(crate) fn new(data: &[u8]) -> Self {
-        Self(borsh::BorshDeserialize::try_from_slice(data).map_err(|_| ()))
+    pub(crate) fn new(data: &[u8], post_quantum_keys_enabled: bool) -> Self {
+        use near_crypto::PublicKey;
+
+        let deserialize_res: Result<PublicKey, ()> =
+            borsh::BorshDeserialize::try_from_slice(data).map_err(|_| ());
+
+        let final_res = match deserialize_res {
+            Ok(PublicKey::ED25519(_)) | Ok(PublicKey::SECP256K1(_)) | Err(_) => deserialize_res,
+            Ok(PublicKey::MLDSA65(_)) => {
+                if post_quantum_keys_enabled {
+                    deserialize_res
+                } else {
+                    // Post quantum keys not enabled, simulate serialization failure
+                    Err(())
+                }
+            }
+        };
+        Self(final_res)
     }
 
     pub(crate) fn decode(self) -> Result<near_crypto::PublicKey> {
@@ -626,8 +643,16 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    fn get_public_key(&mut self, ptr: u64, len: u64) -> Result<PublicKeyBuffer> {
-        Ok(PublicKeyBuffer::new(&get_memory_or_register!(self, ptr, len)?))
+    fn get_public_key(
+        &mut self,
+        ptr: u64,
+        len: u64,
+        post_quantum_keys_enabled: bool,
+    ) -> Result<PublicKeyBuffer> {
+        Ok(PublicKeyBuffer::new(
+            &get_memory_or_register!(self, ptr, len)?,
+            post_quantum_keys_enabled,
+        ))
     }
 
     // ###############
@@ -1629,6 +1654,29 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         )
     }
 
+    /// Hashes the given value using the SHA3 (FIPS-202) digest `D` and returns it into
+    /// `register_id`, charging `base_cost` once plus `byte_cost` per input byte.
+    fn sha3_generic<D: sha3::Digest>(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+        base_cost: ExtCosts,
+        byte_cost: ExtCosts,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base_cost)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
+        self.result_state.gas_counter.pay_per(byte_cost, value.len() as u64)?;
+
+        let value_hash = D::digest(&value);
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            &value_hash[..],
+        )
+    }
+
     /// Hashes the given value using sha3-256 (FIPS-202) and returns it into `register_id`.
     ///
     /// # Errors
@@ -1640,18 +1688,52 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + sha3_256_base + sha3_256_byte * num_bytes`
     pub fn sha3_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        self.result_state.gas_counter.pay_base(sha3_256_base)?;
-        let value = get_memory_or_register!(self, value_ptr, value_len)?;
-        self.result_state.gas_counter.pay_per(sha3_256_byte, value.len() as u64)?;
-
-        use sha3::Digest;
-
-        let value_hash = sha3::Sha3_256::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
+        self.sha3_generic::<sha3::Sha3_256>(
+            value_len,
+            value_ptr,
             register_id,
-            &value_hash[..],
+            sha3_256_base,
+            sha3_256_byte,
+        )
+    }
+
+    /// Hashes the given value using sha3-384 (FIPS-202) and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3_384_base + sha3_384_byte * num_bytes`
+    pub fn sha3_384(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.sha3_generic::<sha3::Sha3_384>(
+            value_len,
+            value_ptr,
+            register_id,
+            sha3_384_base,
+            sha3_384_byte,
+        )
+    }
+
+    /// Hashes the given value using sha3-512 (FIPS-202) and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3_512_base + sha3_512_byte * num_bytes`
+    pub fn sha3_512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.sha3_generic::<sha3::Sha3_512>(
+            value_len,
+            value_ptr,
+            register_id,
+            sha3_512_base,
+            sha3_512_byte,
         )
     }
 
@@ -1884,6 +1966,28 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///   to 64, returns [HostError::P256VerifyInvalidInput].
     /// * If any of the signature, message or public key arguments are out of
     ///   memory bounds, returns [`HostError::MemoryAccessViolation`]
+    ///
+    /// # Malleability
+    ///
+    /// ECDSA signatures are malleable: if `(r, s)` verifies, so does
+    /// `(r, n - s)`, and this function accepts both. It delegates to a
+    /// FIPS 186-5 compliant implementation and does not enforce low-s
+    /// normalization (low-s is a Bitcoin convention from BIP-62, not an ECDSA
+    /// requirement). This is deliberate: WebAuthn does not require low-s and
+    /// real authenticators — notably Apple's Secure Enclave — routinely emit
+    /// high-s signatures, so rejecting them would break passkey flows.
+    /// Ethereum's RIP-7212 `P256VERIFY` precompile makes the same choice, and
+    /// unlike `ecrecover` this function takes no malleability flag.
+    ///
+    /// Malleability only matters to callers that use the signature bytes
+    /// themselves for uniqueness or replay protection. Such callers must either
+    /// enforce low-s themselves — with the raw `r || s` encoding, `s` is bytes
+    /// 32..64 big-endian, so the check is a lexicographic comparison against
+    /// ⌊n/2⌋ =
+    /// `0x7FFFFFFF800000007FFFFFFFFFFFFFFFDE737D56D38BCF4279DCE5617E3192A8` — or
+    /// have clients normalize `s = n - s` before submission. This behavior is
+    /// pinned by `test_p256_verify_wycheproof_high_s_accepted`; changing it
+    /// would be protocol-breaking.
     ///
     /// # Cost
     ///
@@ -3002,7 +3106,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let amount = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
         );
@@ -3066,7 +3174,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
@@ -3128,7 +3240,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
         let allowance = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
@@ -3195,7 +3311,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let amount = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
         );
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
         self.ext.append_action_stake(receipt_idx, amount, public_key.decode()?);
@@ -3233,7 +3353,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
         self.ext.append_action_add_key_with_full_access(receipt_idx, public_key.decode()?, nonce);
@@ -3278,7 +3403,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let allowance = Balance::from_yoctonear(
             self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
         );
@@ -3334,7 +3463,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key = self.get_public_key(
+            public_key_ptr,
+            public_key_len,
+            self.ext.post_quantum_keys_enabled(),
+        )?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_key, sir)?;
         self.ext.append_action_delete_key(receipt_idx, public_key.decode()?);
