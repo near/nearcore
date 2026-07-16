@@ -33,7 +33,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersio
 use std::collections::HashSet;
 
 /// Lowest protocol version with `EarlyKickout` enabled — forces the V2 wire variant and turns
-/// on the `DBCol::ChunkProducers` producer source that the anchored-db-row tests below rely on.
+/// variant regardless of the compile-time `nightly` feature.
 fn early_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version()
 }

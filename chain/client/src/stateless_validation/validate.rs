@@ -20,13 +20,6 @@ use strum::IntoStaticStr;
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
 /// reject partial witnesses with height more than this value above the height of our current HEAD.
-///
-/// Note: for V2 witness parts (which carry the grandparent anchor), arrival-time producer
-/// resolution requires the anchor to be processed, so a witness more than
-/// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET (2) heights ahead of the head has an unprocessed
-/// anchor and is dropped as "node behind" — making the *effective* horizon 2 for those,
-/// even though this constant stays 5. Keeping it at 5 leaves V1 / pre-feature behavior
-/// unchanged.
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 /// This enum represents whether a particular chunk is relevant in the context of validating

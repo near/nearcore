@@ -30,13 +30,6 @@ use time::ext::InstantExt;
 pub const DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON: BlockHeightDelta = 128;
 
 /// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
-///
-/// Note: under the `EarlyKickout` feature, arrival-time chunk header verification
-/// resolves the chunk producer from the chunk's grandparent anchor, which must already
-/// be processed. A chunk more than `CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET` (2) heights
-/// ahead of the head has an unprocessed anchor and is dropped at verification, so the
-/// *effective* front horizon under `EarlyKickout` is 2 even though this constant
-/// stays 5. Keeping it at 5 leaves pre-`EarlyKickout` / stable behavior unchanged.
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 /// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
