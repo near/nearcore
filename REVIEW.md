@@ -1,3 +1,5 @@
+<!-- cspell:words miscomputed TOCTOU zeroization ungate prio -->
+
 # Review instructions
 
 These instructions take priority over the default review guidance. nearcore is the reference implementation of a live L1 blockchain: the bar for a blocking finding is "this could corrupt state, break consensus, or fail a rolling upgrade," not "this could be written more nicely." Optimize for signal — a review that surfaces one real correctness risk beats one that lists ten nits.
