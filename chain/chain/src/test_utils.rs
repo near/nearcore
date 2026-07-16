@@ -21,9 +21,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, ShardId,
-};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -304,8 +302,6 @@ pub fn get_fake_next_block_chunk_headers(
         } else {
             ShardChunkHeader::V3(ShardChunkHeaderV3::new(
                 prev_block_hash,
-                CryptoHash::default(),
-                EpochId::default(),
                 Default::default(),
                 Default::default(),
                 Default::default(),

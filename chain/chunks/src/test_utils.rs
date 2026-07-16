@@ -164,8 +164,6 @@ impl ChunkTestFixture {
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkle_paths) = ShardChunkWithEncoding::new(
             mock_parent_hash,
-            mock_grandparent_hash,
-            mock_epoch_id,
             Default::default(),
             Default::default(),
             mock_height,
@@ -287,8 +285,6 @@ impl ChunkTestFixture {
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             *self.mock_chunk_header.prev_block_hash(),
-            CryptoHash::default(),
-            EpochId::default(),
             Default::default(),
             Default::default(),
             encoded_merkle_root,

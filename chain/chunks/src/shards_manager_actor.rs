@@ -3113,11 +3113,11 @@ mod test {
     }
 
     #[test]
-    fn test_v7_mismatched_height_rejected_at_arrival() {
+    fn test_mismatched_height_rejected_at_arrival() {
         let fixture = early_kickout_fixture();
         let mut shards_manager = make_shards_manager(&fixture);
 
-        let epoch_id = *fixture.mock_chunk_header.epoch_id().expect("fixture builds a V7 header");
+        let epoch_id = fixture.mock_epoch_id;
         let shard_id = fixture.mock_chunk_header.shard_id();
         let bad_height = fixture.mock_chunk_header.height_created() + 3;
         let producer = fixture
@@ -3135,8 +3135,8 @@ mod test {
         let ShardChunkHeader::V3(ref mut v3) = header else {
             panic!("fixture must produce a V3 chunk header");
         };
-        let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
-            panic!("early_kickout_fixture must produce a V7 inner");
+        let ShardChunkHeaderInner::V5(ref mut inner) = v3.inner else {
+            panic!("fixture must produce a V5 inner");
         };
         inner.height_created = bad_height;
         v3.init(); // recompute the chunk_hash for the modified inner
@@ -3881,11 +3881,6 @@ mod test {
         let ShardChunkHeader::V3(ref mut v3) = header else {
             panic!("fixture must produce a V3 chunk header");
         };
-        let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
-            panic!("early_kickout_fixture must produce a V7 inner");
-        };
-        inner.epoch_id = EpochId(CryptoHash::hash_bytes(b"misstated_epoch"));
-        v3.init(); // recompute the chunk_hash over the misstated inner
         let wrong_producer = create_test_signer("not_the_real_producer");
         v3.signature = wrong_producer.sign_bytes(v3.hash.as_ref());
         let chunk_hash = header.chunk_hash().clone();

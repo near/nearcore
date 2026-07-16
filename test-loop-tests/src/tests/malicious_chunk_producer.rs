@@ -15,13 +15,12 @@ use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, EpochId};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 
 #[test]
@@ -178,8 +177,6 @@ fn test_producer_sending_large_encoded_length_chunks() {
                 let new_encoded_length = u64::MAX;
                 let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
                     *header.prev_block_hash(),
-                    CryptoHash::default(),
-                    EpochId::default(),
                     header.prev_state_root(),
                     *header.prev_outcome_root(),
                     *header.encoded_merkle_root(),

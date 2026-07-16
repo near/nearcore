@@ -73,12 +73,15 @@ fn test_early_kickout_version_upgrade() {
     };
     env.test_loop.run_until(success_condition, Duration::seconds((12 * epoch_length) as i64));
 
-    // Walk every steady-state block and check header version vs. epoch protocol version, and
-    // that no valid chunk was dropped.
+    // Walk every steady-state block and check that no valid chunk was dropped across the
+    // EarlyKickout boundary. The anchor rides the `PartialEncodedChunkV3` wire message, not the
+    // chunk header, so the header version does not change across the boundary and there is
+    // nothing header-side to assert here; the observable signal of a verification gap is a
+    // missing chunk (a valid V3 chunk dropped at arrival on the non-producing nodes).
     let client = &env.test_loop.data.get(&client_handle).client;
     let head_height = client.chain.head().unwrap().height;
-    let mut saw_pre_v7 = false;
-    let mut saw_v7 = false;
+    let mut saw_old = false;
+    let mut saw_new = false;
     for height in (start_height + 1)..=head_height {
         let Ok(block) = client.chain.get_block_by_height(height) else {
             continue;
@@ -96,22 +99,12 @@ fn test_early_kickout_version_upgrade() {
              a verification gap would drop valid chunks"
         );
 
-        for chunk_header in block.chunks().iter_new() {
-            // `prev_prev_block_hash()`/`epoch_id()` are `Some` only on a V7 inner header.
-            let is_v7 = chunk_header.prev_prev_block_hash().is_some();
-            if protocol_version >= new_protocol {
-                assert!(is_v7, "post-EarlyKickout chunk at height {height} must be V7");
-                assert!(
-                    chunk_header.epoch_id().is_some(),
-                    "V7 chunk at height {height} must carry an epoch id"
-                );
-                saw_v7 = true;
-            } else {
-                assert!(!is_v7, "pre-EarlyKickout chunk at height {height} must be pre-V7");
-                saw_pre_v7 = true;
-            }
+        if protocol_version >= new_protocol {
+            saw_new = true;
+        } else {
+            saw_old = true;
         }
     }
-    assert!(saw_pre_v7, "expected to observe pre-EarlyKickout (pre-V7) chunks");
-    assert!(saw_v7, "expected to observe post-EarlyKickout (V7) chunks");
+    assert!(saw_old, "expected to observe pre-EarlyKickout blocks");
+    assert!(saw_new, "expected to observe post-EarlyKickout blocks");
 }

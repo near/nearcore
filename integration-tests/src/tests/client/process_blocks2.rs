@@ -11,14 +11,13 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{Balance, EpochId, Gas, ShardId};
+use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
@@ -150,8 +149,6 @@ fn test_bad_shard_id() {
     } else {
         ShardChunkHeaderV3::new(
             *chunk.prev_block_hash(),
-            CryptoHash::default(),
-            EpochId::default(),
             chunk.prev_state_root(),
             *chunk.prev_outcome_root(),
             *chunk.encoded_merkle_root(),
@@ -296,8 +293,6 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
 
     let mut modified_chunk_header = ShardChunkHeaderV3::new(
         *chunk.prev_block_hash(),
-        CryptoHash::default(),
-        EpochId::default(),
         chunk.prev_state_root(),
         *chunk.prev_outcome_root(),
         *chunk.encoded_merkle_root(),

@@ -4,12 +4,11 @@ use near_chain::Provenance;
 use near_chain::stateless_validation::chunk_validation::{self, MainStateTransitionCache};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::trie_split::TrieSplit;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::sync::Arc;
@@ -99,8 +98,6 @@ fn chunk_header_proposed_split_validation() {
     let signer = create_test_signer("test0");
     let tampered_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         *original_header.prev_block_hash(),
-        CryptoHash::default(),
-        EpochId::default(),
         original_header.prev_state_root(),
         *original_header.prev_outcome_root(),
         *original_header.encoded_merkle_root(),

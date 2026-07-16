@@ -384,14 +384,8 @@ impl ChunkProducer {
                 &mut self.reed_solomon_encoder,
             )
         } else {
-            // We have already processed the parent (we built this chunk on it), so the
-            // lookup will not miss; `unwrap_or_default()` covers the genesis/no-grandparent case.
-            let prev_prev_block_hash =
-                self.epoch_manager.grandparent_anchor(&prev_block_hash)?.unwrap_or_default();
             ShardChunkWithEncoding::new(
                 prev_block_hash,
-                prev_prev_block_hash,
-                *epoch_id,
                 *chunk_extra.state_root(),
                 *chunk_extra.outcome_root(),
                 next_height,

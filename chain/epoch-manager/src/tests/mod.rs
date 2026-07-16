@@ -3197,8 +3197,6 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
     } else {
         ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             h[0],
-            CryptoHash::default(),
-            EpochId::default(),
             h[2],
             h[2],
             h[2],

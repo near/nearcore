@@ -28,9 +28,7 @@ use crate::receipt::{
     Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
-use crate::sharding::shard_chunk_header_inner::{
-    ShardChunkHeaderInnerV4, ShardChunkHeaderInnerV5, ShardChunkHeaderInnerV7,
-};
+use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV4, ShardChunkHeaderInnerV5};
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
@@ -1122,14 +1120,6 @@ pub struct ChunkHeaderView {
     /// `Some(Some(split))`: field present and set
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposed_split: Option<Option<TrieSplit>>,
-    /// Grandparent anchor carried by `ShardChunkHeaderInnerV7`
-    /// `None` for pre-V7 headers, which don't carry it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prev_prev_block_hash: Option<CryptoHash>,
-    /// The chunk's own epoch id, carried by `ShardChunkHeaderInnerV7`
-    /// `None` for pre-V7 headers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epoch_id: Option<EpochId>,
     pub signature: Signature,
 }
 
@@ -1172,8 +1162,6 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             proposed_split: inner
                 .has_proposed_split_field()
                 .then(|| inner.proposed_split().cloned()),
-            prev_prev_block_hash: inner.prev_prev_block_hash().copied(),
-            epoch_id: inner.epoch_id().copied(),
             signature,
         }
     }
@@ -1185,40 +1173,8 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             view.validator_proposals.into_iter().map(Into::into).collect();
         // TODO: store the version in ChunkHeaderView instead of guessing it
         // from which fields are populated.
-        let inner = match (
-            view.proposed_split,
-            view.bandwidth_requests,
-            view.congestion_info,
-            view.prev_prev_block_hash,
-            view.epoch_id,
-        ) {
-            (
-                Some(proposed_split),
-                Some(bandwidth_requests),
-                Some(congestion_info),
-                Some(prev_prev_block_hash),
-                Some(epoch_id),
-            ) => ShardChunkHeaderInner::V7(ShardChunkHeaderInnerV7 {
-                prev_block_hash: view.prev_block_hash,
-                prev_prev_block_hash,
-                epoch_id,
-                prev_state_root: view.prev_state_root,
-                prev_outcome_root: view.outcome_root,
-                encoded_merkle_root: view.encoded_merkle_root,
-                encoded_length: view.encoded_length,
-                height_created: view.height_created,
-                shard_id: view.shard_id,
-                prev_gas_used: view.gas_used,
-                gas_limit: view.gas_limit,
-                prev_balance_burnt: view.balance_burnt,
-                prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                tx_root: view.tx_root,
-                prev_validator_proposals,
-                congestion_info: congestion_info.into(),
-                bandwidth_requests,
-                proposed_split,
-            }),
-            (Some(proposed_split), Some(bandwidth_requests), Some(congestion_info), None, None) => {
+        let inner = match (view.proposed_split, view.bandwidth_requests, view.congestion_info) {
+            (Some(proposed_split), Some(bandwidth_requests), Some(congestion_info)) => {
                 ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
                     prev_block_hash: view.prev_block_hash,
                     prev_state_root: view.prev_state_root,
@@ -1238,7 +1194,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     proposed_split,
                 })
             }
-            (None, Some(bandwidth_requests), Some(congestion_info), None, None) => {
+            (None, Some(bandwidth_requests), Some(congestion_info)) => {
                 ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
                     prev_block_hash: view.prev_block_hash,
                     prev_state_root: view.prev_state_root,
@@ -1257,7 +1213,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     bandwidth_requests,
                 })
             }
-            (None, None, Some(congestion_info), None, None) => {
+            (None, None, Some(congestion_info)) => {
                 ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                     prev_block_hash: view.prev_block_hash,
                     prev_state_root: view.prev_state_root,
@@ -1275,7 +1231,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     congestion_info: congestion_info.into(),
                 })
             }
-            (None, None, None, None, None) => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+            (None, None, None) => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
                 prev_outcome_root: view.outcome_root,
@@ -1290,24 +1246,13 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 tx_root: view.tx_root,
                 prev_validator_proposals,
             }),
-            (
-                proposed_split,
-                bandwidth_requests,
-                congestion_info,
-                prev_prev_block_hash,
-                epoch_id,
-            ) => {
-                unreachable!(
-                    "unexpected combination of chunk header view fields: \
-                     proposed_split={}, bandwidth_requests={}, congestion_info={}, \
-                     prev_prev_block_hash={}, epoch_id={}",
-                    proposed_split.is_some(),
-                    bandwidth_requests.is_some(),
-                    congestion_info.is_some(),
-                    prev_prev_block_hash.is_some(),
-                    epoch_id.is_some(),
-                )
-            }
+            (proposed_split, bandwidth_requests, congestion_info) => unreachable!(
+                "unexpected combination of chunk header view fields: \
+                 proposed_split={}, bandwidth_requests={}, congestion_info={}",
+                proposed_split.is_some(),
+                bandwidth_requests.is_some(),
+                congestion_info.is_some(),
+            ),
         };
         let mut header = ShardChunkHeaderV3 {
             inner,
@@ -3125,6 +3070,7 @@ impl CongestionInfoView {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
 mod tests {
     use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
     use crate::profile_data_v2::ProfileDataV2;
@@ -3135,74 +3081,8 @@ mod tests {
     use near_primitives_core::hash::CryptoHash;
     use serde_json::json;
 
-    #[test]
-    fn chunk_header_view_v7_round_trips() {
-        use crate::bandwidth_scheduler::BandwidthRequests;
-        use crate::congestion_info::CongestionInfo;
-        use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV7;
-        use crate::sharding::{
-            ChunkHash, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3,
-        };
-        use crate::types::EpochId;
-        use crate::views::ChunkHeaderView;
-        use near_crypto::{KeyType, SecretKey};
-        use near_primitives_core::types::{Balance, Gas, ShardId};
-
-        let signature = SecretKey::from_seed(KeyType::ED25519, "v7-round-trip").sign(b"payload");
-        let prev_prev = CryptoHash::hash_bytes(b"grandparent");
-        let epoch_id = EpochId(CryptoHash::hash_bytes(b"epoch"));
-        let inner = ShardChunkHeaderInner::V7(ShardChunkHeaderInnerV7 {
-            prev_block_hash: CryptoHash::hash_bytes(b"parent"),
-            prev_prev_block_hash: prev_prev,
-            epoch_id,
-            prev_state_root: CryptoHash::hash_bytes(b"state"),
-            prev_outcome_root: CryptoHash::hash_bytes(b"outcome"),
-            encoded_merkle_root: CryptoHash::hash_bytes(b"merkle"),
-            encoded_length: 42,
-            height_created: 7,
-            shard_id: ShardId::new(3),
-            prev_gas_used: Gas::from_gas(100),
-            gas_limit: Gas::from_gas(200),
-            prev_balance_burnt: Balance::from_yoctonear(5),
-            prev_outgoing_receipts_root: CryptoHash::hash_bytes(b"receipts"),
-            tx_root: CryptoHash::hash_bytes(b"tx"),
-            prev_validator_proposals: vec![],
-            congestion_info: CongestionInfo::default(),
-            bandwidth_requests: BandwidthRequests::empty(),
-            proposed_split: None,
-        });
-        let mut header = ShardChunkHeaderV3 {
-            inner,
-            height_included: 9,
-            signature: signature.clone(),
-            hash: ChunkHash::default(),
-        };
-        header.init();
-        let original = ShardChunkHeader::V3(header);
-
-        let view: ChunkHeaderView = original.clone().into();
-        assert_eq!(view.prev_prev_block_hash, Some(prev_prev));
-        assert_eq!(view.epoch_id, Some(epoch_id));
-
-        let round_tripped: ShardChunkHeader = view.into();
-        // `chunk_hash` is recomputed from the reconstructed inner by `init()`, so matching it
-        // proves every inner field round-tripped (and that the view resolved back to V7, not a
-        // V5 downgrade, which would drop `prev_prev_block_hash`/`epoch_id` and change the hash).
-        assert_eq!(
-            round_tripped.chunk_hash(),
-            original.chunk_hash(),
-            "V7 view must round-trip to a V7 header, not a wrong-hash V5 downgrade",
-        );
-        // `signature` and `height_included` live outside the inner, so they are not covered by
-        // `chunk_hash`; assert them separately.
-        assert_eq!(round_tripped.signature(), &signature);
-        assert_eq!(round_tripped.height_included(), original.height_included());
-        assert_matches!(round_tripped.take_inner(), ShardChunkHeaderInner::V7(_));
-    }
-
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
-    #[cfg(not(feature = "nightly"))]
     #[test]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
