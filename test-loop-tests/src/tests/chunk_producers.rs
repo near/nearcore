@@ -209,9 +209,9 @@ mod cold_storage_tests {
         let reshard_done_height = env.archival_node().head().height;
         env.archival_runner().run_until_head_height(reshard_done_height + 4);
 
-        // Capture the anchors + their hot ChunkProducers rows now, BEFORE hot GC removes them
-        // (this PR GCs the ChunkProducers rows together with the anchor's block data, so they
-        // must be read before the GC tail reaches the anchor).
+        // Capture the anchors + their hot ChunkProducers rows now, before hot GC removes them:
+        // the rows are GC'd together with the anchor's block data, so read them before the GC
+        // tail reaches the anchor.
         let (mid_height, expected) = {
             let node = env.archival_node();
             let client = node.client();
@@ -362,9 +362,8 @@ mod hot_gc_tests {
             key
         };
 
-        // Advance far enough that the GC tail passes the old anchor. Reaching this height at all
-        // proves no in-window row was wrongly evicted (an eviction would stall via
-        // ChunkProducerNotInDB).
+        // Advance until the GC tail passes the old anchor. Reaching this height proves no
+        // in-window row was wrongly evicted (an eviction would stall via ChunkProducerNotInDB).
         let target_height = (GC_NUM_EPOCHS_TO_KEEP + 4) * EPOCH_LENGTH;
         env.validator_runner().run_until_head_height(target_height);
 

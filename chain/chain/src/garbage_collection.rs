@@ -502,12 +502,10 @@ impl ChainStore {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
-    /// GC every ChunkProducers row anchored at this block/header hash. Rows are keyed by
-    /// (block_hash, shard_id), so the hash prefixes all shards' rows.
-    ///
-    /// Callers: `clear_block_data` (canonical/fork block) and `clear_head_block_data` (undo
-    /// head) delete alongside the block's own `BlockInfo`; `clear_chunk_data_and_headers` uses
-    /// it for header-only hashes that never got a body (their `BlockInfo` persists).
+    /// GC every ChunkProducers row anchored at `block_hash`. Rows are keyed by
+    /// (block_hash, shard_id), so the hash prefixes all shards' rows. Callers delete alongside
+    /// the block's `BlockInfo`, except the `clear_chunk_data_and_headers` sweep, which uses it
+    /// for header-only hashes that never got a body (their `BlockInfo` persists).
     #[cfg(feature = "nightly")]
     fn gc_chunk_producers_for_block(&mut self, block_hash: &CryptoHash) {
         let cp_keys: Vec<Box<[u8]>> = self
@@ -936,12 +934,9 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
         self.gc_outcomes(&block);
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
-        // Delete this head's ChunkProducers row because its BlockInfo is deleted here; the two
-        // are seeded together in record_block_info_impl. The column is insert-only, so the
-        // stale row must go before re-processing re-seeds it. This "together" rule holds
-        // per-live-block, not universally: the below-tail header sweep in
-        // clear_chunk_data_and_headers deletes header-only rows whose BlockInfo legitimately
-        // persists (those heights are never re-synced).
+        // ChunkProducers is seeded together with BlockInfo (see record_block_info_impl), so
+        // delete it here alongside BlockInfo. Insert-only, so the stale row must go before
+        // re-processing re-seeds it.
         #[cfg(feature = "nightly")]
         self.gc_chunk_producers_for_block(&block_hash);
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());

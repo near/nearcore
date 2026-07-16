@@ -478,15 +478,13 @@ mod tests {
             .unwrap();
         store_update.commit().unwrap();
 
-        // The reassigned prev (hashes[4]) is the anchor actually cleared, NOT the input hash.
         assert!(
             row(&chain, &cleared_anchor).is_none(),
             "below-boundary anchor row must be deleted"
         );
         assert!(row(&chain, &input_hash).is_some(), "canonical GC clears prev, not the input hash");
 
-        // A higher anchor's row is retained and still resolves for its child chunk. The chunk
-        // built on hashes[7] anchors on its grandparent hashes[6].
+        // The chunk built on hashes[7] anchors on its grandparent hashes[6].
         assert!(row(&chain, &hashes[6]).is_some(), "above-boundary anchor row must be retained");
         assert!(
             epoch_manager.get_chunk_producer_info_from_prev_block(&hashes[7], shard_id).is_ok(),
@@ -527,9 +525,8 @@ mod tests {
         assert_ne!(fork_hash, hashes[3], "fork must differ from canonical block 3");
         chain.process_block_test(fork).unwrap();
 
-        // Keep this a real fork-GC case: the block is off the canonical chain (head did not
-        // switch to it) and is a leaf (built last, nothing on top), which is what
-        // clear_forks_data clears.
+        // Confirm the fork is off the canonical chain (head did not switch to it), so
+        // GCMode::Fork applies.
         assert_ne!(
             chain.head().unwrap().last_block_hash,
             fork_hash,
@@ -561,8 +558,8 @@ mod tests {
     /// clear_head_block_data (the undo-block path) deletes ChunkProducers exactly where it
     /// deletes BlockInfo: for the body head only. Header-only anchors above the body head keep
     /// both their BlockInfo and their ChunkProducers rows, so the rows stay valid and survive a
-    /// header re-sync (the reviewer's concern). Mirroring BlockInfo lets re-processing the body
-    /// head re-seed its row cleanly.
+    /// header re-sync. Mirroring BlockInfo lets re-processing the body head re-seed its row
+    /// cleanly.
     #[test]
     fn test_chunk_producers_garbage_collected_on_undo_block() {
         init_test_logger();
@@ -626,8 +623,8 @@ mod tests {
                 blocks[3].hash()
             );
         }
-        // Header-only anchors (blocks[4], blocks[5]) keep their BlockInfo, so their rows must
-        // be retained — deleting them would orphan rows whose BlockInfo is still present.
+        // Header-only anchors keep their BlockInfo, so their ChunkProducers rows must stay
+        // paired (retained).
         for anchor in [blocks[4].hash(), blocks[5].hash()] {
             for shard_id in shard_layout.shard_ids() {
                 assert!(
@@ -637,13 +634,13 @@ mod tests {
             }
         }
 
-        // Reviewer's re-sync: re-syncing the headers must keep the header-only rows valid. This
-        // is cache-independent (the rows were never deleted). We deliberately do not assert the
-        // body head re-seeds in-process: record_block_info_impl gates on has_block_info, which
-        // reads the epoch-manager blocks_info LRU cache before the store; clear_head_block_data
-        // only deletes BlockInfo from the store, not the cache, so has_block_info(body_head) may
-        // still be true here and the seeder is skipped. The real tools/undo-block runs with a
-        // fresh EpochManager (empty cache) and re-seeds correctly there.
+        // Re-syncing the headers must keep the header-only rows valid (cache-independent: the
+        // rows were never deleted). Do not assert the body head re-seeds in-process:
+        // record_block_info_impl gates on has_block_info, which reads the epoch-manager
+        // blocks_info LRU cache before the store; clear_head_block_data deletes BlockInfo only
+        // from the store, so has_block_info(body_head) may still be true and the seeder is
+        // skipped. tools/undo-block runs a fresh EpochManager (empty cache) and re-seeds
+        // correctly.
         chain
             .sync_block_headers(blocks[3..=5].iter().map(|b| b.header().clone().into()).collect())
             .unwrap();

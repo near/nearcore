@@ -759,9 +759,9 @@ impl DBCol {
             | DBCol::StateSyncHashes
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult => GcPolicy::Other,
-            // GC'd with the anchor block's data in clear_block_data: a row for anchor A is
-            // dropped once A falls below the GC boundary, far below the near-head consensus
-            // read horizon (a chunk's grandparent anchor is head-2), so no live read is lost.
+            // GC'd with the anchor block/header it belongs to: a row for anchor A is dropped
+            // once A falls below the GC boundary, far below the near-head consensus read
+            // horizon (a chunk's grandparent anchor is head-2), so no live read is lost.
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => GcPolicy::Delete,
         }
