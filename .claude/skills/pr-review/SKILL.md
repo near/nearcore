@@ -75,10 +75,12 @@ REVIEW STYLE:
 HOW TO POST:
 
 Post findings as inline review comments, one `gh api` call per finding. Do NOT
-use `gh pr review` — the workflow token cannot approve or request changes. The
-values `REPO` (`owner/name`), `PR NUMBER`, and `HEAD SHA` are given in
-`<pr_context>` (locally, resolve the SHA with
-`gh pr view <number> --json headRefOid --jq .headRefOid`).
+use `gh pr review`: it can only post a top-level body plus an approve / request-
+changes / comment verdict — it cannot attach line-level comments — and the bot
+should not be approving or requesting changes anyway. The values `REPO`
+(`owner/name`), `PR NUMBER`, and `HEAD SHA` are given in `<pr_context>`
+(locally, resolve the SHA with `gh pr view <number> --json headRefOid --jq
+.headRefOid`).
 
 For each finding, anchor it to the changed line:
 
