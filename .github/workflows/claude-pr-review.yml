@@ -64,6 +64,14 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
         run: bash .github/scripts/fetch-pr-comments.sh
 
+      - name: Get PR head SHA
+        id: pr-head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          echo "sha=$(gh api /repos/${{ github.repository }}/pulls/$PR_NUMBER --jq .head.sha)" >> "$GITHUB_OUTPUT"
+
       - name: Build review prompt
         id: build-prompt
         run: |
@@ -73,12 +81,19 @@ jobs:
             echo '<pr_context>'
             echo "REPO: ${{ github.repository }}"
             echo "PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}"
+            echo "HEAD SHA: ${{ steps.pr-head.outputs.sha }}"
             echo 'LANGUAGE: Rust'
             echo '</pr_context>'
             echo ''
             echo '<existing_discussions>'
             cat /tmp/pr_comments_context.txt
             echo '</existing_discussions>'
+            echo ''
+            echo '<review_overrides priority="highest">'
+            echo 'Repository-specific overrides. These take precedence over the rubric'
+            echo 'in <review_instructions> wherever they conflict.'
+            cat REVIEW.md
+            echo '</review_overrides>'
             echo ''
             echo '<review_instructions>'
             cat .claude/skills/pr-review/SKILL.md
@@ -101,4 +116,4 @@ jobs:
           claude_args: >-
             --model opus
             --effort xhigh
-            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
+            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh api:*)"

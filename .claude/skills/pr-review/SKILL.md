@@ -15,6 +15,7 @@ You are reviewing a Rust pull request. Produce a thorough, actionable review usi
 - If a PR number was given, use it; otherwise resolve the PR for the current branch with `gh pr view`.
 - Get the full diff with `gh pr diff <number>` and PR metadata with `gh pr view <number>`.
 - Review existing PR comments and discussions before giving feedback (`gh pr view <number> --comments`). When running in CI, existing discussions are provided inline alongside this rubric — read them there instead.
+- Read `REVIEW.md` at the repo root if present; its rules take precedence over this rubric. In CI it is provided inline as the `<review_overrides>` block.
 
 **IMPORTANT - CONTEXT AWARENESS:**
 - Do not duplicate points already raised in existing discussions
@@ -65,59 +66,51 @@ PRIORITY CHECKS (report only if found):
    - Enforce all standards defined in [engineering-standards.md] (paraphrasing of code, repetitions, explaining common terminology, leaking context, explanation that should be a stand-alone issue)
 
 REVIEW STYLE:
-- List only issues that should block the merge
-- Use bullet points, be direct and specific
-- Provide code suggestions for fixes when helpful
-- Flag code-comment quality issues per [engineering-standards.md]. The goal is to avoid comments that may become stale or add little value to the reader.
-- Do NOT comment on style, formatting, or naming unless it causes a bug.
-- Do NOT restate what the diff already shows
-- If no critical issues found: approve with a one-line summary
-- Sign off with: ✅ (approved) or ⚠️ (issues found)
+- Post each finding as an INLINE comment on the exact line it concerns (see HOW TO POST), not as one big top-level comment.
+- Keep each comment to 1–3 sentences. Prefer a probing question over an assertion, and include a concrete suggested fix or a ```suggestion``` block where it helps.
+- Report only issues worth the author's attention. Prefer fewer, higher-signal comments over volume.
+- Do NOT comment on anything CI already enforces (rustfmt, clippy, cspell), and do NOT restate what the diff shows.
+- The `<review_overrides>` block (REVIEW.md) defines repo-specific severity, what to skip, and the expected comment voice — it takes precedence over this file.
 
-REQUIRED OUTPUT STRUCTURE:
+HOW TO POST:
 
-The review body must follow this layout:
+Post findings as inline review comments, one `gh api` call per finding. Do NOT
+use `gh pr review` — the workflow token cannot approve or request changes. The
+values `REPO` (`owner/name`), `PR NUMBER`, and `HEAD SHA` are given in
+`<pr_context>` (locally, resolve the SHA with
+`gh pr view <number> --json headRefOid --jq .headRefOid`).
+
+For each finding, anchor it to the changed line:
 
 ```
-## Pull request overview
-
-<2–4 sentence narrative summary of what this PR does and why.>
-
-**Changes:**
-- <bullet list of substantive changes — group related edits>
-
-### Reviewed changes
-
-<details>
-<summary>Per-file summary</summary>
-
-| File | Description |
-| ---- | ----------- |
-| path/to/file.rs | What changed in this file |
-| ... | ... |
-
-</details>
-
-### Findings
-
-**Blocking** (must fix before merge):
-- `path/to/file.rs:LINE` — <description and concrete suggested fix>
-
-**Non-blocking** (nits, follow-ups, suggestions):
-- `path/to/file.rs:LINE` — <description>
-
-<Omit a category if empty.>
-
-<End with one of:>
-✅ Approved
-⚠️ Issues found
+gh api --method POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  /repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+  -f 'body=<one finding; prefix blocking ones with **blocking**, minor ones with nit:>' \
+  -f 'commit_id=HEAD_SHA' \
+  -f 'path=path/to/file.rs' \
+  -F 'line=LINE' \
+  -f 'side=RIGHT'
 ```
 
-Anchor every finding with a `file:line` reference so reviewers can jump to the location.
+For a range, add `-F 'start_line=START' -f 'start_side=RIGHT'`. If a `line` is
+outside the diff the call fails — fall back to including that finding in the
+summary comment. If you include a suggested fix in a ```suggestion``` block,
+make sure it is valid Rust (balanced braces, correct syntax) — a broken
+suggestion is worse than a prose comment.
+
+SUMMARY:
+
+After the inline findings, post ONE top-level summary with `gh pr comment <number> --body '...'`:
+- Open with a one-line tally, e.g. `2 blocking, 3 nits` or `No blocking issues`.
+- Optionally one sentence on what the PR does, only if it helps the reader.
+- End with ✅ (nothing blocks merge) or ⚠️ (at least one blocking finding).
+- Do NOT reproduce the inline findings here — they are already on the lines.
+
+If the code is clean, skip inline comments and post only the summary: `lgtm ✅`.
 
 Consult the repository's [CLAUDE.md], [CONTRIBUTING.md], and [AGENTS.md] for project-specific conventions.
-Don't try to use `gh pr review` you don't have permissions for that and it will fail.
-Please always use `gh pr comment` to post your review instead.
 
 [CLAUDE.md]: ../../../CLAUDE.md
 [AGENTS.md]: ../../../AGENTS.md
