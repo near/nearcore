@@ -525,9 +525,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 let key: &[u8] = header_hash.as_bytes();
                 store_update.delete(DBCol::BlockHeader, key);
                 self.merge(store_update);
-
-                #[cfg(feature = "nightly")]
-                self.gc_chunk_producers_for_header(&header_hash);
             }
             let key = index_to_bytes(height);
             self.gc_col(DBCol::HeaderHashesByHeight, &key);
@@ -919,11 +916,6 @@ impl<'a> ChainStoreUpdate<'a> {
             self.merge(store_update);
         }
 
-        // ChunkProducers rows for the cleared heights are deleted in
-        // clear_header_data_for_heights below; this head's own hash is in
-        // HeaderHashesByHeight[head_height] (recorded when it was saved), so that
-        // range covers the body head too, not just header-only anchors above it.
-
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
@@ -941,6 +933,11 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
         self.gc_outcomes(&block);
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
+        // ChunkProducers mirrors BlockInfo: both are seeded together in
+        // record_block_info_impl and must be deleted together. The column is
+        // insert-only, so the stale row must go before re-processing re-seeds it.
+        #[cfg(feature = "nightly")]
+        self.gc_chunk_producers_for_header(&block_hash);
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
         self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 
