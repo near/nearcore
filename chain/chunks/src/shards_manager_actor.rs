@@ -2498,7 +2498,7 @@ mod test {
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
     use near_chain_configs::MutableConfigValue;
-    use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+    use near_network::types::NetworkRequests;
     use near_primitives::borsh::{self, BorshDeserialize};
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::ShardChunkHeaderInner;
