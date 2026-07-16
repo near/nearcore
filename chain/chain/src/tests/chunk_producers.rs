@@ -494,6 +494,70 @@ mod tests {
         );
     }
 
+    /// GCMode::Fork deletes a fork block's ChunkProducers rows too. The delete lives in the
+    /// shared clear_block_data body, so Fork and Canonical run the same line today; this is a
+    /// regression guard in case the two ever stop sharing it.
+    #[test]
+    fn test_chunk_producers_garbage_collected_on_fork() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Canonical chain: genesis + blocks 1..=3 (head = height 3).
+        let mut hashes = vec![*chain.genesis().hash()];
+        for _ in 0..3 {
+            let prev_hash = *chain.head_header().unwrap().hash();
+            let prev = chain.get_block(&prev_hash).unwrap();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            hashes.push(*block.hash());
+            chain.process_block_test(block).unwrap();
+        }
+
+        // Fork sibling with a body at height 3 (built on canonical block 2, distinct clock tick
+        // so its hash differs from block 3). It is a leaf, so its refcount is 0 and it can be
+        // cleared as a fork.
+        let parent = chain.get_block(&hashes[2]).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let fork = TestBlockBuilder::from_prev_block(clock.clock(), &parent, signer).build();
+        let fork_hash = *fork.hash();
+        assert_eq!(fork.header().height(), 3, "fork sibling must be at height 3");
+        assert_ne!(fork_hash, hashes[3], "fork must differ from canonical block 3");
+        chain.process_block_test(fork).unwrap();
+
+        // Keep this a real fork-GC case: the block is off the canonical chain (head did not
+        // switch to it) and is a leaf (built last, nothing on top), which is what
+        // clear_forks_data clears.
+        assert_ne!(
+            chain.head().unwrap().last_block_hash,
+            fork_hash,
+            "fork must not be the canonical head"
+        );
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&hashes[1]).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+        let row = |chain: &Chain| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(&fork_hash, shard_id))
+        };
+        assert!(row(&chain).is_some(), "fork's row should exist before GC");
+
+        // GCMode::Fork clears the given block directly (no prev reassignment).
+        let tries = chain.runtime_adapter.get_tries();
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update
+            .clear_block_data(epoch_manager.as_ref(), fork_hash, GCMode::Fork(tries))
+            .unwrap();
+        store_update.commit().unwrap();
+
+        assert!(row(&chain).is_none(), "fork block's ChunkProducers rows must be deleted");
+    }
+
     /// clear_head_block_data (the undo-block path) deletes ChunkProducers exactly where it
     /// deletes BlockInfo: for the body head only. Header-only anchors above the body head keep
     /// both their BlockInfo and their ChunkProducers rows, so the rows stay valid and survive a
