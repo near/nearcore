@@ -1483,7 +1483,7 @@ impl ShardsManagerActor {
             };
             if epoch_id_confirmed {
                 if header_epoch_id != epoch_id {
-                    return Err(Error::InvalidChunkHeader);
+                    return Err(err_mapper(Error::InvalidChunkHeader));
                 }
             } else {
                 let possible_epochs = self
@@ -2498,7 +2498,8 @@ mod test {
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
     use near_chain_configs::MutableConfigValue;
-    use near_network::types::NetworkRequests;
+    use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+    use near_primitives::borsh::{self, BorshDeserialize};
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::ShardChunkHeaderInner;
     use near_primitives::test_utils::create_test_signer;
@@ -3903,5 +3904,43 @@ mod test {
             shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
             "an invalid chunk must be evicted from the cache by full validation"
         );
+    }
+
+    #[test]
+    fn test_v2_message_on_early_kickout_epoch_rejected() {
+        let fixture = early_kickout_fixture();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let chunk_hash = fixture.mock_chunk_header.chunk_hash().clone();
+        let partial = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: fixture.mock_chunk_header.clone(),
+            parts: fixture.mock_chunk_parts.clone(),
+            prev_outgoing_receipts: Vec::new(),
+        });
+
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial),
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        assert_matches!(result, Err(Error::InvalidChunkHeader));
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "an anchorless V2 chunk on an EarlyKickout epoch must not be cached"
+        );
+    }
+
+    #[test]
+    fn test_v3_borsh_round_trip() {
+        let fixture = early_kickout_fixture();
+        let chunk = fixture.make_partial_encoded_chunk(&fixture.all_part_ords);
+        assert_matches!(chunk, PartialEncodedChunk::V3(_));
+
+        let bytes = borsh::to_vec(&chunk).unwrap();
+        let decoded = PartialEncodedChunk::try_from_slice(&bytes).unwrap();
+
+        assert_eq!(chunk, decoded);
+        assert_eq!(decoded.prev_prev_block_hash(), Some(&fixture.mock_grandparent_hash));
+        assert_eq!(decoded.epoch_id(), Some(&fixture.mock_epoch_id));
     }
 }

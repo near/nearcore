@@ -489,7 +489,7 @@ pub static ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL: LazyLock<IntCounterVec> = LazyL
         "near_anchored_chunk_producer_lookup_total",
         "Anchored chunk-producer lookups during V2 validation, for chunk headers, state \
          witnesses and contract-distribution messages. `message_type` is `chunk`, `witness`, \
-         `contract accesses`, or `contract deploys`. `result` is `hit` (producer returned), \
+         `contract_accesses`, or `contract_deploys`. `result` is `hit` (producer returned), \
          `miss_anchor_block` \
          (grandparent anchor not yet processed, node is two or more blocks behind, message \
          dropped), `miss_db_entry` (anchor known but DBCol::ChunkProducers entry absent, also \

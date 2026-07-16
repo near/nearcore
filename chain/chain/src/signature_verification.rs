@@ -182,3 +182,71 @@ pub fn resolve_and_verify_anchored_producer(
     )?;
     Ok(producer)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::verify_anchored_chunk_key;
+    use crate::ChainStoreAccess;
+    use crate::test_utils::setup;
+    use assert_matches::assert_matches;
+    use near_async::time::{Duration, FakeClock, Utc};
+    use near_chain_primitives::Error;
+    use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::test_utils::TestBlockBuilder;
+    use near_primitives::types::EpochId;
+
+    /// Exercises the parent-absent branch of `verify_anchored_chunk_key`: when the chunk's
+    /// parent is not processed yet only the grandparent anchor is known, so the height can
+    /// only be bounded from below (`>= anchor + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`).
+    #[test]
+    fn test_anchored_key_parent_absent_accepts_skipped_height() {
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        let (mut chain, epoch_manager, _runtime, signer) = setup(clock.clock());
+
+        // Build a few real blocks so the anchor is a processed, non-genesis block.
+        let mut prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        for _ in 0..3 {
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            chain.process_block_test(block.clone()).unwrap();
+            prev = block;
+        }
+        let anchor_hash = *prev.hash();
+        let anchor_height = epoch_manager.get_block_info(&anchor_hash).unwrap().height();
+
+        // A hash that is not a processed block, so `get_block_info` returns `MissingBlock`,
+        // selecting the parent-absent branch under test.
+        let missing_parent = CryptoHash::hash_bytes(&[42]);
+        assert!(
+            epoch_manager.get_block_info(&missing_parent).is_err(),
+            "prev_block_hash must be unprocessed to exercise the parent-absent branch"
+        );
+
+        let store = chain.chain_store().store();
+        // `epoch_id` is only consulted in the parent-known branch, so any value works here.
+        let epoch_id = EpochId::default();
+        let min_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+
+        let check = |height_created| {
+            verify_anchored_chunk_key(
+                epoch_manager.as_ref(),
+                &epoch_id,
+                height_created,
+                &missing_parent,
+                &anchor_hash,
+                &store,
+                "chunk",
+            )
+        };
+
+        // Skipped-height chunk well above the anchor-implied minimum: accepted only because
+        // the bound is a lower bound, not an exact match.
+        assert_matches!(check(min_height + 3), Ok(()));
+        // Boundary: exactly the minimum is accepted.
+        assert_matches!(check(min_height), Ok(()));
+        // Below the minimum is impossible for a valid chunk and must be rejected.
+        assert_matches!(check(min_height - 1), Err(Error::InvalidPartialChunkStateWitness(_)));
+    }
+}

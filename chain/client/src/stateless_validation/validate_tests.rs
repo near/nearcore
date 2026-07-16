@@ -584,7 +584,7 @@ fn v2_accesses_with_height_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract accesses chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_accesses chunk key mismatch"), "got: {msg}");
 }
 
 /// When the parent block is known, the cross-check rejects a forged anchor that does
@@ -615,7 +615,7 @@ fn v2_accesses_with_anchor_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract accesses chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_accesses chunk key mismatch"), "got: {msg}");
 }
 
 /// V2 accesses with a correct chunk key but signed by a non-producer are rejected
@@ -914,7 +914,7 @@ fn v2_deploys_with_height_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract deploys chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_deploys chunk key mismatch"), "got: {msg}");
 }
 
 /// When the parent block is known, the cross-check rejects a forged anchor. This only
@@ -941,7 +941,7 @@ fn v2_deploys_with_anchor_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract deploys chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_deploys chunk key mismatch"), "got: {msg}");
 }
 
 /// V2 deploys with a correct chunk key but signed by a non-producer are rejected
