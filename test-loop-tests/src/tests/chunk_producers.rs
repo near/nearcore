@@ -330,6 +330,7 @@ mod hot_gc_tests {
     const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
     #[test]
+    // TODO(spice-test): assess relevance for spice.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn test_chunk_producers_garbage_collected() {
         init_test_logger();
