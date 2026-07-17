@@ -195,6 +195,23 @@ pub(crate) fn blacklist_for_epoch(
     }
 }
 
+/// Per-shard blacklist for `target_epoch_id`, or empty when the aggregator belongs to a
+/// different epoch (a last-of-epoch anchor whose next epoch has no stats yet). Shared by the
+/// record-block seeder and the `get_chunk_producer_blacklist` accessor so the epoch-reset
+/// check can't drift between them.
+pub(crate) fn blacklist_for_epoch(
+    aggregator: &EpochInfoAggregator,
+    target_epoch_id: &EpochId,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+) -> HashMap<ShardId, HashSet<ValidatorId>> {
+    if aggregator.epoch_id == *target_epoch_id {
+        compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
+    } else {
+        HashMap::new()
+    }
+}
+
 /// In the current architecture, various components have access to the same
 /// shared mutable instance of [`EpochManager`]. This handle manages locking
 /// required for such access.
@@ -2311,10 +2328,9 @@ impl EpochManager {
             );
             if let Some(validator_id) = sampled {
                 let validator_stake = sample_epoch_info.get_validator(validator_id);
-                // Observability: a reassignment happened iff the plain (non-excluded) pick for
-                // this slot is itself blacklisted. `plain != sampled` is NOT a valid detector —
-                // the excluding sampler renormalizes the eligible set, so it can pick a
-                // different producer even when the plain pick was not blacklisted.
+                // A slot was reassigned iff its plain (non-excluded) pick is itself blacklisted.
+                // Testing `plain != sampled` would be wrong: the excluding sampler renormalizes the
+                // eligible set, so it can pick a different producer even when the plain pick was fine.
                 if !shard_blacklist.is_empty() {
                     let plain = sample_epoch_info.sample_chunk_producer(
                         sample_shard_layout,
@@ -2325,7 +2341,7 @@ impl EpochManager {
                         EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED
                             .with_label_values(&[&shard_id.to_string()])
                             .inc();
-                        tracing::info!(
+                        tracing::debug!(
                             target: "epoch_manager",
                             %shard_id,
                             height,

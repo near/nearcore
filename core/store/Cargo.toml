@@ -64,6 +64,9 @@ near-schema-checker-lib.workspace = true
 near-time.workspace = true
 near-vm-runner.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+rocksdb = { workspace = true, features = ["bindgen-runtime"] }
+
 [dev-dependencies]
 assert_matches.workspace = true
 bencher.workspace = true
