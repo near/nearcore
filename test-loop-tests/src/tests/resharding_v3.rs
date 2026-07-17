@@ -1860,9 +1860,8 @@ fn slow_test_resharding_v3_yield_resume() {
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // See `slow_test_resharding_v3_yield_resume` for the non-x86_64 caveat.
-#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+#[cfg_attr(any(feature = "protocol_feature_spice", not(target_arch = "x86_64")), ignore)]
 fn slow_test_resharding_v3_yield_resume_with_id() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
