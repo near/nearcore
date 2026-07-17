@@ -17,9 +17,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::trie_key::trie_key_parsers::{
-    self, parse_key_handle_from_access_key_key,
-};
+use near_primitives::trie_key::trie_key_parsers::{self, parse_key_handle_from_access_key_key};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
@@ -212,14 +210,14 @@ impl TrieViewer {
         // survives `seek`, so it keeps enforcing the range across the seeks we
         // use below to skip gas-key nonce blocks.
         let prefix_nibbles: Vec<u8> = prefix.iter().flat_map(|&b| [b >> 4, b & 0x0f]).collect();
-        let mut iter = trie.disk_iter_with_prune_condition(Some(Box::new(
-            move |key_nibbles: &Vec<u8>| !nibbles_within_prefix(&prefix_nibbles, key_nibbles),
-        )))?;
+        let mut iter =
+            trie.disk_iter_with_prune_condition(Some(Box::new(move |key_nibbles: &Vec<u8>| {
+                !nibbles_within_prefix(&prefix_nibbles, key_nibbles)
+            })))?;
 
         match after {
             Some(handle) => {
-                let after_key =
-                    TrieKey::access_key(account_id.clone(), handle.clone()).to_vec();
+                let after_key = TrieKey::access_key(account_id.clone(), handle.clone()).to_vec();
                 match prefix_successor(&after_key) {
                     Some(next) => iter.seek(Bound::Included(next.as_slice()))?,
                     // Unreachable: access-key keys start with `col::ACCESS_KEY`,
@@ -258,8 +256,8 @@ impl TrieViewer {
                     limit: max,
                 });
             }
-            let access_key = get_access_key_by_handle(trie, account_id, &key_handle)?
-                .ok_or_else(|| {
+            let access_key =
+                get_access_key_by_handle(trie, account_id, &key_handle)?.ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
                         "iterator yielded an access-key trie key with no value: {key_handle}"
                     ))
