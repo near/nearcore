@@ -2235,15 +2235,16 @@ impl EpochManager {
             // `shard_stats` only holds shards with candidates, so drive the gauge from
             // the full shard set — a shard that recovered (or an epoch-boundary reset
             // with empty stats) must fall back to 0 so the gauge never sticks stale.
+            use crate::metrics::{EARLY_KICKOUT_BLACKLIST_SIZE, EARLY_KICKOUT_SAFETY_VALVE_FIRED};
             for shard_id in sample_shard_layout.shard_ids() {
                 let raw = shard_stats.get(&shard_id).map_or(0, |s| s.raw_candidate_count);
-                crate::metrics::EARLY_KICKOUT_BLACKLIST_SIZE
+                EARLY_KICKOUT_BLACKLIST_SIZE
                     .with_label_values(&[&shard_id.to_string()])
                     .set(raw as i64);
             }
             for (shard_id, stats) in &shard_stats {
                 if stats.safety_valve_fired {
-                    crate::metrics::EARLY_KICKOUT_SAFETY_VALVE_FIRED
+                    EARLY_KICKOUT_SAFETY_VALVE_FIRED
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
                 }
