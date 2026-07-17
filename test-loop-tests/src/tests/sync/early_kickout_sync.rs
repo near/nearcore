@@ -12,8 +12,7 @@
 //! reads depend on. Each test does a *direct DB probe* so a green run means "the
 //! anchored read found a row (and we proved it was load-bearing — same-epoch)",
 //! not "the node happened to catch up". Red (stall / `ChunkProducerNotInDB`) is a
-//! real gap on master; the seeding fix would be a separate gated follow-up with
-//! these tests as its regression.
+//! real gap these tests guard against.
 //!
 //! Note on what green proves: rows are seeded at genesis, during header sync
 //! (`chain.rs`), and during block processing (`chain_update.rs`). Header sync
