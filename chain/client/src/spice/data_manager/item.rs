@@ -1,64 +1,67 @@
 //! Per-item identity, lifecycle state, assembly buffers, and sender attribution.
 
+use super::AdmitError;
 use super::QosClass;
 use super::scheduler::Backoff;
 use near_async::time::Instant;
 use near_primitives::hash::CryptoHash;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
-use std::collections::HashMap;
+use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
+use std::collections::{HashMap, HashSet};
 
-/// Unified content id across all fetchable data types. Supersedes
-/// `SpiceDataIdentifier` (which today has only the first two variants) incl. `ContractCode` variant.
-/// Goes on the wire inside the versioned `SpiceDataRequest` — so this enum is versioned there.
+/// Unified content id across all fetchable data types. Goes on the wire inside the
+/// versioned `SpiceDataRequest`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum DataId {
-    /// Erasure-coded. Produced by chunk producers of `shard`, needed by its validators.
-    Witness { block_hash: CryptoHash, shard_id: ShardId },
-    /// Erasure-coded. Produced by `from` shard, needed by next-block producers of `to`.
-    ReceiptProof { block_hash: CryptoHash, from_shard_id: ShardId, to_shard_id: ShardId },
-    /// Whole-blob, content-addressed. Keyed by hash ONLY, so the same code accessed
-    /// from several blocks/shards is a single fetch — the latest interested
-    /// (block, shard) context lives on the item as [`FetchItem::anchor`]
-    /// (it drives sources + expiry).
+    /// Coded. The chunk it validates; produced by that chunk's producers, needed by its
+    /// validators.
+    Witness(SpiceChunkId),
+    /// Coded. `source` is the (block, from-shard) chunk whose execution produced the
+    /// receipts; `to_shard` is the destination. Produced by `source`'s producers, needed
+    /// by next-block producers of `to_shard`.
+    ReceiptProof { source: SpiceChunkId, to_shard: ShardId },
+    /// Whole blob, content-addressed. Keyed by hash only ⇒ one item (one fetch) per hash
+    /// however many blocks/shards need it; extra interests only update
+    /// [`FetchItem::anchor`], and delivery unblocks all waiters.
     ContractCode { code_hash: CodeHash },
 }
 
 impl DataId {
-    /// Anchor block for coded kinds. `None` for contract code — its anchor lives on
-    /// the [`FetchItem`].
+    /// Anchor block for coded kinds. `None` for contract code — its anchor is on the
+    /// [`FetchItem`].
     pub(crate) fn block_hash(&self) -> Option<&CryptoHash> {
         match self {
-            DataId::Witness { block_hash, .. } | DataId::ReceiptProof { block_hash, .. } => {
-                Some(block_hash)
-            }
+            DataId::Witness(chunk) => Some(&chunk.block_hash),
+            DataId::ReceiptProof { source, .. } => Some(&source.block_hash),
             DataId::ContractCode { .. } => None,
         }
     }
 
-    /// Erasure-coded (K-of-N parts) vs a single content-addressed blob (K=1).
+    /// Erasure-coded (K-of-N) vs a single content-addressed blob (K=1).
     pub(crate) fn transfer_unit(&self) -> TransferUnit {
         match self {
-            DataId::Witness { .. } | DataId::ReceiptProof { .. } => TransferUnit::ErasureCoded,
+            DataId::Witness(_) | DataId::ReceiptProof { .. } => TransferUnit::ErasureCoded,
             DataId::ContractCode { .. } => TransferUnit::Blob,
         }
     }
 }
 
-/// How the payload is transferred/assembled — the one axis that differs across kinds.
-/// The scheduler, source selection and scoring do not care about this.
+/// How the payload is assembled — the one axis that differs across kinds. The scheduler,
+/// source selection and scoring don't care about this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TransferUnit {
-    /// Reassemble from `K` of `N` Reed–Solomon parts, then hash-check + decode.
+    /// Reassemble from K of N Reed–Solomon parts, then hash-check + decode.
     ErasureCoded,
     /// A single blob whose hash *is* the id — verified on arrival, no decode. (K=1.)
     Blob,
 }
 
-/// The state of one tracked piece of data. The variant encodes its origin — produced
-/// by others and fetched by us, or produced by us and served to others — and is
-/// fixed for the item's lifetime.
+/// One tracked piece of data: produced by others and fetched by us, or produced by us
+/// and served. A node in both roles for one id (producer-validator; from-shard producer
+/// that is a to-shard next-block producer) is `Produce`: consumer duties for
+/// self-authored data are met from its own execution/store, not via delivery — mirroring
+/// the push side, where producers aren't recipients.
 pub(crate) enum Item {
     /// Produced by others; we fetch it.
     Fetch(FetchItem),
@@ -66,114 +69,92 @@ pub(crate) enum Item {
     Produce(ProduceState),
 }
 
-/// Data we author. Producers hold the FULL data and can re-encode any/all ordinals on
-/// (authorized) request — this is what makes single-source recovery possible.
-///
-/// Deliberately holds NO data or encoded parts: the artifact lives in the store, and
-/// re-serving without re-encoding is the job of the manager's byte-budgeted
-/// `EncodeCache` (keyed by `DataId`, populated for free at production time — the
-/// parts vector already exists to build the commitment — and LRU-evicted under a
-/// GLOBAL byte bound). A per-item cache field could not express a global bound, and
-/// cache lifetime ≠ item lifetime in both directions: evictable under pressure long
-/// before expiry, and servable after a restart when no item exists at all.
+/// Data we author. Holds no payload bytes (`codes` is an index). Clockless: serving is
+/// reactive and expiry head-driven, so there are no produce-side deadlines. Born in
+/// `seed_block`, flipped to `ReadyToServe` by `on_produced`.
 pub(crate) enum ProduceState {
-    /// We are assigned to produce it; execution not finished yet.
+    /// Assigned to produce it; execution not finished yet.
     Producing,
-    /// The produced artifact is in store; serve any requested units.
-    Produced,
+    /// Artifact in store; serve any requested units. `codes` (witness items only, empty
+    /// otherwise) is the set of contract hashes the chunk accessed — the serve-side index
+    /// for code pulls claiming this chunk (`WantUnits::Blob { chunk }`). Filled by
+    /// `on_produced`, re-read from the store by `seed_block` on restart.
+    ReadyToServe { codes: HashSet<CodeHash> },
 }
 
-/// The consume-side lifecycle. `Have` is absent by construction: the
-/// terminal signal is a role-appropriate *durable artifact* (see `DataKind::is_done`)
-/// — our endorsement (a stateless validator never stores the witness itself), a
-/// persisted receipt proof, or produced data. On a `Verified` verdict the item
-/// shrinks to its attribution husk (`ProcessedLocally`); removal happens ONLY via
-/// head-driven expiry (final execution head passes its height — abandoned forks
-/// included).
+/// The consume-side lifecycle. `Have` is absent by construction: the terminal signal is a
+/// durable artifact (see `DataKind::is_done`) — our endorsement, a persisted receipt
+/// proof, or produced data — not the raw data. A `Verified` verdict shrinks the item to
+/// its `DataAttribution` (`ProcessedLocally`); removal happens only via head-driven
+/// expiry.
 #[derive(Debug)]
 pub(crate) enum FetchState {
-    /// Wanted, seeded from chain, but the existence gate hasn't opened and no unit has
-    /// arrived yet. On a recent block we simply wait for the push here.
+    /// Wanted (seeded from chain) but the existence gate is closed and no unit has
+    /// arrived. Registered in `gated_by_frontier`; on a recent block we just wait for the
+    /// push here.
     Need,
-    /// At least one unit obtained (⇒ it exists) OR the existence gate opened and we are
-    /// speculatively pulling. Accumulating toward completion.
+    /// At least one unit obtained (⇒ it exists), or the gate opened and we're
+    /// speculatively pulling. On completion, coded kinds move to `Delivered`; a blob is
+    /// verified on arrival and terminal (delivered to the validator actor, item removed).
     Collecting(Assembly),
-    /// Assembled bytes were handed to the consumer; parked until it reports back
-    /// `Verified`/`Failed`. The (large) assembly is dropped, the (small) sender map
-    /// is retained for attribution. Without this state a re-pushed part would re-enter
-    /// `Collecting` and re-deliver — resurrecting the `recently_decoded_data` band-aid.
-    Delivered,
-    /// Consumer finished its local processing: the semantic check passed and the
-    /// durable artifact is persisted (for a witness: executed it and endorsed the
-    /// computed result). Only an attribution husk remains — budgets released,
-    /// everything but `DataAttribution` dropped — retained until expiry, because
-    /// *locally* is the operative word: endorsing = execute-and-sign, so a witness
-    /// built on rotten-but-executable inputs (e.g. uncertified prior results) is only
-    /// exposed when certification lands with a different result hash — a retroactive
-    /// `Failed(CertifiedResultMismatch)` that must still attribute.
-    ProcessedLocally,
+    /// Assembled bytes handed to the consumer; parked until it reports `Verified`/
+    /// `Failed`. Coded kinds only. The winning tracker's part bytes are dropped, leaving a
+    /// small [`DataAttribution`]; without this state a re-pushed part would re-deliver.
+    /// Non-winning trackers are kept as `residual` until the verdict (empty without
+    /// equivocation). A semantic `Failed` blames the winning senders only, bans `winning`,
+    /// and resumes `Collecting` from `residual` (deliver at once if a tracker already
+    /// holds ≥K, else re-arm the pull). `Verified` drops `residual`.
+    Delivered { attribution: DataAttribution, residual: Assembly },
+    /// Consumer finished local processing and persisted the durable artifact. Only the
+    /// [`DataAttribution`] remains, kept until expiry: a witness built on rotten-but-
+    /// executable inputs surfaces only when certification lands a different result hash — a
+    /// retroactive `Failed(CertifiedResultMismatch)`, reputation + telemetry only (we may
+    /// not endorse a second result for the chunk). Terminal until expiry.
+    ProcessedLocally { attribution: DataAttribution },
 }
 
-/// The full state of one piece of data we are obtaining: its position in the lifecycle
-/// ([`FetchState`], with the in-progress [`Assembly`] inside) plus everything
-/// fetching it requires us to remember — relevance bounds (`height`, `anchor`),
-/// who sent what (`attribution`), requests on the wire (`in_flight`), and retry
-/// timing (`backoff`, `first_unit_at`, `next_deadline`). Identity is not state and
-/// is not here: it lives in the map key, never duplicated.
+/// Everything obtaining one piece of data requires: its lifecycle position
+/// ([`FetchState`], holding the in-progress [`Assembly`] or the post-delivery
+/// [`DataAttribution`]), relevance bounds (`height`, `anchor`), requests on the wire
+/// (`in_flight`), and retry timing. Sender attribution is not a separate field — it lives
+/// in the trackers during `Collecting` and materializes as `DataAttribution` at delivery.
+/// Identity is the map key, not duplicated here.
 pub(crate) struct FetchItem {
     pub(crate) state: FetchState,
-    /// Resolved QoS lane: the max over this item's fetch *causes*, updated as causes
-    /// register. Stored, not derived, because the `Background` cause (an RPC /
-    /// state-sync request) is extrinsic — no chain state can re-derive it — and the
-    /// resolved value is read on every deadline arm and admission check. Drives the
-    /// scheduler tie-break and which byte budget the item's buffers count against
-    /// (an upgrade mid-collection must re-charge buffered bytes to the new lane).
+    /// QoS lane, fixed at item creation (max over the causes present then). Drives the
+    /// scheduler tie-break and which byte budget the buffers count against. No mid-life
+    /// updates: a validator-key hot-swap tolerates a stale lane until expiry.
     pub(crate) qos: QosClass,
-    /// Height of the anchor block, captured at seed time, so expiry
-    /// (`on_heads_advanced`) and the admission window never do per-item store lookups.
-    /// For contract code: the height of the highest interested block, bumped when a
-    /// higher anchor replaces the current one.
+    /// Lifetime field (all kinds), captured at seed time so expiry and the admission
+    /// window read a scalar, never a store lookup. For contract code it's the
+    /// denormalized height of `anchor`'s block, kept in sync on anchor bumps.
     pub(crate) height: BlockHeight,
-    /// Contract code only (`None` for coded kinds — their id carries the block): the
-    /// highest-block (block, shard) context wanting this hash, replaced when a higher
-    /// one seeds. The `ShardId` is the essential half — code is *state*, so the
-    /// source pool is that shard's producers; the block hash only resolves the epoch
-    /// for that derivation. A single anchor suffices: expiry needs only the max
-    /// interested height (kept in `height` — all-anchors-passed ≡ max-passed), and
-    /// one live anchor yields a complete source pool. HIGHEST, not earliest: the
-    /// item must outlive the LAST interest — an earlier anchor would expire it while
-    /// later blocks still await the code (a liveness bug), and the freshest block
-    /// also names the most current epoch/shard mapping for sources. Forgone:
-    /// cross-shard pool union, and expiry can run at-most-late if the kept anchor is
-    /// an abandoned fork — both accepted. Engine-internal ONLY: delivery is
-    /// content-addressed — completed code is handed downstream as (code_hash, bytes)
-    /// and the consumer unblocks ALL chunks waiting on the hash (earliest included);
-    /// routing delivery by any single block would starve the other waiters.
-    pub(crate) anchor: Option<(CryptoHash, ShardId)>,
-    /// Who gave us which unit — retained until the item EXPIRES,
-    /// so late discoveries still map back to senders: a receipt proof failing
-    /// once execution results land (`Delivered`), or a certified result contradicting
-    /// our endorsement (`ProcessedLocally`). Uniform for all kinds.
-    pub(crate) attribution: DataAttribution,
-    /// Outstanding pull requests — a snapshot of what is on the wire RIGHT NOW, not
-    /// history (failure memory is global, in [`super::Reputation`]). Entry lifecycle:
-    /// created on send; removed on response/NAK; or, once older than
-    /// `request_timeout`, converted into `note_timeout(who)` and removed — its
-    /// ordinals thereby become missing-and-requestable again (timeout ⇒ re-request,
-    /// from a freshly sampled source). While an entry lives it suppresses duplicates:
-    /// its ordinals are not re-requested — relaxed during escalation, which
-    /// deliberately over-requests the same missing set across several peers — and its
-    /// peer is excluded from `select_sources` (never double-ask a peer still within
-    /// its response window; this per-peer rule holds even during escalation).
+    /// Contract code only (`None` for coded kinds). Producer-derivation context: the
+    /// (block, shard) that resolves code's source pool, and the claimed chunk carried in
+    /// pulls (`WantUnits::Blob { chunk }`), which a server only honors for chunks it
+    /// executed. Set at seeding (only if absent); re-aimed at witness delivery from the
+    /// witness's embedded accesses list, latest wins (delivery proves the chunk executed);
+    /// unverified accesses never re-aim. A stale accesses-set anchor at worst expires the
+    /// item early; re-seeding covers it. `height` re-syncs on change and may decrease
+    /// (stale `items_by_height` entries handled by the lazy drain).
+    pub(crate) anchor: Option<SpiceChunkId>,
+    /// Commitments that were delivered and then failed the consumer's check. Units for
+    /// them are rejected on arrival, so we never re-deliver the same bad data. Not counted
+    /// toward any limit (counting it would let bad entries crowd out the honest
+    /// commitment). Usually empty.
+    pub(crate) banned_commitments: HashSet<SpiceDataCommitment>,
+    /// Outstanding pull requests — a snapshot of what's on the wire now, not history
+    /// (failure memory is global, in [`super::Reputation`]). An entry is removed on
+    /// response/NAK, or, once older than `request_timeout`, converted into
+    /// `note_timeout(who)` and removed (its ordinals become requestable again). While it
+    /// lives it suppresses duplicate requests.
     pub(crate) in_flight: Vec<InFlightRequest>,
     /// Retry/backoff bookkeeping — the single copy (the scheduler owns only deadlines).
     pub(crate) backoff: Backoff,
-    /// When the first unit arrived — starts the `first_unit_pull_delay` clock: if the
-    /// remaining pushes don't complete the assembly within ~1–2·T_rtt, pull the rest.
+    /// When the first unit arrived — starts the `first_unit_pull_delay` clock.
     pub(crate) first_unit_at: Option<Instant>,
     /// The currently armed deadline. `drain_due` validates popped heap entries against
-    /// this (heap entries can't be removed, so completed/re-armed items leave stale
-    /// entries behind — they are lazily discarded on pop).
+    /// this and discards stale ones (heap entries can't be removed).
     pub(crate) next_deadline: Option<Instant>,
 }
 
@@ -185,83 +166,95 @@ pub(crate) struct InFlightRequest {
     pub(crate) ordinals: Vec<u32>,
 }
 
-/// The accumulation buffer; one variant per [`TransferUnit`]. Held only from first unit
-/// to *delivered to the consumer*, then dropped — the manager does not retain the
-/// (potentially large) witness. Only the small [`DataAttribution`] lingers afterwards
-/// (until expiry — see [`FetchState::ProcessedLocally`]).
+/// The accumulation buffer, held from first unit to delivery. Delivery drops the winning
+/// tracker's part bytes and carries the non-winning trackers as `Delivered::residual`
+/// until the verdict (usually empty); only the small [`DataAttribution`] lingers past it.
+///
+/// Coded vs blob is an *addressing-model* difference, not a parts-count one (K=N vs K=1),
+/// which is why they stay separate variants:
+/// - Coded: the commitment is discovered from the parts, and competing ones can arrive at
+///   once (equivocation) — the per-commitment machinery exists to disambiguate it.
+/// - Blob: the id is the hash, so there's one known commitment; non-matching bytes are
+///   rejected on arrival and none of that machinery applies.
+#[derive(Debug)]
 pub(crate) enum Assembly {
-    /// Coded kinds keep parallel trackers PER COMMITMENT (like today's
-    /// `waiting_on_data` inner map): a malicious producer pushing parts under a
-    /// fabricated commitment must not lock the item out of assembling under the honest
-    /// one. Bounded by admission (a handful of commitments per item); whichever
-    /// tracker reaches K wins, and garbage attribution targets the losing/garbage
-    /// commitment's vouchers only. Parts live in the tracker alone — no shadow copy;
-    /// ordinal→sender lives in [`DataAttribution`].
+    /// One tracker per commitment, so a fake commitment can't block the honest one; first
+    /// to K wins, and a bad decode blames only that commitment's senders. Unsolicited
+    /// units are admitted only for the sender's own ordinal, so completing a tracker
+    /// unsolicited takes ≥K distinct backers. Each producer may back only one commitment,
+    /// so trackers ≤ producer count — no separate limit; memory is bounded by the
+    /// admission byte budgets.
     Coded { trackers: HashMap<SpiceDataCommitment, CodedTracker> },
-    /// Content-addressed blob (K=1): nothing accumulates — the first response whose
-    /// `hash(bytes) == expected` completes and delivers in the same call, so the
-    /// assembly never *holds* bytes. The variant is a waiting-marker, kept so
-    /// `Collecting` has a uniform shape across kinds.
-    Blob { expected: CodeHash },
+    /// K=1: nothing accumulates — the first response whose `hash(bytes) == code_hash`
+    /// completes and delivers in the same call, so the assembly never holds bytes. A
+    /// marker, so `Collecting` has a uniform shape; the expected hash is the `DataId`.
+    Blob,
 }
 
-/// Accumulates parts toward decoding under one claimed commitment.
+/// Accumulates parts toward decoding under one claimed commitment, and — the same struct,
+/// folded in — records who sent each ordinal.
+#[derive(Debug)]
 pub(crate) struct CodedTracker {
-    // tracker: ReedSolomonPartsTracker<SpiceData> — holds the part bytes and decodes
-    // on K. `SpiceData` is today's wire-level erasure enum
-    // (`data_distributor_actor.rs:207`: ReceiptProof | StateWitness — the RS payload
-    // IS borsh(SpiceData), so the enum belongs to the wire format).
-    // Kept concrete-by-name here but not as a field: a generic
-    // `<DecodedT>` would climb Assembly → FetchState → FetchItem → Item and break
-    // the one-map premise; the enum is the type-erasure that keeps the map uniform.
-    // Constructed from the commitment (encoded_length) + producer count (N).
-    /// Ordinals held — a cheap bitset so `missing_ordinals` never touches part buffers.
-    pub(crate) have_ordinals: Vec<bool>,
+    // Holds the part bytes and decodes on K, sized from the commitment (encoded_length)
+    // and producer count (N). The decoded payload type is erased here (a generic would
+    // climb Assembly → FetchState → FetchItem → Item and break the one-map premise).
+    /// Per-ordinal sender: `Some` ⇒ we hold that ordinal (so `missing_ordinals` reads it
+    /// without touching part buffers) and records the sender for attribution. This is the
+    /// transport sender — used directly for Merkle faults and collectively (all `Some`)
+    /// for a garbage decode. At delivery the winning tracker's `senders` moves into the
+    /// state's [`DataAttribution`]; the part bytes are dropped.
+    pub(crate) senders: Vec<Option<AccountId>>,
 }
 
 impl Assembly {
-    /// Whether some tracker holds enough to reconstruct (K parts) / we have the blob.
+    /// Where a received part's commitment enters the assembly. Rejected (the manager then
+    /// reports the sender): a banned commitment, or one that differs from a commitment
+    /// this sender already backed. Otherwise returns the tracker, creating it on first
+    /// sight. No count limit — one commitment per sender already bounds the trackers.
+    /// Coded only.
+    pub(crate) fn tracker_for(
+        &mut self,
+        _commitment: &SpiceDataCommitment,
+        _sender: &AccountId,
+        _banned: &HashSet<SpiceDataCommitment>,
+    ) -> Result<&mut CodedTracker, AdmitError> {
+        Err(AdmitError::ConflictingCommitment) // sketch
+    }
+
+    /// Whether some tracker holds K parts. Blob completion is synchronous on arrival, so a
+    /// `Blob` assembly is never observed complete here.
     pub(crate) fn is_complete(&self) -> bool {
         false // sketch
     }
 
-    /// Ordinals still needed — the explicit request set for the next pull (requests
-    /// always enumerate ordinals; the server never decides what to send). Computed as
-    /// the UNION of gaps across trackers: an ordinal is skipped only if held under
-    /// EVERY commitment. Requests are commitment-agnostic (the server answers under
-    /// whatever commitment it holds), so computing against the part-majority
-    /// commitment would let an attacker's fake majority starve the honest tracker —
-    /// its chosen gap would bound our request set. Single-commitment case unchanged;
-    /// under attack the over-request is bounded by the admission cap on commitments.
-    /// Empty for blob.
+    /// Ordinals still needed — the explicit request set for the next pull. The union of
+    /// gaps across trackers (skip an ordinal only if held under every commitment):
+    /// requests are commitment-agnostic, so computing against the part-majority commitment
+    /// would let a fake majority starve the honest tracker. Empty for blob.
     pub(crate) fn missing_ordinals(&self) -> Vec<u32> {
         Vec::new() // sketch
     }
 }
 
-/// Which sender contributed which unit, *per commitment* — senders vouch for the
-/// commitment they sent parts under. This is what lets a fault (immediate or late)
-/// be pinned on accounts.
-#[derive(Default)]
+/// Who to blame for a late fault on the delivered data. Materializes at delivery from the
+/// winning tracker (before that, per-ordinal senders live in the trackers). Coded kinds
+/// only — a blob is verified on arrival and never reaches `Delivered`/`ProcessedLocally`,
+/// so `winning` is a plain commitment, not an `Option`. Kept until expiry; blames the
+/// winning commitment's senders only, never those under losing commitments (who may be
+/// the honest side of an equivocation race).
+#[derive(Debug)]
 pub(crate) struct DataAttribution {
-    /// Coded: commitment → (ordinal → sender). In recovery one sender may serve
-    /// ordinals it did not originally push; attribution targets the transport sender
-    /// for bad *bytes* (Merkle failure) and the commitment's vouchers for a *garbage
-    /// decode* — never everyone who ever sent a part for the item.
-    pub(crate) coded: HashMap<SpiceDataCommitment, HashMap<u32, AccountId>>,
-    /// Blob: the responder.
-    pub(crate) blob_sender: Option<AccountId>,
+    /// The commitment whose tracker reached K and was delivered.
+    pub(crate) winning: SpiceDataCommitment,
+    /// The winning tracker's per-ordinal sender vector, moved out at delivery.
+    pub(crate) senders: Vec<Option<AccountId>>,
 }
 
 impl DataAttribution {
-    /// Vouchers of one commitment — the culprit set if *its* decode yields garbage.
-    pub(crate) fn vouchers(&self, _commitment: &SpiceDataCommitment) -> Vec<AccountId> {
-        Vec::new() // sketch
-    }
-
-    /// Everyone who contributed any unit — the culprit set for a semantic `Failed`
-    /// on the delivered (winning-commitment) data.
-    pub(crate) fn all(&self) -> Vec<AccountId> {
+    /// The distinct accounts that contributed the delivered data — the set to hold
+    /// accountable for a fault on it (fed to `reputation.report`). The only accessor by
+    /// design, so no "everyone who ever sent a part" set can form.
+    pub(crate) fn contributors(&self) -> Vec<AccountId> {
         Vec::new() // sketch
     }
 }
