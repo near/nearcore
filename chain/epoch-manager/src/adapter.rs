@@ -1142,10 +1142,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(anchor_hash)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        // `blacklist_for_epoch` resets to empty when the aggregator's epoch differs from the
-        // anchor's (a boundary anchor whose next epoch has no stats yet). The accessor is a
-        // pure read: it drops the observability stats (owned by the seeder) and returns only
-        // the applied blacklist.
+        // `blacklist_for_epoch` returns empty when the aggregator's epoch differs from the
+        // anchor's (a boundary anchor whose next epoch has no stats yet).
         Ok(crate::blacklist_for_epoch(&aggregator, &epoch_id, epoch_info.as_ref(), &shard_layout)
             .blacklist)
     }

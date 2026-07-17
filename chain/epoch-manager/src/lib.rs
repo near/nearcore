@@ -112,11 +112,9 @@ pub fn compute_chunk_producer_blacklist(
         let Some(settlement) = epoch_info.chunk_producers_settlement().get(shard_index) else {
             continue;
         };
-        // Distinct chunk PRODUCERS for this shard. shard_tracker also holds
-        // endorsement-only entries (chunk validators that never produced); they must
-        // not be blacklist candidates and must not skew the safety-valve denominator.
-        // (Today expected>=MIN skips them since production.expected==0 — but make it
-        // explicit so threshold tuning can't silently reintroduce the bug.)
+        // distinct chunk producers for this shard. shard_tracker also holds endorsement-only
+        // entries (chunk validators that never produced); they must not be blacklist candidates
+        // or skew the safety-valve denominator.
         let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
         let mut blacklisted = HashSet::new();
         for (&validator_id, stats) in validators {
@@ -136,7 +134,6 @@ pub fn compute_chunk_producer_blacklist(
                 blacklisted.insert(validator_id);
             }
         }
-        // RAW pre-safety-valve candidate count (observability; emitted once at the seeder).
         let raw_candidate_count = blacklisted.len();
         if raw_candidate_count == 0 {
             continue;
@@ -2212,16 +2209,13 @@ impl EpochManager {
             if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
                 return Ok(());
             }
-            // Compute the blacklist as of the anchor being seeded via the shared
-            // `blacklist_for_epoch` helper. `get_epoch_info_aggregator_upto_last` is an
-            // `EpochManager` method (`&self`, no lock); the adapter
-            // `get_chunk_producer_blacklist` would re-take `self.read()` and deadlock,
-            // since the seeder already runs under the write lock.
+            // `get_epoch_info_aggregator_upto_last` is an `EpochManager` method (`&self`, no
+            // lock); calling the `get_chunk_producer_blacklist` accessor here would re-take
+            // `self.read()` and deadlock, since the seeder already holds the write lock.
             //
-            // `block_hash` must already be in the block cache / store (the caller recorded
-            // it via `save_block_info`). The epoch-sync first block is only in the pending
-            // `store_update`, so it uses `seed_chunk_producers_for_first_block` (empty
-            // blacklist, no walk) instead.
+            // `block_hash` must already be in the block cache / store. the epoch-sync first
+            // block is only in the pending `store_update`, so it uses
+            // `seed_chunk_producers_for_first_block` (empty blacklist, no walk) instead.
             let aggregator = self.get_epoch_info_aggregator_upto_last(block_hash)?;
             let ChunkProducerBlacklist { blacklist, shard_stats } = blacklist_for_epoch(
                 &aggregator,
@@ -2229,12 +2223,10 @@ impl EpochManager {
                 sample_epoch_info,
                 sample_shard_layout,
             );
-            // The seeder is the SINGLE owner of the safety-valve observability: it is
-            // the production write path and runs once per recorded block. The accessor
-            // recomputes on every consensus read, so emitting there would double-count.
-            // `shard_stats` only holds shards with candidates, so drive the gauge from
-            // the full shard set — a shard that recovered (or an epoch-boundary reset
-            // with empty stats) must fall back to 0 so the gauge never sticks stale.
+            // emit only here, never in the accessor: the accessor recomputes on every
+            // consensus read and would double-count. `shard_stats` only holds shards with
+            // candidates, so drive the gauge over the full shard set. a recovered shard, or an
+            // empty epoch-boundary reset, must fall back to 0 so the gauge never sticks stale.
             use crate::metrics::{EARLY_KICKOUT_BLACKLIST_SIZE, EARLY_KICKOUT_SAFETY_VALVE_FIRED};
             for shard_id in sample_shard_layout.shard_ids() {
                 let raw = shard_stats.get(&shard_id).map_or(0, |s| s.raw_candidate_count);
