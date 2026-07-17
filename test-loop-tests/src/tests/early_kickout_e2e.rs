@@ -301,7 +301,7 @@ fn test_early_kickout_epoch_sync_bootstrap() {
 
     let source_em = env.node(0).client().epoch_manager.clone();
 
-    // A': induce the reassignment BEFORE the fresh node joins, so it syncs into a
+    // induce the reassignment BEFORE the fresh node joins, so it syncs into a
     // network that already has an active kickout. StopProduce is permanent, so the
     // target keeps missing and (kickout thresholds at 0 -> never standard-kicked)
     // stays blacklisted in every epoch it accumulates enough misses.
