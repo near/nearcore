@@ -511,7 +511,7 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     );
 }
 
-// Scope A' equivalence: the seeded `DBCol::ChunkProducers` row equals the plain height
+// the seeded `DBCol::ChunkProducers` row equals the plain height
 // sampler while the blacklist is empty, and equals the blacklist-aware sampler (never the
 // down node) once it is non-empty. The strict consensus reader returns that same row.
 #[cfg(feature = "nightly")]
@@ -574,7 +574,7 @@ fn seeded_rows_match_blacklist_aware_sampler() {
     );
 }
 
-// Missing-row invariant (from the Codex debate): wherever the blacklist as of an anchor is
+// Missing-row invariant: wherever the blacklist as of an anchor is
 // non-empty, that anchor's `DBCol::ChunkProducers` rows are present for every shard. So the
 // aggregator's lenient reader never height-samples (which would re-credit the down node)
 // while a blacklist is active -- the missing-row region and the non-empty-blacklist region
