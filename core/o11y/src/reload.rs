@@ -1,8 +1,10 @@
 use crate::opentelemetry::get_opentelemetry_filter;
 use crate::{BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel, log_config, log_counter};
+#[cfg(feature = "otlp")]
 use opentelemetry_sdk::trace::Tracer;
 use std::sync::OnceLock;
 use tracing_appender::non_blocking::NonBlocking;
+#[cfg(feature = "otlp")]
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::filter::Filtered;
 use tracing_subscriber::layer::Layered;
@@ -37,11 +39,13 @@ pub(crate) type SimpleLogLayer<Inner, W> = Layered<
     Inner,
 >;
 
+#[cfg(feature = "otlp")]
 pub(crate) type TracingLayer<Inner> = Layered<
     Filtered<OpenTelemetryLayer<Inner, Tracer>, reload::Layer<EnvFilter, Inner>, Inner>,
     Inner,
 >;
 
+#[cfg(feature = "otlp")]
 pub(crate) fn set_log_layer_handle(
     handle: Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
 ) {
@@ -50,6 +54,7 @@ pub(crate) fn set_log_layer_handle(
         .unwrap_or_else(|_| panic!("Failed to set Log Layer Filter"));
 }
 
+#[cfg(feature = "otlp")]
 pub(crate) fn set_otlp_layer_handle(
     handle: Handle<EnvFilter, LogLayer<log_counter::LogCountingLayer<Registry>>>,
 ) {
@@ -58,6 +63,7 @@ pub(crate) fn set_otlp_layer_handle(
         .unwrap_or_else(|_| panic!("Failed to set OTLP Layer Filter"));
 }
 
+#[cfg(feature = "otlp")]
 pub(crate) fn set_default_otlp_level(level: OpenTelemetryLevel) {
     // Record the initial tracing level specified as a command-line flag. Use this recorded value to
     // reset opentelemetry filter when the LogConfig file gets deleted.

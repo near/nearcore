@@ -46,7 +46,7 @@ time.workspace = true
 
 near-async.workspace = true
 near-fmt.workspace = true
-near-o11y.workspace = true
+near-o11y = { workspace = true, features = ["otlp"] }
 near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-primitives = { workspace = true, features = ["rand", "solomon", "clock", "test_utils"] }

@@ -1,14 +1,26 @@
+#[cfg(feature = "otlp")]
 use crate::reload::TracingLayer;
+#[cfg(feature = "otlp")]
 use near_crypto::PublicKey;
+#[cfg(feature = "otlp")]
 use near_primitives_core::types::AccountId;
+#[cfg(feature = "otlp")]
 use opentelemetry::KeyValue;
+#[cfg(feature = "otlp")]
 use opentelemetry::trace::TracerProvider;
+#[cfg(feature = "otlp")]
 use opentelemetry_sdk::Resource;
+#[cfg(feature = "otlp")]
 use opentelemetry_sdk::trace::{BatchSpanProcessor, RandomIdGenerator, Sampler, SdkTracerProvider};
+#[cfg(feature = "otlp")]
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
+use tracing_subscriber::EnvFilter;
+#[cfg(feature = "otlp")]
 use tracing_subscriber::layer::SubscriberExt;
+#[cfg(feature = "otlp")]
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{EnvFilter, Layer, reload};
+#[cfg(feature = "otlp")]
+use tracing_subscriber::{Layer, reload};
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
 #[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]
@@ -24,6 +36,7 @@ pub enum OpenTelemetryLevel {
 //
 // NB: this function is `async` because `tonic` (gRPC server) requires a tokio context to
 // register timers and channels and whatnot.
+#[cfg(feature = "otlp")]
 pub(crate) async fn add_opentelemetry_layer<S>(
     opentelemetry_level: OpenTelemetryLevel,
     chain_id: String,

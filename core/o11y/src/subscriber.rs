@@ -1,16 +1,24 @@
+#[cfg(feature = "otlp")]
 use crate::opentelemetry::add_opentelemetry_layer;
+use crate::reload::SimpleLogLayer;
+#[cfg(feature = "otlp")]
 use crate::reload::{
-    LogLayer, SimpleLogLayer, set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle,
+    LogLayer, set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle,
 };
 use crate::{OpenTelemetryLevel, log_counter};
+#[cfg(feature = "otlp")]
 use near_crypto::PublicKey;
+#[cfg(feature = "otlp")]
 use near_primitives_core::types::AccountId;
 use std::path::PathBuf;
 use tracing::subscriber::DefaultGuard;
+#[cfg(feature = "otlp")]
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{EnvFilter, Layer, fmt, reload};
+#[cfg(feature = "otlp")]
+use tracing_subscriber::reload;
+use tracing_subscriber::{EnvFilter, Layer, fmt};
 
 /// The resource representing a registered subscriber.
 ///
@@ -125,6 +133,7 @@ fn get_fmt_span(with_span_events: bool) -> fmt::format::FmtSpan {
     }
 }
 
+#[cfg(feature = "otlp")]
 fn add_non_blocking_log_layer<S>(
     filter: EnvFilter,
     writer: NonBlocking,
@@ -236,6 +245,7 @@ pub fn default_subscriber(
 ///
 /// The subscriber enables logging, tracing and io tracing.
 /// Subscriber creation needs an async runtime.
+#[cfg(feature = "otlp")]
 pub async fn default_subscriber_with_opentelemetry(
     env_filter: EnvFilter,
     options: &Options,

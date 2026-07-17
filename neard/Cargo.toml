@@ -43,7 +43,7 @@ near-fork-network.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-mirror.workspace = true
 near-network.workspace = true
-near-o11y.workspace = true
+near-o11y = { workspace = true, features = ["otlp"] }
 near-ping.workspace = true
 near-primitives.workspace = true
 near-replay-archive-tool.workspace = true
