@@ -1250,7 +1250,6 @@ fn test_epoch_info_aggregator_overwrites_latest_version_and_proposal() {
 
     let h = hash_range(5);
     record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
-    // Block 1: low version + small proposal.
     record_block_with_version(
         &mut em,
         h[0],

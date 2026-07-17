@@ -40,7 +40,6 @@ pub(crate) static RESHARDING_ASSIGNMENT_STRATEGY: LazyLock<IntCounterVec> = Lazy
     .unwrap()
 });
 
-// Nightly-only: the seeder that increments it is gated on `feature = "nightly"`.
 #[cfg(feature = "nightly")]
 pub(crate) static EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
