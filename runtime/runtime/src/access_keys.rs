@@ -339,7 +339,7 @@ mod tests {
     use super::*;
     use crate::ActionResult;
     use crate::ApplyState;
-    use crate::actions_test_utils::{setup_account, test_delete_account};
+    use crate::actions_test_utils::{setup_account, setup_account_with_tries, test_delete_account};
     use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
     use crate::state_viewer::errors::ViewAccessKeyError;
@@ -360,7 +360,8 @@ mod tests {
     };
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::{
-        ShardUId, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, set_access_key,
+        ShardTries, ShardUId, Trie, TrieUpdate, get_access_key, get_account, get_gas_key_nonce,
+        set_access_key, set_account,
     };
     use std::collections::HashSet;
     use std::num::NonZeroU32;
@@ -788,7 +789,8 @@ mod tests {
     #[test]
     fn test_view_access_keys_returns_gas_keys() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
 
         let gas_key_public_key1 =
@@ -800,8 +802,9 @@ mod tests {
                 .public_key();
         add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key2);
 
+        let trie = commit_to_view_trie(&tries, state_update);
         let (access_keys, last_key) = TrieViewer::default()
-            .view_access_keys(&state_update, &account_id, None, None)
+            .view_access_keys(&trie, &account_id, None, None)
             .expect("expected to find access keys");
         assert_eq!(last_key, None, "unpaginated listing should not return a cursor");
 
@@ -819,8 +822,57 @@ mod tests {
         assert_eq!(returned, expected);
     }
 
+    /// A listing must be bounded to the requested account and never leak another
+    /// account's keys. The second account's id has the first's id as a byte
+    /// prefix.
+    #[test]
+    fn test_view_access_keys_excludes_other_accounts() {
+        let account_a: AccountId = "alice.near".parse().unwrap();
+        let account_b: AccountId = "alice.nearby".parse().unwrap();
+
+        let setup_pk = PublicKey::from_seed(KeyType::ED25519, "a_setup");
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_a, &setup_pk, &AccessKey::full_access());
+
+        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
+        expected.insert(PublicKeyHandle::from(setup_pk));
+        expected.extend(seed_extra_keys(&mut state_update, &account_a, 3));
+
+        // A second account sharing a leading substring, with its own key.
+        let account_b_obj =
+            Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
+        set_account(&mut state_update, account_b.clone(), &account_b_obj);
+        let b_only = PublicKey::from_seed(KeyType::ED25519, "b_only_key");
+        set_access_key(&mut state_update, account_b, b_only.clone(), &AccessKey::full_access());
+
+        let trie = commit_to_view_trie(&tries, state_update);
+        let (access_keys, last_key) = TrieViewer::default()
+            .view_access_keys(&trie, &account_a, None, None)
+            .expect("listing account_a should succeed");
+        assert_eq!(last_key, None);
+        let returned: HashSet<PublicKeyHandle> =
+            access_keys.into_iter().map(|(pk, _)| pk).collect();
+        assert!(
+            !returned.contains(&PublicKeyHandle::from(b_only)),
+            "another account's key leaked into the listing"
+        );
+        assert_eq!(returned, expected, "listing must return exactly account_a's keys");
+    }
+
     fn viewer_with_limit(limit: u32) -> TrieViewer {
         TrieViewer::new(RuntimeConfigStore::new(None), None, limit, None)
+    }
+
+    /// Commits `state_update`'s overlay writes to its backing store and returns a
+    /// read-only view `Trie` at the resulting state root, mirroring the
+    /// production view path (which iterates a committed trie with no overlay).
+    fn commit_to_view_trie(tries: &ShardTries, mut state_update: TrieUpdate) -> Trie {
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+        tries.get_view_trie_for_shard(ShardUId::single_shard(), root)
     }
 
     /// Seeds `count` extra plain full-access keys on top of the account's setup
@@ -843,12 +895,14 @@ mod tests {
     #[test]
     fn test_view_access_keys_unpaginated_over_limit_errors() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
         // Setup provides 1 key; add 6 more -> 7 total, over the limit of 5.
         seed_extra_keys(&mut state_update, &account_id, 6);
 
+        let trie = commit_to_view_trie(&tries, state_update);
         let err = viewer_with_limit(5)
-            .view_access_keys(&state_update, &account_id, None, None)
+            .view_access_keys(&trie, &account_id, None, None)
             .expect_err("unpaginated listing over the limit should error");
         assert!(
             matches!(err, ViewAccessKeyError::TooManyAccessKeys { limit: 5, .. }),
@@ -859,12 +913,14 @@ mod tests {
     #[test]
     fn test_view_access_keys_unpaginated_at_limit_ok() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
         // Setup provides 1 key; add 4 more -> exactly 5, at the limit.
         seed_extra_keys(&mut state_update, &account_id, 4);
 
+        let trie = commit_to_view_trie(&tries, state_update);
         let (keys, last_key) = viewer_with_limit(5)
-            .view_access_keys(&state_update, &account_id, None, None)
+            .view_access_keys(&trie, &account_id, None, None)
             .expect("exactly-at-limit unpaginated listing should succeed");
         assert_eq!(keys.len(), 5);
         assert_eq!(last_key, None, "a complete listing should not return a cursor");
@@ -873,11 +929,13 @@ mod tests {
     #[test]
     fn test_view_access_keys_paginated_request_over_limit_clamps() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
         seed_extra_keys(&mut state_update, &account_id, 6);
 
+        let trie = commit_to_view_trie(&tries, state_update);
         let (keys, last_key) = viewer_with_limit(5)
-            .view_access_keys(&state_update, &account_id, None, NonZeroU32::new(6))
+            .view_access_keys(&trie, &account_id, None, NonZeroU32::new(6))
             .expect("a page larger than the max should be clamped, not rejected");
         assert_eq!(keys.len(), 5, "page should be clamped to the configured max");
         assert!(last_key.is_some(), "a truncated listing should return a resume cursor");
@@ -890,7 +948,8 @@ mod tests {
     #[test]
     fn test_view_access_keys_paginated_walk() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
 
         let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
@@ -902,11 +961,12 @@ mod tests {
             expected.insert(PublicKeyHandle::from(pk));
         }
 
+        let trie = commit_to_view_trie(&tries, state_update);
         let viewer = viewer_with_limit(5);
         let mut collected: HashSet<PublicKeyHandle> = HashSet::new();
         // First page uses an explicit limit; resumes default to the config max.
         let (mut page, mut cursor) = viewer
-            .view_access_keys(&state_update, &account_id, None, NonZeroU32::new(5))
+            .view_access_keys(&trie, &account_id, None, NonZeroU32::new(5))
             .expect("first page should succeed");
         loop {
             assert!(page.len() <= 5, "no page may exceed the config limit");
@@ -915,7 +975,7 @@ mod tests {
             }
             let Some(after) = cursor else { break };
             (page, cursor) = viewer
-                .view_access_keys(&state_update, &account_id, Some(&after), None)
+                .view_access_keys(&trie, &account_id, Some(&after), None)
                 .expect("resume should succeed");
         }
         assert_eq!(collected, expected, "paged walk did not cover the full key set exactly");

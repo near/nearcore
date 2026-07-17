@@ -318,7 +318,7 @@ impl User for RuntimeUser {
     fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_access_keys(&state_update, account_id, None, None)
+            .view_access_keys(&state_update.trie, account_id, None, None)
             .map(|(access_keys, _last_key)| access_keys.is_empty())
             .map_err(|err| err.to_string())
     }

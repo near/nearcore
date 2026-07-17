@@ -1859,8 +1859,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
         node_runtime::state_viewer::errors::ViewAccessKeyError,
     > {
-        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_access_keys(&state_update, account_id, after, limit)
+        let trie = self.tries.get_view_trie_for_shard(*shard_uid, state_root);
+        self.trie_viewer.view_access_keys(&trie, account_id, after, limit)
     }
 
     fn view_gas_key_nonces(
