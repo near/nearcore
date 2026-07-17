@@ -82,6 +82,9 @@ pub mod test_utils;
 mod tests;
 mod trie_update_wrapper;
 
+/// Max transactions taken from one group per visit when selecting a chunk batch.
+const MAX_TXS_PER_GROUP_PER_VISIT: usize = 256;
+
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
@@ -970,8 +973,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            // Take a single transaction from this transaction group
+            // Transactions taken from this group so far this visit.
+            let mut examined_from_group = 0usize;
+
+            // Take transactions from this transaction group.
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
+                examined_from_group += 1;
+                if MAX_TXS_PER_GROUP_PER_VISIT < examined_from_group {
+                    break;
+                }
+
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.size_for_limits(protocol_version))
                     > size_limit as u64

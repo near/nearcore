@@ -1,6 +1,8 @@
 #[cfg(feature = "nightly")]
 mod tests {
+    use crate::Chain;
     use crate::ChainStoreAccess;
+    use crate::garbage_collection::GCMode;
     use crate::test_utils::{setup, setup_with_tx_validity_period};
     use near_async::time::{Duration, FakeClock, Utc};
     use near_crypto::{KeyType, PublicKey};
@@ -429,6 +431,301 @@ mod tests {
                 .unwrap();
             assert_eq!(resolved.account_id(), canonical.account_id());
         }
+    }
+
+    /// Hot GC deletes a below-boundary anchor's ChunkProducers rows while retaining rows for
+    /// anchors that later blocks still resolve against.
+    #[test]
+    fn test_chunk_producers_garbage_collected_with_block() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        let mut hashes = vec![*chain.genesis().hash()];
+        for _ in 0..9 {
+            let prev_hash = *chain.head_header().unwrap().hash();
+            let prev = chain.get_block(&prev_hash).unwrap();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            hashes.push(*block.hash());
+            chain.process_block_test(block).unwrap();
+        }
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&hashes[1]).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        let row = |chain: &Chain, anchor: &CryptoHash| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
+        };
+
+        for anchor in &hashes {
+            assert!(row(&chain, anchor).is_some(), "row should exist before GC for {anchor}");
+        }
+
+        // GCMode::Canonical clears block_hash.prev, so passing hashes[5] clears anchor hashes[4].
+        let cleared_anchor = hashes[4];
+        let input_hash = hashes[5];
+        let tries = chain.runtime_adapter.get_tries();
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update
+            .clear_block_data(epoch_manager.as_ref(), input_hash, GCMode::Canonical(tries))
+            .unwrap();
+        store_update.commit().unwrap();
+
+        assert!(
+            row(&chain, &cleared_anchor).is_none(),
+            "below-boundary anchor row must be deleted"
+        );
+        assert!(row(&chain, &input_hash).is_some(), "canonical GC clears prev, not the input hash");
+
+        // The chunk built on hashes[7] anchors on its grandparent hashes[6].
+        assert!(row(&chain, &hashes[6]).is_some(), "above-boundary anchor row must be retained");
+        assert!(
+            epoch_manager.get_chunk_producer_info_from_prev_block(&hashes[7], shard_id).is_ok(),
+            "retained anchor must still resolve"
+        );
+    }
+
+    /// GCMode::Fork deletes a fork block's ChunkProducers rows too. The delete lives in the
+    /// shared clear_block_data body, so Fork and Canonical run the same line today; this is a
+    /// regression guard in case the two ever stop sharing it.
+    #[test]
+    fn test_chunk_producers_garbage_collected_on_fork() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Canonical chain: genesis + blocks 1..=3 (head = height 3).
+        let mut hashes = vec![*chain.genesis().hash()];
+        for _ in 0..3 {
+            let prev_hash = *chain.head_header().unwrap().hash();
+            let prev = chain.get_block(&prev_hash).unwrap();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            hashes.push(*block.hash());
+            chain.process_block_test(block).unwrap();
+        }
+
+        // Fork sibling with a body at height 3 (built on canonical block 2, distinct clock tick
+        // so its hash differs from block 3). It is a leaf, so its refcount is 0 and it can be
+        // cleared as a fork.
+        let parent = chain.get_block(&hashes[2]).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let fork = TestBlockBuilder::from_prev_block(clock.clock(), &parent, signer).build();
+        let fork_hash = *fork.hash();
+        assert_eq!(fork.header().height(), 3, "fork sibling must be at height 3");
+        assert_ne!(fork_hash, hashes[3], "fork must differ from canonical block 3");
+        chain.process_block_test(fork).unwrap();
+
+        // Confirm the fork is off the canonical chain (head did not switch to it), so
+        // GCMode::Fork applies.
+        assert_ne!(
+            chain.head().unwrap().last_block_hash,
+            fork_hash,
+            "fork must not be the canonical head"
+        );
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&hashes[1]).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+        let row = |chain: &Chain| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(&fork_hash, shard_id))
+        };
+        assert!(row(&chain).is_some(), "fork's row should exist before GC");
+
+        // GCMode::Fork clears the given block directly (no prev reassignment).
+        let tries = chain.runtime_adapter.get_tries();
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update
+            .clear_block_data(epoch_manager.as_ref(), fork_hash, GCMode::Fork(tries))
+            .unwrap();
+        store_update.commit().unwrap();
+
+        assert!(row(&chain).is_none(), "fork block's ChunkProducers rows must be deleted");
+    }
+
+    /// clear_head_block_data (the undo-block path) deletes ChunkProducers exactly where it
+    /// deletes BlockInfo: for the body head only. Header-only anchors above the body head keep
+    /// both their BlockInfo and their ChunkProducers rows, so the rows stay valid and survive a
+    /// header re-sync. Mirroring BlockInfo lets re-processing the body head re-seed its row
+    /// cleanly.
+    #[test]
+    fn test_chunk_producers_garbage_collected_on_undo_block() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Build a chain sharing one merkle tree so the header-only blocks validate on sync.
+        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let mut blocks = vec![genesis];
+        let mut block_merkle_tree = PartialMerkleTree::default();
+        for i in 0..5 {
+            clock.advance(Duration::milliseconds(1));
+            let epoch_sync_data_hash = if blocks[i].header().is_genesis() {
+                epoch_manager.compute_epoch_sync_data_hash(blocks[i].hash()).unwrap()
+            } else {
+                None
+            };
+            blocks.push(
+                TestBlockBuilder::from_prev_block(clock.clock(), &blocks[i], signer.clone())
+                    .block_merkle_tree(&mut block_merkle_tree)
+                    .epoch_sync_data_hash(epoch_sync_data_hash)
+                    .build(),
+            );
+        }
+
+        // Process bodies for heights 1..=3 (body head becomes height 3).
+        for block in &blocks[1..=3] {
+            chain.process_block_test(block.clone()).unwrap();
+        }
+        // Sync only the headers for heights 4..=5 (header_head advances past the body head).
+        chain
+            .sync_block_headers(blocks[4..=5].iter().map(|b| b.header().clone().into()).collect())
+            .unwrap();
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(blocks[1].hash()).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
+        let row = |chain: &Chain, anchor: &CryptoHash, shard_id| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(anchor, shard_id))
+        };
+
+        for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
+            for shard_id in shard_layout.shard_ids() {
+                assert!(row(&chain, anchor, shard_id).is_some(), "row should exist for {anchor}");
+            }
+        }
+
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update.clear_head_block_data(epoch_manager.as_ref()).unwrap();
+        store_update.commit().unwrap();
+
+        // Body head (blocks[3]) row is deleted alongside its BlockInfo.
+        for shard_id in shard_layout.shard_ids() {
+            assert!(
+                row(&chain, blocks[3].hash(), shard_id).is_none(),
+                "undo-block must delete ChunkProducers for the body head {}",
+                blocks[3].hash()
+            );
+        }
+        // Header-only anchors keep their BlockInfo, so their ChunkProducers rows must stay
+        // paired (retained).
+        for anchor in [blocks[4].hash(), blocks[5].hash()] {
+            for shard_id in shard_layout.shard_ids() {
+                assert!(
+                    row(&chain, anchor, shard_id).is_some(),
+                    "undo-block must retain ChunkProducers for header-only anchor {anchor}"
+                );
+            }
+        }
+
+        // Re-syncing the headers must keep the header-only rows valid (cache-independent: the
+        // rows were never deleted). Do not assert the body head re-seeds in-process:
+        // record_block_info_impl gates on has_block_info, which reads the epoch-manager
+        // blocks_info LRU cache before the store; clear_head_block_data deletes BlockInfo only
+        // from the store, so has_block_info(body_head) may still be true and the seeder is
+        // skipped. tools/undo-block runs a fresh EpochManager (empty cache) and re-seeds
+        // correctly.
+        chain
+            .sync_block_headers(blocks[3..=5].iter().map(|b| b.header().clone().into()).collect())
+            .unwrap();
+        for anchor in [blocks[4].hash(), blocks[5].hash()] {
+            for shard_id in shard_layout.shard_ids() {
+                assert!(
+                    row(&chain, anchor, shard_id).is_some(),
+                    "header re-sync must keep ChunkProducers for header-only anchor {anchor}"
+                );
+            }
+        }
+    }
+
+    /// Normal canonical GC deletes ChunkProducers rows for header-only hashes (fork
+    /// siblings, synced-ahead headers never given a body). Those rows are seeded per header
+    /// but are not covered by clear_block_data (which only clears block-body hashes); the
+    /// clear_chunk_data_and_headers sweep must delete them before HeaderHashesByHeight is
+    /// dropped, else they orphan permanently once the height index is gone.
+    #[test]
+    fn test_chunk_producers_garbage_collected_for_header_only_fork() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
+        for i in 0..6 {
+            let prev = blocks[i].clone();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            blocks.push(block.clone());
+            chain.process_block_test(block).unwrap();
+        }
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(blocks[1].hash()).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        // Header-only fork sibling at height 2, built on canonical block 1 with a distinct clock
+        // tick so it has a different hash than canonical block 2. No body is ever processed.
+        clock.advance(Duration::milliseconds(1));
+        let fork = TestBlockBuilder::from_prev_block(clock.clock(), &blocks[1], signer).build();
+        let fork_hash = *fork.hash();
+        assert_eq!(fork.header().height(), 2, "fork sibling must be at height 2");
+        assert_ne!(fork_hash, *blocks[2].hash(), "fork must differ from canonical block 2");
+
+        // Mirror what header sync writes: the header (adds fork_hash to HeaderHashesByHeight[2])
+        // plus a ChunkProducers row keyed by (fork_hash, shard_id).
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update.save_block_header(fork.header().clone()).unwrap();
+        store_update.commit().unwrap();
+        let sentinel = ValidatorStake::new(
+            "fork-cp".parse().unwrap(),
+            PublicKey::empty(KeyType::ED25519),
+            Balance::from_yoctonear(1),
+        );
+        let mut store_update = chain.chain_store().store().store_update();
+        store_update.insert_ser(
+            DBCol::ChunkProducers,
+            &get_block_shard_id(&fork_hash, shard_id),
+            &sentinel,
+        );
+        store_update.commit();
+
+        let fork_row = |chain: &Chain| -> Option<ValidatorStake> {
+            chain
+                .chain_store()
+                .store()
+                .get_ser(DBCol::ChunkProducers, &get_block_shard_id(&fork_hash, shard_id))
+        };
+        assert!(fork_row(&chain).is_some(), "fork's row should exist before the sweep");
+
+        // Drive the header sweep directly over heights chunk_tail(0)..4 (exclusive), covering
+        // height 2. In TestBlockBuilder chains min_chunk_height stays 0 (blocks reuse the genesis
+        // chunk), so a full clear_data never advances the sweep; calling it directly is the
+        // deterministic way to exercise the header-only deletion.
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update.clear_chunk_data_and_headers(4).unwrap();
+        store_update.commit().unwrap();
+
+        assert!(
+            fork_row(&chain).is_none(),
+            "header-only fork's ChunkProducers row must be deleted by the header sweep"
+        );
     }
 
     /// Resolution errors on a missing anchor DB row under EarlyKickout (strict read).
