@@ -54,18 +54,28 @@ pub fn build_block_data(
     let next_block_hash = store.get_next_block_hash(&block_hash)?;
     // `read_chunk_producers` needs the base `Store`, not the chain-store adapter
     // that shadows `store` above.
-    let chunk_producers = read_chunk_producers(store.store_ref(), &block_hash);
+    let chunk_producers = read_chunk_producers(store.store_ref(), &block_hash)?;
     let block_data = BlockDataV1 { block, block_info, next_block_hash, chunk_producers };
     Ok(Some(BlockData::V1(block_data)))
 }
 
 #[cfg(feature = "nightly")]
-fn read_chunk_producers(store: &Store, block_hash: &CryptoHash) -> Vec<(ShardId, ValidatorStake)> {
+fn read_chunk_producers(
+    store: &Store,
+    block_hash: &CryptoHash,
+) -> Result<Vec<(ShardId, ValidatorStake)>, Error> {
     use crate::DBCol;
     use near_primitives::utils::get_block_shard_id_rev;
     store
-        .iter_prefix_ser::<ValidatorStake>(DBCol::ChunkProducers, block_hash.as_ref())
-        .map(|(key, stake)| (get_block_shard_id_rev(&key).unwrap().1, stake))
+        .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
+        .map(|(key, value)| {
+            let shard_id = get_block_shard_id_rev(&key)
+                .map_err(|err| Error::Other(format!("malformed chunk producers key: {err}")))?
+                .1;
+            let stake = ValidatorStake::try_from_slice(&value)
+                .map_err(|err| Error::Other(format!("malformed chunk producers value: {err}")))?;
+            Ok((shard_id, stake))
+        })
         .collect()
 }
 
@@ -73,8 +83,8 @@ fn read_chunk_producers(store: &Store, block_hash: &CryptoHash) -> Vec<(ShardId,
 fn read_chunk_producers(
     _store: &Store,
     _block_hash: &CryptoHash,
-) -> Vec<(ShardId, ValidatorStake)> {
-    Vec::new()
+) -> Result<Vec<(ShardId, ValidatorStake)>, Error> {
+    Ok(Vec::new())
 }
 
 impl BlockData {

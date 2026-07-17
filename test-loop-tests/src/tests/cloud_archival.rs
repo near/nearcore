@@ -1571,7 +1571,7 @@ fn test_cloud_archival_reader_reconstructs_chunk_producers() {
     let block_hash = writer.chain_store().get_block_hash_by_height(boundary_height).unwrap();
 
     // Writer's own ChunkProducers rows for the boundary block, keyed
-    // block_hash‖shard_id.
+    // block_hash||shard_id.
     let writer_rows: BTreeMap<Vec<u8>, Vec<u8>> = writer
         .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
         .map(|(k, v)| (k.into_vec(), v.into_vec()))
