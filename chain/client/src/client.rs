@@ -1623,16 +1623,16 @@ impl Client {
             DecodedChunk::Valid(shard_chunk) => Some(shard_chunk),
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
-                self.save_invalid_chunk(encoded_chunk, &chunk_header);
                 let epoch_id = self
                     .epoch_manager
                     .get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                 if !ProtocolFeature::Spice.enabled(protocol_version) {
-                    // Pre-SPICE, we don't process invalid chunks. This is okay as they cannot be
-                    // included on chain as validators will not endorse invalid chunks.
+                    // Pre-SPICE, we don't process invalid chunks.
                     return Ok(());
                 }
+                // SPICE path: persist the invalid chunk as evidence.
+                self.save_invalid_chunk(encoded_chunk, &chunk_header);
                 // We intentionally do NOT store a ShardChunk in DBCol::Chunks:
                 // the header commits to malicious content, so pairing it with an
                 // empty body would break validate_chunk_proofs for any reader.
