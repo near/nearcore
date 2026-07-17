@@ -512,6 +512,10 @@ impl External for MockedExternal {
     fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
         self.action_log.push(MockAction::SetRefundTo { receipt_index, refund_to });
     }
+
+    fn post_quantum_keys_enabled(&self) -> bool {
+        true
+    }
 }
 
 impl crate::Contract for MockedExternal {

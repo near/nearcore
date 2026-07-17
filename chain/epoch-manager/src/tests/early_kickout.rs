@@ -6,6 +6,8 @@
 use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 #[cfg(feature = "nightly")]
 use crate::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS;
+#[cfg(feature = "nightly")]
+use crate::epoch_info_aggregator::EpochInfoAggregator;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager};
 use crate::{
@@ -364,7 +366,7 @@ fn early_kickout_attribution_does_not_flap() {
 
     // Snapshot validator 0's and the replacement's stats at the blacklist point.
     let agg_before = handle.read().get_epoch_info_aggregator_upto_last(&prev).unwrap();
-    let stats = |agg: &crate::epoch_info_aggregator::EpochInfoAggregator, id: ValidatorId| {
+    let stats = |agg: &EpochInfoAggregator, id: ValidatorId| {
         agg.shard_tracker
             .get(&shard_id)
             .and_then(|m| m.get(&id))
@@ -795,6 +797,295 @@ fn seed_walk_bounded_under_finality_stall() {
     let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
     // The seed re-scans the not-yet-finalized suffix each block: total ~ sum_{k=1..count} k. Pin a
     // generous O(depth^2) upper bound; a future cache drops it toward O(count).
+    let upper = (count * (count + 1)) as usize;
+    let count = count as usize;
+    assert!(walked >= count, "seed walk should touch >= 1 block per recorded block, got {walked}");
+    assert!(
+        walked <= upper,
+        "seed walk cost {walked} exceeds O(depth^2) bound {upper} — regression?"
+    );
+}
+
+// The seeded `DBCol::ChunkProducers` row equals the plain height
+// sampler while the blacklist is empty, and equals the blacklist-aware sampler (never the
+// down node) once it is non-empty. The strict consensus reader returns that same row.
+#[cfg(feature = "nightly")]
+#[test]
+fn seeded_rows_match_blacklist_aware_sampler() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let count = 200;
+    let h = drive_down_node(&handle, count, 0);
+    let epoch_id = handle.get_epoch_id(&h[1]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+
+    // Early anchor: blacklist empty, so the row must equal the plain height sample.
+    let early = 5u64;
+    let early_bl = handle.get_chunk_producer_blacklist(&h[early as usize]).unwrap();
+    assert!(early_bl.is_empty(), "early anchor should have an empty blacklist, got {early_bl:?}");
+    let early_height = early + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+    let plain = epoch_info
+        .get_validator(epoch_info.sample_chunk_producer(&layout, shard_id, early_height).unwrap());
+    let stored_early = handle
+        .get_chunk_producer_info_anchored(
+            Some(&h[early as usize]),
+            &epoch_id,
+            early_height,
+            shard_id,
+        )
+        .unwrap();
+    assert_eq!(stored_early, plain, "empty-blacklist row must equal the plain height sample");
+
+    // Late window: blacklist is {0}. No seeded row may be the down node, even at heights
+    // where the plain sampler would have picked it -> proves exclusion is applied.
+    let late_bl = handle.get_chunk_producer_blacklist(&h[count as usize]).unwrap();
+    assert_eq!(
+        late_bl,
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+        "late anchor should blacklist validator 0"
+    );
+    let mut plain_would_pick_down = false;
+    for i in (count - 40)..=count {
+        let anchor = h[i as usize];
+        let ch = i + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let stored = handle
+            .get_chunk_producer_info_anchored(Some(&anchor), &epoch_id, ch, shard_id)
+            .unwrap();
+        assert_ne!(
+            epoch_info.get_validator_id(stored.account_id()).copied(),
+            Some(0),
+            "no seeded row in the blacklist window may be the down node (anchor height {i})"
+        );
+        if epoch_info.sample_chunk_producer(&layout, shard_id, ch) == Some(0) {
+            plain_would_pick_down = true;
+        }
+    }
+    assert!(
+        plain_would_pick_down,
+        "expected a height where the plain sampler picks the down node, else exclusion is untested"
+    );
+}
+
+// Missing-row invariant: wherever the blacklist as of an anchor is
+// non-empty, that anchor's `DBCol::ChunkProducers` rows are present for every shard. So the
+// aggregator's lenient reader never height-samples (which would re-credit the down node)
+// while a blacklist is active -- the missing-row region and the non-empty-blacklist region
+// are disjoint.
+#[cfg(feature = "nightly")]
+#[test]
+fn nonempty_blacklist_anchor_always_has_row() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let count = 200;
+    let h = drive_down_node(&handle, count, 0);
+    let epoch_id = handle.get_epoch_id(&h[1]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+
+    let mut checked = 0;
+    for i in 1..=count {
+        let anchor = h[i as usize];
+        let bl = handle.get_chunk_producer_blacklist(&anchor).unwrap();
+        if bl.is_empty() {
+            continue;
+        }
+        checked += 1;
+        // The strict anchored reader errors `ChunkProducerNotInDB` on a miss, so `Ok`
+        // proves the row is present (the lenient aggregator path would never fall back
+        // to height sampling here).
+        for shard_id in layout.shard_ids() {
+            let res = handle.get_chunk_producer_info_anchored(
+                Some(&anchor),
+                &epoch_id,
+                i + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+                shard_id,
+            );
+            assert!(
+                res.is_ok(),
+                "anchor at height {i} has a non-empty blacklist but no ChunkProducers row for shard {shard_id}: {res:?}"
+            );
+        }
+    }
+    assert!(checked > 0, "no non-empty-blacklist anchor exercised; test is vacuous");
+}
+
+// Per-shard isolation: with 2 shards, driving shard 0's producer down blacklists it on
+// shard 0 only and leaves shard 1 healthy. Exercises the seeder's per-shard blacklist + loop
+// (every other early_kickout test is single-shard) and the reassignment metric.
+#[cfg(feature = "nightly")]
+#[test]
+fn per_shard_blacklist_isolated() {
+    use crate::metrics::EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED;
+    let validators = vec![
+        ("test0".parse().unwrap(), STAKE),
+        ("test1".parse().unwrap(), STAKE),
+        ("test2".parse().unwrap(), STAKE),
+        ("test3".parse().unwrap(), STAKE),
+    ];
+    let handle = setup_default_epoch_manager(validators, 10_000, 2, 4, 90, 60).into_handle();
+    let count = 200u64;
+    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut handle.write(), CryptoHash::default(), h[0], 0, vec![]);
+    let epoch_id = handle.get_epoch_id(&h[0]).unwrap();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    let shards: Vec<_> = layout.shard_ids().collect();
+    assert_eq!(shards.len(), 2, "test needs a 2-shard layout");
+    let (shard0, shard1) = (shards[0], shards[1]);
+    // Down target = a producer on shard 0; the shard needs >= 2 producers so the safety
+    // valve permits blacklisting one.
+    let s0_index = layout.get_shard_index(shard0).unwrap();
+    let s0_producers = epoch_info.chunk_producers_settlement()[s0_index].clone();
+    assert!(
+        s0_producers.len() >= 2,
+        "shard 0 needs >= 2 producers to blacklist one, got {s0_producers:?}"
+    );
+    let down = s0_producers[0];
+
+    let empty = HashSet::new();
+    let shard0_label = shard0.to_string();
+    let before = EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED.with_label_values(&[&shard0_label]).get();
+    let mut prev = h[0];
+    for height in 1..=count {
+        let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
+        let assigned0 = epoch_info
+            .sample_chunk_producer_excluding(
+                &layout,
+                shard0,
+                height,
+                bl.get(&shard0).unwrap_or(&empty),
+            )
+            .unwrap();
+        let produced0 = assigned0 != down;
+        record_block_with_mask(
+            &mut handle.write(),
+            prev,
+            h[height as usize],
+            height,
+            vec![produced0, true],
+        );
+        prev = h[height as usize];
+    }
+
+    let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
+    assert_eq!(
+        bl.get(&shard0),
+        Some(&HashSet::from([down])),
+        "shard 0 must blacklist exactly the down producer, got {bl:?}"
+    );
+    assert_eq!(bl.get(&shard1), None, "shard 1 must not blacklist anyone, got {bl:?}");
+
+    // The reassignment metric fired for shard 0 (delta, since the counter is process-global).
+    let after = EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED.with_label_values(&[&shard0_label]).get();
+    assert!(after > before, "reassignment metric must increment for shard 0 ({before} -> {after})");
+
+    // Seeded rows: in the blacklist window, shard 0's row never the down producer (proven at a
+    // height where the plain sampler would pick it), while shard 1's row equals the plain pick.
+    let mut plain_would_pick_down = false;
+    for i in (count - 40)..=count {
+        let anchor = h[i as usize];
+        let ch = i + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let s0_stored =
+            handle.get_chunk_producer_info_anchored(Some(&anchor), &epoch_id, ch, shard0).unwrap();
+        assert_ne!(
+            epoch_info.get_validator_id(s0_stored.account_id()).copied(),
+            Some(down),
+            "shard 0 row must exclude the down producer (anchor height {i})"
+        );
+        let s1_stored =
+            handle.get_chunk_producer_info_anchored(Some(&anchor), &epoch_id, ch, shard1).unwrap();
+        let s1_plain = epoch_info
+            .get_validator(epoch_info.sample_chunk_producer(&layout, shard1, ch).unwrap());
+        assert_eq!(s1_stored, s1_plain, "shard 1 row must equal the plain pick (no blacklist)");
+        if epoch_info.sample_chunk_producer(&layout, shard0, ch) == Some(down) {
+            plain_would_pick_down = true;
+        }
+    }
+    assert!(
+        plain_would_pick_down,
+        "expected a height where the plain sampler picks the down producer on shard 0, else \
+         exclusion is untested"
+    );
+}
+
+/// Records a block whose finality is pinned to `(final_hash, final_height)` with all chunks
+/// produced. Holding those fixed across many blocks freezes `largest_final_height`, so
+/// `record_block_info`'s incremental aggregator update is skipped and the per-block seed walk
+/// re-scans the growing not-yet-finalized suffix — the finality-stall regime.
+#[cfg(feature = "nightly")]
+fn record_block_frozen_final(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: u64,
+    final_hash: CryptoHash,
+    final_height: u64,
+) {
+    let epoch_id = em.get_epoch_id(&prev).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    let chunk_mask = vec![true; shard_layout.shard_ids().count()];
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .map(|shard_id| {
+                let assignments =
+                    em.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
+    em.record_block_info(
+        BlockInfo::new(
+            cur,
+            height,
+            final_height,
+            final_hash,
+            prev,
+            vec![],
+            chunk_mask,
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            height * NUM_NS_IN_SECOND,
+            chunk_endorsements,
+            None,
+        ),
+        [0; 32],
+    )
+    .unwrap()
+    .commit();
+}
+
+// Regression guard for the per-block aggregator walk in `seed_chunk_producers`: with finality
+// frozen, the incremental aggregator update is skipped while the seed re-scans the growing
+// not-yet-finalized suffix every block. Pins the current per-block O(stall-depth) walk as a guard
+// and catches a worse-than-quadratic regression. Distinct from the walk-count
+// invariant in `test_finalize_epoch_large_epoch_length`, which is gated off nightly.
+#[cfg(feature = "nightly")]
+#[test]
+fn seed_walk_bounded_under_finality_stall() {
+    use std::sync::atomic::Ordering;
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
+    let count = 40u64;
+    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+    // Every block reports finality frozen at genesis, so `largest_final_height` never advances.
+    for height in 1..=count {
+        record_block_frozen_final(
+            &mut em,
+            h[(height - 1) as usize],
+            h[height as usize],
+            height,
+            h[0],
+            0,
+        );
+    }
+    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+    // The seed re-scans the not-yet-finalized suffix each block: total ~ sum_{k=1..count} k. Pin a
+    // generous O(depth^2) upper bound.
     let upper = (count * (count + 1)) as usize;
     let count = count as usize;
     assert!(walked >= count, "seed walk should touch >= 1 block per recorded block, got {walked}");
