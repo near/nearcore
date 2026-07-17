@@ -195,23 +195,6 @@ pub(crate) fn blacklist_for_epoch(
     }
 }
 
-/// Per-shard blacklist for `target_epoch_id`, or empty when the aggregator belongs to a
-/// different epoch (a last-of-epoch anchor whose next epoch has no stats yet). Shared by the
-/// record-block seeder and the `get_chunk_producer_blacklist` accessor so the epoch-reset
-/// check can't drift between them.
-pub(crate) fn blacklist_for_epoch(
-    aggregator: &EpochInfoAggregator,
-    target_epoch_id: &EpochId,
-    epoch_info: &EpochInfo,
-    shard_layout: &ShardLayout,
-) -> HashMap<ShardId, HashSet<ValidatorId>> {
-    if aggregator.epoch_id == *target_epoch_id {
-        compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
-    } else {
-        HashMap::new()
-    }
-}
-
 /// In the current architecture, various components have access to the same
 /// shared mutable instance of [`EpochManager`]. This handle manages locking
 /// required for such access.
