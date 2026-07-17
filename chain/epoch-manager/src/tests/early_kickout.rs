@@ -4,6 +4,8 @@
 
 #[cfg(feature = "nightly")]
 use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+#[cfg(feature = "nightly")]
+use crate::epoch_info_aggregator::EpochInfoAggregator;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager};
 use crate::{
@@ -351,9 +353,8 @@ fn early_kickout_attribution_does_not_flap() {
         "validator 0 must be blacklisted after sustained misses"
     );
 
-    // Snapshot validator 0's and the replacement's stats at the blacklist point.
     let agg_before = handle.read().get_epoch_info_aggregator_upto_last(&prev).unwrap();
-    let stats = |agg: &crate::epoch_info_aggregator::EpochInfoAggregator, id: ValidatorId| {
+    let stats = |agg: &EpochInfoAggregator, id: ValidatorId| {
         agg.shard_tracker
             .get(&shard_id)
             .and_then(|m| m.get(&id))
@@ -381,12 +382,10 @@ fn early_kickout_attribution_does_not_flap() {
         after_0, before_0,
         "blacklisted validator 0 must not accrue produced/expected (no recovery -> no flap)"
     );
-    // The replacement absorbs the reassigned heights and produces them.
     assert!(
         after_1.0 > before_1.0 && after_1.1 > before_1.1,
         "replacement must accrue produced/expected on reassigned heights ({before_1:?} -> {after_1:?})"
     );
-    // And the blacklist is stable: validator 0 stays blacklisted.
     let bl_after = handle.get_chunk_producer_blacklist(&prev2).unwrap();
     assert_eq!(
         bl_after,
@@ -405,8 +404,6 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
     // epoch 1 so the last epoch-0 block is an epoch boundary.
     let handle = setup_default_epoch_manager(validators, 160, 1, 3, 90, 60).into_handle();
     let h = drive_targeted_misses(&handle, 160, 0);
-    // Find the last recorded block that is the end of its epoch (next block starts a
-    // new epoch). The accessor keyed on it must reset to empty.
     let boundary = h
         .iter()
         .rev()
@@ -416,7 +413,7 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
     assert!(bl.is_empty(), "epoch boundary must reset blacklist, got {bl:?}");
 }
 
-// Scope A' equivalence: the seeded `DBCol::ChunkProducers` row equals the plain height
+// The seeded `DBCol::ChunkProducers` row equals the plain height
 // sampler while the blacklist is empty, and equals the blacklist-aware sampler (never the
 // down node) once it is non-empty. The strict consensus reader returns that same row.
 #[cfg(feature = "nightly")]
@@ -478,7 +475,7 @@ fn seeded_rows_match_blacklist_aware_sampler() {
     );
 }
 
-// Missing-row invariant (from the Codex debate): wherever the blacklist as of an anchor is
+// Missing-row invariant: wherever the blacklist as of an anchor is
 // non-empty, that anchor's `DBCol::ChunkProducers` rows are present for every shard. So the
 // aggregator's lenient reader never height-samples (which would re-credit the down node)
 // while a blacklist is active -- the missing-row region and the non-empty-blacklist region
@@ -559,7 +556,6 @@ fn per_shard_blacklist_isolated() {
     let mut prev = h[0];
     for height in 1..=count {
         let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
-        // Shard 0: miss whenever the (blacklist-aware) assignment is the down producer.
         let assigned0 = epoch_info
             .sample_chunk_producer_excluding(
                 &layout,
@@ -569,7 +565,6 @@ fn per_shard_blacklist_isolated() {
             )
             .unwrap();
         let produced0 = assigned0 != down;
-        // Shard 1: always produced.
         record_block_with_mask(
             &mut handle.write(),
             prev,
@@ -580,7 +575,6 @@ fn per_shard_blacklist_isolated() {
         prev = h[height as usize];
     }
 
-    // Shard 0 blacklists the down producer; shard 1 blacklists nobody.
     let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
     assert_eq!(
         bl.get(&shard0),
@@ -672,8 +666,8 @@ fn record_block_frozen_final(
 
 // Regression guard for the per-block aggregator walk in `seed_chunk_producers`: with finality
 // frozen, the incremental aggregator update is skipped while the seed re-scans the growing
-// not-yet-finalized suffix every block. Pins the current per-block O(stall-depth) walk as a guard (a future cache
-// tightens it) and catches a worse-than-quadratic regression. Distinct from the walk-count
+// not-yet-finalized suffix every block. Pins the current per-block O(stall-depth) walk as a guard
+// and catches a worse-than-quadratic regression. Distinct from the walk-count
 // invariant in `test_finalize_epoch_large_epoch_length`, which is gated off nightly.
 #[cfg(feature = "nightly")]
 #[test]
@@ -698,7 +692,7 @@ fn seed_walk_bounded_under_finality_stall() {
     }
     let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
     // The seed re-scans the not-yet-finalized suffix each block: total ~ sum_{k=1..count} k. Pin a
-    // generous O(depth^2) upper bound; a future cache drops it toward O(count).
+    // generous O(depth^2) upper bound.
     let upper = (count * (count + 1)) as usize;
     let count = count as usize;
     assert!(walked >= count, "seed walk should touch >= 1 block per recorded block, got {walked}");

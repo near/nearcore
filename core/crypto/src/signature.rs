@@ -293,6 +293,14 @@ impl PublicKey {
         }
     }
 
+    fn key_tag(&self) -> KeyTag {
+        match self {
+            PublicKey::ED25519(_) => KeyTag::Ed25519,
+            PublicKey::SECP256K1(_) => KeyTag::Secp256k1,
+            PublicKey::MLDSA65(_) => KeyTag::MlDsa65Full,
+        }
+    }
+
     pub fn key_data(&self) -> &[u8] {
         match self {
             Self::ED25519(key) => key.as_ref(),
@@ -331,24 +339,45 @@ impl PublicKey {
     }
 }
 
+/// Borsh/`Hash` discriminant tags shared by `PublicKey` and
+/// `PublicKeyHandle`. The two enums use disjoint tag spaces so a value of
+/// one can never silently decode as the other:
+///   `PublicKey`       owns {Ed25519, Secp256k1, MlDsa65Full} = {0,1,2}
+///   `PublicKeyHandle` owns {Ed25519, Secp256k1, MlDsa65Hash} = {0,1,3}
+/// `MlDsa65Full` (the 1952-byte key) must never appear in a handle;
+/// `MlDsa65Hash` (the 32-byte digest) must never appear on the wire.
+/// Both deserializers match this enum exhaustively, so a future scheme
+/// cannot silently reuse a reserved tag: the compiler forces a decision
+/// in both enums.
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeyTag {
+    Ed25519 = 0,
+    Secp256k1 = 1,
+    MlDsa65Full = 2,
+    MlDsa65Hash = 3,
+}
+
+impl TryFrom<u8> for KeyTag {
+    type Error = Error;
+
+    fn try_from(tag: u8) -> Result<Self, Self::Error> {
+        match tag {
+            0 => Ok(Self::Ed25519),
+            1 => Ok(Self::Secp256k1),
+            2 => Ok(Self::MlDsa65Full),
+            3 => Ok(Self::MlDsa65Hash),
+            _ => Err(Error::new(ErrorKind::InvalidData, format!("unknown KeyTag: {tag}"))),
+        }
+    }
+}
+
 // This `Hash` implementation is safe since it retains the property
 // `k1 == k2 ⇒ hash(k1) == hash(k2)`.
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            PublicKey::ED25519(public_key) => {
-                state.write_u8(0u8);
-                state.write(&public_key.0);
-            }
-            PublicKey::SECP256K1(public_key) => {
-                state.write_u8(1u8);
-                state.write(&public_key.0);
-            }
-            PublicKey::MLDSA65(public_key) => {
-                state.write_u8(2u8);
-                state.write(&public_key.0[..]);
-            }
-        }
+        state.write_u8(self.key_tag() as u8);
+        state.write(self.key_data());
     }
 }
 
@@ -363,49 +392,39 @@ impl Display for PublicKey {
 }
 
 impl Debug for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         Display::fmt(self, f)
     }
 }
 
 impl BorshSerialize for PublicKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        match self {
-            PublicKey::ED25519(public_key) => {
-                BorshSerialize::serialize(&0u8, writer)?;
-                writer.write_all(&public_key.0)?;
-            }
-            PublicKey::SECP256K1(public_key) => {
-                BorshSerialize::serialize(&1u8, writer)?;
-                writer.write_all(&public_key.0)?;
-            }
-            PublicKey::MLDSA65(public_key) => {
-                BorshSerialize::serialize(&2u8, writer)?;
-                writer.write_all(&public_key.0[..])?;
-            }
-        }
+        BorshSerialize::serialize(&(self.key_tag() as u8), writer)?;
+        writer.write_all(self.key_data())?;
         Ok(())
     }
 }
 
 impl BorshDeserialize for PublicKey {
     fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
-        let tag = u8::deserialize_reader(rd)?;
+        let raw_tag = u8::deserialize_reader(rd)?;
+        let tag = raw_tag.try_into()?;
         match tag {
-            0 => {
+            KeyTag::Ed25519 => {
                 Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
-            1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
+            KeyTag::Secp256k1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
                 BorshDeserialize::deserialize_reader(rd)?,
             ))),
-            2 => {
+            KeyTag::MlDsa65Full => {
                 let mut buf = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
                 rd.read_exact(buf.as_mut())?;
                 Ok(PublicKey::MLDSA65(MlDsa65PublicKey(buf)))
             }
-            other => {
-                Err(Error::new(ErrorKind::InvalidData, format!("unknown PublicKey tag {other}")))
-            }
+            KeyTag::MlDsa65Hash => Err(Error::new(
+                ErrorKind::InvalidData,
+                "borsh tag 3 is reserved for PublicKeyHandle (ML-DSA-65 hash); not a valid PublicKey",
+            )),
         }
     }
 }
@@ -513,20 +532,8 @@ pub enum PublicKeyHandle {
 // `MlDsa65` variant.
 impl Hash for PublicKeyHandle {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::ED25519(k) => {
-                state.write_u8(0u8);
-                state.write(&k.0);
-            }
-            Self::SECP256K1(k) => {
-                state.write_u8(1u8);
-                state.write(&k.0);
-            }
-            Self::MlDsa65(h) => {
-                state.write_u8(3u8);
-                state.write(&h.0);
-            }
-        }
+        state.write_u8(self.key_tag() as u8);
+        state.write(self.key_data());
     }
 }
 
@@ -540,6 +547,22 @@ impl PublicKeyHandle {
             Self::ED25519(_) => 1 + ed25519_dalek::PUBLIC_KEY_LENGTH,
             Self::SECP256K1(_) => 1 + 64,
             Self::MlDsa65(_) => 1 + ML_DSA_65_HASH_LENGTH,
+        }
+    }
+
+    fn key_tag(&self) -> KeyTag {
+        match self {
+            PublicKeyHandle::ED25519(_) => KeyTag::Ed25519,
+            PublicKeyHandle::SECP256K1(_) => KeyTag::Secp256k1,
+            PublicKeyHandle::MlDsa65(_) => KeyTag::MlDsa65Hash,
+        }
+    }
+
+    fn key_data(&self) -> &[u8] {
+        match self {
+            PublicKeyHandle::ED25519(k) => &k.0,
+            PublicKeyHandle::SECP256K1(k) => &k.0,
+            PublicKeyHandle::MlDsa65(k) => &k.0,
         }
     }
 
@@ -673,47 +696,32 @@ impl<'de> serde::Deserialize<'de> for PublicKeyHandle {
 
 impl BorshSerialize for PublicKeyHandle {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        match self {
-            Self::ED25519(k) => {
-                BorshSerialize::serialize(&0u8, writer)?;
-                writer.write_all(&k.0)?;
-            }
-            Self::SECP256K1(k) => {
-                BorshSerialize::serialize(&1u8, writer)?;
-                writer.write_all(k.as_ref())?;
-            }
-            Self::MlDsa65(h) => {
-                BorshSerialize::serialize(&3u8, writer)?;
-                writer.write_all(&h.0)?;
-            }
-        }
+        BorshSerialize::serialize(&(self.key_tag() as u8), writer)?;
+        writer.write_all(self.key_data())?;
         Ok(())
     }
 }
 
 impl BorshDeserialize for PublicKeyHandle {
     fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
-        let tag = u8::deserialize_reader(rd)?;
+        let raw_tag = u8::deserialize_reader(rd)?;
+        let tag = raw_tag.try_into()?;
         match tag {
-            0 => Ok(Self::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?))),
-            1 => Ok(Self::SECP256K1(Secp256K1PublicKey::from(
+            KeyTag::Ed25519 => {
+                Ok(Self::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
+            }
+            KeyTag::Secp256k1 => Ok(Self::SECP256K1(Secp256K1PublicKey::from(
                 <[u8; 64] as BorshDeserialize>::deserialize_reader(rd)?,
             ))),
-            // Tag 2 is intentionally absent: it is reserved by `PublicKey`
-            // for the full ML-DSA-65 pubkey, which by construction never
-            // appears in the trie (`PublicKeyHandle` stores the hash, tag 3).
-            // Refusing to decode tag 2 here keeps that invariant
-            // structural - a full ML-DSA-65 key cannot land in a
-            // `PublicKeyHandle`-shaped slot through any borsh round-trip.
-            3 => {
+            KeyTag::MlDsa65Full => Err(Error::new(
+                ErrorKind::InvalidData,
+                "borsh tag 2 is reserved for PublicKey (full ML-DSA-65 key); not a valid PublicKeyHandle",
+            )),
+            KeyTag::MlDsa65Hash => {
                 let mut buf = [0u8; ML_DSA_65_HASH_LENGTH];
                 rd.read_exact(&mut buf)?;
                 Ok(Self::MlDsa65(MlDsa65PublicKeyHandle(buf)))
             }
-            other => Err(Error::new(
-                ErrorKind::InvalidData,
-                format!("unknown PublicKeyHandle tag {other}"),
-            )),
         }
     }
 }
@@ -1697,6 +1705,28 @@ mod tests {
         assert_eq!(bytes[0], 3u8);
         let kh2 = PublicKeyHandle::try_from_slice(&bytes).unwrap();
         assert_eq!(kh, kh2);
+    }
+
+    /// Tag reservation is enforced both ways: tag 3 (the on-trie ML-DSA-65
+    /// hash) must never decode as a `PublicKey`, and tag 2 (the full
+    /// ML-DSA-65 pubkey) must never decode as a `PublicKeyHandle`.
+    #[cfg(feature = "rand")]
+    #[test]
+    fn test_reserved_tags_rejected_both_ways() {
+        use super::{KeyTag, PublicKeyHandle};
+        use borsh::BorshDeserialize;
+
+        let full_key = SecretKey::from_seed(KeyType::MLDSA65, "x").public_key();
+        let mut full_key_bytes = borsh::to_vec(&full_key).unwrap();
+        let key_handle: PublicKeyHandle = full_key.into();
+        let mut key_handle_bytes = borsh::to_vec(&key_handle).unwrap();
+
+        // Swap the tags, both should fail to deserialize
+        full_key_bytes[0] = KeyTag::MlDsa65Hash as u8;
+        key_handle_bytes[0] = KeyTag::MlDsa65Full as u8;
+
+        assert!(PublicKey::try_from_slice(&full_key_bytes).is_err());
+        assert!(PublicKeyHandle::try_from_slice(&key_handle_bytes).is_err());
     }
 
     /// `PublicKeyHandle::trie_id_len` matches the hash size for ML-DSA-65 and

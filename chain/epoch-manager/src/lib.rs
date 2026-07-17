@@ -2233,10 +2233,9 @@ impl EpochManager {
             );
             if let Some(validator_id) = sampled {
                 let validator_stake = sample_epoch_info.get_validator(validator_id);
-                // Observability: a reassignment happened iff the plain (non-excluded) pick for
-                // this slot is itself blacklisted. `plain != sampled` is NOT a valid detector —
-                // the excluding sampler renormalizes the eligible set, so it can pick a
-                // different producer even when the plain pick was not blacklisted.
+                // A slot was reassigned iff its plain (non-excluded) pick is itself blacklisted.
+                // Testing `plain != sampled` would be wrong: the excluding sampler renormalizes the
+                // eligible set, so it can pick a different producer even when the plain pick was fine.
                 if !shard_blacklist.is_empty() {
                     let plain = sample_epoch_info.sample_chunk_producer(
                         sample_shard_layout,
@@ -2247,7 +2246,7 @@ impl EpochManager {
                         EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED
                             .with_label_values(&[&shard_id.to_string()])
                             .inc();
-                        tracing::info!(
+                        tracing::debug!(
                             target: "epoch_manager",
                             %shard_id,
                             height,
