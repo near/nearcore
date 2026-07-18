@@ -443,6 +443,8 @@ pub enum ProtocolFeature {
     /// rather than a zero-gas nop) when a compiled module fails to load at
     /// `Module::deserialize`.
     FixContractLoadingError,
+    /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
+    RejectEmptyMethodName,
 }
 
 impl ProtocolFeature {
@@ -571,6 +573,7 @@ impl ProtocolFeature {
             | ProtocolFeature::DelegateV2 => 85,
 
             ProtocolFeature::FixContractLoadingError => 86,
+            ProtocolFeature::RejectEmptyMethodName => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
