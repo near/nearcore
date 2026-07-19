@@ -66,51 +66,38 @@ PRIORITY CHECKS (report only if found):
    - Enforce all standards defined in [engineering-standards.md] (paraphrasing of code, repetitions, explaining common terminology, leaking context, explanation that should be a stand-alone issue)
 
 REVIEW STYLE:
-- Post each finding as an INLINE comment on the exact line it concerns (see HOW TO POST), not as one big top-level comment.
-- Keep each comment to 1–3 sentences. Prefer a probing question over an assertion, and include a concrete suggested fix or a ```suggestion``` block where it helps.
-- Report only issues worth the author's attention. Prefer fewer, higher-signal comments over volume.
+- Each finding becomes an INLINE comment on the exact line it concerns — so anchor every finding to a precise `path` + `line` (see OUTPUT), never one big top-level comment.
+- Keep each finding to 1–3 sentences. Prefer a probing question over an assertion, and include a concrete suggested fix or a ```suggestion``` block where it helps.
+- Report only issues worth the author's attention. Prefer fewer, higher-signal findings over volume.
 - Do NOT comment on anything CI already enforces (rustfmt, clippy, cspell), and do NOT restate what the diff shows.
 - The `<review_overrides>` block (REVIEW.md) defines repo-specific severity, what to skip, and the expected comment voice — it takes precedence over this file.
 
-HOW TO POST:
+OUTPUT:
 
-Post findings as inline review comments, one `gh api` call per finding. Do NOT
-use `gh pr review`: it can only post a top-level body plus an approve / request-
-changes / comment verdict — it cannot attach line-level comments — and the bot
-should not be approving or requesting changes anyway. The values `REPO`
-(`owner/name`), `PR NUMBER`, and `HEAD SHA` are given in `<pr_context>`
-(locally, resolve the SHA with `gh pr view <number> --json headRefOid --jq
-.headRefOid`).
+You have READ-ONLY tools. Do NOT attempt to post, comment, approve, or mutate
+anything — you have no tools to do so, and any such attempt will simply fail. A
+trusted workflow step posts your review from the structured output you return,
+so your only job is to return that output, validated against the enforced JSON
+schema:
 
-For each finding, anchor it to the changed line:
+- `findings`: an array, one entry per inline comment, each with:
+  - `path`: repo-relative file path (must be a file changed in the diff)
+  - `line`: the line in the PR's version of the file the comment anchors to
+  - `side`: `"RIGHT"` for added/context lines (default), `"LEFT"` only for a removed line
+  - `severity`: `"blocking"` or `"nit"`
+  - `body`: the comment text in the REVIEW.md voice. Do NOT prefix it with
+    `nit:`/`blocking` — the poster adds that. A ```suggestion``` block is fine;
+    if you include one, make sure it is valid Rust (balanced braces, correct
+    syntax) — a broken suggestion is worse than a prose comment.
+- `summary`: the single summary-comment text — per REVIEW.md "Summary shape":
+  one-line tally first, at most one sentence of context, ending with ✅ or ⚠️.
+  Do NOT reproduce the findings here; they are posted inline.
+- `verdict`: `"approve"` if nothing blocks the merge, else `"issues"`.
 
-```
-gh api --method POST \
-  -H "Accept: application/vnd.github+json" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  /repos/OWNER/REPO/pulls/PR_NUMBER/comments \
-  -f 'body=<one finding; prefix blocking ones with **blocking**, minor ones with nit:>' \
-  -f 'commit_id=HEAD_SHA' \
-  -f 'path=path/to/file.rs' \
-  -F 'line=LINE' \
-  -f 'side=RIGHT'
-```
-
-For a range, add `-F 'start_line=START' -f 'start_side=RIGHT'`. If a `line` is
-outside the diff the call fails — fall back to including that finding in the
-summary comment. If you include a suggested fix in a ```suggestion``` block,
-make sure it is valid Rust (balanced braces, correct syntax) — a broken
-suggestion is worse than a prose comment.
-
-SUMMARY:
-
-After the inline findings, post ONE top-level summary with `gh pr comment <number> --body '...'`:
-- Open with a one-line tally, e.g. `2 blocking, 3 nits` or `No blocking issues`.
-- Optionally one sentence on what the PR does, only if it helps the reader.
-- End with ✅ (nothing blocks merge) or ⚠️ (at least one blocking finding).
-- Do NOT reproduce the inline findings here — they are already on the lines.
-
-If the code is clean, skip inline comments and post only the summary: `lgtm ✅`.
+Anchor every finding to a real `file:line` you verified in the checked-out code;
+a `line` outside the diff will be dropped by the poster. If the code is clean,
+return an empty `findings` array, `summary` of `"lgtm ✅"`, and `verdict` of
+`"approve"`.
 
 Consult the repository's [CLAUDE.md], [CONTRIBUTING.md], and [AGENTS.md] for project-specific conventions.
 

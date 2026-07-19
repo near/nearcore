@@ -44,33 +44,61 @@ jobs:
           # On pull_request events checkout defaults to the PR merge ref. On
           # issue_comment (@claude review) events it defaults to the base
           # branch, so Read/Grep would see base code instead of the PR — pin it
-          # to the PR merge ref explicitly.
+          # to the PR merge ref explicitly. This working tree is untrusted (PR
+          # author controlled); the reviewer only READS it, and all review
+          # policy is loaded separately from the trusted base revision below.
           ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || '' }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: symlink fix workaround
+      - name: Resolve PR SHAs
+        id: pr-sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
-          # see https://github.com/anthropics/claude-code-action/issues/1205#issuecomment-4248704481
-          rm -f CLAUDE.md
-          cp -f AGENTS.md CLAUDE.md
+          DATA=$(gh api "/repos/${{ github.repository }}/pulls/$PR_NUMBER")
+          echo "head=$(printf '%s' "$DATA" | jq -r .head.sha)" >> "$GITHUB_OUTPUT"
+          echo "base=$(printf '%s' "$DATA" | jq -r .base.sha)" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch PR Comments Context
-        id: fetch-comments
+      - name: Load trusted review policy from base revision
+        id: policy
+        # SECURITY: the review policy (REVIEW.md, SKILL.md), the project context
+        # file, and the comment-fetch script are loaded from the PR's BASE commit
+        # — never from the PR checkout — so a PR author cannot rewrite the
+        # reviewer's own instructions to prompt-inject it. Files absent at base
+        # (e.g. REVIEW.md on a PR that introduces it) resolve to empty and are
+        # simply skipped.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ steps.pr-sha.outputs.base }}
+        run: |
+          mkdir -p /tmp/trusted
+          fetch() {
+            gh api "/repos/${{ github.repository }}/contents/$1?ref=$BASE_SHA" \
+              --jq '.content' 2>/dev/null | base64 -d > "$2" 2>/dev/null || true
+          }
+          fetch "REVIEW.md"                              /tmp/trusted/REVIEW.md
+          fetch ".claude/skills/pr-review/SKILL.md"      /tmp/trusted/SKILL.md
+          fetch "AGENTS.md"                              /tmp/trusted/AGENTS.md
+          fetch ".github/scripts/fetch-pr-comments.sh"   /tmp/trusted/fetch-pr-comments.sh
+          # claude-code-action auto-loads CLAUDE.md as context. Overwrite the
+          # PR-controlled copy with the trusted base AGENTS.md so it can't be
+          # used as an injection vector.
+          if [ -s /tmp/trusted/AGENTS.md ]; then cp /tmp/trusted/AGENTS.md CLAUDE.md; else rm -f CLAUDE.md; fi
+
+      - name: Fetch PR discussion context
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
-        run: bash .github/scripts/fetch-pr-comments.sh
-
-      - name: Get PR head SHA
-        id: pr-head
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
-          echo "sha=$(gh api /repos/${{ github.repository }}/pulls/$PR_NUMBER --jq .head.sha)" >> "$GITHUB_OUTPUT"
+          if [ -s /tmp/trusted/fetch-pr-comments.sh ]; then
+            bash /tmp/trusted/fetch-pr-comments.sh
+          else
+            echo "No prior discussion context available." > /tmp/pr_comments_context.txt
+          fi
 
       - name: Build review prompt
         id: build-prompt
@@ -81,7 +109,6 @@ jobs:
             echo '<pr_context>'
             echo "REPO: ${{ github.repository }}"
             echo "PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}"
-            echo "HEAD SHA: ${{ steps.pr-head.outputs.sha }}"
             echo 'LANGUAGE: Rust'
             echo '</pr_context>'
             echo ''
@@ -89,14 +116,16 @@ jobs:
             cat /tmp/pr_comments_context.txt
             echo '</existing_discussions>'
             echo ''
-            echo '<review_overrides priority="highest">'
-            echo 'Repository-specific overrides. These take precedence over the rubric'
-            echo 'in <review_instructions> wherever they conflict.'
-            cat REVIEW.md
-            echo '</review_overrides>'
-            echo ''
+            if [ -s /tmp/trusted/REVIEW.md ]; then
+              echo '<review_overrides priority="highest">'
+              echo 'Repository-specific overrides (loaded from the trusted base revision).'
+              echo 'These take precedence over the rubric in <review_instructions>.'
+              cat /tmp/trusted/REVIEW.md
+              echo '</review_overrides>'
+              echo ''
+            fi
             echo '<review_instructions>'
-            cat .claude/skills/pr-review/SKILL.md
+            cat /tmp/trusted/SKILL.md
             echo '</review_instructions>'
             echo "$DELIM"
           } >> "$GITHUB_ENV"
@@ -113,7 +142,53 @@ jobs:
           github_token: ${{ github.token }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: ${{ env.REVIEW_PROMPT }}
+          # SECURITY: read-only tools only. The agent processes untrusted PR
+          # content, so it is given no way to post or mutate anything — it
+          # returns findings as structured output (--json-schema), and the
+          # trusted "Post review" step below does the posting.
           claude_args: >-
             --model opus
             --effort xhigh
-            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh api:*)"
+            --allowed-tools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
+            --json-schema '{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"line":{"type":"integer"},"side":{"type":"string","enum":["RIGHT","LEFT"]},"severity":{"type":"string","enum":["blocking","nit"]},"body":{"type":"string"}},"required":["path","line","severity","body"]}},"summary":{"type":"string"},"verdict":{"type":"string","enum":["approve","issues"]}},"required":["findings","summary","verdict"]}'
+
+      - name: Post review
+        # Trusted posting step: the agent has no write access, so all mutation
+        # of the PR happens here, from the validated structured output.
+        if: ${{ steps.key-check.outputs.present == 'true' && steps.claude-review.outputs.structured_output != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          HEAD_SHA: ${{ steps.pr-sha.outputs.head }}
+          # Passed via env (not inlined into the script) so the model-generated
+          # content cannot break out into shell.
+          STRUCTURED: ${{ steps.claude-review.outputs.structured_output }}
+        run: |
+          printf '%s' "$STRUCTURED" > /tmp/review.json
+          n=$(jq '.findings | length' /tmp/review.json)
+          posted=0
+          for i in $(seq 0 $((n - 1))); do
+            path=$(jq -r ".findings[$i].path" /tmp/review.json)
+            line=$(jq -r ".findings[$i].line" /tmp/review.json)
+            side=$(jq -r ".findings[$i].side // \"RIGHT\"" /tmp/review.json)
+            sev=$(jq -r ".findings[$i].severity" /tmp/review.json)
+            body=$(jq -r ".findings[$i].body" /tmp/review.json)
+            if [ "$sev" = "blocking" ]; then prefix="**blocking** "; else prefix="nit: "; fi
+            if gh api --method POST \
+                 -H "Accept: application/vnd.github+json" \
+                 -H "X-GitHub-Api-Version: 2022-11-28" \
+                 "/repos/$REPO/pulls/$PR_NUMBER/comments" \
+                 -f "body=${prefix}${body}" \
+                 -f "commit_id=$HEAD_SHA" \
+                 -f "path=$path" \
+                 -F "line=$line" \
+                 -f "side=$side" >/dev/null 2>&1; then
+              posted=$((posted + 1))
+            else
+              echo "::warning::could not post inline comment at $path:$line (line may be outside the diff)"
+            fi
+          done
+          summary=$(jq -r '.summary' /tmp/review.json)
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$summary"
+          echo "posted $posted/$n inline findings"
