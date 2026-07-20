@@ -128,6 +128,8 @@ fn build_v2_witness(
     let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         prev_block_hash,
         CryptoHash::default(),
+        EpochId::default(),
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         0,

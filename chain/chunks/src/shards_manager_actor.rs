@@ -96,7 +96,8 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
-    verify_chunk_header_signature_by_hash, verify_chunk_header_signature_by_hash_and_parts,
+    resolve_and_verify_anchored_producer, verify_chunk_header_signature_by_hash,
+    verify_chunk_header_signature_by_hash_and_parts,
 };
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
@@ -127,6 +128,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
@@ -1429,9 +1431,9 @@ impl ShardsManagerActor {
         let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
             .entered();
 
-        // Signature is intentionally NOT checked here — it requires the chunk
-        // producer from the DB (via prev_block_hash), which may not be available yet.
-        // Signature is verified later in `validate_chunk_header_full`.
+        // For pre-V7 headers the signature is intentionally NOT checked here — it requires the
+        // chunk producer resolved from `prev_block_hash`, which may not be available yet, so it is
+        // verified later in `validate_chunk_header_full`.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1466,6 +1468,48 @@ impl ShardsManagerActor {
 
         self.verify_chunk_shard_id(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_protocol_version(header, epoch_id).map_err(err_mapper)?;
+
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&epoch_id)
+            .map_err(|err| err_mapper(err.into()))?;
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) && !header.is_spice_chunk() {
+            let &prev_prev_block_hash = header
+                .prev_prev_block_hash()
+                .ok_or(Error::InvalidChunkHeader)
+                .map_err(err_mapper)?;
+            let &header_epoch_id =
+                header.epoch_id().ok_or(Error::InvalidChunkHeader).map_err(err_mapper)?;
+            if epoch_id_confirmed {
+                if header_epoch_id != epoch_id {
+                    return Err(Error::InvalidChunkHeader);
+                }
+            } else {
+                let possible_epochs = self
+                    .epoch_manager
+                    .possible_epochs_of_height_around_tip(&self.chain_head, header.height_created())
+                    .map_err(|err| err_mapper(err.into()))?;
+                if !possible_epochs.contains(&header_epoch_id) {
+                    return Err(err_mapper(Error::InvalidChunkHeader));
+                }
+            }
+            let key = ChunkProductionKey {
+                epoch_id: header_epoch_id,
+                shard_id: header.shard_id(),
+                height_created: header.height_created(),
+            };
+            let producer = resolve_and_verify_anchored_producer(
+                self.epoch_manager.as_ref(),
+                &key,
+                header.prev_block_hash(),
+                &prev_prev_block_hash,
+                self.store.store_ref(),
+                "chunk",
+            )?;
+            if !header.signature().verify(chunk_hash.as_ref(), producer.public_key()) {
+                return Err(Error::InvalidChunkSignature);
+            }
+        }
 
         Ok(())
     }
@@ -2438,8 +2482,11 @@ mod test {
     use near_chain_configs::MutableConfigValue;
     use near_network::types::NetworkRequests;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::sharding::ShardChunkHeaderInner;
+    use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
     use std::sync::Arc;
 
     fn mutable_validator_signer(account_id: &AccountId) -> MutableValidatorSigner {
@@ -2528,7 +2575,7 @@ mod test {
     #[test]
     fn test_resend_chunk_requests() {
         // Test that resending chunk requests won't request for parts the node already received
-        let mut fixture = ChunkTestFixture::new(true, 3, 6, 1, true);
+        let mut fixture = ChunkTestFixture::new(true, 3, 6, 1, true, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -2778,7 +2825,7 @@ mod test {
     // will wait for chunks being forwarded
     fn test_chunk_forward_non_validator() {
         // A non-validator that tracks all shards should request immediately.
-        let mut fixture = ChunkTestFixture::new(false, 3, 12, 12, true);
+        let mut fixture = ChunkTestFixture::new(false, 3, 12, 12, true, PROTOCOL_VERSION);
         assert_eq!(
             run_request_chunks_with_account(&mut fixture, None),
             RequestChunksResult {
@@ -2818,7 +2865,7 @@ mod test {
         // Here we test the case when the chunk is received, its previous block is not processed yet
         // We want to verify that the chunk forward can be stored and wait to be processed in this
         // case too
-        let fixture = ChunkTestFixture::new(true, 2, 4, 4, false);
+        let fixture = ChunkTestFixture::new(true, 2, 4, 4, false, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -3042,6 +3089,58 @@ mod test {
             });
         assert_eq!(source, PartialEncodedChunkResponseSource::InMemoryCache);
         assert_eq!(response.parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_v7_mismatched_height_rejected_at_arrival() {
+        let fixture = early_kickout_fixture();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let epoch_id = *fixture.mock_chunk_header.epoch_id().expect("fixture builds a V7 header");
+        let shard_id = fixture.mock_chunk_header.shard_id();
+        let bad_height = fixture.mock_chunk_header.height_created() + 3;
+        let producer = fixture
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                shard_id,
+                height_created: bad_height,
+            })
+            .unwrap()
+            .take_account_id();
+        let signer = create_test_signer(producer.as_str());
+
+        let mut header = fixture.mock_chunk_header.clone();
+        let ShardChunkHeader::V3(ref mut v3) = header else {
+            panic!("fixture must produce a V3 chunk header");
+        };
+        let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
+            panic!("early_kickout_fixture must produce a V7 inner");
+        };
+        inner.height_created = bad_height;
+        v3.init(); // recompute the chunk_hash for the modified inner
+        v3.signature = signer.sign_bytes(v3.hash.as_ref());
+
+        let chunk_hash = header.chunk_hash().clone();
+        let partial = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header,
+            parts: fixture.mock_chunk_parts.clone(),
+            prev_outgoing_receipts: Vec::new(),
+        });
+
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial),
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        assert_matches!(
+            result,
+            Err(Error::ChainError(near_chain::Error::InvalidPartialChunkStateWitness(_)))
+        );
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "a header whose height does not match its anchor must not be cached at arrival"
+        );
     }
 
     #[test]
@@ -3435,13 +3534,28 @@ mod test {
         )
     }
 
+    fn early_kickout_fixture() -> ChunkTestFixture {
+        ChunkTestFixture::new(
+            false,
+            3,
+            6,
+            6,
+            true,
+            ProtocolFeature::EarlyKickout.protocol_version(),
+        )
+    }
+
+    fn pre_early_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version() - 1
+    }
+
     #[test]
     fn test_orphan_chunk_request_graceful_degradation() {
         // Orphan request path: prev_block_hash is unknown to the epoch manager (parent
         // unprocessed). Verify it executes without panic and still emits network requests
         // across request_partial_encoded_chunk, should_wait_for_chunk_forwarding and
         // resend_chunk_requests.
-        let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
+        let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -3670,10 +3784,16 @@ mod test {
 
     /// An orphan chunk forward (unprocessed prev block) is cached, not rejected,
     /// via the MissingBlock -> DBNotFoundErr mapping.
-    #[cfg(feature = "nightly")]
     #[test]
     fn test_forward_cached_on_unprocessed_prev_block() {
-        let fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
+        let fixture = ChunkTestFixture::new(
+            true,
+            3,
+            6,
+            6,
+            true,
+            ProtocolFeature::EarlyKickout.protocol_version(),
+        );
         let mut shards_manager = make_shards_manager(&fixture);
 
         let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
@@ -3705,20 +3825,9 @@ mod test {
         );
     }
 
-    /// Test that a chunk whose signature is invalid is evicted from
-    /// `encoded_chunks` (and `requested_partial_encoded_chunks`) when full
-    /// validation runs in `try_process_chunk_parts_and_receipts`.
-    ///
-    /// This exercises the deferred-rejection path: preliminary validation
-    /// (no signature check) lets the chunk into the cache, but full validation
-    /// catches the bad signature and evicts it.
-    #[cfg(feature = "nightly")]
     #[test]
-    fn test_bad_signature_chunk_evicted_on_full_validation() {
-        use near_primitives::sharding::PartialEncodedChunkV2;
-        use near_primitives::test_utils::create_test_signer;
-
-        let fixture = ChunkTestFixture::default();
+    fn test_bad_signature_chunk_rejected_at_arrival() {
+        let fixture = early_kickout_fixture();
 
         // Re-sign the chunk header with a key that does not belong to the
         // resolved chunk producer, so the hash-based signature check fails
@@ -3741,10 +3850,8 @@ mod test {
             prev_outgoing_receipts: Vec::new(),
         });
 
-        // process_partial_encoded_chunk: preliminary validation passes (no sig
-        // check), parts are merged into encoded_chunks, then
-        // try_process_chunk_parts_and_receipts runs validate_chunk_header_full
-        // which detects the bad signature and evicts the entry.
+        // preliminary validation resolves the producer from the anchor
+        // and verifies the signature, so the bad signature is caught before the chunk is cached.
         let result = shards_manager.process_partial_encoded_chunk(
             MaybeValidated::from(partial_encoded_chunk),
             Some(&fixture.mock_shard_tracker),
@@ -3752,10 +3859,47 @@ mod test {
 
         assert_matches!(result, Err(Error::InvalidChunkSignature));
 
-        // The chunk entry should have been evicted from encoded_chunks.
         assert!(
             shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
-            "chunk entry should be evicted from encoded_chunks after bad signature"
+            "a header with an invalid producer signature must not be cached at arrival"
+        );
+    }
+
+    #[test]
+    fn test_cached_bad_chunk_evicted_by_full_validation() {
+        let fixture = early_kickout_fixture();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let mut header = fixture.mock_chunk_header.clone();
+        let ShardChunkHeader::V3(ref mut v3) = header else {
+            panic!("fixture must produce a V3 chunk header");
+        };
+        let ShardChunkHeaderInner::V7(ref mut inner) = v3.inner else {
+            panic!("early_kickout_fixture must produce a V7 inner");
+        };
+        inner.epoch_id = EpochId(CryptoHash::hash_bytes(b"misstated_epoch"));
+        v3.init(); // recompute the chunk_hash over the misstated inner
+        let wrong_producer = create_test_signer("not_the_real_producer");
+        v3.signature = wrong_producer.sign_bytes(v3.hash.as_ref());
+        let chunk_hash = header.chunk_hash().clone();
+
+        // Deposit the chunk directly into the cache, bypassing arrival verification, and confirm
+        // it is there — this is the state a chunk reaches when it slips past arrival.
+        shards_manager.encoded_chunks.get_or_insert_from_header(&header);
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_some(),
+            "chunk should be deposited in the cache before validation"
+        );
+
+        // Full validation (the parent is genesis, already processed) re-resolves the real producer
+        // from the parent, rejects the bad signature, and evicts the entry.
+        let result = shards_manager
+            .try_process_chunk_parts_and_receipts(&header, Some(&fixture.mock_shard_tracker));
+
+        assert_matches!(result, Err(Error::InvalidChunkSignature));
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "an invalid chunk must be evicted from the cache by full validation"
         );
     }
 }

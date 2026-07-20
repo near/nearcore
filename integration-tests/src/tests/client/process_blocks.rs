@@ -672,6 +672,7 @@ fn test_bad_orphan() {
                 ShardChunkHeaderInner::V4(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V5(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V6(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V7(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }

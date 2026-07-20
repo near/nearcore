@@ -7,7 +7,7 @@ use crate::transaction::SignedTransaction;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
-use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
+use crate::types::{Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -129,7 +129,7 @@ impl StateSyncInfo {
 
 pub mod shard_chunk_header_inner;
 use self::shard_chunk_header_inner::ShardChunkHeaderInnerV6SpiceTxOnly;
-use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV5;
+use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV5, ShardChunkHeaderInnerV7};
 use crate::trie_split::TrieSplit;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
@@ -267,6 +267,8 @@ impl ShardChunkHeaderV3 {
                 Default::default(),
                 Default::default(),
                 Default::default(),
+                Default::default(),
+                Default::default(),
                 height,
                 shard_id,
                 Default::default(),
@@ -297,6 +299,8 @@ impl ShardChunkHeaderV3 {
 
     pub fn new(
         prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        epoch_id: EpochId,
         prev_state_root: StateRoot,
         prev_outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
@@ -315,7 +319,28 @@ impl ShardChunkHeaderV3 {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        let inner = if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+        let inner = if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            ShardChunkHeaderInner::V7(ShardChunkHeaderInnerV7 {
+                prev_block_hash,
+                prev_prev_block_hash,
+                epoch_id,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+                congestion_info,
+                bandwidth_requests,
+                proposed_split,
+            })
+        } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
                 prev_block_hash,
                 prev_state_root,
@@ -602,6 +627,26 @@ impl ShardChunkHeader {
         }
     }
 
+    /// Grandparent anchor carried by V7+ headers for arrival-time producer resolution.
+    /// `None` for pre-V7 headers, which don't carry it.
+    #[inline]
+    pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V3(header) => header.inner.prev_prev_block_hash(),
+        }
+    }
+
+    /// The chunk's own epoch id, carried by V7+ headers alongside the grandparent anchor.
+    /// Not trusted. `None` for pre-V7 headers.
+    #[inline]
+    pub fn epoch_id(&self) -> Option<&EpochId> {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V3(header) => header.inner.epoch_id(),
+        }
+    }
+
     /// Returns whether the header is valid for given `ProtocolVersion`.
     pub fn validate_version(
         &self,
@@ -617,6 +662,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V4(_) => true,
                 ShardChunkHeaderInner::V5(_) => ProtocolFeature::DynamicResharding.enabled(version),
                 ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
+                ShardChunkHeaderInner::V7(_) => ProtocolFeature::EarlyKickout.enabled(version),
             },
         };
 
@@ -777,6 +823,7 @@ impl ShardChunkHeaderV1 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum PartialEncodedChunk {
     V1(PartialEncodedChunkV1) = 0,
     V2(PartialEncodedChunkV2) = 1,
@@ -1022,6 +1069,7 @@ pub struct ShardChunkV2 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShardChunk {
     V1(ShardChunkV1) = 0,
     V2(ShardChunkV2) = 1,
@@ -1243,6 +1291,7 @@ pub struct EncodedShardChunkV2 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum EncodedShardChunk {
     V1(EncodedShardChunkV1) = 0,
     V2(EncodedShardChunkV2) = 1,
@@ -1426,6 +1475,8 @@ impl ShardChunkWithEncoding {
     #[cfg(feature = "solomon")]
     pub fn new(
         prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        epoch_id: EpochId,
         prev_state_root: StateRoot,
         prev_outcome_root: CryptoHash,
         height: u64,
@@ -1456,6 +1507,8 @@ impl ShardChunkWithEncoding {
 
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             prev_block_hash,
+            prev_prev_block_hash,
+            epoch_id,
             prev_state_root,
             prev_outcome_root,
             encoded_merkle_root,
@@ -1567,6 +1620,7 @@ pub struct ArcedShardChunkV2 {
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum ArcedShardChunk {
     V1(ArcedShardChunkV1) = 0,
     V2(ArcedShardChunkV2) = 1,

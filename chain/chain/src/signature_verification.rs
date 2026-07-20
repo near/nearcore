@@ -1,12 +1,16 @@
+use crate::metrics::ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
 use near_primitives::{
     block::BlockHeader,
+    errors::EpochError,
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
-    types::{ShardId, validator_stake::ValidatorStake},
+    stateless_validation::ChunkProductionKey,
+    types::{BlockHeight, EpochId, ShardId, validator_stake::ValidatorStake},
 };
+use near_store::{Store, get_genesis_height};
 
 pub fn verify_block_vrf(
     validator: ValidatorStake,
@@ -60,4 +64,121 @@ pub fn verify_block_header_signature_with_epoch_manager(
     let block_producer =
         epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
     Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
+}
+
+fn verify_anchored_chunk_key(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    height_created: BlockHeight,
+    prev_block_hash: &CryptoHash,
+    prev_prev_block_hash: &CryptoHash,
+    store: &Store,
+    msg_label: &str,
+) -> Result<(), Error> {
+    match epoch_manager.get_block_info(prev_block_hash) {
+        Ok(parent_info) => {
+            let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+            if parent_info.prev_hash() != prev_prev_block_hash
+                || parent_info.height() + 1 != height_created
+                || &expected_epoch_id != epoch_id
+            {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "V2 {msg_label} chunk key mismatch: signed (epoch_id={:?}, height={}, \
+                     prev_prev={:?}) does not match prev_block_hash-implied \
+                     (epoch_id={:?}, height={}, prev_prev={:?})",
+                    epoch_id,
+                    height_created,
+                    prev_prev_block_hash,
+                    expected_epoch_id,
+                    parent_info.height() + 1,
+                    parent_info.prev_hash(),
+                )));
+            }
+        }
+        Err(EpochError::MissingBlock(_)) => {
+            if prev_prev_block_hash != &CryptoHash::default() {
+                // Parent not here yet, so only the anchor is known.
+                let anchor_height = epoch_manager.get_block_info(prev_prev_block_hash)?.height();
+                let min_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+                if height_created < min_height {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 {msg_label} height {height_created} below \
+                         anchor-implied minimum height {min_height}"
+                    )));
+                }
+            } else {
+                // Default (genesis) anchor with no parent: nothing pins the height. A real
+                // default anchor only happens at genesis or genesis + 1, so reject higher
+                // to avoid an any-height hole.
+                let genesis_height = get_genesis_height(store)
+                    .ok_or_else(|| Error::Other("genesis height not found".to_owned()))?;
+                if height_created > genesis_height + 1 {
+                    return Err(Error::InvalidPartialChunkStateWitness(format!(
+                        "V2 {msg_label} with default anchor at height {height_created} \
+                         above genesis + 1 ({})",
+                        genesis_height + 1
+                    )));
+                }
+            }
+        }
+        Err(err) => return Err(err.into()),
+    }
+    Ok(())
+}
+
+fn resolve_anchored_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_prev_block_hash: &CryptoHash,
+    epoch_id: &EpochId,
+    height_created: BlockHeight,
+    shard_id: ShardId,
+    message_type: &str,
+) -> Result<ValidatorStake, EpochError> {
+    let result = epoch_manager.get_chunk_producer_info_anchored(
+        Some(prev_prev_block_hash),
+        epoch_id,
+        height_created,
+        shard_id,
+    );
+    let label = match &result {
+        Ok(_) => "hit",
+        // Anchor block not processed yet: this node is two or more blocks behind.
+        Err(EpochError::MissingBlock(_)) => "miss_anchor_block",
+        // Anchor is processed but has no `DBCol::ChunkProducers` row. Should be ~0
+        // normally; if it persists, something that writes that row has a bug.
+        Err(EpochError::ChunkProducerNotInDB(_, _)) => "miss_db_entry",
+        Err(_) => "error",
+    };
+    ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL
+        .with_label_values(&[shard_id.to_string().as_str(), message_type, label])
+        .inc();
+    result
+}
+
+pub fn resolve_and_verify_anchored_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    key: &ChunkProductionKey,
+    prev_block_hash: &CryptoHash,
+    prev_prev_block_hash: &CryptoHash,
+    store: &Store,
+    msg_label: &str,
+) -> Result<ValidatorStake, Error> {
+    let producer = resolve_anchored_producer(
+        epoch_manager,
+        prev_prev_block_hash,
+        &key.epoch_id,
+        key.height_created,
+        key.shard_id,
+        msg_label,
+    )?;
+    verify_anchored_chunk_key(
+        epoch_manager,
+        &key.epoch_id,
+        key.height_created,
+        prev_block_hash,
+        prev_prev_block_hash,
+        store,
+        msg_label,
+    )?;
+    Ok(producer)
 }

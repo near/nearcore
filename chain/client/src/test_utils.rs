@@ -213,6 +213,8 @@ pub fn create_chunk(
         } else {
             ShardChunkWithEncoding::new(
                 *header.prev_block_hash(),
+                header.prev_prev_block_hash().copied().unwrap_or_default(),
+                header.epoch_id().copied().unwrap_or_default(),
                 header.prev_state_root(),
                 *header.prev_outcome_root(),
                 header.height_created(),

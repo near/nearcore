@@ -79,6 +79,7 @@ fn change_shard_id_to_invalid() {
                 ShardChunkHeaderInner::V4(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V5(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V6(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V7(inner) => inner.shard_id = bad_shard_id,
             },
         };
         new_chunks.push(new_chunk);
