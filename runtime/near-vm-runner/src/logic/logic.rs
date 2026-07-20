@@ -271,7 +271,7 @@ pub(crate) fn gas_key_exec_pk_len(
     match public_key_res {
         // Exec (storage) fee should reflect how many bytes the key occupies in
         // storage, not on the wire.
-        Ok(pk) if config.fix_gas_key_fee_charging => pk.trie_id_len(),
+        Ok(pk) if config.fix_ml_dsa_cost_charging => pk.trie_id_len(),
         // Preserve the existing behavior if the fix is not enabled (or the key
         // failed to decode); changing it would break protocol consensus.
         _ => pk_len,

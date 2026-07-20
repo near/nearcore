@@ -69,7 +69,7 @@ pub(crate) fn storage_removes_compute(
 
 /// Public-key byte length for a gas-key SEND (transmission) fee computation.
 fn gas_key_send_pk_len(config: &RuntimeConfig, public_key: &PublicKey) -> usize {
-    if config.wasm_config.fix_gas_key_fee_charging {
+    if config.wasm_config.fix_ml_dsa_cost_charging {
         // This is the proper value - send fee should be based on how many bytes
         // the key occupies on the wire, not in storage.
         public_key.len()
@@ -454,8 +454,12 @@ pub fn calculate_tx_cost(
     // total_cost below) but never `gas_remaining` (the gas attached to / left
     // for the resulting receipts), so on-chain function-call gas budgets are
     // unaffected.
-    burnt =
-        burnt.checked_add_result(signature_verification_cost(fees, signer_public_key, actions)?)?;
+    burnt = burnt.checked_add_result(signature_verification_cost(
+        fees,
+        signer_public_key,
+        actions,
+        config.wasm_config.fix_ml_dsa_cost_charging,
+    )?)?;
 
     // Calculate `gas_remaining`, which are all gas costs minus what is already
     // burnt in the sending step. Compute is not relevant here, as this gas will
@@ -526,20 +530,46 @@ fn delegate_inner_action(action: &Action) -> Option<VersionedDelegateActionRef<'
 /// ed25519/secp256k1 stay 0 for backwards compatibility. The compute cost
 /// debits the chunk's wall-clock budget and may be set independently of the
 /// gas cost.
+///
+/// The signer's own signature is verified here (at conversion, on the signer's
+/// shard), so its full cost is charged here. Each inner delegate signature is
+/// instead verified at execution on the receiver shard (`apply_delegate_action`):
+/// with `meter_inner_verify_on_receiver` set, only its gas is charged here (the
+/// signer still pays economically) and its compute is metered on that shard, so
+/// the wall-clock budget is charged where the work actually happens. Without the
+/// flag the legacy behavior is kept (compute mis-charged on the signer shard) to
+/// preserve consensus.
 fn signature_verification_cost(
     fees: &RuntimeFeesConfig,
     signer_public_key: &PublicKey,
     actions: &[Action],
+    meter_inner_verify_on_receiver: bool,
 ) -> Result<ParameterCost, IntegerOverflowError> {
     let costs = &fees.signature_verification_costs;
     let mut total = costs[signature_kind(signer_public_key.key_type())];
     for action in actions {
         if let Some(delegate_action) = delegate_inner_action(action) {
             let kind = signature_kind(delegate_action.public_key().key_type());
-            total = total.checked_add_result(costs[kind])?;
+            let mut cost = costs[kind];
+            if meter_inner_verify_on_receiver {
+                cost = ParameterCost { compute: 0, ..cost };
+            }
+            total = total.checked_add_result(cost)?;
         }
     }
     Ok(total)
+}
+
+/// Compute cost of verifying one inner delegate action's signature, keyed by the
+/// inner signer's scheme. This is the verification work `apply_delegate_action`
+/// performs on the receiver shard; once `FixMlDsaCostCharging` is enabled it is
+/// metered there (against that shard's `compute_limit`) rather than on the
+/// signer shard. See [`signature_verification_cost`].
+pub(crate) fn delegate_signature_verification_compute(
+    fees: &RuntimeFeesConfig,
+    public_key: &PublicKey,
+) -> Compute {
+    fees.signature_verification_costs[signature_kind(public_key.key_type())].compute
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.

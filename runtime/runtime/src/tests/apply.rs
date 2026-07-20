@@ -4431,8 +4431,8 @@ fn gas_key_adder_contract(num_nonces: u64) -> Vec<u8> {
 /// host exec fee uses `trie_id_len()`.
 #[test]
 fn test_gas_key_add_key_conserves_supply() {
-    if !ProtocolFeature::FixGasKeyFeeCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixGasKeyFeeCharging not enabled at PROTOCOL_VERSION");
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
         return;
     }
     let initial_balance = Balance::from_near(1_000_000);
@@ -4535,8 +4535,8 @@ fn test_gas_key_add_key_conserves_supply() {
 /// state, so it is red until `config.rs` prices the send fee on `len()`.
 #[test]
 fn test_gas_key_transfer_send_fee_uses_wire_length() {
-    if !ProtocolFeature::FixGasKeyFeeCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixGasKeyFeeCharging not enabled at PROTOCOL_VERSION");
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
         return;
     }
     let config = RuntimeConfig::test();

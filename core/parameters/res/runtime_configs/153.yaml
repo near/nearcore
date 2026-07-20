@@ -1,3 +1,6 @@
-# Price gas-key exec (storage) fees on trie_id_len() and send (transmission)
-# fees on len(), instead of pricing the exec fee on the wire length.
-fix_gas_key_fee_charging: { old: false, new: true }
+# Fix two related ML-DSA-65 cost-charging issues:
+# - gas keys: price exec (storage) fees on trie_id_len() and send (transmission)
+#   fees on len(), instead of pricing the exec fee on the wire length;
+# - meta transactions: meter the inner delegate signature verification compute on
+#   the receiver shard instead of the signer shard.
+fix_ml_dsa_cost_charging: { old: false, new: true }
