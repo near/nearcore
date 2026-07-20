@@ -18019,8 +18019,7 @@
               }
             },
             "required": [
-              "name",
-              "info"
+              "name"
             ],
             "type": "object"
           }
