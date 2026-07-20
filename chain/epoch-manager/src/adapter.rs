@@ -1140,18 +1140,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
         let epoch_manager = self.read();
         let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(anchor_hash)?;
-        // Aggregator belongs to the anchor's epoch. If the next block starts a new epoch,
-        // stats reset -> empty blacklist (boundary reset).
-        if aggregator.epoch_id != epoch_id {
-            return Ok(HashMap::new());
-        }
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        Ok(crate::compute_chunk_producer_blacklist(
-            &aggregator.shard_tracker,
-            epoch_info.as_ref(),
-            &shard_layout,
-        ))
+        // `blacklist_for_epoch` resets to empty when the aggregator's epoch differs from the
+        // anchor's (a boundary anchor whose next epoch has no stats yet).
+        Ok(crate::blacklist_for_epoch(&aggregator, &epoch_id, epoch_info.as_ref(), &shard_layout))
     }
 
     fn get_chunk_validator_assignments(

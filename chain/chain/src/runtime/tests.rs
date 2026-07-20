@@ -11,8 +11,9 @@ use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, Genesis,
     MutableConfigValue, default_produce_chunk_add_transactions_time_limit,
+    default_view_access_keys_limit,
 };
-use near_crypto::{InMemorySigner, Signer};
+use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -33,7 +34,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, DeleteAccountAction, SignedTransaction, StakeAction, TransactionNonce, TransferAction,
+    Action, DeleteAccountAction, SignedTransaction, StakeAction, Transaction, TransactionNonce,
+    TransactionV0, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
@@ -153,6 +155,7 @@ impl TestEnv {
             &genesis.config,
             epoch_manager.clone(),
             None,
+            default_view_access_keys_limit(),
             None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -1678,6 +1681,28 @@ fn prepare_transactions_extra(
     check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+    prepare_transactions_extra_with_time_limit(
+        env,
+        chain,
+        transaction_groups,
+        skip_tx_hashes,
+        validate_tx_ttl,
+        check_pending,
+        cancel,
+        default_produce_chunk_add_transactions_time_limit(),
+    )
+}
+
+fn prepare_transactions_extra_with_time_limit(
+    env: &TestEnv,
+    chain: &Chain,
+    transaction_groups: &mut dyn TransactionGroupIterator,
+    skip_tx_hashes: HashSet<CryptoHash>,
+    validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
+    check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
+    cancel: Option<Arc<AtomicBool>>,
+    time_limit: Option<Duration>,
+) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     let prev_hash = env.head.prev_block_hash;
     let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
@@ -1709,7 +1734,7 @@ fn prepare_transactions_extra(
         validate_tx_ttl,
         skip_tx_hashes,
         check_pending,
-        default_produce_chunk_add_transactions_time_limit(),
+        time_limit,
         cancel,
     )
 }
@@ -1833,6 +1858,151 @@ fn test_prepare_transactions_shared_balance_across_keys() {
         result.transactions.len(),
         1,
         "expected only one transfer to be included when both share the same account balance"
+    );
+}
+
+/// One account's flood of rejected transactions must not use up the whole
+/// selection budget. Rejected transactions advance no gas/size budget, so the
+/// `time_limit` bounds them, and the per-visit group cap
+/// (`MAX_TXS_PER_GROUP_PER_VISIT`) lets the loop reach that check and give
+/// other accounts a turn.
+///
+/// With one small time limit, checks that:
+///  - preparation stops on the time limit (within a small cap), not by draining the flood,
+///  - transactions from other accounts are still included (fairness),
+///  - the flood is drained more than one visit's worth, but not fully.
+#[test]
+fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let block_hash = env.head.prev_block_hash;
+
+    let flooder: AccountId = "test1".parse().unwrap();
+    let flooder_signer = InMemorySigner::test_signer(&flooder);
+
+    // Each transfer exceeds half the available balance, so only the lowest-nonce
+    // transaction is funded and every following one is rejected on balance.
+    let available = TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap();
+    let big_transfer =
+        available.checked_div(2).unwrap().checked_add(Balance::from_near(1)).unwrap();
+
+    // Empty signatures, so the pile is cheap to build.
+    let flood_tx = |nonce: u64| -> ValidatedTransaction {
+        let tx = Transaction::V0(TransactionV0 {
+            signer_id: flooder.clone(),
+            public_key: flooder_signer.public_key(),
+            nonce,
+            receiver_id: flooder.clone(),
+            block_hash,
+            actions: vec![Action::Transfer(TransferAction { deposit: big_transfer })],
+        });
+        ValidatedTransaction::new_for_test(SignedTransaction::new(
+            Signature::empty(KeyType::ED25519),
+            tx,
+        ))
+    };
+
+    let build_flood_pool = |size: u64| -> TransactionPool {
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        for nonce in 1..=size {
+            pool.insert_transaction(flood_tx(nonce));
+        }
+        pool
+    };
+
+    let cap = MAX_TXS_PER_GROUP_PER_VISIT as u64;
+
+    // Measure the ~cost of rejecting one transaction. Sizing the load/timeouts
+    // relative to this keeps the test machine-independent.
+    let warmup_size = 4 * cap;
+    let mut warmup_pool = build_flood_pool(warmup_size);
+    let warmup_start = std::time::Instant::now();
+    {
+        let mut warmup_iter = warmup_pool.pool_iterator();
+        prepare_transactions_extra_with_time_limit(
+            &env,
+            &chain,
+            &mut warmup_iter,
+            HashSet::new(),
+            &|_| true,
+            &mut PendingTxCheckResult::always_admit(),
+            None,
+            None, // no time limit => drains the whole warmup flood
+        )
+        .unwrap();
+    }
+    let time_to_reject_tx = warmup_start.elapsed() / warmup_size as u32;
+
+    // Real flood: far more than the ~8 visits the time budget below allows, so
+    // it can't be drained within the deadline.
+    let flood_size = 64 * cap;
+    let mut pool = build_flood_pool(flood_size);
+
+    // A few valid transactions from other accounts submitted alongside the
+    // flood. Each transfers a negligible amount, so all of them are funded.
+    let honest_accounts = ["test2", "test3", "test4"];
+    const HONEST_TXS_PER_ACCOUNT: u64 = 2;
+    let mut honest_count = 0u64;
+    for name in honest_accounts {
+        let account: AccountId = name.parse().unwrap();
+        let signer = InMemorySigner::test_signer(&account);
+        for nonce in 1..=HONEST_TXS_PER_ACCOUNT {
+            let tx = SignedTransaction::send_money(
+                nonce,
+                account.clone(),
+                flooder.clone(),
+                &signer,
+                Balance::from_yoctonear(1),
+                block_hash,
+            );
+            pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+            honest_count += 1;
+        }
+    }
+
+    // Time budget of ~1/8 needed to drain the flood (but still ~8x of single visit full of rejections)
+    let time_limit =
+        Some(Duration::nanoseconds(time_to_reject_tx.as_nanos() as i64 * 8 * cap as i64));
+
+    let result = {
+        let mut pool_iter = pool.pool_iterator();
+        prepare_transactions_extra_with_time_limit(
+            &env,
+            &chain,
+            &mut pool_iter,
+            HashSet::new(),
+            &|_| true,
+            &mut PendingTxCheckResult::always_admit(),
+            None,
+            time_limit,
+        )
+        .unwrap()
+        .0
+    };
+
+    // Property 1: preparation stopped on the time limit, not because the flood was exhausted.
+    assert!(
+        matches!(result.limited_by, PrepareTransactionsLimit::Time),
+        "expected to stop on the time limit, stopped on {:?}",
+        result.limited_by,
+    );
+
+    // Property 2 (fairness): transactions from the other accounts are
+    // included despite the flood, plus exactly the one funded flood tx.
+    let included_honest =
+        result.transactions.iter().filter(|tx| tx.signer_id() != &flooder).count() as u64;
+    assert_eq!(included_honest, honest_count, "all honest transactions should be included");
+    let included_flood = result.transactions.iter().filter(|tx| tx.signer_id() == &flooder).count();
+    assert_eq!(included_flood, 1, "exactly one flood transaction is funded");
+
+    // Property 3 (a bit into the implementation): check the count pulled was more than one visit's worth.
+    let flood_examined = flood_size - pool.len() as u64;
+    assert!(
+        flood_examined > cap,
+        "expected to pull more than one visit from the flood, pulled {flood_examined}",
+    );
+    assert!(
+        flood_examined < flood_size,
+        "expected the flood to not be fully drained, pulled {flood_examined}",
     );
 }
 
