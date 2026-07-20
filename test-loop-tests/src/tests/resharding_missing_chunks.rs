@@ -22,10 +22,10 @@
 //! the child shards never produce an endorsed chunk after the split; with the fix
 //! they recover normally.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
@@ -34,11 +34,9 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 /// One recorded block: its height, epoch height, whether the new (post-split)
 /// layout is active, and the per-shard-index chunk-inclusion mask.
@@ -53,6 +51,9 @@ struct BlockRecord {
 /// must still be able to reshard and let its children produce chunks. Before the
 /// fix the children halt permanently.
 #[test]
+// Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
+// that this fix and scenario don't cover; resharding under spice is not supported yet.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_parent_missing_full_epoch_before_split() {
     init_test_logger();
 
