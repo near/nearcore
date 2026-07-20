@@ -914,7 +914,7 @@ impl JsonRpcHandler {
                     }
                     new_block_watcher.changed().await.map_err(|_| {
                         RpcTransactionError::InternalError {
-                            debug_info: "Block notification channel closed".to_string(),
+                            debug_info: "block notification channel closed".to_string(),
                         }
                     })?;
                 }
