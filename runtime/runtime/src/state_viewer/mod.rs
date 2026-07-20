@@ -4,21 +4,20 @@ use crate::ext::RuntimeExt;
 use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::trie_key_parsers::{
-    self, parse_key_handle_from_access_key_key, parse_nonce_index_from_gas_key_key,
-};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::trie_key_parsers::{self, parse_key_handle_from_access_key_key};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
@@ -26,7 +25,10 @@ use near_primitives::version::assert_supported_protocol_version;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::trie::AccessOptions;
-use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
+use near_store::{
+    Trie, TrieAccess as _, TrieUpdate, get_access_key, get_access_key_by_handle, get_account,
+    get_gas_key_nonce,
+};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::num::NonZeroU32;
@@ -56,10 +58,36 @@ pub struct ViewApplyState {
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
 }
 
+/// Fallback cap on the number of access keys returned by `view_access_keys`,
+/// used by `TrieViewer::default()`. Kept in sync with
+/// `near_chain_configs::default_view_access_keys_limit()`.
+const DEFAULT_VIEW_ACCESS_KEYS_LIMIT: u32 = 100;
+
+/// Smallest byte string strictly greater than every string that has `prefix` as
+/// a prefix, or `None` if `prefix` is all `0xFF` bytes (no such string exists).
+fn prefix_successor(prefix: &[u8]) -> Option<Vec<u8>> {
+    let trailing_ff = prefix.iter().rev().take_while(|&&byte| byte == u8::MAX).count();
+    let (last, rest) = prefix[..prefix.len() - trailing_ff].split_last()?;
+    let mut out = rest.to_vec();
+    out.push(last + 1);
+    Some(out)
+}
+
+/// Whether a trie key at nibble path `key_nibbles` still lies within the range of
+/// keys that share `prefix_nibbles`: true while the path is on the descent toward
+/// the prefix (a prefix of it) or inside its subtree (extends it), false once it
+/// diverges. Used as the negation of the access-key iterator's prune condition.
+fn nibbles_within_prefix(prefix_nibbles: &[u8], key_nibbles: &[u8]) -> bool {
+    prefix_nibbles.starts_with(key_nibbles) || key_nibbles.starts_with(prefix_nibbles)
+}
+
 pub struct TrieViewer {
     runtime_config_store: RuntimeConfigStore,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
+    /// Upper bound on the number of access keys returned by `view_access_keys`.
+    /// Applies to both paginated and unpaginated requests.
+    access_keys_limit: u32,
     /// Gas limit used when handling call_function queries. If None, resolved
     /// from the runtime config for the current protocol version.
     max_gas_burnt_view: Option<Gas>,
@@ -68,7 +96,12 @@ pub struct TrieViewer {
 impl Default for TrieViewer {
     fn default() -> Self {
         let runtime_config_store = RuntimeConfigStore::new(None);
-        Self { runtime_config_store, state_size_limit: None, max_gas_burnt_view: None }
+        Self {
+            runtime_config_store,
+            state_size_limit: None,
+            access_keys_limit: DEFAULT_VIEW_ACCESS_KEYS_LIMIT,
+            max_gas_burnt_view: None,
+        }
     }
 }
 
@@ -76,9 +109,10 @@ impl TrieViewer {
     pub fn new(
         runtime_config_store: RuntimeConfigStore,
         state_size_limit: Option<u64>,
+        access_keys_limit: u32,
         max_gas_burnt_view: Option<Gas>,
     ) -> Self {
-        Self { runtime_config_store, state_size_limit, max_gas_burnt_view }
+        Self { runtime_config_store, state_size_limit, access_keys_limit, max_gas_burnt_view }
     }
 
     pub fn view_account(
@@ -147,48 +181,98 @@ impl TrieViewer {
         })
     }
 
+    /// Lists an account's access keys, optionally paginated.
     pub fn view_access_keys(
         &self,
-        state_update: &TrieUpdate,
+        trie: &Trie,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKeyHandle, AccessKey)>, errors::ViewAccessKeyError> {
-        let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-        let access_keys =
-            state_update
-                .iter(&prefix)?
-                .map(|key| {
-                    let key = key?;
-                    let key_handle = parse_key_handle_from_access_key_key(&key, account_id)
-                        .map_err(|_| errors::ViewAccessKeyError::InternalError {
-                            error_message: "Unexpected invalid access key from iterator"
-                                .to_string(),
-                        })?;
-                    if let Some(_index) =
-                        parse_nonce_index_from_gas_key_key(&key, account_id, &key_handle).map_err(
-                            |_| errors::ViewAccessKeyError::InternalError {
-                                error_message: "could not parse nonce index".to_string(),
-                            },
-                        )?
-                    {
-                        // This is a gas key nonce, skip it.
-                        return Ok(None);
-                    }
-                    let access_key = near_store::get_access_key_by_handle(
-                        state_update,
-                        account_id,
-                        &key_handle,
-                    )?
-                    .ok_or_else(|| {
-                        near_primitives::errors::StorageError::StorageInconsistentState(format!(
-                            "iterator yielded an access-key trie key with no value: {key_handle}"
-                        ))
-                    })?;
+        after: Option<&PublicKeyHandle>,
+        limit: Option<NonZeroU32>,
+    ) -> Result<
+        (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
+        errors::ViewAccessKeyError,
+    > {
+        let max = self.access_keys_limit;
+        let paginated = after.is_some() || limit.is_some();
 
-                    Ok(Some((key_handle, access_key)))
-                })
-                .filter_map_ok(|x| x)
-                .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
-        access_keys
+        let item_cap: Option<u32> = if paginated {
+            // An explicit page size larger than the configured maximum is
+            // clamped down rather than rejected; with no explicit page size we
+            // fall back to the configured maximum.
+            Some(limit.map_or(max, |requested| requested.get().min(max)))
+        } else {
+            None
+        };
+
+        let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
+        // Bound iteration to this account's access-key range with a prune
+        // condition. Unlike the per-node seek boundary, a prune condition
+        // survives `seek`, so it keeps enforcing the range across the seeks we
+        // use below to skip gas-key nonce blocks.
+        let prefix_nibbles: Vec<u8> = prefix.iter().flat_map(|&b| [b >> 4, b & 0x0f]).collect();
+        let mut iter =
+            trie.disk_iter_with_prune_condition(Some(Box::new(move |key_nibbles: &Vec<u8>| {
+                !nibbles_within_prefix(&prefix_nibbles, key_nibbles)
+            })))?;
+
+        match after {
+            Some(handle) => {
+                let after_key = TrieKey::access_key(account_id.clone(), handle.clone()).to_vec();
+                match prefix_successor(&after_key) {
+                    Some(next) => iter.seek(Bound::Included(next.as_slice()))?,
+                    // Unreachable: access-key keys start with `col::ACCESS_KEY`,
+                    // so they are never all-0xFF.
+                    None => iter.seek(Bound::Excluded(after_key.as_slice()))?,
+                }
+            }
+            None => iter.seek(Bound::Included(prefix.as_slice()))?,
+        }
+
+        let mut keys = Vec::new();
+        let mut last_key = None;
+
+        while let Some(item) = iter.next() {
+            let (raw_key, _value) = item?;
+            let key_handle =
+                parse_key_handle_from_access_key_key(&raw_key, account_id).map_err(|_| {
+                    errors::ViewAccessKeyError::InternalError {
+                        error_message: "unexpected invalid access key from iterator".to_string(),
+                    }
+                })?;
+            // A genuine access key beyond what we've already kept.
+            if let Some(cap) = item_cap {
+                if keys.len() as u64 >= u64::from(cap) {
+                    // Page is full and at least one more key exists: emit a cursor
+                    // at the last kept key so the caller can resume.
+                    last_key = keys
+                        .last()
+                        .map(|(handle, _): &(PublicKeyHandle, AccessKey)| handle.clone());
+                    break;
+                }
+            } else if keys.len() as u64 >= u64::from(max) {
+                // Unpaginated request that exceeds the configured limit.
+                return Err(errors::ViewAccessKeyError::TooManyAccessKeys {
+                    requested_account_id: account_id.clone(),
+                    limit: max,
+                });
+            }
+            let access_key =
+                get_access_key_by_handle(trie, account_id, &key_handle)?.ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "iterator yielded an access-key trie key with no value: {key_handle}"
+                    ))
+                })?;
+            // A gas key's nonce rows sort immediately after its access-key row;
+            // skip the whole block so we don't scan every nonce.
+            let is_gas_key = access_key.gas_key_info().is_some();
+            keys.push((key_handle, access_key));
+            if is_gas_key {
+                if let Some(next) = prefix_successor(&raw_key) {
+                    iter.seek(Bound::Included(next.as_slice()))?;
+                }
+            }
+        }
+        Ok((keys, last_key))
     }
 
     pub fn view_gas_key_nonces(
@@ -464,5 +548,38 @@ impl TrieViewer {
                 .limit_config
                 .max_gas_burnt
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{nibbles_within_prefix, prefix_successor};
+
+    #[test]
+    fn test_prefix_successor() {
+        assert_eq!(prefix_successor(b"a").as_deref(), Some(&b"b"[..]));
+        // Trailing 0xFF bytes are stripped before incrementing.
+        assert_eq!(prefix_successor(b"a\xff\xff").as_deref(), Some(&b"b"[..]));
+        assert_eq!(prefix_successor(&[2, 5, 0xff]).as_deref(), Some(&[2, 6][..]));
+        // No successor exists for an all-0xFF (or empty) prefix.
+        assert_eq!(prefix_successor(b""), None);
+        assert_eq!(prefix_successor(b"\xff\xff"), None);
+    }
+
+    #[test]
+    fn test_nibbles_within_prefix() {
+        let prefix = &[2, 0, 6, 1];
+        // Descent path toward the prefix must be kept, not pruned. This is the
+        // case a naive `key.starts_with(prefix)` predicate would break.
+        assert!(nibbles_within_prefix(prefix, &[]));
+        assert!(nibbles_within_prefix(prefix, &[2]));
+        assert!(nibbles_within_prefix(prefix, &[2, 0, 6]));
+        assert!(nibbles_within_prefix(prefix, prefix));
+        // Inside the prefix's subtree must be kept.
+        assert!(nibbles_within_prefix(prefix, &[2, 0, 6, 1, 9, 9]));
+        // Divergence at any position must be excluded.
+        assert!(!nibbles_within_prefix(prefix, &[3]));
+        assert!(!nibbles_within_prefix(prefix, &[2, 1]));
+        assert!(!nibbles_within_prefix(prefix, &[2, 0, 6, 2]));
     }
 }

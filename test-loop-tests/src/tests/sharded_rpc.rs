@@ -277,7 +277,11 @@ fn test_rpc_query_view_access_key_list_forwarding() {
             let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
                 RpcQueryRequest {
                     block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::ViewAccessKeyList { account_id: account.clone() },
+                    request: QueryRequest::ViewAccessKeyList {
+                        account_id: account.clone(),
+                        after_key: None,
+                        limit: None,
+                    },
                 },
                 Duration::seconds(5),
             )?;
@@ -656,6 +660,8 @@ fn test_rpc_experimental_view_access_key_list_forwarding() {
                     client.EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
                         block_reference: BlockReference::Finality(Finality::None),
                         account_id: account.clone(),
+                        after_key: None,
+                        limit: None,
                     })
                 },
                 Duration::seconds(5),

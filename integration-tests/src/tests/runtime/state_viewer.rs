@@ -1,5 +1,6 @@
 use crate::utils::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 use borsh::BorshDeserialize;
+use near_chain_configs::default_view_access_keys_limit;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     account::{Account, AccountContract},
@@ -371,7 +372,12 @@ fn test_view_state_too_large() {
         alice_account(),
         &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::None, 50_001),
     );
-    let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
+    let trie_viewer = TrieViewer::new(
+        RuntimeConfigStore::new(None),
+        Some(50_000),
+        default_view_access_keys_limit(),
+        None,
+    );
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", None, None, false);
     assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
 }
@@ -392,7 +398,12 @@ fn test_view_state_with_large_contract() {
         ),
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
-    let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
+    let trie_viewer = TrieViewer::new(
+        RuntimeConfigStore::new(None),
+        Some(50_000),
+        default_view_access_keys_limit(),
+        None,
+    );
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", None, None, false);
     assert!(result.is_ok());
 }
@@ -705,7 +716,12 @@ fn test_view_state_pagination_bypasses_size_limit() {
         );
     }
     let state_update = commit_and_view(tries, state_update);
-    let viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
+    let viewer = TrieViewer::new(
+        RuntimeConfigStore::new(None),
+        Some(50_000),
+        default_view_access_keys_limit(),
+        None,
+    );
     let alice = alice_account();
 
     let unpaginated = viewer.view_state(&state_update, &alice, b"", None, None, false);

@@ -43,8 +43,8 @@ use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
 };
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
+    QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_PREV_EPOCH_END_KEY;
@@ -124,6 +124,7 @@ impl NightshadeRuntime {
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
+        view_access_keys_limit: u32,
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
@@ -142,6 +143,7 @@ impl NightshadeRuntime {
         let trie_viewer = TrieViewer::new(
             runtime_config_store.clone(),
             trie_viewer_state_size_limit,
+            view_access_keys_limit,
             max_gas_burnt_view,
         );
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
@@ -1387,24 +1389,30 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewAccessKeyList { account_id } => {
-                let access_key_list =
-                    self.view_access_keys(&shard_uid, *state_root, account_id).map_err(|err| {
+            QueryRequest::ViewAccessKeyList { account_id, after_key, limit } => {
+                let (access_key_list, last_key) = self
+                    .view_access_keys(
+                        &shard_uid,
+                        *state_root,
+                        account_id,
+                        after_key.as_ref(),
+                        *limit,
+                    )
+                    .map_err(|err| {
                         crate::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
                             *block_hash,
                         )
                     })?;
+                let keys = access_key_list
+                    .into_iter()
+                    .map(|(public_key, access_key)| {
+                        AccessKeyInfoView::new(public_key, access_key.into())
+                    })
+                    .collect();
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::AccessKeyList(
-                        access_key_list
-                            .into_iter()
-                            .map(|(public_key, access_key)| {
-                                AccessKeyInfoView::new(public_key, access_key.into())
-                            })
-                            .collect(),
-                    ),
+                    kind: QueryResponseKind::AccessKeyList(AccessKeyList { keys, last_key }),
                     block_height,
                     block_hash: *block_hash,
                 })
@@ -1856,12 +1864,14 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
+        after: Option<&PublicKeyHandle>,
+        limit: Option<NonZeroU32>,
     ) -> Result<
-        Vec<(PublicKeyHandle, AccessKey)>,
+        (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
         node_runtime::state_viewer::errors::ViewAccessKeyError,
     > {
-        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_access_keys(&state_update, account_id)
+        let trie = self.tries.get_view_trie_for_shard(*shard_uid, state_root);
+        self.trie_viewer.view_access_keys(&trie, account_id, after, limit)
     }
 
     fn view_gas_key_nonces(
