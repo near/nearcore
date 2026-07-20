@@ -28,6 +28,7 @@ use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 use parking_lot::RwLock;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
@@ -318,7 +319,7 @@ impl User for RuntimeUser {
     fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_access_keys(&state_update.trie, account_id, None, None)
+            .view_access_keys(&state_update.trie, account_id, None, NonZeroU32::new(1))
             .map(|(access_keys, _last_key)| access_keys.is_empty())
             .map_err(|err| err.to_string())
     }
