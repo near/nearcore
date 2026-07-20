@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.11"
+    "version": "1.2.12"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1155,6 +1155,20 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page."
           }
         },
         "required": [
@@ -13706,6 +13720,12 @@
             ],
             "description": "Version of the binary."
           },
+          "view_access_keys_limit": {
+            "description": "Upper bound on the number of access keys returned by a `view_access_key_list`\nquery.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
           "view_client_threads": {
             "description": "Number of threads for ViewClientActor pool.",
             "format": "uint",
@@ -15084,6 +15104,48 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "limit",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "TOO_MANY_ACCESS_KEYS"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "error": {
                     "$ref": "#/components/schemas/FunctionCallError"
                   },
@@ -15361,6 +15423,25 @@
                 "properties": {
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
+                  },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "request_type": {
                     "enum": [
@@ -15710,6 +15791,25 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "request_type": {
                     "enum": [
                       "view_access_key_list"
@@ -16057,6 +16157,25 @@
                 "properties": {
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
+                  },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "request_type": {
                     "enum": [
@@ -18481,6 +18600,27 @@
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
+          },
+          "after_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page."
+          },
+          "limit": {
+            "description": "Maximum number of access keys to return in this page.",
+            "format": "uint32",
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
@@ -18505,6 +18645,20 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page."
           }
         },
         "required": [

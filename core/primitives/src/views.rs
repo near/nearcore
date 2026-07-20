@@ -326,11 +326,16 @@ impl AccessKeyInfoView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
+    /// Pagination cursor. When `Some`, the listing was truncated and the caller
+    /// should issue another request with `after_key` set to this handle to fetch
+    /// the next page. `None` means this was the last page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_key: Option<PublicKeyHandle>,
 }
 
 impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
-        Self { keys: iter.into_iter().collect() }
+        Self { keys: iter.into_iter().collect(), last_key: None }
     }
 }
 
@@ -408,6 +413,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after_key: Option<PublicKeyHandle>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
     },
     ViewGasKeyNonces {
         account_id: AccountId,

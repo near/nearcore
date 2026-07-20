@@ -4,6 +4,13 @@ pub struct RpcViewAccessKeyListRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
     pub account_id: near_primitives::types::AccountId,
+    /// Pagination cursor: resume the listing strictly after this access key.
+    /// Pass the `last_key` returned by the previous page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_key: Option<near_crypto::PublicKeyHandle>,
+    /// Maximum number of access keys to return in this page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<std::num::NonZeroU32>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
