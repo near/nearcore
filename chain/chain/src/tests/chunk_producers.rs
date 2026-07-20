@@ -17,6 +17,7 @@ mod tests {
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::utils::get_block_shard_id;
     use near_store::DBCol;
+    use std::collections::HashSet;
 
     /// Verify that the ChunkProducers column is populated for the genesis block.
     #[test]
@@ -113,6 +114,17 @@ mod tests {
                 stored.account_id(),
                 expected.account_id(),
                 "stored chunk producer should match deterministic sampling for shard {shard_id}"
+            );
+
+            // With no misses the blacklist is empty, so the write path's
+            // `sample_chunk_producer_excluding(&empty)` must equal `sample_chunk_producer`.
+            let empty = HashSet::new();
+            let excluding_id = epoch_info
+                .sample_chunk_producer_excluding(&shard_layout, shard_id, height, &empty)
+                .unwrap();
+            assert_eq!(
+                excluding_id, expected_validator_id,
+                "empty-blacklist sampling must match default sampling for shard {shard_id}"
             );
         }
     }
