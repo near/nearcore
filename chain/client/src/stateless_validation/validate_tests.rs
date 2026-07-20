@@ -32,7 +32,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::collections::HashSet;
 
-/// Lowest protocol version with `EarlyKickout` enabled — forces the V2 wire variant and turns
+/// Lowest protocol version with `EarlyKickout` enabled — forces the V2 wire
 /// variant regardless of the compile-time `nightly` feature.
 fn early_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version()

@@ -78,8 +78,10 @@ fn verify_anchored_chunk_key(
     match epoch_manager.get_block_info(prev_block_hash) {
         Ok(parent_info) => {
             let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+            let expected_height =
+                parent_info.height().checked_add(1).expect("block height overflow");
             if parent_info.prev_hash() != prev_prev_block_hash
-                || parent_info.height() + 1 != height_created
+                || expected_height != height_created
                 || &expected_epoch_id != epoch_id
             {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
@@ -90,7 +92,7 @@ fn verify_anchored_chunk_key(
                     height_created,
                     prev_prev_block_hash,
                     expected_epoch_id,
-                    parent_info.height() + 1,
+                    expected_height,
                     parent_info.prev_hash(),
                 )));
             }
@@ -99,7 +101,9 @@ fn verify_anchored_chunk_key(
             if prev_prev_block_hash != &CryptoHash::default() {
                 // Parent not here yet, so only the anchor is known.
                 let anchor_height = epoch_manager.get_block_info(prev_prev_block_hash)?.height();
-                let min_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+                let min_height = anchor_height
+                    .checked_add(CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET)
+                    .expect("block height overflow");
                 if height_created < min_height {
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
                         "V2 {msg_label} height {height_created} below \
@@ -112,11 +116,12 @@ fn verify_anchored_chunk_key(
                 // to avoid an any-height hole.
                 let genesis_height = get_genesis_height(store)
                     .ok_or_else(|| Error::Other("genesis height not found".to_owned()))?;
-                if height_created > genesis_height + 1 {
+                // Overflow is impossible: `genesis_height` is a small configured constant.
+                let max_height = genesis_height.checked_add(1).expect("block height overflow");
+                if height_created > max_height {
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
                         "V2 {msg_label} with default anchor at height {height_created} \
-                         above genesis + 1 ({})",
-                        genesis_height + 1
+                         above genesis + 1 ({max_height})"
                     )));
                 }
             }
