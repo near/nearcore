@@ -1590,6 +1590,10 @@ fn test_cloud_archival_reader_reconstructs_chunk_producers() {
     assert_eq!(captured_shards, new_shards, "boundary rows must use the post-split layout");
     assert_ne!(captured_shards, base_shards, "post-split layout must differ from the base layout");
 
+    // TODO(cloud_archival): once an unignored test bootstraps a reader across a resharding
+    // boundary and runs assert_reader_writer_parity over the boundary block, that covers
+    // ChunkProducers and the two asserts below (blob vs writer, reconstructed vs writer)
+    // become redundant; drop them then.
     // The cloud blob round-trips those rows: `build_block_data` populated
     // `chunk_producers`, borsh serialized it, and `get_block_data` deserialized it.
     let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);

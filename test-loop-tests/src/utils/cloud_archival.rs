@@ -755,7 +755,6 @@ pub(crate) fn assert_reader_writer_parity(
         let parity = match col {
             // The reader backfills these columns below `start` to complete the merkle
             // tree chain, so it holds extra rows: check containment, not equality.
-            // ChunkProducers rides the same per-block backfill path.
             DBCol::BlockHeight | DBCol::Block | DBCol::BlockHeader | DBCol::BlockMerkleTree => {
                 Parity::Containment
             }
