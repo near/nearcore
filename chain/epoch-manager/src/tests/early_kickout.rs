@@ -237,10 +237,8 @@ fn record_block_with_mask(
 /// `target` accumulates 0 produced / many expected (blacklist candidate) while the
 /// other producer stays at 100%. Returns the recorded block hashes (index = height).
 ///
-/// Stable-only: it uses the *plain* height sampler, so once the grace window lifts and the
-/// seeder starts excluding the target, the target's missed heights would be re-attributed to
-/// the replacement. On nightly (feature enabled) the accessor tests use `drive_down_node`,
-/// which mirrors the production blacklist-aware assignment instead.
+/// Uses the *plain* height sampler: with the early-kickout feature off there is no
+/// blacklist-aware seeding, so a target's missed heights stay attributed to the target.
 #[cfg(not(feature = "nightly"))]
 fn drive_targeted_misses(
     handle: &EpochManagerHandle,
@@ -408,21 +406,19 @@ fn early_kickout_attribution_does_not_flap() {
     );
 }
 
-// 11. v152+ protocol: at an epoch boundary the aggregator belongs to the previous epoch, so
-//     the accessor returns empty even though epoch 0 stats are miss-heavy. Epoch length must
-//     exceed the grace window, otherwise the whole epoch sits in the grace and the reset
-//     check is vacuous (it would pass even if the epoch-mismatch reset were broken).
+// 11. v152+ epoch-boundary reset: at an epoch boundary the aggregator still belongs to the
+//     previous epoch, so the accessor returns empty even though epoch 0 stats are miss-heavy.
+//     Setup: epoch length 1200 exceeds the 1000-block grace (otherwise the whole epoch sits in
+//     the grace and the reset check is vacuous), and the drive length 1300 crosses into epoch 1
+//     so a boundary exists. `boundary_idx` is the last block whose next block starts a new epoch;
+//     `h[i] == height` because `drive_down_node` stores hashes by height, so `boundary_idx - 1`
+//     is the mid-epoch anchor and `boundary_idx` is the boundary anchor.
 #[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    // Epoch length 1200 (> the 1000-block grace): epoch 0 clears the grace so a mid-epoch
-    // anchor is genuinely non-empty; count 1300 crosses into epoch 1 so the last epoch-0 block
-    // is a boundary.
     let handle = setup_default_epoch_manager(validators, 1200, 1, 3, 90, 60).into_handle();
     let h = drive_down_node(&handle, 1300, 0);
-    // Index of the last block that ends its epoch (next block starts a new epoch); index ==
-    // height, since `drive_down_node` stores `h[height]`.
     let boundary_idx = (0..h.len())
         .rev()
         .find(|&i| handle.is_next_block_epoch_start(&h[i]).unwrap())
@@ -431,20 +427,21 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
         boundary_idx as u64 > EARLY_KICKOUT_EPOCH_GRACE_BLOCKS,
         "boundary at height {boundary_idx} must be past the grace for a non-vacuous reset check"
     );
-    // A mid-epoch anchor, past the grace and inside epoch 0, is non-empty.
     let bl_pre = handle.get_chunk_producer_blacklist(&h[boundary_idx - 1]).unwrap();
     assert!(
         !bl_pre.is_empty(),
         "pre-boundary anchor past the grace must be non-empty, got {bl_pre:?}"
     );
-    // The boundary anchor's aggregator still belongs to epoch 0 while its next block starts
-    // epoch 1, so the epoch mismatch resets the blacklist to empty.
     let bl_boundary = handle.get_chunk_producer_blacklist(&h[boundary_idx]).unwrap();
     assert!(bl_boundary.is_empty(), "epoch boundary must reset blacklist, got {bl_boundary:?}");
 }
 
 // Start-of-epoch grace: with the down node already miss-heavy, the accessor stays empty until
 // the anchor is at least EARLY_KICKOUT_EPOCH_GRACE_BLOCKS into the epoch, then blacklists it.
+// `blocks_into_epoch` is measured from the epoch start height (not 0), so the grace boundary is
+// pinned against the actual start. Also checks the seeder and accessor agree at the exact
+// threshold: inside the grace the seeded row is the plain pick, and at the first active anchor it
+// is the blacklist-aware pick (never the down node).
 #[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_respects_epoch_grace() {
@@ -455,17 +452,12 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-    // blocks_into_epoch is measured from the epoch's start height (not necessarily 0), so pin
-    // the boundary against the actual start.
     let epoch_start = handle.get_epoch_start_from_epoch_id(&epoch_id).unwrap();
 
-    // Last anchor inside the grace (blocks_into_epoch == GRACE - 1): the down node is already
-    // miss-heavy, so the empty result is due to the grace, not a lack of misses.
+    // Last anchor inside the grace (blocks_into_epoch == GRACE - 1).
     let in_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS - 1) as usize;
     let bl_grace = handle.get_chunk_producer_blacklist(&h[in_grace]).unwrap();
     assert!(bl_grace.is_empty(), "anchor inside the grace window must be empty, got {bl_grace:?}");
-    // Seeder agrees with the accessor inside the grace: the seeded row is the plain pick (the
-    // grace suppresses exclusion for both).
     let in_grace_ch = in_grace as u64 + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
     let plain_in_grace = epoch_info
         .get_validator(epoch_info.sample_chunk_producer(&layout, shard_id, in_grace_ch).unwrap());
