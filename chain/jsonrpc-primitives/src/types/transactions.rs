@@ -85,9 +85,9 @@ pub enum TimeoutErrorCause {
     Error { debug_info: String },
 }
 
-impl TimeoutErrorCause {
+impl Default for TimeoutErrorCause {
     // A generic timeout error cause when extra context is not available.
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self::Error {
             debug_info: "the node timed out before returning a transaction status".to_string(),
         }
