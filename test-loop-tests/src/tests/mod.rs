@@ -55,6 +55,7 @@ mod process_blocks;
 mod processed_receipts_gc;
 mod protocol_upgrade;
 mod receipt_to_tx;
+mod reject_empty_method_name;
 mod reject_outdated_blocks;
 mod replay_chunks;
 mod resharding_cold_storage;
