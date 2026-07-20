@@ -175,8 +175,8 @@ mod tests {
     use super::*;
     use near_primitives::views::TxExecutionStatus;
 
-    /// On timeout the RPC returns a `TimeoutError` whose `reason` says how far the
-    /// transaction got. The `Pending` reason carries the last-known status so callers
+    /// On timeout the RPC returns a `TimeoutError` whose `cause` says how far the
+    /// transaction got. The `Pending` cause carries the last-known status so callers
     /// retain full information and can re-poll for a higher finality.
     #[test]
     fn timeout_error_reports_pending() {
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(info["status"]["final_execution_status"], "INCLUDED");
     }
 
-    /// The `NotObserved` reason serializes as a bare tag with no payload.
+    /// The `NotObserved` cause serializes as a bare tag with no payload.
     #[test]
     fn timeout_error_reports_not_observed() {
         let error = RpcTransactionError::TimeoutError(Some(TimeoutErrorCause::NotObserved));

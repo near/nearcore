@@ -950,7 +950,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         // If the request times out before any poll completes we report that we never got a
-        // usable status; each poll that keeps us waiting replaces this with a better reason.
+        // usable status; each poll that keeps us waiting replaces this with a better cause.
         let mut timeout_error_cause = TimeoutErrorCause::default();
 
         let poll_tx_status = async {
@@ -961,7 +961,7 @@ impl JsonRpcHandler {
             loop {
                 match self.tx_status_fetch_single(&tx_info, &finality, fetch_receipt).await {
                     ControlFlow::Break(outcome) => break outcome,
-                    ControlFlow::Continue(reason) => timeout_error_cause = reason,
+                    ControlFlow::Continue(cause) => timeout_error_cause = cause,
                 }
                 new_block_watcher.changed().await.map_err(|_| {
                     RpcTransactionError::InternalError {
@@ -986,7 +986,7 @@ impl JsonRpcHandler {
     /// Returns `ControlFlow::Break` with the final response/error once the
     /// transaction reaches the requested `finality` or hits a definitive error.
     ///
-    /// Returns `ControlFlow::Continue` with the reason to report if the request
+    /// Returns `ControlFlow::Continue` with the cause to report if the request
     /// ultimately times out.
     async fn tx_status_fetch_single(
         &self,
