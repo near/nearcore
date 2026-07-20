@@ -44,6 +44,8 @@ mod prepare_error {
                 From::TooManyParamsPerFunction => Self::TooManyParamsPerFunction,
                 From::TooManyParamsPerContract => Self::TooManyParamsPerContract,
                 From::OperandStackTooLarge => Self::OperandStackTooLarge,
+                From::TooManyGlobals => Self::TooManyGlobals,
+                From::TooManyEscapedFuncs => Self::TooManyEscapedFuncs,
             }
         }
     }

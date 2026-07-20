@@ -36,7 +36,7 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"CS9KdX9mtW7MaSqdEWAzLtstPSe7GNYRnHjghSNpurja");
+        insta::assert_snapshot!(hash, @"HEQX8aYCgumLEdjFBgAgyzESevKP96EmGAnK2c6RR4PW");
     } else {
         // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"432iZKRoXmYbMq4YjwwTUPVp7nvCVrEkVEQZiMykRMmS");
