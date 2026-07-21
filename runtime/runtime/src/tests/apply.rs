@@ -1551,6 +1551,142 @@ fn test_main_storage_proof_size_soft_limit() {
     );
 }
 
+/// Test ProtocolFeature::EnforcePerReceiptStorageProofLimit. A receipt should record at most 4MB of
+/// storage proof, no matter how many actions it has.
+#[test]
+fn test_per_receipt_storage_proof_size_limit() {
+    // Number of distinct 1MB values written and then read, one per action.
+    const NUM_VALUES: u8 = 5;
+
+    const ACTION_GAS: Gas = Gas::from_teragas(800 / NUM_VALUES as u64);
+
+    assert!(ProtocolFeature::EnforcePerReceiptStorageProofLimit.enabled(PROTOCOL_VERSION));
+    let feature_version = ProtocolFeature::EnforcePerReceiptStorageProofLimit.protocol_version();
+
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1_000),
+    );
+
+    let account = alice_account();
+    let signer = signers[0].clone();
+
+    // Setup: deploy the contract and write NUM_VALUES 1MB values under keys 0..NUM_VALUES.
+    let deploy_receipt = create_receipt_with_actions(
+        account.clone(),
+        signer.clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+    );
+    let write_receipt = create_receipt_with_actions(
+        account.clone(),
+        signer.clone(),
+        (0..NUM_VALUES)
+            .map(|key| {
+                Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "write_one_megabyte".to_string(),
+                    args: vec![key],
+                    gas: ACTION_GAS,
+                    deposit: Balance::ZERO,
+                }))
+            })
+            .collect(),
+    );
+    let write_receipt_id = *write_receipt.receipt_id();
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[deploy_receipt, write_receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    let write_status = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == write_receipt_id)
+        .expect("write receipt outcome should be present")
+        .outcome
+        .status
+        .clone();
+    assert_matches!(write_status, ExecutionStatus::SuccessValue(_));
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    // A single receipt whose actions each read a distinct 1MB value.
+    let read_receipt = create_receipt_with_actions(
+        account,
+        signer,
+        (0..NUM_VALUES)
+            .map(|key| {
+                Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "read_n_megabytes".to_string(),
+                    args: vec![key, key + 1],
+                    gas: ACTION_GAS,
+                    deposit: Balance::ZERO,
+                }))
+            })
+            .collect(),
+    );
+    let read_receipt_id = *read_receipt.receipt_id();
+
+    // Apply `read_receipt` at the given protocol version and return the result.
+    let mut apply_read_receipt = |protocol_version: ProtocolVersion| {
+        apply_state.current_protocol_version = protocol_version;
+
+        let apply_result = runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_new_recorder(),
+                &None,
+                &apply_state,
+                std::slice::from_ref(&read_receipt),
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        apply_result
+            .outcomes
+            .into_iter()
+            .find(|o| o.id == read_receipt_id)
+            .expect("read receipt outcome should be present")
+            .outcome
+            .status
+    };
+
+    // Before the fix (per-action limit): every action reads only ~1 MB, which is
+    // below the 4 MB limit, so the whole receipt succeeds even though it reads
+    // ~5 MB of state in total.
+    let status_before = apply_read_receipt(feature_version - 1);
+    assert_matches!(status_before, ExecutionStatus::SuccessValue(_));
+
+    // After the fix (per-receipt limit): the cumulative read crosses 4MB, so the receipt fails with
+    // RecordedStorageExceeded.
+    let status_after = apply_read_receipt(PROTOCOL_VERSION);
+    let action_error = assert_matches!(
+        status_after,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
+    );
+    let error_message = assert_matches!(
+        action_error.kind,
+        ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(msg)) => msg
+    );
+    assert!(error_message.contains("storage proof"), "unexpected error message: {error_message}");
+}
+
 // Tests excluding contract code from state witness and recording of contract deployments and function calls.
 #[test]
 fn test_exclude_contract_code_from_witness() {

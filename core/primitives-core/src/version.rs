@@ -447,6 +447,7 @@ pub enum ProtocolFeature {
     ReceiptPromiseInputSizeLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
+    EnforcePerReceiptStorageProofLimit,
 }
 
 impl ProtocolFeature {
@@ -573,6 +574,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ClampOutgoingGasAdmission
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
+            ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
 
             ProtocolFeature::FixContractLoadingError => 86,
             ProtocolFeature::RejectEmptyMethodName => 87,
