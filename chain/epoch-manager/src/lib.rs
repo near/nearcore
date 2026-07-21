@@ -79,6 +79,9 @@ pub struct BlacklistShardStats {
     /// Whether the keep-one safety valve fired (all distinct producers on the shard
     /// were candidates, so exactly one least-bad producer was kept).
     pub safety_valve_fired: bool,
+    /// The kept least-bad producer when the valve fired, else None. Carries the id so
+    /// the seeder can log it without recomputing (the accessor must not log).
+    pub kept: Option<ValidatorId>,
 }
 
 /// Result of [`compute_chunk_producer_blacklist`]: the applied blacklist plus
@@ -142,7 +145,7 @@ pub fn compute_chunk_producer_blacklist(
         // exist) — NEVER index `producers`. Deterministic TOTAL order (consensus-critical,
         // identical on every node, never HashSet iteration order):
         let safety_valve_fired = blacklisted.len() == producers.len();
-        if safety_valve_fired {
+        let kept = if safety_valve_fired {
             let keep = *blacklisted
                 .iter()
                 .max_by(|a, b| {
@@ -154,17 +157,16 @@ pub fn compute_chunk_producer_blacklist(
                         .then(eb.cmp(&ea)) // tiebreak: fewer expected
                         .then((**b).cmp(&**a)) // tiebreak: lower validator_id
                 })
-                .unwrap();
+                .expect("safety-valve branch: blacklisted is non-empty");
             blacklisted.remove(&keep);
-            tracing::warn!(
-                target: "early_kickout",
-                %shard_id,
-                kept = %epoch_info.validator_account_id(keep),
-                "safety valve: kept least-bad producer"
-            );
-        }
-        shard_stats
-            .insert(*shard_id, BlacklistShardStats { raw_candidate_count, safety_valve_fired });
+            Some(keep)
+        } else {
+            None
+        };
+        shard_stats.insert(
+            *shard_id,
+            BlacklistShardStats { raw_candidate_count, safety_valve_fired, kept },
+        );
         // A 1-producer shard becomes empty after keep-one -> nothing to blacklist, skip.
         if !blacklisted.is_empty() {
             blacklist.insert(*shard_id, blacklisted);
@@ -2253,6 +2255,14 @@ impl EpochManager {
                     EARLY_KICKOUT_SAFETY_VALVE_FIRED
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
+                    if let Some(kept) = stats.kept {
+                        tracing::warn!(
+                            target: "early_kickout",
+                            %shard_id,
+                            kept = %sample_epoch_info.validator_account_id(kept),
+                            "safety valve: kept least-bad producer"
+                        );
+                    }
                 }
             }
             self.seed_chunk_producer_rows(
