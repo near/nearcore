@@ -31,6 +31,7 @@ use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -911,7 +912,8 @@ impl ChunkExecutorActor {
             &self.network_adapter.clone().into_sender(),
             my_signer,
         );
-        self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
+        self.core_writer_sender
+            .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 
     fn distribute_witness(

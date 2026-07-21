@@ -19,6 +19,7 @@ use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::private_messages::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
+use crate::recv_permit::RecvMessagePermit;
 use crate::routing::edge::verify_nonce;
 use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
@@ -50,6 +51,8 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
+
+use super::stream::IncomingFrame;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
@@ -345,6 +348,7 @@ impl PeerActor {
             &*handle.future_spawner(),
             stream,
             stats.clone(),
+            network_state.incoming_message_semaphore.clone(),
         );
         let actor = Self {
             closing_reason: None,
@@ -964,7 +968,12 @@ impl PeerActor {
         }
     }
 
-    fn receive_message(&self, conn: &connection::Connection, msg: PeerMessage) {
+    fn receive_message(
+        &self,
+        conn: &connection::Connection,
+        msg: PeerMessage,
+        recv_permit: RecvMessagePermit,
+    ) {
         let _span = tracing::trace_span!(target: "network", "receive_message").entered();
         #[cfg(test)]
         let message_processed_event = {
@@ -1001,8 +1010,9 @@ impl PeerActor {
         self.handle.spawn(
             "handle message",
             async move {
-                let result =
-                    network_state.handle_peer_message(&clock, peer_id, msg, was_requested).await;
+                let result = network_state
+                    .handle_peer_message(&clock, peer_id, msg, was_requested, recv_permit)
+                    .await;
                 handle.run_later("message handle result", Duration::ZERO, |act, _| {
                     match result {
                         // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
@@ -1025,7 +1035,12 @@ impl PeerActor {
         skip_all,
         fields(msg_type = <&'static str>::from(&peer_msg)),
     )]
-    fn handle_msg_ready(&mut self, conn: Arc<connection::Connection>, peer_msg: PeerMessage) {
+    fn handle_msg_ready(
+        &mut self,
+        conn: Arc<connection::Connection>,
+        peer_msg: PeerMessage,
+        recv_permit: RecvMessagePermit,
+    ) {
         #[cfg(test)]
         let message_processed_event = {
             let sink = self.network_state.config.event_sink.clone();
@@ -1129,6 +1144,9 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 let transport = self.tcp.clone();
                 self.handle.spawn("handle request update nonce", async move {
+                    // capture recv_permit for the whole duration of message handling
+                    let _recv_permit = recv_permit;
+
                     if let Err(err) = verify_nonce(&clock, edge_info.nonce) {
                         tracing::debug!(
                             target: "network",
@@ -1175,6 +1193,8 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 let transport = self.tcp.clone();
                 self.handle.spawn("handle sync routing table", async move {
+                    // capture recv_permit for the whole duration of message handling
+                    let _recv_permit = recv_permit;
                     Self::handle_sync_routing_table(
                         &clock,
                         &network_state,
@@ -1221,6 +1241,8 @@ impl PeerActor {
                 let clock = self.clock.clone();
                 let tcp = self.tcp.clone();
                 self.handle.spawn("handle sync accounts data", async move {
+                    // capture recv_permit for the whole duration of message handling
+                    let _recv_permit = recv_permit;
                     if let Some(err) =
                         network_state.add_accounts_data(&clock, msg.accounts_data, tcp).await
                     {
@@ -1245,6 +1267,8 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 let tcp = self.tcp.clone();
                 self.handle.spawn("handle sync snapshot hosts", async move {
+                    // capture recv_permit for the whole duration of message handling
+                    let _recv_permit = recv_permit;
                     if let Some(err) = network_state.add_snapshot_hosts(msg.hosts, tcp).await {
                         conn.stop(Some(match err {
                             SnapshotHostInfoError::VerificationError(
@@ -1342,9 +1366,13 @@ impl PeerActor {
                                     #[cfg(test)]
                                     message_processed_event();
                                 }
-                                _ => self.receive_message(&conn, PeerMessage::Routed(msg)),
+                                _ => self.receive_message(
+                                    &conn,
+                                    PeerMessage::Routed(msg),
+                                    recv_permit,
+                                ),
                             },
-                            _ => self.receive_message(&conn, PeerMessage::Routed(msg)),
+                            _ => self.receive_message(&conn, PeerMessage::Routed(msg), recv_permit),
                         }
                     }
                     RoutedAction::Forward(msg) => {
@@ -1358,7 +1386,7 @@ impl PeerActor {
                     RoutedAction::Dropped => {}
                 }
             }
-            msg => self.receive_message(&conn, msg),
+            msg => self.receive_message(&conn, msg, recv_permit),
         }
     }
 
@@ -1544,6 +1572,8 @@ impl messaging::Handler<stream::Error> for PeerActor {
                 }
                 // It is expected in a sense that the peer might be just slow.
                 stream::Error::Send(stream::SendError::QueueOverflow { .. }) => true,
+                // The incoming semaphore can be closed when neard is shutting down.
+                stream::Error::Recv(stream::RecvError::IncomingSemaphoreClosed) => true,
                 stream::Error::Recv(stream::RecvError::IO(err))
                 | stream::Error::Send(stream::SendError::IO(err)) => match err.kind() {
                 // Connection has been closed.
@@ -1569,8 +1599,8 @@ impl messaging::Handler<stream::Error> for PeerActor {
     }
 }
 
-impl messaging::Handler<stream::Frame> for PeerActor {
-    fn handle(&mut self, stream::Frame(msg): stream::Frame) {
+impl messaging::Handler<IncomingFrame> for PeerActor {
+    fn handle(&mut self, IncomingFrame { data: msg, recv_permit }: IncomingFrame) {
         self.delay_if_registering(move |this| {
             let _span = tracing::debug_span!(
                 target: "network",
@@ -1649,7 +1679,7 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                         }
                     }
                     // Handle the message.
-                    this.handle_msg_ready(conn.clone(), peer_msg);
+                    this.handle_msg_ready(conn.clone(), peer_msg, recv_permit);
                 }
             }
         });

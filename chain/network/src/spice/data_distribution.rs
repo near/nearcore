@@ -6,9 +6,12 @@ use near_primitives::stateless_validation::contract_distribution::{
 };
 use near_primitives::types::AccountId;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use crate::recv_permit::RecvMessagePermit;
+
+#[derive(Debug)]
 pub struct SpiceIncomingPartialData {
     pub data: SpicePartialData,
+    pub recv_permit: RecvMessagePermit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize)]
@@ -17,19 +20,25 @@ pub struct SpicePartialDataRequest {
     pub requester: AccountId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpiceChunkContractAccessesMessage(pub SpiceChunkContractAccesses);
+#[derive(Debug)]
+pub struct SpicePartialDataRequestMessage {
+    pub request: SpicePartialDataRequest,
+    pub recv_permit: RecvMessagePermit,
+}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpiceContractCodeRequestMessage(pub SpiceContractCodeRequest);
+#[derive(Debug)]
+pub struct SpiceChunkContractAccessesMessage(pub SpiceChunkContractAccesses, pub RecvMessagePermit);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpiceContractCodeResponseMessage(pub SpiceContractCodeResponse);
+#[derive(Debug)]
+pub struct SpiceContractCodeRequestMessage(pub SpiceContractCodeRequest, pub RecvMessagePermit);
+
+#[derive(Debug)]
+pub struct SpiceContractCodeResponseMessage(pub SpiceContractCodeResponse, pub RecvMessagePermit);
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SpiceDataDistributorSenderForNetwork {
     pub incoming: Sender<SpiceIncomingPartialData>,
-    pub request: Sender<SpicePartialDataRequest>,
+    pub request: Sender<SpicePartialDataRequestMessage>,
     pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
     pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
     pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,

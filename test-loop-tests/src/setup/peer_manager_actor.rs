@@ -14,12 +14,15 @@ use near_network::client::{
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
     ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage,
 };
-use near_network::spice::data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
+use near_network::spice::data_distribution::{
+    SpiceIncomingPartialData, SpicePartialDataRequestMessage,
+};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -73,7 +76,7 @@ pub struct ViewClientSenderForTestLoopNetwork {
 pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
-    pub data_requests: Sender<SpicePartialDataRequest>,
+    pub data_requests: Sender<SpicePartialDataRequestMessage>,
     pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
     pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
     pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
@@ -508,6 +511,7 @@ fn network_message_to_client_handler(
                 let msg = OptimisticBlockMessage {
                     optimistic_block: optimistic_block.clone(),
                     from_peer: my_peer_id.clone(),
+                    recv_permit: RecvMessagePermit::none(),
                 }
                 .span_wrap();
                 let _ = shared_state
@@ -554,24 +558,29 @@ fn network_message_to_client_handler(
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .spice_core_writer_sender
-                .send(SpiceChunkEndorsementMessage(endorsement));
+                .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::EpochSyncRequest { peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             assert_ne!(peer_id, my_peer_id, "Sending message to self not supported.");
-            shared_state
-                .senders_for_peer(&my_peer_id, &peer_id)
-                .client_sender
-                .send(EpochSyncRequestMessage { from_peer: my_peer_id });
+            shared_state.senders_for_peer(&my_peer_id, &peer_id).client_sender.send(
+                EpochSyncRequestMessage {
+                    from_peer: my_peer_id,
+                    recv_permit: RecvMessagePermit::none(),
+                },
+            );
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::EpochSyncResponse { peer_id, proof } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            shared_state
-                .senders_for_peer(&my_peer_id, &peer_id)
-                .client_sender
-                .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
+            shared_state.senders_for_peer(&my_peer_id, &peer_id).client_sender.send(
+                EpochSyncResponseMessage {
+                    from_peer: my_peer_id,
+                    proof,
+                    recv_permit: RecvMessagePermit::none(),
+                },
+            );
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::BanPeer { peer_id, ban_reason } => {
@@ -656,7 +665,7 @@ fn network_message_to_partial_witness_handler(
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .partial_witness_sender
-                .send(ChunkStateWitnessAckMessage(witness_ack));
+                .send(ChunkStateWitnessAckMessage(witness_ack, RecvMessagePermit::none()));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
 
@@ -665,7 +674,10 @@ fn network_message_to_partial_witness_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender
-                    .send(PartialEncodedStateWitnessMessage(partial_witness));
+                    .send(PartialEncodedStateWitnessMessage(
+                        partial_witness,
+                        RecvMessagePermit::none(),
+                    ));
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -674,7 +686,10 @@ fn network_message_to_partial_witness_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender
-                    .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
+                    .send(PartialEncodedStateWitnessForwardMessage(
+                        partial_witness.clone(),
+                        RecvMessagePermit::none(),
+                    ));
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -683,7 +698,10 @@ fn network_message_to_partial_witness_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender
-                    .send(ChunkContractAccessesMessage(accesses.clone()));
+                    .send(ChunkContractAccessesMessage(
+                        accesses.clone(),
+                        RecvMessagePermit::none(),
+                    ));
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -691,14 +709,14 @@ fn network_message_to_partial_witness_handler(
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .partial_witness_sender
-                .send(ContractCodeRequestMessage(request));
+                .send(ContractCodeRequestMessage(request, RecvMessagePermit::none()));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::ContractCodeResponse(target, response) => {
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .partial_witness_sender
-                .send(ContractCodeResponseMessage(response));
+                .send(ContractCodeResponseMessage(response, RecvMessagePermit::none()));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
@@ -706,7 +724,10 @@ fn network_message_to_partial_witness_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &account)
                     .partial_witness_sender
-                    .send(PartialEncodedContractDeploysMessage(deploys.clone()));
+                    .send(PartialEncodedContractDeploysMessage(
+                        deploys.clone(),
+                        RecvMessagePermit::none(),
+                    ));
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -739,6 +760,7 @@ fn network_message_to_shards_manager_handler(
                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                     partial_encoded_chunk_request: request,
                     route_back,
+                    recv_permit: RecvMessagePermit::none(),
                 },
             );
             HandlerResult::Handled(NetworkResponses::NoResponse)
@@ -751,6 +773,7 @@ fn network_message_to_shards_manager_handler(
                 .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                     partial_encoded_chunk_response: response,
                     received_time: clock.now(),
+                    recv_permit: RecvMessagePermit::none(),
                 });
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -761,6 +784,7 @@ fn network_message_to_shards_manager_handler(
                 .shards_manager_sender
                 .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                     partial_encoded_chunk.into(),
+                    RecvMessagePermit::none(),
                 ));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -769,7 +793,10 @@ fn network_message_to_shards_manager_handler(
             shared_state
                 .senders_for_account(&my_account_id, &account_id)
                 .shards_manager_sender
-                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward));
+                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                    forward,
+                    RecvMessagePermit::none(),
+                ));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         _ => HandlerResult::Unhandled(request),
@@ -788,7 +815,10 @@ fn network_message_to_spice_data_distributor_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &account_id)
                     .spice_data_distributor_actor
-                    .send(SpiceIncomingPartialData { data: partial_data.clone() });
+                    .send(SpiceIncomingPartialData {
+                        data: partial_data.clone(),
+                        recv_permit: RecvMessagePermit::none(),
+                    });
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -797,7 +827,10 @@ fn network_message_to_spice_data_distributor_handler(
             shared_state
                 .senders_for_account(&my_account_id, &producer)
                 .spice_data_distributor_actor
-                .send(request);
+                .send(SpicePartialDataRequestMessage {
+                    request,
+                    recv_permit: RecvMessagePermit::none(),
+                });
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {
@@ -805,7 +838,10 @@ fn network_message_to_spice_data_distributor_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &target)
                     .spice_data_distributor_actor
-                    .send(SpiceChunkContractAccessesMessage(accesses.clone()));
+                    .send(SpiceChunkContractAccessesMessage(
+                        accesses.clone(),
+                        RecvMessagePermit::none(),
+                    ));
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
@@ -813,14 +849,14 @@ fn network_message_to_spice_data_distributor_handler(
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .spice_data_distributor_actor
-                .send(SpiceContractCodeRequestMessage(request));
+                .send(SpiceContractCodeRequestMessage(request, RecvMessagePermit::none()));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceContractCodeResponse(target, response) => {
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .spice_data_distributor_actor
-                .send(SpiceContractCodeResponseMessage(response));
+                .send(SpiceContractCodeResponseMessage(response, RecvMessagePermit::none()));
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         _ => HandlerResult::Unhandled(request),

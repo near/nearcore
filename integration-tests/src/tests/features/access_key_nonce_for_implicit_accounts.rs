@@ -10,6 +10,7 @@ use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -636,6 +637,7 @@ impl ChunkForwardingOptimizationTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                         partial_encoded_chunk.into(),
+                        RecvMessagePermit::none(),
                     ),
                 );
                 None
@@ -658,7 +660,10 @@ impl ChunkForwardingOptimizationTestData {
                 }
                 self.num_part_ords_forwarded += forward.parts.len();
                 self.env.shards_manager(&account_id).send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                        forward,
+                        RecvMessagePermit::none(),
+                    ),
                 );
                 None
             }

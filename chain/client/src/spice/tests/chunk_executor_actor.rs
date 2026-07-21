@@ -32,6 +32,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
@@ -452,10 +453,10 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
                 &signer,
             );
             for actor in actors.iter() {
-                actor
-                    .actor
-                    .core_writer_sender
-                    .send(SpiceChunkEndorsementMessage(endorsement.clone()));
+                actor.actor.core_writer_sender.send(SpiceChunkEndorsementMessage(
+                    endorsement.clone(),
+                    RecvMessagePermit::none(),
+                ));
             }
         }
     }
