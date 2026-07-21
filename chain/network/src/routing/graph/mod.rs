@@ -18,6 +18,16 @@ mod tests;
 
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
+
+/// Clock-skew tolerance for accepting edges with nonces in the future.
+///
+/// This is distinct from, and stricter than, `EDGE_NONCE_MAX_TIME_DELTA` (20 min): that
+/// constant guards the nonce of the *local* node's own partial edges during handshake
+/// (`routing::edge::verify_nonce`) and is a symmetric past/future bound. This one applies
+/// to *all* propagated edges in the graph, where the past direction is already covered by
+/// the `PRUNE_EDGES_AFTER` window, so only the future direction needs bounding — and we
+/// keep that bound tight, just enough to absorb realistic clock skew between peers.
+const EDGE_NONCE_FUTURE_TOLERANCE: time::Duration = time::Duration::minutes(5);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 pub type DistanceTable = HashMap<PeerId, u32>;
 
@@ -214,6 +224,14 @@ impl Inner {
             if let Some(prune_edges_after) = self.config.prune_edges_after {
                 // Don't add edges that are older than the limit.
                 if e.is_edge_older_than(now - prune_edges_after) {
+                    return false;
+                }
+            }
+
+            match Edge::nonce_to_utc(e.nonce()) {
+                Ok(nonce_time) if nonce_time <= now + EDGE_NONCE_FUTURE_TOLERANCE => {}
+                _ => {
+                    metrics::EDGE_DROPPED.inc();
                     return false;
                 }
             }
