@@ -184,6 +184,13 @@ fn validate_delegate_action(
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
+    let num_actions = delegate_action.actions().len() as u64;
+    if num_actions > limit_config.max_actions_per_receipt {
+        return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
+            total_number_of_actions: num_actions,
+            limit: limit_config.max_actions_per_receipt,
+        });
+    }
     let actions = delegate_action.get_actions();
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {

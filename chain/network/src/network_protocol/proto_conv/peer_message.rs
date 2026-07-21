@@ -10,15 +10,21 @@ use crate::network_protocol::{
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
 use borsh::BorshDeserialize as _;
+use bytesize::MIB;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
 use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
+
+/// Upper bound on the Borsh-encoded size of a peer-supplied transaction body.
+const MAX_TRANSACTION_SIZE_BYTES: usize = 16 * MIB as usize;
+
+/// Upper bound on the Borsh-encoded size of a peer-supplied routed-message body.
+const MAX_ROUTED_MESSAGE_SIZE_BYTES: usize = 64 * MIB as usize;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRoutingTableUpdateError {
@@ -455,10 +461,13 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 PeerMessage::OptimisticBlock(ob.try_into().map_err(Self::Error::OptimisticBlock)?)
             }
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
-                SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
+                try_from_slice_with_limit(&t.borsh, MAX_TRANSACTION_SIZE_BYTES)
+                    .map_err(Self::Error::Transaction)?,
             ),
             ProtoMT::Routed(r) => {
-                let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
+                let msg: RoutedMessageV1 =
+                    try_from_slice_with_limit(&r.borsh, MAX_ROUTED_MESSAGE_SIZE_BYTES)
+                        .map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body);
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
@@ -566,7 +575,8 @@ impl TryFrom<&proto::RoutedMessageV3> for RoutedMessageV3 {
             target: try_from_required(&x.target).map_err(Self::Error::Target)?,
             author: try_from_required(&x.author).map_err(Self::Error::Author)?,
             ttl: x.ttl as u8,
-            body: TieredMessageBody::try_from_slice(&x.borsh_body).map_err(Self::Error::Body)?,
+            body: try_from_slice_with_limit(&x.borsh_body, MAX_ROUTED_MESSAGE_SIZE_BYTES)
+                .map_err(Self::Error::Body)?,
             signature: try_from_optional(&x.signature)
                 .map_err(|e| Self::Error::Signature(ParseRequiredError::Other(e)))?,
             created_at: x.created_at,
