@@ -97,6 +97,7 @@ use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
     verify_chunk_header_signature_by_hash, verify_chunk_header_signature_by_hash_and_parts,
+    verify_chunk_header_signature_with_epoch_manager,
 };
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
@@ -1459,9 +1460,10 @@ impl ShardsManagerActor {
         let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
             .entered();
 
-        // Signature is intentionally NOT checked here — it requires the chunk
-        // producer from the DB (via prev_block_hash), which may not be available yet.
-        // Signature is verified later in `validate_chunk_header_full`.
+        // Verify the producer signature at arrival, resolving the producer from a
+        // best-guess epoch (the chain head when `prev_block` isn't processed yet).
+        // Under an unconfirmed epoch a failure is mapped to DBNotFoundErr and
+        // retried later.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1494,6 +1496,7 @@ impl ShardsManagerActor {
             }
         };
 
+        self.verify_chunk_header_signature(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_shard_id(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_protocol_version(header, epoch_id).map_err(err_mapper)?;
 
@@ -1521,6 +1524,22 @@ impl ShardsManagerActor {
         self.verify_chunk_shard_id(header, epoch_id)?;
         self.verify_chunk_protocol_version(header, epoch_id)?;
 
+        Ok(())
+    }
+
+    fn verify_chunk_header_signature(
+        &self,
+        header: &ShardChunkHeader,
+        epoch_id: EpochId,
+    ) -> Result<(), Error> {
+        let sig_valid = verify_chunk_header_signature_with_epoch_manager(
+            self.epoch_manager.as_ref(),
+            header,
+            epoch_id,
+        )?;
+        if !sig_valid {
+            return Err(Error::InvalidChunkSignature);
+        }
         Ok(())
     }
 
