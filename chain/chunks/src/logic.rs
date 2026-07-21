@@ -1,4 +1,5 @@
 use near_chain::ChainStoreAccess;
+use near_chain::near_chain_primitives::Error as ChainError;
 use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -77,7 +78,7 @@ pub fn make_outgoing_receipts_proofs(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts: Vec<Receipt>,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<Vec<ReceiptProof>, EpochError> {
+) -> Result<Vec<ReceiptProof>, ChainError> {
     let shard_id = chunk_header.shard_id();
     let shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
@@ -86,7 +87,9 @@ pub fn make_outgoing_receipts_proofs(
         shard_id,
         outgoing_receipts,
     )?;
-    assert_eq!(chunk_header.prev_outgoing_receipts_root(), &root);
+    if chunk_header.prev_outgoing_receipts_root() != &root {
+        return Err(ChainError::InvalidChunkReceiptsRoot);
+    }
     Ok(receipt_proofs)
 }
 
