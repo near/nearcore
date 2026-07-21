@@ -94,7 +94,11 @@ impl User for RpcUser {
     }
 
     fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
-        let query = QueryRequest::ViewAccessKeyList { account_id: account_id.clone() };
+        let query = QueryRequest::ViewAccessKeyList {
+            account_id: account_id.clone(),
+            after_key: None,
+            limit: None,
+        };
         match self.query(query)?.kind {
             QueryResponseKind::AccessKeyList(access_keys) => Ok(access_keys.keys.is_empty()),
             _ => Err("Invalid type of response".into()),

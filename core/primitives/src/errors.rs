@@ -468,6 +468,8 @@ pub enum ActionsValidationError {
         number_of_deploy_actions: u64,
         limit: u64,
     } = 20,
+    /// The method name in a FunctionCall action must not be empty.
+    FunctionCallEmptyMethodName = 21,
 }
 
 /// Describes the error for validating a receipt.
@@ -671,6 +673,9 @@ impl Display for ActionsValidationError {
                 "The total number of deploy actions {} exceeds the per-receipt limit {}",
                 number_of_deploy_actions, limit
             ),
+            ActionsValidationError::FunctionCallEmptyMethodName => {
+                write!(f, "The method name in a FunctionCall action must not be empty")
+            }
         }
     }
 }
