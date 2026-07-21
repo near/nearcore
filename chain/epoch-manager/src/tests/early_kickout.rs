@@ -58,7 +58,7 @@ fn tracker(
     HashMap::from([(shard_id, inner)])
 }
 
-/// Runs the math and returns just the applied blacklist map (drops observability stats).
+/// Runs the math, returns the applied blacklist map.
 fn blacklist(
     st: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
     epoch_info: &EpochInfo,
@@ -228,7 +228,6 @@ fn keep_one_keeps_highest_ratio_holder() {
     // ratios: id 0 = 40%, id 1 = 79% (holder), id 2 = 50%. All candidates (missed >= 100).
     let st = tracker(shard_id, &[(0, 400, 1000), (1, 790, 1000), (2, 500, 1000)]);
     assert_eq!(kept_survivor(&st, &epoch_info, &layout, shard_id, &[0, 1, 2]), 1);
-    // The two frozen candidates are blacklisted; the holder is not.
     assert_eq!(
         blacklist(&st, &epoch_info, &layout),
         HashMap::from([(shard_id, HashSet::from([0, 2]))])
@@ -917,8 +916,6 @@ fn drive_all_chunks_missed(handle: &EpochManagerHandle, count: u64) -> Vec<Crypt
 //     production write path that runs once per recorded block), so the
 //     `safety_valve_fired` counter increments as blocks are recorded. The accessor
 //     then applies keep-one, keeping exactly one of the two producers eligible.
-//     Emission lives ONLY at the seeder — the accessor is a pure read and must not
-//     double-count.
 #[cfg(feature = "nightly")]
 #[test]
 fn seed_chunk_producers_fires_safety_valve_metric() {
@@ -942,7 +939,6 @@ fn seed_chunk_producers_fires_safety_valve_metric() {
         after > before,
         "seeder must fire the safety-valve counter on an all-bad shard: {before} -> {after}"
     );
-    // The applied blacklist keeps exactly one of the two producers eligible.
     let prev = *h.last().unwrap();
     let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
     assert_eq!(bl.len(), 1, "expected exactly one shard in the blacklist, got {bl:?}");

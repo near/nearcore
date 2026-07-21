@@ -40,7 +40,6 @@ pub(crate) static RESHARDING_ASSIGNMENT_STRATEGY: LazyLock<IntCounterVec> = Lazy
     .unwrap()
 });
 
-// Nightly-only: the seeder that increments it is gated on `feature = "nightly"`.
 #[cfg(feature = "nightly")]
 pub(crate) static EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
@@ -53,7 +52,6 @@ pub(crate) static EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED: LazyLock<IntCounterVe
         .unwrap()
     });
 
-// Nightly-only: the seeder that emits it is gated on `feature = "nightly"`.
 #[cfg(feature = "nightly")]
 pub(crate) static EARLY_KICKOUT_SAFETY_VALVE_FIRED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
@@ -65,7 +63,6 @@ pub(crate) static EARLY_KICKOUT_SAFETY_VALVE_FIRED: LazyLock<IntCounterVec> = La
     .unwrap()
 });
 
-// Nightly-only: the seeder that emits it is gated on `feature = "nightly"`.
 #[cfg(feature = "nightly")]
 pub(crate) static EARLY_KICKOUT_BLACKLIST_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(

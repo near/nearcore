@@ -1154,9 +1154,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             Err(e) => return Err(e),
         };
         let blocks_into_epoch = anchor_height.saturating_sub(epoch_start);
-        // `blacklist_for_epoch` returns empty when the aggregator's epoch differs from the
-        // anchor's (a boundary anchor whose next epoch has no stats yet) or within the grace.
-        // pure read: take `.blacklist` and drop the seeder-owned observability stats.
         Ok(crate::blacklist_for_epoch(
             &aggregator,
             &epoch_id,
