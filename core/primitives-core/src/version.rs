@@ -445,6 +445,8 @@ pub enum ProtocolFeature {
     FixContractLoadingError,
     /// Bound the combined size of the promise inputs a single receipt consumes.
     ReceiptPromiseInputSizeLimit,
+    /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
+    RejectEmptyMethodName,
 }
 
 impl ProtocolFeature {
@@ -573,6 +575,7 @@ impl ProtocolFeature {
             | ProtocolFeature::DelegateV2 => 85,
 
             ProtocolFeature::FixContractLoadingError => 86,
+            ProtocolFeature::RejectEmptyMethodName => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

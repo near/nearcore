@@ -14,8 +14,8 @@ use near_primitives::account::{
 };
 use near_primitives::action::TransferAction;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
-    MethodResolveError, TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, FunctionCallError, InvalidAccessKeyError,
+    InvalidTxError, MethodResolveError, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -180,63 +180,111 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let transaction_result = node_user
-        .function_call(
-            account_id.clone(),
-            bob_account(),
-            "",
-            vec![],
-            Gas::from_teragas(100),
-            Balance::ZERO,
-        )
-        .unwrap();
-    assert_eq!(
-        transaction_result.status,
-        FinalExecutionStatus::Failure(
-            ActionError {
-                index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
-            }
-            .into()
-        )
+    let result = node_user.function_call(
+        account_id.clone(),
+        bob_account(),
+        "",
+        vec![],
+        Gas::from_teragas(100),
+        Balance::ZERO,
     );
-    // Refund receipt may not be ready yet
-    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
-    let new_root = node_user.get_state_root();
-    assert_ne!(root, new_root);
+
+    if ProtocolFeature::RejectEmptyMethodName.enabled(PROTOCOL_VERSION) {
+        // The empty method name is now rejected during transaction validation, before the
+        // transaction is admitted, so it never reaches the chain. Depending on the
+        // node backend this surfaces either as a server-side invalid-tx error or as an
+        // outcome carrying the invalid-tx failure.
+        assert_matches!(
+            result,
+            Err(CommitError::Server(ServerError::TxExecutionError(
+                TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(
+                    ActionsValidationError::FunctionCallEmptyMethodName
+                ))
+            ))) | Ok(FinalExecutionOutcomeView {
+                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::ActionsValidation(
+                        ActionsValidationError::FunctionCallEmptyMethodName
+                    )
+                )),
+                ..
+            })
+        );
+    } else {
+        // Pre-feature: the transaction is admitted and fails on-chain in the VM with
+        // MethodEmptyName, still burning gas and changing the state root.
+        let transaction_result = result.unwrap();
+        assert_eq!(
+            transaction_result.status,
+            FinalExecutionStatus::Failure(
+                ActionError {
+                    index: Some(0),
+                    kind: ActionErrorKind::FunctionCallError(
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                    )
+                }
+                .into()
+            )
+        );
+        // Refund receipt may not be ready yet
+        assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
+        let new_root = node_user.get_state_root();
+        assert_ne!(root, new_root);
+    }
 }
 
 pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let transaction_result = node_user
-        .function_call(
-            account_id.clone(),
-            bob_account(),
-            "",
-            vec![],
-            Gas::from_teragas(100),
-            Balance::from_yoctonear(10),
-        )
-        .unwrap();
-    assert_eq!(
-        transaction_result.status,
-        FinalExecutionStatus::Failure(
-            ActionError {
-                index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
-            }
-            .into()
-        )
+    let result = node_user.function_call(
+        account_id.clone(),
+        bob_account(),
+        "",
+        vec![],
+        Gas::from_teragas(100),
+        Balance::from_yoctonear(10),
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 3);
-    let new_root = node_user.get_state_root();
-    assert_ne!(root, new_root);
+
+    if ProtocolFeature::RejectEmptyMethodName.enabled(PROTOCOL_VERSION) {
+        // The empty method name is now rejected during transaction validation, before the
+        // transaction is admitted, so it never reaches the chain. Depending on the
+        // node backend this surfaces either as a server-side invalid-tx error or as an
+        // outcome carrying the invalid-tx failure.
+        assert_matches!(
+            result,
+            Err(CommitError::Server(ServerError::TxExecutionError(
+                TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(
+                    ActionsValidationError::FunctionCallEmptyMethodName
+                ))
+            ))) | Ok(FinalExecutionOutcomeView {
+                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::ActionsValidation(
+                        ActionsValidationError::FunctionCallEmptyMethodName
+                    )
+                )),
+                ..
+            })
+        );
+    } else {
+        // Pre-feature: the transaction is admitted and fails on-chain in the VM with
+        // MethodEmptyName, still burning gas and changing the state root.
+        let transaction_result = result.unwrap();
+        assert_eq!(
+            transaction_result.status,
+            FinalExecutionStatus::Failure(
+                ActionError {
+                    index: Some(0),
+                    kind: ActionErrorKind::FunctionCallError(
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                    )
+                }
+                .into()
+            )
+        );
+        assert_eq!(transaction_result.receipts_outcome.len(), 3);
+        let new_root = node_user.get_state_root();
+        assert_ne!(root, new_root);
+    }
 }
 
 pub fn test_smart_contract_with_args(node: impl Node) {

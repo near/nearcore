@@ -2091,6 +2091,11 @@
             ],
             "title": "TotalNumberOfDeployActionsExceeded",
             "type": "object"
+          },
+          {
+            "const": "FunctionCallEmptyMethodName",
+            "description": "The method name in a FunctionCall action must not be empty.",
+            "type": "string"
           }
         ],
         "title": "ActionsValidationError"
