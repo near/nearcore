@@ -502,6 +502,7 @@ impl TrieViewer {
             view_state.current_protocol_version,
             config.wasm_config.storage_get_mode,
             Arc::clone(&apply_state.trie_access_tracker_state),
+            None,
         );
         let outcome = execute_function_call(
             contract,

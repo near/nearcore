@@ -711,11 +711,20 @@ pub fn validate_chunk_state_witness_impl(
                 // Update the congestion info based on the parent shard. It's
                 // important to do this step before the `retain_split_shard`
                 // because only the parent trie has the needed information.
-                let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+                //
+                // Resolve the epochs (and thus shard layouts) from the resharding
+                // transition's own block, i.e. the boundary block, exactly as the
+                // producer does in `ReshardingManager::process_...`. Using the
+                // main-transition `block_hash` here is wrong: if the parent shard
+                // produced no chunk in the last old-layout epoch, that block lies
+                // in an earlier epoch and resolves to the old layout, so the
+                // child's new shard id is absent and validation fails with
+                // `InvalidShardId`, permanently halting the resharded shard.
+                let epoch_id = epoch_manager.get_epoch_id(&transition.block_hash)?;
                 let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
                 let parent_congestion_info = chunk_extra.congestion_info();
 
-                let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
+                let child_epoch_id = epoch_manager.get_next_epoch_id(&transition.block_hash)?;
                 let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
                 let child_congestion_info = ReshardingManager::get_child_congestion_info(
                     &parent_trie,
