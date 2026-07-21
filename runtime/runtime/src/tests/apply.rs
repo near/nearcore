@@ -1626,8 +1626,8 @@ fn test_per_receipt_storage_proof_size_limit() {
 
     // A single receipt whose actions each read a distinct 1MB value.
     let read_receipt = create_receipt_with_actions(
-        account.clone(),
-        signer.clone(),
+        account,
+        signer,
         (0..NUM_VALUES)
             .map(|key| {
                 Action::FunctionCall(Box::new(FunctionCallAction {
@@ -1652,7 +1652,7 @@ fn test_per_receipt_storage_proof_size_limit() {
                     .recording_reads_new_recorder(),
                 &None,
                 &apply_state,
-                &[read_receipt.clone()],
+                std::slice::from_ref(&read_receipt),
                 SignedValidPeriodTransactions::empty(),
                 &epoch_info_provider,
                 Default::default(),
