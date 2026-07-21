@@ -180,6 +180,10 @@ pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 /// increase the receive limit in one release then increase the send limit in the next.
 pub const MAX_SHARDS_PER_SNAPSHOT_HOST_INFO: usize = 512;
 
+/// Limit on the number of shard ids in a peer's [`PeerChainInfoV2::tracked_shards`] sent during
+/// the handshake.
+pub const MAX_TRACKED_SHARDS_PER_PEER: usize = 128;
+
 impl VersionedAccountData {
     /// Serializes AccountData to proto and signs it using `signer`.
     /// Panics if AccountData.account_id doesn't match signer.validator_id(),
