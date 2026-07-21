@@ -103,25 +103,87 @@ impl Config {
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
     pub fn standard_preset() -> Self {
-        // TODO(trisfald): make presets for other message types
+        use RateLimitedPeerMessageKey::*;
         let mut config = Self::default();
-        // EpochSyncRequest is a very simple amplification attack vector, as it requires no arguments
-        // and the response is large. So we rate limit it to 1 request per 30 seconds. In practice,
-        // a peer should not need to epoch sync except when bootstrapping a node, so a request
-        // should be rarely received. We still set it to a reasonable rate limit so a bootstrapping
-        // node can retry without waiting for too long.
-        config.rate_limits.insert(
-            RateLimitedPeerMessageKey::EpochSyncRequest,
-            SingleMessageConfig::new(1, 1.0 / 30.0, None),
-        );
-        config.rate_limits.insert(
-            RateLimitedPeerMessageKey::EpochSyncResponse,
-            SingleMessageConfig::new(1, 1.0 / 30.0, None),
-        );
-        config.rate_limits.insert(
-            RateLimitedPeerMessageKey::SyncRoutingTable,
-            SingleMessageConfig::new(10, 1.0, None),
-        );
+
+        let basic_config = |messages_per_second: u32| -> SingleMessageConfig {
+            SingleMessageConfig::new(messages_per_second, messages_per_second as f32, None)
+        };
+
+        // 30k TPS
+        let txs_config = basic_config(30_000);
+        config.rate_limits.insert(Transaction, txs_config.clone());
+        config.rate_limits.insert(ForwardTx, txs_config.clone());
+        config.rate_limits.insert(TxStatusRequest, txs_config.clone());
+        config.rate_limits.insert(TxStatusResponse, txs_config);
+
+        let state_sync_config = basic_config(100);
+        config.rate_limits.insert(StatePartRequest, state_sync_config.clone());
+        config.rate_limits.insert(StateHeaderRequest, state_sync_config.clone());
+        config.rate_limits.insert(StateRequestAck, state_sync_config.clone());
+        config.rate_limits.insert(VersionedStateResponse, state_sync_config.clone());
+
+        // Older versions of state sync messages, not really used anymore.
+        config.rate_limits.insert(StateRequestHeader, state_sync_config.clone());
+        config.rate_limits.insert(StateRequestPart, state_sync_config.clone());
+        config.rate_limits.insert(StateResponse, state_sync_config);
+
+        let epoch_sync_config = SingleMessageConfig::new(1, 1.0 / 30.0, None);
+        config.rate_limits.insert(EpochSyncRequest, epoch_sync_config.clone());
+        config.rate_limits.insert(EpochSyncResponse, epoch_sync_config);
+
+        let sync_routing_table_config = SingleMessageConfig::new(10, 1.0, None);
+        config.rate_limits.insert(SyncRoutingTable, sync_routing_table_config);
+
+        config.rate_limits.insert(BlockApproval, basic_config(2_000));
+
+        let chunk_endorsement_config = basic_config(20_000);
+        config.rate_limits.insert(ChunkEndorsement, chunk_endorsement_config.clone());
+        config.rate_limits.insert(SpiceChunkEndorsement, chunk_endorsement_config);
+
+        let partial_chunk_config = basic_config(5_000);
+        config.rate_limits.insert(PartialEncodedChunkRequest, partial_chunk_config.clone());
+        config.rate_limits.insert(PartialEncodedChunkResponse, partial_chunk_config.clone());
+        config.rate_limits.insert(VersionedPartialEncodedChunk, partial_chunk_config);
+
+        config.rate_limits.insert(PartialEncodedChunkForward, basic_config(1_000));
+
+        let block_config = basic_config(10);
+        config.rate_limits.insert(Block, block_config.clone());
+        config.rate_limits.insert(OptimisticBlock, block_config.clone());
+        config.rate_limits.insert(BlockRequest, block_config);
+
+        let header_sync_config = basic_config(100);
+        config.rate_limits.insert(BlockHeaders, header_sync_config.clone());
+        config.rate_limits.insert(BlockHeadersRequest, header_sync_config);
+
+        let witness_config = basic_config(1_000);
+        config.rate_limits.insert(ChunkStateWitnessAck, witness_config.clone());
+        config.rate_limits.insert(PartialEncodedStateWitness, witness_config.clone());
+        config.rate_limits.insert(PartialEncodedStateWitnessForward, witness_config);
+
+        let contract_deploys_config = basic_config(1_000);
+        config.rate_limits.insert(ChunkContractAccesses, contract_deploys_config.clone());
+        config.rate_limits.insert(ContractCodeRequest, contract_deploys_config.clone());
+        config.rate_limits.insert(ContractCodeResponse, contract_deploys_config.clone());
+        config.rate_limits.insert(PartialEncodedContractDeploys, contract_deploys_config.clone());
+        config.rate_limits.insert(SpiceChunkContractAccesses, contract_deploys_config.clone());
+        config.rate_limits.insert(SpiceContractCodeRequest, contract_deploys_config.clone());
+        config.rate_limits.insert(SpiceContractCodeResponse, contract_deploys_config);
+
+        let spice_partial_data_config = basic_config(1_000);
+        config.rate_limits.insert(SpicePartialData, spice_partial_data_config.clone());
+        config.rate_limits.insert(SpicePartialDataRequest, spice_partial_data_config);
+
+        let net_config = basic_config(10);
+        config.rate_limits.insert(PeersRequest, net_config.clone());
+        config.rate_limits.insert(PeersResponse, net_config.clone());
+        config.rate_limits.insert(SyncRoutingTable, net_config.clone());
+        config.rate_limits.insert(SyncAccountsData, net_config.clone());
+        config.rate_limits.insert(SyncSnapshotHosts, net_config);
+
+        config.rate_limits.insert(RequestUpdateNonce, basic_config(100));
+
         config
     }
 
@@ -193,6 +255,9 @@ pub enum RateLimitedPeerMessageKey {
     SpiceChunkContractAccesses,
     SpiceContractCodeRequest,
     SpiceContractCodeResponse,
+    StatePartRequest,
+    StateHeaderRequest,
+    StateRequestAck,
 }
 
 /// Given a `PeerMessage` returns a tuple containing the `RateLimitedPeerMessageKey`
@@ -263,9 +328,9 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 T2MessageBody::PartialEncodedContractDeploys(_) => {
                     Some((PartialEncodedContractDeploys, 1))
                 }
-                T2MessageBody::StatePartRequest(_) => None, // TODO
-                T2MessageBody::StateHeaderRequest(_) => None, // TODO
-                T2MessageBody::StateRequestAck(_) => None,  // TODO
+                T2MessageBody::StatePartRequest(_) => Some((StatePartRequest, 1)),
+                T2MessageBody::StateHeaderRequest(_) => Some((StateHeaderRequest, 1)),
+                T2MessageBody::StateRequestAck(_) => Some((StateRequestAck, 1)),
                 T2MessageBody::Ping(_) | T2MessageBody::Pong(_) => None,
             },
         },
