@@ -2,6 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PartialEncodedChunkRequestMsg};
 use near_o11y::testonly::init_test_logger;
@@ -52,6 +53,7 @@ fn test_genesis_chunk_request_does_not_panic() {
         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
             partial_encoded_chunk_request: request,
             route_back: CryptoHash::default(),
+            recv_permit: RecvMessagePermit::none(),
         },
     );
 

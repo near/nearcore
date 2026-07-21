@@ -23,7 +23,8 @@ use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
-use near_network::client::ProcessTxResponse;
+use near_network::client::{ProcessTxResponse, SpiceChunkEndorsementMessage};
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
@@ -231,6 +232,7 @@ impl TestEnv {
                             PartialEncodedChunk::from(partial_encoded_chunk);
                         let message = ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                             partial_encoded_chunk,
+                            RecvMessagePermit::none(),
                         );
                         self.shards_manager(&account_id).send(message);
                         None
@@ -241,6 +243,7 @@ impl TestEnv {
                         let message =
                             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                                 forward,
+                                RecvMessagePermit::none(),
                             );
                         self.shards_manager(&account_id).send(message);
                         None
@@ -277,6 +280,7 @@ impl TestEnv {
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                         partial_encoded_chunk_response: response,
                         received_time: Instant::now(),
+                        recv_permit: RecvMessagePermit::none(),
                     },
                 );
             }
@@ -294,6 +298,7 @@ impl TestEnv {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                 partial_encoded_chunk_request: request.clone(),
                 route_back: CryptoHash::default(),
+                recv_permit: RecvMessagePermit::none(),
             },
         );
         let response = self.network_adapters[id].pop_most_recent();
@@ -880,9 +885,12 @@ impl TestEnv {
         // are available (as long as least one chunk producer for shard is validator). Even though
         // in a real system endorsements to some nodes may arrive only with later blocks.
         while let Some(endorsement) = self.spice_chunk_executors[id].pop_endorsement() {
-            let endorsements = std::iter::repeat_n(endorsement, self.spice_chunk_executors.len());
-            for (executor, endorsement) in self.spice_chunk_executors.iter_mut().zip(endorsements) {
-                executor.record_endorsement(endorsement);
+            let inner = endorsement.0;
+            for executor in &mut self.spice_chunk_executors {
+                executor.record_endorsement(SpiceChunkEndorsementMessage(
+                    inner.clone(),
+                    RecvMessagePermit::none(),
+                ));
             }
         }
         while let Some(SpiceDistributorOutgoingReceipts { block_hash, receipt_proofs }) =

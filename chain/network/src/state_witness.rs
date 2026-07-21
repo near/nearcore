@@ -6,33 +6,44 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChunkStateWitnessAckMessage(pub ChunkStateWitnessAck);
+use crate::recv_permit::RecvMessagePermit;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialEncodedStateWitnessMessage(pub VersionedPartialEncodedStateWitness);
+#[derive(Debug)]
+pub struct ChunkStateWitnessAckMessage(pub ChunkStateWitnessAck, pub RecvMessagePermit);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialEncodedStateWitnessForwardMessage(pub VersionedPartialEncodedStateWitness);
+#[derive(Debug)]
+pub struct PartialEncodedStateWitnessMessage(
+    pub VersionedPartialEncodedStateWitness,
+    pub RecvMessagePermit,
+);
+
+#[derive(Debug)]
+pub struct PartialEncodedStateWitnessForwardMessage(
+    pub VersionedPartialEncodedStateWitness,
+    pub RecvMessagePermit,
+);
 
 /// Message to partial witness actor (on a chunk validator) that contains code-hashes of
 /// the contracts that are accessed when applying the previous chunk.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChunkContractAccessesMessage(pub ChunkContractAccesses);
+#[derive(Debug)]
+pub struct ChunkContractAccessesMessage(pub ChunkContractAccesses, pub RecvMessagePermit);
 
 /// Message to partial witness actor that contains part of code for newly-deployed contracts.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialEncodedContractDeploysMessage(pub PartialEncodedContractDeploys);
+#[derive(Debug)]
+pub struct PartialEncodedContractDeploysMessage(
+    pub PartialEncodedContractDeploys,
+    pub RecvMessagePermit,
+);
 
 /// Message to partial witness actor (on a chunk producer) that requests contract code
 /// by providing hashes of the code.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ContractCodeRequestMessage(pub ContractCodeRequest);
+#[derive(Debug)]
+pub struct ContractCodeRequestMessage(pub ContractCodeRequest, pub RecvMessagePermit);
 
 /// Message to partial witness actor (on a chunk validator) that provides contract code
 /// requested beforehand.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ContractCodeResponseMessage(pub ContractCodeResponse);
+#[derive(Debug)]
+pub struct ContractCodeResponseMessage(pub ContractCodeResponse, pub RecvMessagePermit);
 
 /// Multi-sender for forwarding messages received from network to PartialWitnessActor.
 #[derive(Clone, MultiSend, MultiSenderFrom)]

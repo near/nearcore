@@ -6,6 +6,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -74,13 +75,17 @@ impl AdversarialBehaviorTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                         partial_encoded_chunk.into(),
+                        RecvMessagePermit::none(),
                     ),
                 );
                 None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 self.env.shards_manager(&account_id).send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                        forward,
+                        RecvMessagePermit::none(),
+                    ),
                 );
                 None
             }
