@@ -230,9 +230,9 @@ pub struct Config {
     /// - gas keys: price the exec (storage) fee on the on-trie identifier length
     ///   (`trie_id_len()`) and the send (transmission) fee on the wire length
     ///   (`len()`), rather than pricing the exec fee on the wire length;
-    /// - meta transactions: meter the inner delegate signature verification
-    ///   compute on the receiver shard (which runs the verify) instead of the
-    ///   signer shard.
+    /// - meta transactions: bill the inner delegate signature verification cost
+    ///   (gas and compute) as an execution fee on the receiver shard (which runs
+    ///   the verify) instead of charging it at conversion on the signer shard.
     pub fix_ml_dsa_cost_charging: bool,
 
     /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
