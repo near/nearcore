@@ -844,6 +844,12 @@ pub enum ActionErrorKind {
         nonce_index: NonceIndex,
         num_nonces: NonceIndex,
     } = 26,
+    /// The combined size of the resolved promise inputs (the `DataReceipt`s
+    /// referenced by the receipt's `input_data_ids`) exceeded the limit.
+    TotalPromiseInputSizeExceeded {
+        size: u64,
+        limit: u64,
+    } = 27,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1154,6 +1160,11 @@ impl Display for ActionErrorKind {
                 f,
                 "DelegateAction nonce index {} must be smaller than the gas key nonce count {}",
                 nonce_index, num_nonces
+            ),
+            ActionErrorKind::TotalPromiseInputSizeExceeded { size, limit } => write!(
+                f,
+                "The combined size of the receipt's promise inputs {} exceeded the limit {}",
+                size, limit
             ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
