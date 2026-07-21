@@ -573,7 +573,6 @@ impl ProtocolFeature {
             | ProtocolFeature::DelegateV2 => 85,
 
             ProtocolFeature::FixContractLoadingError => 86,
-            ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -581,6 +580,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
+            ProtocolFeature::ReceiptPromiseInputSizeLimit => 153,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

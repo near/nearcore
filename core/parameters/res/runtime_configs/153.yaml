@@ -1,0 +1,4 @@
+# Bound the combined size of a single receipt's resolved promise inputs to 4 MiB.
+# See ProtocolFeature::ReceiptPromiseInputSizeLimit and
+# docs/architecture/how/receipt_promise_input_size_limit.md
+max_receipt_total_input_size: {old: 4_294_967_295, new: 4_194_304}
