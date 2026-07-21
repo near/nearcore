@@ -445,6 +445,7 @@ pub enum ProtocolFeature {
     FixContractLoadingError,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
+    EnforcePerReceiptStorageProofLimit,
     /// Fix two related ML-DSA-65 cost-charging issues (both harmless for
     /// classical schemes, where the relevant quantities coincide):
     /// - Gas keys: price the exec (storage) fee on the on-trie identifier length
@@ -581,6 +582,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ClampOutgoingGasAdmission
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
+            ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
 
             ProtocolFeature::FixContractLoadingError => 86,
             ProtocolFeature::RejectEmptyMethodName => 87,
