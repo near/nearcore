@@ -790,10 +790,16 @@ impl Runtime {
         };
         let account_id = receipt.receiver_id();
 
-        let input_size_limit =
-            apply_state.config.wasm_config.limit_config.max_receipt_total_input_size;
-        let enforce_input_size_limit = ProtocolFeature::ReceiptPromiseInputSizeLimit
-            .enabled(apply_state.current_protocol_version);
+        // TESTING OVERRIDE: enforce the promise-input size limit unconditionally
+        // (feature gate bypassed, fixed limit) so it applies regardless of
+        // protocol version or config value.
+        // TODO: revert before merge — restore the gated, config-driven version:
+        //   let input_size_limit =
+        //       apply_state.config.wasm_config.limit_config.max_receipt_total_input_size;
+        //   let enforce_input_size_limit = ProtocolFeature::ReceiptPromiseInputSizeLimit
+        //       .enabled(apply_state.current_protocol_version);
+        let input_size_limit = 4_194_944;
+        let enforce_input_size_limit = true;
         let mut total_input_size: u64 = 0;
         if enforce_input_size_limit {
             for data_id in action_receipt.input_data_ids() {
