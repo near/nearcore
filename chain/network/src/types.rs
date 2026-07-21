@@ -1,4 +1,5 @@
 use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
@@ -443,10 +444,19 @@ pub enum NetworkResponses {
     SelectedDestination(PeerId),
 }
 
+/// `NetworkRequests` plus a pre-acquired outgoing-queue permit. Used when the sender has already
+/// reserved bytes in the the `OutgoingQueueLimiter`.
+#[derive(Debug)]
+pub struct NetworkRequestWithPermit {
+    pub request: NetworkRequests,
+    pub permit: OutgoingPermit,
+}
+
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerAdapter {
     pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
+    pub request_with_permit_sender: Sender<NetworkRequestWithPermit>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
     pub state_sync_event_sender: Sender<StateSyncEvent>,
 }

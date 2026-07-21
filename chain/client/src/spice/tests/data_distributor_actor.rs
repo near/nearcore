@@ -32,7 +32,9 @@ use near_network::spice::data_distribution::{
     SpiceContractCodeRequestMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
     SpicePartialDataRequestMessage,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
@@ -251,6 +253,15 @@ impl ActorBuilder {
                         unreachable!()
                     };
                     outgoing_sc.send(OutgoingMessage::NetworkRequests { request }).unwrap();
+                }
+            }),
+            request_with_permit_sender: Sender::from_fn({
+                let outgoing_sc = outgoing_sc.clone();
+                move |message: NetworkRequestWithPermit| {
+                    // ignore the permit in tests
+                    outgoing_sc
+                        .send(OutgoingMessage::NetworkRequests { request: message.request })
+                        .unwrap();
                 }
             }),
         };

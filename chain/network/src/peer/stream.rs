@@ -1,3 +1,4 @@
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::peer_manager::connection;
 use crate::recv_permit::RecvMessagePermit;
 use crate::stats::metrics;
@@ -48,8 +49,34 @@ pub(crate) enum RecvError {
     IncomingSemaphoreClosed,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub(crate) struct Frame(pub Vec<u8>);
+pub(crate) struct Frame {
+    pub bytes: Vec<u8>,
+    _permit: Option<OutgoingPermit>,
+}
+
+impl Frame {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, _permit: None }
+    }
+
+    pub fn with_permit(bytes: Vec<u8>, permit: OutgoingPermit) -> Self {
+        Self { bytes, _permit: Some(permit) }
+    }
+}
+
+impl std::fmt::Debug for Frame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Frame").field("bytes_len", &self.bytes.len()).finish()
+    }
+}
+
+impl PartialEq for Frame {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl Eq for Frame {}
 
 pub(crate) struct IncomingFrame {
     pub data: Vec<u8>,
@@ -141,12 +168,12 @@ impl FramedStream {
     /// If the message is too large, it will be silently dropped inside run_send_loop.
     /// Emits a critical error to Actor if send queue is full.
     pub fn send(&self, frame: Frame) {
-        let msg = &frame.0;
+        let msg_len = frame.bytes.len();
         let mut buf_size =
-            self.stats.bytes_to_send.fetch_add(msg.len() as u64, Ordering::Acquire) as usize;
-        buf_size += msg.len();
+            self.stats.bytes_to_send.fetch_add(msg_len as u64, Ordering::Acquire) as usize;
+        buf_size += msg_len;
         self.stats.messages_to_send.fetch_add(1, Ordering::Acquire);
-        self.send_buf_size_metric.add(msg.len() as i64);
+        self.send_buf_size_metric.add(msg_len as i64);
         // Exceeding buffer capacity is a critical error and Actor should call ctx.stop()
         // when receiving one. It is not like we do any extra allocations, so we can afford
         // pushing the message to the queue anyway.
@@ -245,17 +272,18 @@ impl FramedStream {
     ) -> io::Result<()> {
         const WRITE_BUFFER_CAPACITY: usize = 8 * 1024;
         let mut writer = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_CAPACITY, tcp_send);
-        while let Some(Frame(mut msg)) = queue_recv.recv().await {
+        while let Some(mut frame) = queue_recv.recv().await {
             // Try writing a batch of messages and flush once at the end.
             loop {
+                let msg_len = frame.bytes.len();
                 // TODO(gprusak): sending a too large message should probably be treated as a bug,
                 // since dropping messages may lead to hard-to-debug high-level issues.
-                if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
+                if msg_len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
                 } else {
                     tokio::time::timeout(write_timeout, async {
-                        writer.write_u32_le(msg.len() as u32).await?;
-                        writer.write_all(&msg[..]).await?;
+                        writer.write_u32_le(msg_len as u32).await?;
+                        writer.write_all(&frame.bytes[..]).await?;
                         io::Result::Ok(())
                     })
                     .await
@@ -268,10 +296,13 @@ impl FramedStream {
                     })??;
                 }
                 stats.messages_to_send.fetch_sub(1, Ordering::Release);
-                stats.bytes_to_send.fetch_sub(msg.len() as u64, Ordering::Release);
-                buf_size_metric.sub(msg.len() as i64);
-                msg = match queue_recv.try_recv() {
-                    Ok(Frame(it)) => it,
+                stats.bytes_to_send.fetch_sub(msg_len as u64, Ordering::Release);
+                buf_size_metric.sub(msg_len as i64);
+                // Drop the previous frame (and its permit) before pulling the
+                // next, so the limiter sees capacity return immediately.
+                drop(frame);
+                frame = match queue_recv.try_recv() {
+                    Ok(f) => f,
                     Err(_) => break,
                 };
             }
@@ -323,7 +354,7 @@ mod tests {
 
         // Enqueue enough large messages to fill the TCP send buffer.
         for _ in 0..64 {
-            let _ = queue_send.send(Frame(vec![0u8; 1024 * 1024]));
+            let _ = queue_send.send(Frame::new(vec![0u8; 1024 * 1024]));
         }
         // Close the sender so run_send_loop will drain the queue and exit.
         drop(queue_send);

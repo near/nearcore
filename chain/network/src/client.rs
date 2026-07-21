@@ -1,3 +1,4 @@
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::StateResponseInfo;
 use crate::recv_permit::RecvMessagePermit;
 use crate::types::{NetworkInfo, ReasonForBan};
@@ -151,6 +152,10 @@ pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement, pub RecvMessa
 pub struct EpochSyncRequestMessage {
     pub from_peer: PeerId,
     pub recv_permit: RecvMessagePermit,
+    /// Outgoing-queue reservation for the response message. Acquired in
+    /// the network layer when this request arrived. The client holds it
+    /// through proof derivation and uses it when sending the response.
+    pub response_permit: OutgoingPermit,
 }
 
 #[derive(Debug)]

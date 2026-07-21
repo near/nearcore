@@ -14,7 +14,8 @@ use near_epoch_manager::epoch_sync::{
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    HighestHeightPeerInfo, NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter,
+    PeerManagerMessageRequest,
 };
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -558,6 +559,7 @@ impl EpochSync {
 
 impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
+        let response_permit = msg.response_permit;
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
             // The proof is automatically updated at the beginning of each epoch via the epoch manager.
@@ -570,9 +572,10 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                 tracing::warn!(target: "sync", ?head, ?genesis_height, "no epoch sync proof is stored");
                 return;
             };
-            self.client.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::EpochSyncResponse { peer_id: msg.from_peer, proof },
-            ));
+            self.client.network_adapter.send(NetworkRequestWithPermit {
+                request: NetworkRequests::EpochSyncResponse { peer_id: msg.from_peer, proof },
+                permit: response_permit,
+            });
         } else {
             let store = self.client.chain.chain_store.store();
             let network_adapter = self.client.network_adapter.clone();
@@ -593,9 +596,13 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                             return;
                         }
                     };
-                    network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::EpochSyncResponse { peer_id: requester_peer_id, proof },
-                    ));
+                    network_adapter.send(NetworkRequestWithPermit {
+                        request: NetworkRequests::EpochSyncResponse {
+                            peer_id: requester_peer_id,
+                            proof,
+                        },
+                        permit: response_permit,
+                    });
                 },
             )
         }
