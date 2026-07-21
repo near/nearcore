@@ -13,7 +13,7 @@ fn limit_enabled() -> bool {
     ProtocolFeature::ReceiptPromiseInputSizeLimit.enabled(PROTOCOL_VERSION)
 }
 
-/// End-to-end: a contract fans out to two callees that each return 2.5 MiB and a
+/// End-to-end: a contract fans out to two callee contracts that each return 2.5 MiB and a
 /// callback (joined via `promise_and`) awaits both results. The callback
 /// receipt's combined promise inputs (~5 MiB) exceed the 4 MiB limit, so it must
 /// fail with `TotalPromiseInputSizeExceeded` rather than execute.
@@ -38,7 +38,7 @@ fn test_promise_input_size_limit_fails_callback() {
         env.rpc_node().tx_deploy_contract(&account, near_test_contracts::rs_contract().to_vec());
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    // Two callees each return 2.5 MiB (individually below `max_length_returned_data`
+    // Two callee contracts each return 2.5 MiB (individually below `max_length_returned_data`
     // = 4 MiB, so each data receipt is valid), joined into a single callback whose
     // combined promise inputs (~5 MiB) exceed the 4 MiB limit.
     let value_size = 2_500_000u64;
