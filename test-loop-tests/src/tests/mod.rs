@@ -53,6 +53,7 @@ mod p256_verify;
 mod pending_transaction_queue;
 mod process_blocks;
 mod processed_receipts_gc;
+mod promise_input_size_limit;
 mod protocol_upgrade;
 mod receipt_to_tx;
 mod reject_outdated_blocks;
