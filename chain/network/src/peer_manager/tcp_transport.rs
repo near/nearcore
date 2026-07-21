@@ -1,3 +1,4 @@
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::PeerInfo;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -180,6 +181,20 @@ impl NetworkTransport for TcpTransport {
             tcp::Tier::T1 => self.tier1.send_message(peer_id, msg),
             tcp::Tier::T2 => self.tier2.send_message(peer_id, msg),
             tcp::Tier::T3 => self.tier3.send_message(peer_id, msg),
+        }
+    }
+
+    fn send_message_with_permit(
+        &self,
+        tier: tcp::Tier,
+        peer_id: PeerId,
+        msg: Arc<PeerMessage>,
+        permit: OutgoingPermit,
+    ) -> bool {
+        match tier {
+            tcp::Tier::T1 => self.tier1.send_message_with_permit(peer_id, msg, Some(permit)),
+            tcp::Tier::T2 => self.tier2.send_message_with_permit(peer_id, msg, Some(permit)),
+            tcp::Tier::T3 => self.tier3.send_message_with_permit(peer_id, msg, Some(permit)),
         }
     }
 
