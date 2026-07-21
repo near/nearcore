@@ -4529,35 +4529,6 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
     );
 }
 
-/// Contract exporting `main`, which reads a borsh pubkey from the function-call
-/// input and calls `promise_batch_action_add_gas_key_with_full_access` on a
-/// self-promise with `num_nonces` nonces. Used by the gas-key charging tests.
-fn gas_key_adder_contract(num_nonces: u64) -> Vec<u8> {
-    let wat = format!(
-        r#"
-(module
-  (import "env" "input" (func $input (param i64)))
-  (import "env" "register_len" (func $register_len (param i64) (result i64)))
-  (import "env" "read_register" (func $read_register (param i64 i64)))
-  (import "env" "current_account_id" (func $current (param i64)))
-  (import "env" "promise_batch_create" (func $pbc (param i64 i64) (result i64)))
-  (import "env" "promise_batch_action_add_gas_key_with_full_access" (func $agk (param i64 i64 i64 i64)))
-  (memory 1)
-  (export "memory" (memory 0))
-  (func (export "main")
-    (local $p i64)
-    (local $key_len i64)
-    (call $input (i64.const 0))
-    (local.set $key_len (call $register_len (i64.const 0)))
-    (call $read_register (i64.const 0) (i64.const 0))
-    (call $current (i64.const 1))
-    (local.set $p (call $pbc (i64.const -1) (i64.const 1)))
-    (call $agk (local.get $p) (local.get $key_len) (i64.const 0) (i64.const {num_nonces}))))
-"#
-    );
-    near_test_contracts::wat_contract(&wat)
-}
-
 /// A contract that creates an ML-DSA-65 gas key must not leak total supply.
 ///
 /// The pre-execution / refund path prices the key on `trie_id_len()` (33 bytes)
@@ -4591,16 +4562,28 @@ fn test_gas_key_add_key_conserves_supply() {
 
     // Single signed tx (deploy + call), so alice is fully debited up front and the
     // scenario is closed: total supply == alice's amount plus everything burnt.
+    // The contract adds an ML-DSA-65 gas key to alice via a self-promise batch.
+    use near_primitives::serialize::to_base64;
+    let call_promise_args = serde_json::json!([
+        {"batch_create": {"account_id": alice_account()}, "id": 0},
+        {"action_add_gas_key_with_full_access": {
+            "promise_index": 0,
+            "public_key": to_base64(&borsh::to_vec(&gas_key).unwrap()),
+            "num_nonces": 3,
+        }, "id": 0},
+    ]);
     let tx = SignedTransaction::from_actions(
         1,
         alice_account(),
         alice_account(),
         &*signers[0],
         vec![
-            Action::DeployContract(DeployContractAction { code: gas_key_adder_contract(3) }),
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            }),
             Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: borsh::to_vec(&gas_key).unwrap(),
+                method_name: "call_promise".to_string(),
+                args: serde_json::to_vec(&call_promise_args).unwrap(),
                 gas: MAX_ATTACHED_GAS,
                 deposit: Balance::ZERO,
             })),
