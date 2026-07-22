@@ -9,7 +9,7 @@ use near_primitives::types::{
 };
 use near_primitives::views::{
     EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
-    StateChangesRequestView, StateSyncStatusView, SyncStatusView,
+    StateChangesRequestView, StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -635,12 +635,24 @@ pub struct TxStatus {
     pub fetch_receipt: bool,
 }
 
+/// Outcome of the transaction status lookup, including either the status or
+/// full context on why the status is unavailable.
+#[derive(Debug)]
+pub enum TxStatusOutcome {
+    /// The node tracks the transaction's shard and observed it.
+    /// Boxed to keep the enum small (`TxStatusView` is large; the other variants are tiny).
+    Observed(Box<TxStatusView>),
+    /// The node tracks the shard but has not seen the transaction on chain.
+    NotObserved,
+    /// The node does not track the transaction's shard; the query was forwarded
+    /// to a chunk producer that does, and no answer is available yet.
+    DoesNotTrackShard { shard_id: ShardId },
+}
+
 #[derive(Debug)]
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
-    MissingTransaction(CryptoHash),
     InternalError(String),
-    TimeoutError,
 }
 
 impl From<near_chain_primitives::Error> for TxStatusError {
