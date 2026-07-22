@@ -124,31 +124,31 @@ fn slow_test_reshard_earliest_available_after_gc() {
         epoch_manager.get_epoch_start_height(&head.last_block_hash).unwrap();
     let boundary_height = resharding_epoch_start - 1;
 
-    // 2. Run until GC has processed `H_r`: the tail comes to rest exactly on it, and the
-    //    split-parent state prefix has been wiped. `gc_stop_height` is now `H_r + 1`.
+    // 2. Run until GC has processed `H_r`, wiping the split-parent state prefix. The tail comes
+    //    to rest on `H_r`, but may advance further if GC/head race ahead, so assert on the
+    //    kept-state window (`gc_stop_height`) rather than an exact tail value.
     env.test_loop.run_until(
         |_| chain_store.tail() >= boundary_height,
         Duration::seconds(((gc_num_epochs_to_keep + 6) * epoch_length) as i64),
     );
-    assert_eq!(
-        chain_store.tail(),
-        boundary_height,
-        "tail should rest on the resharding boundary block"
+    let gc_stop_height = chain_store.gc_stop_height();
+    assert!(
+        gc_stop_height > boundary_height,
+        "kept-state window should start past the wiped boundary block \
+         (gc_stop_height={gc_stop_height}, boundary_height={boundary_height})"
     );
 
     // 3. earliest_available must resolve to the first block the node still serves state for -
-    //    `H_r + 1`, in the child layout - NOT the wiped pre-split boundary block `H_r`.
+    //    `gc_stop_height`, in the child layout - NOT the wiped pre-split boundary block `H_r`.
     let earliest_block = {
         let view_client = env.test_loop.data.get_mut(&view_handle);
-        Handler::handle(
-            view_client,
-            GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)),
-        )
-        .expect("earliest_available block should be retrievable")
+        view_client
+            .handle(GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)))
+            .expect("earliest_available block should be retrievable")
     };
     assert_eq!(
-        earliest_block.header.height, resharding_epoch_start,
-        "earliest_available should skip the wiped boundary block and resolve to gc_stop_height"
+        earliest_block.header.height, gc_stop_height,
+        "earliest_available should resolve to gc_stop_height, not the wiped boundary block"
     );
     let earliest_layout =
         epoch_manager.get_shard_layout(&EpochId(earliest_block.header.epoch_id)).unwrap();
@@ -160,13 +160,10 @@ fn slow_test_reshard_earliest_available_after_gc() {
     // 4. The account query at earliest_available now succeeds (before the fix: MissingTrieValue).
     let earliest_result = {
         let view_client = env.test_loop.data.get_mut(&view_handle);
-        Handler::handle(
-            view_client,
-            Query::new(
-                BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable),
-                QueryRequest::ViewAccount { account_id: query_account.clone() },
-            ),
-        )
+        view_client.handle(Query::new(
+            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable),
+            QueryRequest::ViewAccount { account_id: query_account.clone() },
+        ))
     };
     assert!(
         earliest_result.is_ok(),
@@ -176,13 +173,10 @@ fn slow_test_reshard_earliest_available_after_gc() {
     // 5. Sanity: the same query at finality:final (head / child layout) succeeds too.
     let final_result = {
         let view_client = env.test_loop.data.get_mut(&view_handle);
-        Handler::handle(
-            view_client,
-            Query::new(
-                BlockReference::Finality(Finality::Final),
-                QueryRequest::ViewAccount { account_id: query_account.clone() },
-            ),
-        )
+        view_client.handle(Query::new(
+            BlockReference::Finality(Finality::Final),
+            QueryRequest::ViewAccount { account_id: query_account.clone() },
+        ))
     };
     assert!(final_result.is_ok(), "query at finality:final should succeed, got: {final_result:?}");
 
@@ -191,13 +185,10 @@ fn slow_test_reshard_earliest_available_after_gc() {
     //    the fix skips unavailable state rather than relying on the boundary block staying readable.
     let boundary_result = {
         let view_client = env.test_loop.data.get_mut(&view_handle);
-        Handler::handle(
-            view_client,
-            Query::new(
-                BlockReference::BlockId(BlockId::Height(boundary_height)),
-                QueryRequest::ViewAccount { account_id: query_account },
-            ),
-        )
+        view_client.handle(Query::new(
+            BlockReference::BlockId(BlockId::Height(boundary_height)),
+            QueryRequest::ViewAccount { account_id: query_account },
+        ))
     };
     assert!(
         matches!(boundary_result, Err(QueryError::GarbageCollectedBlock { .. })),
