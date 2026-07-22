@@ -281,6 +281,7 @@ pub struct ViewStateResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
+    /// Cursor to resume from: present when more entries remain, absent when the listing is complete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_key: Option<StoreKey>,
 }

@@ -27,7 +27,6 @@ use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
-use near_primitives::unwrap_or_return;
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -139,12 +138,15 @@ impl RpcHandlerActor {
         is_forwarded: bool,
         check_only: bool,
     ) -> ProcessTxResponse {
-        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
-            let signer = self.validator_signer.get();
-            let me = signer.as_ref().map(|signer| signer.validator_id());
-            tracing::debug!(target: "client", ?me, ?tx, "dropping tx");
-            ProcessTxResponse::NoResponse
-        })
+        match self.process_tx_internal(&tx, is_forwarded, check_only) {
+            Ok(response) => response,
+            Err(err) => {
+                let signer = self.validator_signer.get();
+                let me = signer.as_ref().map(|signer| signer.validator_id());
+                tracing::debug!(target: "client", ?me, ?tx, ?err, "failed to process tx");
+                ProcessTxResponse::InternalError(err.to_string())
+            }
+        }
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
@@ -322,7 +324,7 @@ impl RpcHandlerActor {
             }
             tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "non-validator received a forwarded transaction, dropping it");
             metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
-            return Ok(ProcessTxResponse::NoResponse);
+            return Ok(ProcessTxResponse::Dropped);
         }
 
         if check_only {
@@ -331,7 +333,7 @@ impl RpcHandlerActor {
         if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
             tracing::debug!(target: "client", ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), "received forwarded transaction but no tracking shard");
-            return Ok(ProcessTxResponse::NoResponse);
+            return Ok(ProcessTxResponse::Dropped);
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
         self.forward_tx(&epoch_id, signed_tx).map(|()| ProcessTxResponse::RequestRouted)
