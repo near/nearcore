@@ -214,6 +214,10 @@ impl External for MockedExternal {
         0
     }
 
+    fn storage_proof_size_before_receipt(&self) -> usize {
+        0
+    }
+
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {
         Ok(self.validators.get(account_id).cloned())
     }
@@ -511,6 +515,10 @@ impl External for MockedExternal {
 
     fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
         self.action_log.push(MockAction::SetRefundTo { receipt_index, refund_to });
+    }
+
+    fn post_quantum_keys_enabled(&self) -> bool {
+        true
     }
 }
 

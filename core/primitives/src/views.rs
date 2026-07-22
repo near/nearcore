@@ -74,15 +74,21 @@ use validator_stake_view::ValidatorStakeView;
 #[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountView {
+    /// Liquid (non-staked) account balance, in yoctoNEAR.
     pub amount: Balance,
+    /// Staked balance locked for validation, in yoctoNEAR.
     pub locked: Balance,
+    /// Hash of the deployed contract code; the all-`1`s hash when no contract is deployed.
     pub code_hash: CryptoHash,
+    /// Total storage used by the account, in bytes.
     pub storage_usage: StorageUsage,
-    /// TODO(2271): deprecated.
+    /// Deprecated and unused. TODO(2271): remove.
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
+    /// Set when the account uses a global contract referenced by code hash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_hash: Option<CryptoHash>,
+    /// Set when the account uses a global contract referenced by the deploying account id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_account_id: Option<AccountId>,
 }
@@ -247,7 +253,9 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyView {
+    /// Current nonce; each transaction signed with this key must use a strictly greater value.
     pub nonce: Nonce,
+    /// Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits.
     pub permission: AccessKeyPermissionView,
 }
 
@@ -281,6 +289,7 @@ pub struct ViewStateResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
+    /// Cursor to resume from: present when more entries remain, absent when the listing is complete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_key: Option<StoreKey>,
 }
@@ -326,11 +335,16 @@ impl AccessKeyInfoView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
+    /// Pagination cursor. When `Some`, the listing was truncated and the caller
+    /// should issue another request with `after_key` set to this handle to fetch
+    /// the next page. `None` means this was the last page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_key: Option<PublicKeyHandle>,
 }
 
 impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
-        Self { keys: iter.into_iter().collect() }
+        Self { keys: iter.into_iter().collect(), last_key: None }
     }
 }
 
@@ -408,6 +422,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after_key: Option<PublicKeyHandle>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
     },
     ViewGasKeyNonces {
         account_id: AccountId,

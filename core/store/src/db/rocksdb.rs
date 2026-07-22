@@ -3,6 +3,7 @@ use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
+use ::rocksdb::properties::{PropName, PropertyName};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
@@ -22,11 +23,11 @@ pub mod snapshot;
 /// List of integer RocksDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
+static CF_PROPERTY_NAMES: LazyLock<Vec<PropertyName>> = LazyLock::new(|| {
     use ::rocksdb::properties;
     let mut ret = Vec::new();
-    ret.extend_from_slice(
-        &[
+    ret.extend(
+        [
             properties::LIVE_SST_FILES_SIZE,
             properties::ESTIMATE_LIVE_DATA_SIZE,
             properties::COMPACTION_PENDING,
@@ -38,7 +39,7 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
             properties::CUR_SIZE_ACTIVE_MEM_TABLE,
             properties::SIZE_ALL_MEM_TABLES,
         ]
-        .map(std::ffi::CStr::to_owned),
+        .map(PropName::to_owned),
     );
     for level in 0..=6 {
         ret.push(properties::num_files_at_level(level));

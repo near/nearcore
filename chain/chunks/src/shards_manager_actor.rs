@@ -1714,6 +1714,9 @@ impl ShardsManagerActor {
                 new_part_ords,
                 &epoch_id,
                 header.prev_block_hash(),
+                // Parent is processed: anchor the next producer on it so an active
+                // blacklist forwards to the real (reassigned) producer.
+                Some(header.prev_block_hash()),
                 me,
             )?;
         } else {
@@ -1726,6 +1729,8 @@ impl ShardsManagerActor {
                 new_part_ords,
                 &epoch_id,
                 &self.chain_head.last_block_hash.clone(),
+                // Parent not processed: no anchor, keep the static sampler.
+                None,
                 me,
             )?;
         };
@@ -2022,6 +2027,10 @@ impl ShardsManagerActor {
         part_ords: HashSet<u64>,
         epoch_id: &EpochId,
         latest_block_hash: &CryptoHash,
+        // Grandparent anchor for resolving the next chunk's producer. `Some` only
+        // when the current chunk's parent is processed (so its ChunkProducers row
+        // exists); `None` on the orphan/fallback path routes to the static sampler.
+        anchor: Option<&CryptoHash>,
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
         let me = match me {
@@ -2064,11 +2073,7 @@ impl ShardsManagerActor {
         accounts_forwarded_to.insert(me.clone());
         let next_chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: current_chunk_height + 1,
-                shard_id,
-            })?
+            .get_chunk_producer_info_anchored(anchor, epoch_id, current_chunk_height + 1, shard_id)?
             .take_account_id();
         for bp in block_producers {
             let bp_account_id = bp.take_account_id();

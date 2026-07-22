@@ -2,10 +2,11 @@
 
 ## [unreleased]
 
-### Protocol Changes
-
 ### Non-protocol Changes
+* Removed the long-deprecated `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, and `num_chunk_only_producer_seats` fields from `EpochConfig`. They were given serde defaults in 2.12 and are unused. Existing epoch-config JSON files that still contain these keys keep loading, as the keys are now ignored. ([#15481](https://github.com/near/nearcore/issues/15481))
 * Removed centralized (external-storage) state sync. Nodes now always sync state from peers, which has been the default for a long time. **Breaking config change:** `state_sync.sync` no longer accepts `ExternalStorage`; a node whose `config.json` still sets `"state_sync": {"sync": {"ExternalStorage": ... }}` will fail to start. Remove the `state_sync.sync` block (peer-based sync is the default) before upgrading. The deprecated `--state-sync-bucket` flag and the `state-parts-dump-check` tool are also removed. Dumping state to external storage (`state_sync.dump`) is unchanged.
+* Added optional pagination to `EXPERIMENTAL_view_access_key_list` and the `view_access_key_list` query. The request takes `after_key` and `limit`, and the response returns `last_key` to fetch the following page. A new node-config knob `view_access_keys_limit` (default 100) bounds the number of keys returned per response; when unset (`null`) it falls back to the default of 100. **Behavioral change:** an *unpaginated* `view_access_key_list` request (no `limit`/`after_key`) now fails for any account holding more than `view_access_keys_limit` (default 100) access keys; such callers must switch to paginated requests. A paginated request whose `limit` exceeds the configured bound is clamped down to it rather than rejected. Operators can raise or lower the bound via `view_access_keys_limit`.
+* Transaction-status timeouts (`tx`, `EXPERIMENTAL_tx_status`, and `send_tx`/`broadcast_tx_commit` with `wait_until`) now carry a `cause` in the `TIMEOUT_ERROR`'s `info` payload explaining how far the transaction got: `NOT_OBSERVED`, `PENDING` (with the last-known status), `DOES_NOT_TRACK_SHARD`, or `ERROR` (with `debug_info`). The `info` payload is absent on responses from older nodes, so clients should treat it as optional. Previously the timeout gave no detail.
 
 ## [2.13.0]
 
@@ -40,7 +41,7 @@
 
 ### Non-protocol Changes
 * Fix VM compilation and cache metrics (`near_vm_runner_compilation_seconds`, `near_vm_compiled_contract_cache_*`) not being reported for contract deployment, global contract distribution, and pipelining code paths. Add new `near_vm_compiled_contract_memory_cache_hits_total` metric to distinguish in-memory cache hits from disk hits. ([#15580](https://github.com/near/nearcore/pull/15580))
-* Removed deprecated fields from `EpochConfig`, `GenesisConfig`, and `ProtocolConfigView`: `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, `num_chunk_only_producer_seats`.
+* Removed deprecated fields from `GenesisConfig` and `ProtocolConfigView`: `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, `num_chunk_only_producer_seats`.
 * New `EXPERIMENTAL_receipt_to_tx` RPC method that resolves a receipt ID back to the originating transaction hash and sender account. Requires `save_receipt_to_tx` config enabled and all-shards tracking. ([#15414](https://github.com/near/nearcore/pull/15414))
 * New sync handler (sync-v2) replaces the legacy sync implementation with a clean state machine. Nodes are routed through one of two paths based on how far behind they are: near-horizon nodes sync blocks directly, while far-horizon nodes follow the full pipeline (epoch sync, header sync, state sync, block sync). ([#15335](https://github.com/near/nearcore/pull/15335))
 * Epoch sync proofs are now maintained incrementally at each epoch boundary instead of being derived on demand. Block headers are garbage collected alongside block bodies on non-archival nodes, reducing disk usage. ([#15412](https://github.com/near/nearcore/pull/15412))
