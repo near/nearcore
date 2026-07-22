@@ -1,4 +1,5 @@
 use crate::spice::chunk_application::ChunkPersistenceConfig;
+use crate::spice::core::index_spice_certifier_for_canonical_block;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -828,6 +829,12 @@ impl ChainStore {
         // otherwise should be orphaned)
         !chain_store.get_blocks_to_catchup(prev_prev_hash).contains(prev_hash)
     }
+
+    /// The canonical block whose core statements certified `block_hash`. `None`
+    /// if the block is not yet certified on the canonical chain.
+    pub fn spice_certifier(&self, block_hash: &CryptoHash) -> Option<CryptoHash> {
+        self.store.store().get_ser(DBCol::spice_certifier_by_block(), block_hash.as_ref())
+    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -1460,6 +1467,14 @@ impl<'a> ChainStoreUpdate<'a> {
             // At this point block_merkle_tree for header is already saved.
             let block_ordinal = self.get_block_merkle_tree(&header_hash)?.size();
             self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
+            // Re-point the certifier index for each block that becomes canonical on reorg;
+            // its body is present from earlier processing. Header-only blocks (sync) are
+            // skipped, indexed when their own body is processed.
+            if header.is_spice() {
+                if let Ok(block) = self.chain_store().get_block(&header_hash) {
+                    index_spice_certifier_for_canonical_block(self, &block)?;
+                }
+            }
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.

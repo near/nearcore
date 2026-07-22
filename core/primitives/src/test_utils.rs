@@ -937,6 +937,7 @@ pub struct TestBlockBuilder {
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
     newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
+    spice_commitment_roots: (CryptoHash, CryptoHash),
     prev_last_certified_block_epoch_id: Option<EpochId>,
     spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
 }
@@ -977,6 +978,7 @@ impl TestBlockBuilder {
                 None
             },
             newly_certified_block_execution_results: vec![],
+            spice_commitment_roots: (CryptoHash::default(), CryptoHash::default()),
             prev_last_certified_block_epoch_id: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
             {
                 Some(*prev_header.epoch_id())
@@ -1089,6 +1091,15 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn spice_commitment_roots(
+        mut self,
+        prev_state_commitment_root: CryptoHash,
+        prev_outcome_commitment_root: CryptoHash,
+    ) -> Self {
+        self.spice_commitment_roots = (prev_state_commitment_root, prev_outcome_commitment_root);
+        self
+    }
+
     pub fn spice_chunk_endorsement_stats(mut self, stats: Vec<SpiceChunkEndorsementStats>) -> Self {
         self.spice_chunk_endorsement_stats = stats;
         self
@@ -1138,10 +1149,14 @@ impl TestBlockBuilder {
             None,
             None,
             self.spice_core_statements.map(|core_statements| {
+                let (prev_state_commitment_root, prev_outcome_commitment_root) =
+                    self.spice_commitment_roots;
                 crate::block::SpiceNewBlockProductionInfo {
                     core_statements,
                     newly_certified_block_execution_results: self
                         .newly_certified_block_execution_results,
+                    prev_state_commitment_root,
+                    prev_outcome_commitment_root,
                     prev_last_certified_block_epoch_id: self
                         .prev_last_certified_block_epoch_id
                         .expect("prev_last_certified_block_epoch_id not set for spice block"),
@@ -1234,16 +1249,17 @@ impl Block {
         let headers_root = chunks.compute_chunk_headers_root().0;
         let tx_root = chunks.compute_chunk_tx_root();
         let prev_outgoing_receipts_root = chunks.compute_chunk_prev_outgoing_receipts_root();
-        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-            CryptoHash::default()
-        } else {
-            chunks.compute_state_root()
-        };
+        // Under spice these slots hold the certified-block commitment, not a
+        // chunk-derived root, so preserve whatever the block already has.
+        let spice = ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
+        let prev_state_root =
+            if spice { *self.header().prev_state_root() } else { chunks.compute_state_root() };
+        let prev_outcome_root =
+            if spice { *self.header().outcome_root() } else { chunks.compute_outcome_root() };
         let chunk_mask = chunks
             .iter_raw()
             .map(|chunk| chunk.height_included() == self.header().height())
             .collect_vec();
-        let prev_outcome_root = chunks.compute_outcome_root();
         let body_hash = self.compute_block_body_hash().unwrap();
 
         self.mut_header().set_chunk_headers_root(headers_root);

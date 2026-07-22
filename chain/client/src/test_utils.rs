@@ -264,6 +264,8 @@ pub fn create_chunk(
     };
     let epoch_sync_data_hash =
         client.epoch_manager.compute_epoch_sync_data_hash(last_block.hash()).unwrap();
+    let (prev_state_commitment_root, prev_outcome_commitment_root) =
+        client.chain.spice_core_reader.light_client_commitment_roots(last_block.header()).unwrap();
     let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
         .height(next_height)
         .chunks(vec![encoded_chunk.cloned_header()])
@@ -271,6 +273,7 @@ pub fn create_chunk(
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut block_merkle_tree)
         .spice_chunk_endorsement_stats(spice_chunk_endorsement_stats)
+        .spice_commitment_roots(prev_state_commitment_root, prev_outcome_commitment_root)
         .epoch_sync_data_hash(epoch_sync_data_hash)
         .build();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)

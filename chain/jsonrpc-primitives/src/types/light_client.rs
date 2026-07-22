@@ -29,6 +29,11 @@ pub struct RpcLightClientExecutionProofResponse {
     pub outcome_root_proof: near_primitives::merkle::MerklePath,
     pub block_header_lite: near_primitives::views::LightClientBlockLiteView,
     pub block_proof: near_primitives::merkle::MerklePath,
+    /// Under SPICE, the execution-commitment proof anchoring the certified block via
+    /// its anchor block (`block_header_lite`). Absent for non-SPICE blocks.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub spice_commitment_proof:
+        Option<near_primitives::spice::commitment::SpiceCommitmentProofView>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -66,6 +71,8 @@ pub enum RpcLightClientProofError {
     },
     #[error("{transaction_or_receipt_id} has not been confirmed")]
     NotConfirmed { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
+    #[error("execution commitment proof for block {block_hash} is not available yet")]
+    ProofNotAvailable { block_hash: near_primitives::hash::CryptoHash },
     #[error("{transaction_or_receipt_id} does not exist")]
     UnknownTransactionOrReceipt { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
     #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]

@@ -299,6 +299,10 @@ pub enum Error {
     /// value recomputed from the chain.
     #[error("Invalid spice_chunk_endorsement_stats: {0}")]
     InvalidSpiceChunkEndorsementStats(String),
+    /// A spice block's `prev_state_root` / `prev_outcome_root` commitment slots don't
+    /// match the value recomputed from the predecessor's certified set.
+    #[error("Invalid spice commitment roots: {0}")]
+    InvalidSpiceCommitmentRoots(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -395,7 +399,8 @@ impl Error {
             | Error::BadHeaderForProtocolVersion(_)
             | Error::InvalidSpiceCoreStatements(_)
             | Error::InvalidPrevLastCertifiedBlockEpochId(_)
-            | Error::InvalidSpiceChunkEndorsementStats(_) => true,
+            | Error::InvalidSpiceChunkEndorsementStats(_)
+            | Error::InvalidSpiceCommitmentRoots(_) => true,
         }
     }
 
@@ -489,6 +494,7 @@ impl Error {
                 "invalid_prev_last_certified_block_epoch_id"
             }
             Error::InvalidSpiceChunkEndorsementStats(_) => "invalid_spice_chunk_endorsement_stats",
+            Error::InvalidSpiceCommitmentRoots(_) => "invalid_spice_commitment_roots",
         }
     }
 }
