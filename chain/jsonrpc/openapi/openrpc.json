@@ -1226,6 +1226,36 @@
             ],
             "title": "DelegateActionInvalidNonceIndex",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The combined size of the resolved promise inputs (the `DataReceipt`s\nreferenced by the receipt's `input_data_ids`) exceeded the limit.",
+            "properties": {
+              "TotalPromiseInputSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "size": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "size",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalPromiseInputSizeExceeded"
+            ],
+            "title": "TotalPromiseInputSizeExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -6809,6 +6839,12 @@
           },
           "max_receipt_size": {
             "description": "Max receipt size",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_receipt_total_input_size": {
+            "description": "Max combined size (in bytes) of the resolved promise inputs a single\nreceipt may consume.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"

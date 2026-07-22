@@ -30,7 +30,7 @@ use near_primitives::errors::{
     InvalidTxError, MissingTrieValue, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -52,7 +52,7 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
     MissingTrieValueContext, ShardTries, StorageError, Trie, get_access_key, get_account,
-    get_gas_key_nonce, set_access_key, set_account,
+    get_gas_key_nonce, get_postponed_receipt, get_received_data, set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
 use std::collections::HashSet;
@@ -4526,5 +4526,355 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
             )),
             ..
         }))
+    );
+}
+
+/// The promise-input size limit used by these tests (4 MiB).
+const PROMISE_INPUT_SIZE_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// Protocol version at which the promise-input size limit activates.
+fn promise_input_limit_version() -> ProtocolVersion {
+    ProtocolFeature::ReceiptPromiseInputSizeLimit.protocol_version()
+}
+
+/// Reconfigures `apply_state` for the promise-input size-limit tests: a free
+/// runtime config (no gas costs, to keep the tests focused on the size check)
+/// with `max_receipt_total_input_size` set to `PROMISE_INPUT_SIZE_LIMIT`,
+/// applied at the given protocol version.
+fn setup_promise_input_limit(apply_state: &mut ApplyState, protocol_version: ProtocolVersion) {
+    let mut config = RuntimeConfig::free();
+    let wasm_config = Arc::make_mut(&mut config.wasm_config);
+    wasm_config.limit_config.max_receipt_total_input_size = PROMISE_INPUT_SIZE_LIMIT;
+    apply_state.config = Arc::new(config);
+    apply_state.current_protocol_version = protocol_version;
+}
+
+/// A data receipt delivering `size` bytes to `receiver` under `data_id`.
+fn promise_data_receipt(receiver: AccountId, data_id: CryptoHash, size: usize) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: receiver,
+        receipt_id: data_id,
+        receipt: ReceiptEnum::Data(DataReceipt { data_id, data: Some(vec![0u8; size]) }),
+    })
+}
+
+/// An action receipt (a single zero-value transfer) awaiting `data_ids`.
+fn action_receipt_awaiting(
+    receiver: AccountId,
+    receipt_id: CryptoHash,
+    data_ids: Vec<CryptoHash>,
+) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: receiver,
+        receipt_id,
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: bob_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: data_ids,
+            actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+        }),
+    })
+}
+
+/// A receipt with oversized combined promise inputs fails with
+/// `TotalPromiseInputSizeExceeded`, and its received data and postponed
+/// bookkeeping are cleaned up from the state.
+#[test]
+fn test_promise_input_size_limit_exceeded_fails_and_cleans_up() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-exceeded-1");
+    let data_id_2 = hash(b"promise-input-exceeded-2");
+    let receipt_id = hash(b"promise-input-exceeded-receipt");
+    // Two data receipts, each below `max_length_returned_data` (4 MiB) so they
+    // pass receipt validation, but whose combined size exceeds the limit.
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+    let receipts = vec![
+        promise_data_receipt(alice_account(), data_id_1, half),
+        promise_data_receipt(alice_account(), data_id_2, half),
+        action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2]),
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    match &outcome.outcome.status {
+        ExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
+            assert_matches!(
+                action_error.kind,
+                ActionErrorKind::TotalPromiseInputSizeExceeded { .. }
+            );
+        }
+        other => panic!("expected TotalPromiseInputSizeExceeded failure, got {other:?}"),
+    }
+
+    // The received data and postponed bookkeeping must be cleaned up.
+    let mut store_update = tries.store_update();
+    let new_root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+    assert_eq!(get_received_data(&state, &alice_account(), data_id_1).unwrap(), None);
+    assert_eq!(get_received_data(&state, &alice_account(), data_id_2).unwrap(), None);
+    assert_eq!(get_postponed_receipt(&state, &alice_account(), receipt_id).unwrap(), None);
+}
+
+/// Failing one receipt for exceeding the promise-input size limit must not
+/// affect other receipts processed in the same chunk, and `apply` must succeed
+/// (a per-receipt failure, not a chunk-level error).
+#[test]
+fn test_promise_input_size_limit_does_not_affect_other_receipts() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-isolation-1");
+    let data_id_2 = hash(b"promise-input-isolation-2");
+    let failing_id = hash(b"promise-input-isolation-failing");
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+
+    // A succeeding receipt with no input dependencies, placed both before and
+    // after the failing one to guard against order-dependent early returns.
+    let before = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+    );
+    let after = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+    );
+    let before_id = *before.receipt_id();
+    let after_id = *after.receipt_id();
+
+    let receipts = vec![
+        before,
+        promise_data_receipt(alice_account(), data_id_1, half),
+        promise_data_receipt(alice_account(), data_id_2, half),
+        action_receipt_awaiting(alice_account(), failing_id, vec![data_id_1, data_id_2]),
+        after,
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let status_of = |id: CryptoHash| {
+        apply_result
+            .outcomes
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.outcome.status.clone())
+            .unwrap_or_else(|| panic!("missing outcome for {id}"))
+    };
+    assert_matches!(status_of(before_id), ExecutionStatus::SuccessValue(_));
+    assert_matches!(status_of(after_id), ExecutionStatus::SuccessValue(_));
+    assert_matches!(
+        status_of(failing_id),
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::TotalPromiseInputSizeExceeded { .. },
+            ..
+        }))
+    );
+}
+
+/// A receipt whose combined promise inputs are below the limit executes
+/// normally.
+#[test]
+fn test_promise_input_size_limit_under_limit_succeeds() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-under-1");
+    let data_id_2 = hash(b"promise-input-under-2");
+    let receipt_id = hash(b"promise-input-under-receipt");
+    // Combined ~2 MiB, comfortably below the 4 MiB limit.
+    let quarter = (PROMISE_INPUT_SIZE_LIMIT / 4) as usize;
+    let receipts = vec![
+        promise_data_receipt(alice_account(), data_id_1, quarter),
+        promise_data_receipt(alice_account(), data_id_2, quarter),
+        action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2]),
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// Before the feature's protocol version the limit is not enforced: the same
+/// oversized inputs execute successfully.
+#[test]
+fn test_promise_input_size_limit_disabled_before_protocol_version() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version() - 1);
+
+    let data_id_1 = hash(b"promise-input-gated-1");
+    let data_id_2 = hash(b"promise-input-gated-2");
+    let receipt_id = hash(b"promise-input-gated-receipt");
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+    let receipts = vec![
+        promise_data_receipt(alice_account(), data_id_1, half),
+        promise_data_receipt(alice_account(), data_id_2, half),
+        action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2]),
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// When the received data is already committed to the trie (delivered in an
+/// earlier chunk), the failing receipt reads only the sizes and not the values,
+/// so the rejected receipt does not pull the (multi-MiB) inputs into the
+/// storage proof / state witness.
+#[test]
+fn test_promise_input_size_limit_does_not_bloat_witness() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-witness-1");
+    let data_id_2 = hash(b"promise-input-witness-2");
+    let receipt_id = hash(b"promise-input-witness-receipt");
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+
+    // Chunk 1: deliver only the data receipts so the received data is committed
+    // to the trie (no awaiting receipt yet, so nothing executes).
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[
+                promise_data_receipt(alice_account(), data_id_1, half),
+                promise_data_receipt(alice_account(), data_id_2, half),
+            ],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    // Chunk 2: the awaiting receipt arrives and fails the size check. It reads
+    // the input sizes from the trie (recording), but must not deref the values.
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &[action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2])],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    assert_matches!(
+        outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::TotalPromiseInputSizeExceeded { .. },
+            ..
+        }))
+    );
+
+    // The storage proof must not contain the (~4 MiB) input values. Assert the
+    // recorded proof is far smaller than a single input, proving the values
+    // were never dereferenced.
+    let partial_storage = apply_result.proof.unwrap();
+    let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
+    let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
+    assert!(
+        (total_size as u64) < PROMISE_INPUT_SIZE_LIMIT / 2,
+        "storage proof of {total_size} bytes unexpectedly large; inputs were likely dereferenced"
     );
 }

@@ -443,6 +443,8 @@ pub enum ProtocolFeature {
     /// rather than a zero-gas nop) when a compiled module fails to load at
     /// `Module::deserialize`.
     FixContractLoadingError,
+    /// Bound the combined size of the promise inputs a single receipt consumes.
+    ReceiptPromiseInputSizeLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
     EnforcePerReceiptStorageProofLimit,
@@ -583,6 +585,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
+            ProtocolFeature::ReceiptPromiseInputSizeLimit => 153,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

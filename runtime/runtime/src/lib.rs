@@ -75,11 +75,11 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
     get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
-    get_promise_yield_status, get_pure, get_received_data, get_yield_id_for_data_id,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt,
-    remove_promise_yield_status, remove_yield_id_mappings, set, set_access_key,
-    set_access_key_by_handle, set_account, set_gas_key_nonce, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data,
+    get_promise_yield_status, get_pure, get_received_data, get_received_data_size,
+    get_yield_id_for_data_id, has_received_data, remove_postponed_receipt,
+    remove_promise_yield_receipt, remove_promise_yield_status, remove_yield_id_mappings, set,
+    set_access_key, set_access_key_by_handle, set_account, set_gas_key_nonce,
+    set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -789,33 +789,60 @@ impl Runtime {
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = receipt.receiver_id();
-        // Collecting input data and removing it from the state
-        let promise_results = action_receipt
-            .input_data_ids()
-            .iter()
-            .map(|data_id| {
-                let ReceivedData { data } = get_received_data(state_update, account_id, *data_id)?
-                    .ok_or_else(|| {
-                        StorageError::StorageInconsistentState(
-                            "received data should be in the state".to_string(),
-                        )
-                    })?;
+
+        let input_size_limit =
+            apply_state.config.wasm_config.limit_config.max_receipt_total_input_size;
+        let enforce_input_size_limit = ProtocolFeature::ReceiptPromiseInputSizeLimit
+            .enabled(apply_state.current_protocol_version);
+        let mut total_input_size: u64 = 0;
+        if enforce_input_size_limit {
+            for data_id in action_receipt.input_data_ids() {
+                if let Some(size) = get_received_data_size(state_update, account_id, *data_id)? {
+                    total_input_size = total_input_size.saturating_add(u64::from(size));
+                }
+            }
+        }
+        let input_size_exceeded = enforce_input_size_limit && total_input_size > input_size_limit;
+
+        // Collecting input data and removing it from the state.
+        let promise_results = if input_size_exceeded {
+            for data_id in action_receipt.input_data_ids() {
                 state_update.remove(TrieKey::ReceivedData {
                     receiver_id: account_id.clone(),
                     data_id: *data_id,
                 });
-                match data {
-                    // TODO: Going from Vec<u8> to Rc<[u8]> shrinks the
-                    // allocated buffer to fit, which may re-allocate if the
-                    // capacity > len.
-                    // Most likely, capacity == len holds here anyway but it
-                    // would be better to use `Rc<u8>` already in `ReceivedData`
-                    // and `DataReceipt`.
-                    Some(value) => Ok(PromiseResult::Successful(Rc::from(value))),
-                    None => Ok(PromiseResult::Failed),
-                }
-            })
-            .collect::<Result<Arc<[PromiseResult]>, RuntimeError>>()?;
+            }
+            Arc::from([])
+        } else {
+            action_receipt
+                .input_data_ids()
+                .iter()
+                .map(|data_id| {
+                    let ReceivedData { data } =
+                        get_received_data(state_update, account_id, *data_id)?.ok_or_else(
+                            || {
+                                StorageError::StorageInconsistentState(
+                                    "received data should be in the state".to_string(),
+                                )
+                            },
+                        )?;
+                    state_update.remove(TrieKey::ReceivedData {
+                        receiver_id: account_id.clone(),
+                        data_id: *data_id,
+                    });
+                    match data {
+                        // TODO: Going from Vec<u8> to Rc<[u8]> shrinks the
+                        // allocated buffer to fit, which may re-allocate if the
+                        // capacity > len.
+                        // Most likely, capacity == len holds here anyway but it
+                        // would be better to use `Rc<u8>` already in `ReceivedData`
+                        // and `DataReceipt`.
+                        Some(value) => Ok(PromiseResult::Successful(Rc::from(value))),
+                        None => Ok(PromiseResult::Failed),
+                    }
+                })
+                .collect::<Result<Arc<[PromiseResult]>, RuntimeError>>()?
+        };
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
@@ -832,55 +859,66 @@ impl Runtime {
         result.gas_burnt = exec_fees.gas;
         result.compute_usage = exec_fees.compute;
 
-        let storage_proof_size_before_receipt =
-            if ProtocolFeature::EnforcePerReceiptStorageProofLimit
-                .enabled(apply_state.current_protocol_version)
-            {
-                Some(state_update.trie.recorded_storage_size_upper_bound())
-            } else {
-                None
-            };
-
-        // Executing actions one by one
-        for (action_index, action) in action_receipt.actions().iter().enumerate() {
-            let action_hash = create_action_hash_from_receipt_id(
-                receipt.receipt_id(),
-                apply_state.block_height,
-                action_index,
-            );
-            let mut new_result = self.apply_action(
-                action,
-                state_update,
-                apply_state,
-                preparation_pipeline,
-                &mut account,
-                &mut actor_id,
-                receipt,
-                &action_receipt,
-                Arc::clone(&promise_results),
-                &action_hash,
-                action_index,
-                &action_receipt.actions(),
-                epoch_info_provider,
-                storage_proof_size_before_receipt,
-            )?;
-            if new_result.result.is_ok() {
-                if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
-                    validate_receipt(
-                        &apply_state.config.wasm_config.limit_config,
-                        receipt,
-                        apply_state.current_protocol_version,
-                        ValidateReceiptMode::NewReceipt,
-                    )
-                }) {
-                    new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
+        if input_size_exceeded {
+            result.set_error(
+                ActionErrorKind::TotalPromiseInputSizeExceeded {
+                    size: total_input_size,
+                    limit: input_size_limit,
                 }
-            }
-            result.merge(new_result)?;
-            // TODO storage error
-            if let Err(ref mut res) = result.result {
-                res.index = Some(action_index as u64);
-                break;
+                .into(),
+            );
+        } else {
+            let storage_proof_size_before_receipt =
+                if ProtocolFeature::EnforcePerReceiptStorageProofLimit
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    Some(state_update.trie.recorded_storage_size_upper_bound())
+                } else {
+                    None
+                };
+
+            // Executing actions one by one
+            for (action_index, action) in action_receipt.actions().iter().enumerate() {
+                let action_hash = create_action_hash_from_receipt_id(
+                    receipt.receipt_id(),
+                    apply_state.block_height,
+                    action_index,
+                );
+                let mut new_result = self.apply_action(
+                    action,
+                    state_update,
+                    apply_state,
+                    preparation_pipeline,
+                    &mut account,
+                    &mut actor_id,
+                    receipt,
+                    &action_receipt,
+                    Arc::clone(&promise_results),
+                    &action_hash,
+                    action_index,
+                    &action_receipt.actions(),
+                    epoch_info_provider,
+                    storage_proof_size_before_receipt,
+                )?;
+                if new_result.result.is_ok() {
+                    if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
+                        validate_receipt(
+                            &apply_state.config.wasm_config.limit_config,
+                            receipt,
+                            apply_state.current_protocol_version,
+                            ValidateReceiptMode::NewReceipt,
+                        )
+                    }) {
+                        new_result.result =
+                            Err(ActionErrorKind::NewReceiptValidationError(e).into());
+                    }
+                }
+                result.merge(new_result)?;
+                // TODO storage error
+                if let Err(ref mut res) = result.result {
+                    res.index = Some(action_index as u64);
+                    break;
+                }
             }
         }
 

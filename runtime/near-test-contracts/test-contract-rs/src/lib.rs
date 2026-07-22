@@ -882,12 +882,12 @@ fn call_promise() {
                     gas,
                 )
             } else if let Some(and) = arg.get("and") {
-                let and = and.as_array().unwrap();
-                let mut curr = and[0].as_i64().unwrap() as u64;
-                for other in &and[1..] {
-                    curr = promise_and(curr, other.as_i64().unwrap() as u64);
-                }
-                curr
+                let promise_indices: Vec<u64> =
+                    and.as_array().unwrap().iter().map(|id| id.as_i64().unwrap() as u64).collect();
+                promise_and(
+                    promise_indices.as_ptr() as u64,
+                    promise_indices.len() as u64,
+                )
             } else if let Some(batch_create) = arg.get("batch_create") {
                 let account_id = batch_create["account_id"].as_str().unwrap().as_bytes();
                 promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64)
