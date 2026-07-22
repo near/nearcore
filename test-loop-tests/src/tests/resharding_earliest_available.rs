@@ -38,6 +38,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::QueryRequest;
 use std::collections::BTreeMap;
+use std::slice;
 use std::sync::Arc;
 
 // Keep GC stepping at least as often as blocks are produced so the tail promptly reaches `H_r`.
@@ -66,7 +67,7 @@ fn slow_test_reshard_earliest_available_after_gc() {
         .protocol_version(PROTOCOL_VERSION - 1)
         .validators_spec(validators_spec)
         .shard_layout(base_shard_layout.clone())
-        .add_user_accounts_simple(&[query_account.clone()], Balance::from_near(1_000_000))
+        .add_user_accounts_simple(slice::from_ref(&query_account), Balance::from_near(1_000_000))
         .epoch_length(epoch_length)
         .build();
 
@@ -194,7 +195,7 @@ fn slow_test_reshard_earliest_available_after_gc() {
             view_client,
             Query::new(
                 BlockReference::BlockId(BlockId::Height(boundary_height)),
-                QueryRequest::ViewAccount { account_id: query_account.clone() },
+                QueryRequest::ViewAccount { account_id: query_account },
             ),
         )
     };
