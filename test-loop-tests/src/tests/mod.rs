@@ -27,6 +27,7 @@ mod deploy_compute_cost;
 mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
+mod earliest_available;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
@@ -59,7 +60,6 @@ mod reject_empty_method_name;
 mod reject_outdated_blocks;
 mod replay_chunks;
 mod resharding_cold_storage;
-mod resharding_earliest_available;
 mod resharding_missing_chunks;
 mod resharding_v3;
 mod sha3;

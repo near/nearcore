@@ -1,32 +1,30 @@
-//! Regression test for the SWEAT / FastAuth incident: a view query with
-//! `sync_checkpoint: "earliest_available"` returned
-//! `MissingTrieValue(MissingTrieValue { context: TrieStorage, .. })` for about an
-//! epoch after a resharding split, then "resolved by itself".
+//! Tests for `sync_checkpoint: "earliest_available"` / `get_earliest_block_hash`
+//! resolution: it must return a block whose state the node can actually serve.
 //!
-//! Root cause: `earliest_available` used to resolve to the GC `tail` block, which
-//! sits one block *below* the state-kept window `[gc_stop_height, head]` and is
-//! retained only as a boundary marker. When the GC tail comes to rest on the
-//! resharding boundary block `H_r` (the last block of the pre-split epoch `E`),
-//! `gc_parent_shard_after_resharding` has already deleted the split-parent shard's
-//! state, so a query resolving `account -> shard` via `H_r`'s (pre-split) layout
-//! hit the wiped parent shard and failed with `MissingTrieValue`.
+//! `get_earliest_block_hash` anchors on `max(gc_stop_height, tail)`. Two regimes
+//! break the naive single-marker choices:
 //!
-//! Fix: `get_earliest_block_hash` anchors on `gc_stop_height` (the first block the
-//! node still serves state for) instead of the tail. Past a resharding boundary
-//! that is `H_r + 1`, the first block of the child epoch, whose state is intact.
-//!
-//! This test drives a single split, lets GC advance the tail onto `H_r` (wiping
-//! the parent shard), and asserts:
-//!   * `earliest_available` resolves to `H_r + 1` (child layout), not `H_r`;
-//!   * a `ViewAccount` there for an account in the split shard succeeds;
-//!   * the boundary block `H_r` is genuinely gone (explicit query -> GarbageCollectedBlock),
-//!     so the fix is skipping unavailable state rather than getting lucky.
-//! Before the fix the `earliest_available` query failed with `MissingTrieValue`.
+//! * Resharding (`slow_test_reshard_earliest_available_after_gc`): the GC `tail`
+//!   comes to rest on the resharding boundary block `H_r`, whose split-parent shard
+//!   state has already been wiped, so resolving `account -> shard` via `H_r`'s
+//!   pre-split layout hit a missing shard and failed with `MissingTrieValue`.
+//!   Anchoring on `gc_stop_height` (= `H_r + 1`, the first child-epoch block) avoids
+//!   it.
+//! * State sync (`slow_test_earliest_available_servable_after_state_sync`): a
+//!   freshly-synced node has `tail` (its sync point) *above* `gc_stop_height`, which
+//!   is computed from `head_epoch - keep` and can point at epochs the node never
+//!   downloaded. Flooring at `tail` keeps the result servable.
 
+use super::sync::util::{
+    TEST_EPOCH_SYNC_HORIZON, far_horizon_height, run_until_synced, track_sync_status,
+};
 use crate::setup::builder::{MIN_BLOCK_PROD_TIME, TestLoopBuilder};
+use crate::utils::account::create_account_id;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, Query, QueryError};
 use near_o11y::testonly::init_test_logger;
@@ -41,9 +39,18 @@ use std::collections::BTreeMap;
 use std::slice;
 use std::sync::Arc;
 
-// Keep GC stepping at least as often as blocks are produced so the tail promptly reaches `H_r`.
+// Resharding test: keep GC stepping at least as often as blocks are produced so the
+// tail promptly reaches `H_r`.
 const GC_STEP_PERIOD: Duration = Duration::milliseconds(MIN_BLOCK_PROD_TIME as i64);
 
+// State-sync test parameters.
+const EPOCH_LENGTH: u64 = 10;
+const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
+
+// The GC tail comes to rest on a resharding boundary block whose split-parent shard
+// state has been wiped; `earliest_available` must skip it and resolve to the first
+// block the node still serves state for (the child-layout block), not fail with
+// `MissingTrieValue`.
 #[test]
 // Spice uses a separate view/query path; resharding under spice is not covered here.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -193,5 +200,100 @@ fn slow_test_reshard_earliest_available_after_gc() {
     assert!(
         matches!(boundary_result, Err(QueryError::GarbageCollectedBlock { .. })),
         "query pinned to the wiped boundary block should be GarbageCollectedBlock, got: {boundary_result:?}"
+    );
+}
+
+// After a state sync `gc_stop_height` can fall below `tail` (the sync point), so
+// `earliest_available` must be floored at `tail` - otherwise it points at blocks the
+// node never downloaded and the query errors. This drives a fresh node through
+// far-horizon sync and walks the post-sync catch-up window (where `gc_stop_height <
+// tail`), asserting `earliest_available` stays servable throughout.
+#[test]
+// Spice uses a separate view/query path; sync under spice is not covered here.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_earliest_available_servable_after_state_sync() {
+    init_test_logger();
+
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(EPOCH_LENGTH)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    // Non-trivial state so state sync has something to transfer.
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(EPOCH_LENGTH));
+
+    // Fresh node that far-horizon syncs (EpochSync -> HeaderSync -> StateSync ->
+    // BlockSync). Track all shards so account queries don't fail for an unrelated
+    // reason, and keep a short GC window so `gc_stop_height` sits below the sync
+    // point (the inverted `gc_stop_height < tail` window under test).
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+            config.gc.gc_num_epochs_to_keep = GC_NUM_EPOCHS_TO_KEEP;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+    let view_handle = env.node_datas[new_node_idx].view_client_sender.actor_handle();
+
+    let _sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
+    run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
+
+    // Walk the post-sync catch-up window. Right after sync `gc_stop_height` is
+    // below `tail` (blocks below the sync point were never downloaded); as the
+    // node advances GC eventually restores the usual `tail == gc_stop_height - 1`.
+    // Throughout, `earliest_available` must resolve to a block the node can serve.
+    let account = accounts[0].clone();
+    let mut observed_inverted_window = false;
+    for _ in 0..(GC_NUM_EPOCHS_TO_KEEP + 2) {
+        let (head_height, tail, gc_stop_height) = {
+            let node = env.node(new_node_idx);
+            let chain = &node.client().chain;
+            (
+                chain.head().unwrap().height,
+                chain.chain_store.tail(),
+                chain.chain_store.gc_stop_height(),
+            )
+        };
+        observed_inverted_window |= gc_stop_height < tail;
+
+        let earliest_query = {
+            let view_client = env.test_loop.data.get_mut(&view_handle);
+            view_client.handle(Query::new(
+                BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable),
+                QueryRequest::ViewAccount { account_id: account.clone() },
+            ))
+        };
+        let earliest_block = {
+            let view_client = env.test_loop.data.get_mut(&view_handle);
+            view_client
+                .handle(GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)))
+        };
+
+        let ctx = format!("head={head_height}, tail={tail}, gc_stop_height={gc_stop_height}");
+        assert!(
+            earliest_query.is_ok(),
+            "ViewAccount at earliest_available should succeed ({ctx}), got: {earliest_query:?}"
+        );
+        assert!(
+            earliest_block.is_ok(),
+            "GetBlock at earliest_available should succeed ({ctx}), got: {earliest_block:?}"
+        );
+
+        env.node_runner(new_node_idx).run_for_number_of_blocks(EPOCH_LENGTH as usize);
+    }
+
+    assert!(
+        observed_inverted_window,
+        "test never entered the post-sync window where gc_stop_height < tail; \
+         the regression scenario was not exercised"
     );
 }
