@@ -523,19 +523,22 @@ fn delegate_inner_action(action: &Action) -> Option<VersionedDelegateActionRef<'
 }
 
 /// Extra cost burnt at conversion for the signature verifications this
-/// transaction triggers, looked up by scheme in `signature_verification_costs`.
-/// The charge is the extra verification cost relative to the classical schemes;
-/// only ML-DSA-65 is non-zero, while ed25519/secp256k1 stay 0 for backwards
-/// compatibility.
+/// transaction triggers: the signer's own signature plus each `Delegate`
+/// action's inner signer, each looked up by scheme in
+/// `signature_verification_costs`. The charge is the extra verification cost
+/// relative to the classical schemes; only ML-DSA-65 is non-zero, while
+/// ed25519/secp256k1 stay 0 for backwards compatibility. The compute cost
+/// debits the chunk's wall-clock budget and may be set independently of the
+/// gas cost.
 ///
 /// The signer's own signature is verified here (at conversion, on the signer's
-/// shard), so its cost is charged here. Each inner delegate signature is instead
-/// verified at execution on the receiver shard (`apply_delegate_action`): with
-/// `meter_inner_verify_on_receiver` set, its cost is not charged here at all but
-/// billed as an execution fee where the verification runs (reserved by
-/// `total_prepaid_exec_fees`, burnt by `apply_delegate_action`), so both gas and
-/// compute land on the shard doing the work. Without the flag the legacy behavior
-/// is kept (inner verify charged on the signer shard) to preserve consensus.
+/// shard), so its full cost is charged here. Each inner delegate signature is
+/// instead verified at execution on the receiver shard (`apply_delegate_action`):
+/// with `meter_inner_verify_on_receiver` set, only its gas is charged here (the
+/// signer still pays economically) and its compute is metered on that shard, so
+/// the wall-clock budget is charged where the work actually happens. Without the
+/// flag the legacy behavior is kept (compute mis-charged on the signer shard) to
+/// preserve consensus.
 fn signature_verification_cost(
     fees: &RuntimeFeesConfig,
     signer_public_key: &PublicKey,
@@ -544,32 +547,29 @@ fn signature_verification_cost(
 ) -> Result<ParameterCost, IntegerOverflowError> {
     let costs = &fees.signature_verification_costs;
     let mut total = costs[signature_kind(signer_public_key.key_type())];
-    if meter_inner_verify_on_receiver {
-        // Inner delegate verifications are billed as an execution fee on the
-        // receiver shard, not here at conversion.
-        return Ok(total);
-    }
     for action in actions {
         if let Some(delegate_action) = delegate_inner_action(action) {
             let kind = signature_kind(delegate_action.public_key().key_type());
-            total = total.checked_add_result(costs[kind])?;
+            let mut cost = costs[kind];
+            if meter_inner_verify_on_receiver {
+                cost = ParameterCost { compute: 0, ..cost };
+            }
+            total = total.checked_add_result(cost)?;
         }
     }
     Ok(total)
 }
 
-/// Cost (gas and compute) of verifying one inner delegate action's signature,
-/// keyed by the inner signer's scheme. This is the verification work
-/// `apply_delegate_action` performs on the receiver shard; once
-/// `FixMlDsaCostCharging` is enabled it is billed there as an execution fee
-/// (reserved in [`total_prepaid_exec_fees`], burnt in `apply_delegate_action`)
-/// rather than at conversion on the signer shard. See
-/// [`signature_verification_cost`].
-pub(crate) fn delegate_signature_verification_cost(
+/// Compute cost of verifying one inner delegate action's signature, keyed by the
+/// inner signer's scheme. This is the verification work `apply_delegate_action`
+/// performs on the receiver shard; once `FixMlDsaCostCharging` is enabled it is
+/// metered there (against that shard's `compute_limit`) rather than on the
+/// signer shard. See [`signature_verification_cost`].
+pub(crate) fn delegate_signature_verification_compute(
     fees: &RuntimeFeesConfig,
     public_key: &PublicKey,
-) -> ParameterCost {
-    fees.signature_verification_costs[signature_kind(public_key.key_type())]
+) -> Compute {
+    fees.signature_verification_costs[signature_kind(public_key.key_type())].compute
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.
@@ -593,15 +593,6 @@ pub fn total_prepaid_exec_fees(
             ))?;
             delta =
                 delta.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
-            if config.wasm_config.fix_ml_dsa_cost_charging {
-                // The inner delegate signature is verified at execution on the
-                // receiver shard, so the relayer prepays its verification cost
-                // here as part of the exec fee (burnt in `apply_delegate_action`).
-                delta = delta.checked_add_result(delegate_signature_verification_cost(
-                    fees,
-                    delegate_action.public_key(),
-                ))?;
-            }
         } else {
             delta = exec_fee(config, action, receiver_id);
         }
@@ -681,13 +672,6 @@ mod tests {
         config_with_verify_cost(gas, gas)
     }
 
-    /// Force the `FixMlDsaCostCharging` flag, so tests are deterministic
-    /// regardless of the build's `PROTOCOL_VERSION` (nightly enables it).
-    fn with_fix(mut config: RuntimeConfig, enabled: bool) -> RuntimeConfig {
-        Arc::make_mut(&mut config.wasm_config).fix_ml_dsa_cost_charging = enabled;
-        config
-    }
-
     fn transfer() -> Action {
         Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })
     }
@@ -753,12 +737,12 @@ mod tests {
         assert!(pq.gas_cost > ed.gas_cost && pq.total_cost > ed.total_cost);
     }
 
-    /// Legacy path (fix disabled): a `Delegate` action with an ML-DSA-65 inner
-    /// signer adds the verify gas to the *outer* tx's burnt gas; an ML-DSA signer
-    /// wrapping a PQ delegate pays for both verifications at conversion.
+    /// A `Delegate` action with an ML-DSA-65 inner signer adds the verify gas to
+    /// the *outer* tx's burnt gas; an ML-DSA signer wrapping a PQ delegate pays
+    /// for both verifications.
     #[test]
-    fn ml_dsa_65_delegate_inner_verify_charged_as_burnt_gas_legacy() {
-        let config = with_fix(config_with_verify_gas(VERIFY_GAS), false);
+    fn ml_dsa_65_delegate_inner_verify_charged_as_burnt_gas() {
+        let config = config_with_verify_gas(VERIFY_GAS);
         let ed_inner =
             cost_of(&config, KeyType::ED25519, vec![delegate_with_inner(KeyType::ED25519)]);
         let pq_inner =
@@ -775,49 +759,6 @@ mod tests {
             two.gas_burnt.as_gas(),
             ed_inner.gas_burnt.as_gas() + 2 * VERIFY_GAS,
             "outer + inner verify charged"
-        );
-    }
-
-    /// With `FixMlDsaCostCharging` enabled, the inner delegate verification is no
-    /// longer burnt at conversion; it is reserved as a prepaid execution fee
-    /// (billed on the receiver shard by `apply_delegate_action`). The relayer buys
-    /// the same total gas either way - only the conversion-vs-execution split
-    /// differs - so no supply is created or destroyed by the move.
-    #[test]
-    fn ml_dsa_65_delegate_inner_verify_reserved_for_execution_when_fixed() {
-        let fixed = with_fix(config_with_verify_gas(VERIFY_GAS), true);
-        let ed_inner =
-            cost_of(&fixed, KeyType::ED25519, vec![delegate_with_inner(KeyType::ED25519)]);
-        let pq_inner =
-            cost_of(&fixed, KeyType::ED25519, vec![delegate_with_inner(KeyType::MLDSA65)]);
-
-        // Inner PQ verify is not burnt at conversion...
-        assert_eq!(
-            pq_inner.gas_burnt.as_gas(),
-            ed_inner.gas_burnt.as_gas(),
-            "inner verify not burnt at conversion when fixed"
-        );
-        assert_eq!(
-            pq_inner.compute_burnt, ed_inner.compute_burnt,
-            "inner verify compute not charged at conversion when fixed"
-        );
-        // ...it is reserved as prepaid execution gas instead.
-        assert_eq!(
-            pq_inner.gas_remaining.as_gas(),
-            ed_inner.gas_remaining.as_gas() + VERIFY_GAS,
-            "inner verify reserved as a prepaid exec fee when fixed"
-        );
-
-        // Relayer buys the same total gas as the legacy (charge-at-conversion) path.
-        let legacy = cost_of(
-            &with_fix(config_with_verify_gas(VERIFY_GAS), false),
-            KeyType::ED25519,
-            vec![delegate_with_inner(KeyType::MLDSA65)],
-        );
-        assert_eq!(
-            pq_inner.gas_burnt.as_gas() + pq_inner.gas_remaining.as_gas(),
-            legacy.gas_burnt.as_gas() + legacy.gas_remaining.as_gas(),
-            "total gas bought is unchanged; only the conversion/execution split moves"
         );
     }
 
@@ -846,8 +787,7 @@ mod tests {
             "inner transfer deposit must be counted"
         );
 
-        // Legacy path (fix disabled): inner verify charged at conversion.
-        let config = with_fix(config_with_verify_gas(VERIFY_GAS), false);
+        let config = config_with_verify_gas(VERIFY_GAS);
         let ed = cost_of(&config, KeyType::ED25519, vec![delegate_v2_with_inner(KeyType::ED25519)]);
         let pq = cost_of(&config, KeyType::ED25519, vec![delegate_v2_with_inner(KeyType::MLDSA65)]);
         assert_eq!(

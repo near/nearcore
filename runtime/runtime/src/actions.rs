@@ -1,7 +1,7 @@
 use crate::access_keys::initial_nonce_value;
 use crate::cache_warming::precompile_contract_with_warming;
 use crate::config::{
-    delegate_signature_verification_cost, safe_add_compute, storage_removes_compute,
+    delegate_signature_verification_compute, safe_add_compute, storage_removes_compute,
     total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
@@ -428,21 +428,17 @@ pub(crate) fn apply_delegate_action(
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // The inner delegate signature is verified below, here on the receiver shard.
-    // Bill its verification cost (gas and compute) where the work runs: the
-    // relayer prepaid the gas as part of the exec fee (see
-    // `total_prepaid_exec_fees`), and the compute is metered against this shard's
-    // `compute_limit`. Without the fix the inner verify is charged at conversion
-    // on the signer shard (which never runs it), letting the work escape the
-    // receiver shard's budget. Charged even if the signature is invalid, since
-    // the verification work still ran. See `signature_verification_cost`.
+    // Meter its verification compute against this shard's `compute_limit`; the gas
+    // for it was already burnt at tx conversion on the signer shard. Without the
+    // fix the compute is instead mis-charged on the signer shard (which never runs
+    // this verify), letting the work escape the receiver shard's budget. See
+    // `signature_verification_cost`.
     if apply_state.config.wasm_config.fix_ml_dsa_cost_charging {
-        let verify_cost = delegate_signature_verification_cost(
+        let verify_compute = delegate_signature_verification_compute(
             &apply_state.config.fees,
             signed_delegate_action.delegate_action().public_key(),
         );
-        result.gas_used = result.gas_used.checked_add_result(verify_cost.gas)?;
-        result.gas_burnt = result.gas_burnt.checked_add_result(verify_cost.gas)?;
-        result.compute_usage = safe_add_compute(result.compute_usage, verify_cost.compute)?;
+        result.compute_usage = safe_add_compute(result.compute_usage, verify_compute)?;
     }
     if !signed_delegate_action.verify() {
         result.result = Err(ActionErrorKind::DelegateActionInvalidSignature.into());
@@ -1337,11 +1333,11 @@ mod tests {
     }
 
     // The inner-delegate signature is verified on the receiver shard, so its
-    // verification cost (gas and compute) must be billed there once
-    // `FixMlDsaCostCharging` is enabled (before the fix it was charged at
-    // conversion on the signer shard, letting the work escape the budget).
+    // verification compute must be metered there against the shard's
+    // `compute_limit` once `FixMlDsaCostCharging` is enabled (before the fix it
+    // was mis-charged on the signer shard, letting the work escape the budget).
     #[test]
-    fn test_delegate_action_meters_inner_verify_cost() {
+    fn test_delegate_action_meters_inner_verify_compute() {
         use near_parameters::cost::SignatureKind;
         use near_primitives::types::Gas;
         use std::sync::Arc;
@@ -1350,15 +1346,13 @@ mod tests {
         let sender_id = sda.delegate_action.sender_id.clone();
         let sender_pub_key = sda.delegate_action.public_key.clone();
         let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
-        let verify_gas: u64 = 100_000_000_000;
         let verify_compute: u64 = 777_000_000_000;
 
-        // Returns (gas_burnt, compute_usage) after applying the delegate action.
-        let run = |fix_enabled: bool| -> (u64, u64) {
+        let run = |fix_enabled: bool| -> u64 {
             let mut apply_state = create_apply_state(sda.delegate_action.max_block_height);
             let mut cfg = (*apply_state.config).clone();
             Arc::make_mut(&mut cfg.fees).signature_verification_costs[SignatureKind::Ed25519] =
-                ParameterCost::new(Gas::from_gas(verify_gas), verify_compute);
+                ParameterCost::new(Gas::from_gas(0), verify_compute);
             Arc::make_mut(&mut cfg.wasm_config).fix_ml_dsa_cost_charging = fix_enabled;
             apply_state.config = Arc::new(cfg);
             let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
@@ -1373,18 +1367,11 @@ mod tests {
             )
             .expect("apply ok");
             assert!(result.result.is_ok(), "inner verify should pass: {:?}", result.result.err());
-            (result.gas_burnt.as_gas(), result.compute_usage)
+            result.compute_usage
         };
 
-        let (gas_off, compute_off) = run(false);
-        let (gas_on, compute_on) = run(true);
         assert_eq!(
-            gas_on - gas_off,
-            verify_gas,
-            "receiver shard must burn the inner-delegate verify gas when the fix is enabled"
-        );
-        assert_eq!(
-            compute_on - compute_off,
+            run(true) - run(false),
             verify_compute,
             "receiver shard must meter the inner-delegate verify compute when the fix is enabled"
         );

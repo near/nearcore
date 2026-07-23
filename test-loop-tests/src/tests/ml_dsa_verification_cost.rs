@@ -1,13 +1,10 @@
-//! End-to-end checks that ML-DSA-65 signature verification is priced as gas. A
-//! transaction signed with an ML-DSA-65 key burns exactly
-//! `ml_dsa_65_verification_cost` more gas at conversion than its ed25519
-//! equivalent, paid by the signer when buying the transaction. A `Delegate`
-//! action with an ML-DSA-65 inner signer carries the same surcharge: charged at
-//! conversion on the relayer's tx, or - once `FixMlDsaCostCharging` is enabled -
-//! as an execution fee on the receiver shard's `Delegate` receipt (where the
-//! inner-signature verification actually runs).
+//! End-to-end checks that ML-DSA-65 signature verification is priced as gas
+//! charged at transaction conversion. A transaction signed with an ML-DSA-65
+//! key - or carrying a `Delegate` action with an ML-DSA-65 inner signer - burns
+//! exactly `ml_dsa_65_verification_cost` more gas than its ed25519 equivalent,
+//! paid by the signer when buying the transaction.
 //!
-//! These read the persisted `gas_burnt` of the relevant execution outcome
+//! These read the persisted `gas_burnt` of the transaction's execution outcome
 //! (deterministic, exact) at the real shipped parameter value. That the gas
 //! available to the resulting receipts is unchanged - so contracts are
 //! unaffected - is covered by the unit tests in `runtime/runtime/src/config.rs`.
@@ -62,16 +59,6 @@ fn tx_gas_burnt(env: &TestLoopEnv, tx_hash: &CryptoHash) -> u64 {
         .outcome
         .gas_burnt
         .as_gas()
-}
-
-/// `gas_burnt` recorded for the execution of the single receipt spawned by
-/// `tx_hash` - i.e. the `Delegate` receipt, executed on the receiver shard,
-/// where the inner-signature verification runs once `FixMlDsaCostCharging` bills
-/// it as an execution fee.
-fn delegate_receipt_gas_burnt(env: &TestLoopEnv, tx_hash: &CryptoHash) -> u64 {
-    let node = env.rpc_node();
-    let receipt_id = node.tx_receipt_id(*tx_hash);
-    node.execution_outcome(receipt_id).outcome.gas_burnt.as_gas()
 }
 
 /// An ML-DSA-65-signed transaction burns exactly `ml_dsa_65_verification_cost`
@@ -165,29 +152,11 @@ fn test_ml_dsa_inner_delegate_verify_charged_as_gas() {
 
     let verify_gas = ml_dsa_verify_gas();
     assert!(verify_gas > 0, "expected non-zero ML-DSA verify gas at v{PROTOCOL_VERSION}");
-    if ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
-        // The inner-delegate verify is billed as an execution fee on the receiver
-        // shard's `Delegate` receipt, not on the relayer's conversion tx. So the
-        // relayer tx burns the same as ed25519, and the surcharge appears on the
-        // `Delegate` receipt's execution instead.
-        assert_eq!(
-            tx_gas_burnt(&env, &pq_hash),
-            tx_gas_burnt(&env, &ed_hash),
-            "inner verify must not be charged on the relayer's conversion tx when fixed",
-        );
-        assert_eq!(
-            delegate_receipt_gas_burnt(&env, &pq_hash),
-            delegate_receipt_gas_burnt(&env, &ed_hash) + verify_gas,
-            "inner verify must be burnt on the Delegate receipt's execution when fixed",
-        );
-    } else {
-        // Legacy: charged at conversion on the relayer's tx.
-        assert_eq!(
-            tx_gas_burnt(&env, &pq_hash),
-            tx_gas_burnt(&env, &ed_hash) + verify_gas,
-            "meta-tx with ML-DSA inner signer must burn exactly the verify-gas surcharge more",
-        );
-    }
+    assert_eq!(
+        tx_gas_burnt(&env, &pq_hash),
+        tx_gas_burnt(&env, &ed_hash) + verify_gas,
+        "meta-tx with ML-DSA inner signer must burn exactly the verify-gas surcharge more",
+    );
 }
 
 /// Submit a relayer-signed meta-tx wrapping a transfer inner-signed by
