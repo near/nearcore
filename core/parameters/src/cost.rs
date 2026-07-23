@@ -404,6 +404,9 @@ pub enum ActionCosts {
     gas_key_transfer_base = 23,
     gas_key_byte = 24,
     gas_key_nonce_write_base = 25,
+    universal_state_init_base = 26,
+    universal_state_init_byte = 27,
+    universal_state_init_entry = 28,
 }
 
 impl ExtCosts {
@@ -659,6 +662,9 @@ impl RuntimeFeesConfig {
                 ActionCosts::gas_key_transfer_base => Fee::new(115_123_062_500, 115_123_062_500, 235_676_644_250),
                 ActionCosts::gas_key_byte => Fee::new(59_357_464, 59_357_464, 101_435_400),
                 ActionCosts::gas_key_nonce_write_base => Fee::new(0, 0, 64_196_736_000),
+                ActionCosts::universal_state_init_base => Fee::new(500_000_000_000, 500_000_000_000, 7_430_000_000_000),
+                ActionCosts::universal_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
+                ActionCosts::universal_state_init_entry => Fee::new(0, 0, 200_000_000_000),
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,

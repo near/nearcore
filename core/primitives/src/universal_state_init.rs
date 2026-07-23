@@ -17,6 +17,7 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKeyHandle;
+use near_primitives_core::deterministic_account_id::state_init_data_len_bytes;
 use near_primitives_core::global_contract::GlobalContractIdentifier;
 pub use near_primitives_core::universal_state_init::RawStateInit;
 use near_schema_checker_lib::ProtocolSchema;
@@ -114,6 +115,24 @@ impl UniversalStateInit {
     pub fn version(&self) -> u32 {
         match self {
             UniversalStateInit::V1(_) => 1,
+        }
+    }
+
+    /// Summed length of all storage keys and values, in bytes. Multiplied by
+    /// the per-byte state-init fee, matching the deterministic-account rule.
+    pub fn len_bytes(&self) -> usize {
+        state_init_data_len_bytes(self.data())
+    }
+
+    /// Take the fields without cloning:
+    /// `let (code, data, access_keys) = state_init.take();`.
+    #[allow(clippy::type_complexity)]
+    pub fn take(
+        self,
+    ) -> (Option<GlobalContractIdentifier>, BTreeMap<Vec<u8>, Vec<u8>>, BTreeSet<PublicKeyHandle>)
+    {
+        match self {
+            UniversalStateInit::V1(inner) => (inner.code, inner.data, inner.access_keys),
         }
     }
 

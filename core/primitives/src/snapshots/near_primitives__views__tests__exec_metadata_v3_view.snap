@@ -1,6 +1,7 @@
 ---
 source: core/primitives/src/views.rs
 expression: view
+snapshot_kind: text
 ---
 {
   "version": 3,
@@ -124,6 +125,21 @@ expression: view
       "cost_category": "ACTION_COST",
       "cost": "TRANSFER",
       "gas_used": "1006"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "UNIVERSAL_STATE_INIT_BASE",
+      "gas_used": "1026"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "UNIVERSAL_STATE_INIT_BYTE",
+      "gas_used": "1027"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "UNIVERSAL_STATE_INIT_ENTRY",
+      "gas_used": "1028"
     },
     {
       "cost_category": "ACTION_COST",

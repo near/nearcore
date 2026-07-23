@@ -121,6 +121,7 @@ pub mod state_viewer;
 #[cfg(test)]
 mod tests;
 mod types;
+mod universal_account_id;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -623,6 +624,18 @@ impl Runtime {
                     account_id,
                     receipt,
                     deterministic_state_init_action,
+                    &mut result,
+                )?;
+            }
+            Action::UniversalStateInit(universal_state_init_action) => {
+                metrics::ACTION_CALLED_COUNT.universal_state_init.inc();
+                universal_account_id::action_universal_state_init(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    receipt,
+                    universal_state_init_action,
                     &mut result,
                 )?;
             }

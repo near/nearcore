@@ -446,6 +446,10 @@ pub enum ProtocolFeature {
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
     EnforcePerReceiptStorageProofLimit,
+    /// Universal accounts: the `0u` account scheme. Enables the `UniversalStateInit`
+    /// action, which creates an account whose ID is derived from its canonical state
+    /// init (contract code, storage, and access keys).
+    UniversalAccounts,
 }
 
 impl ProtocolFeature {
@@ -583,6 +587,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
+            ProtocolFeature::UniversalAccounts => 153,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
