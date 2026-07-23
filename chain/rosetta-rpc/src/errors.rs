@@ -42,19 +42,10 @@ impl From<near_client::TxStatusError> for ErrorKind {
                 "Transaction could not be found due to an internal error: {:?}",
                 err
             )),
-            near_client::TxStatusError::MissingTransaction(err) => {
-                Self::NotFound(format!("Transaction is missing: {:?}", err))
-            }
-            near_client::TxStatusError::InternalError(_)
-            | near_client::TxStatusError::TimeoutError => {
-                // TODO: remove the statuses from TxStatusError since they are
-                // never constructed by the view client (it is a leak of
-                // abstraction introduced in JSONRPC)
-                Self::InternalInvariantError(format!(
-                    "TxStatusError reached unexpected state: {:?}",
-                    err
-                ))
-            }
+            near_client::TxStatusError::InternalError(_) => Self::InternalInvariantError(format!(
+                "TxStatusError reached unexpected state: {:?}",
+                err
+            )),
         }
     }
 }

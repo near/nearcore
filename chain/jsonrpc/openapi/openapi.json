@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.13"
+    "version": "1.2.14"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1369,12 +1369,18 @@
         "description": "Describes access key permission scope and nonce.",
         "properties": {
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -1520,10 +1526,20 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "code_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
           },
           "global_contract_account_id": {
             "anyOf": [
@@ -1536,7 +1552,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by the deploying account id."
           },
           "global_contract_hash": {
             "anyOf": [
@@ -1549,19 +1566,26 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by code hash."
           },
           "locked": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Staked balance locked for validation, in yoctoNEAR."
           },
           "storage_paid_at": {
             "default": 0,
-            "description": "TODO(2271): deprecated.",
+            "description": "Deprecated and unused. TODO(2271): remove.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "storage_usage": {
+            "description": "Total storage used by the account, in bytes.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -18003,7 +18027,21 @@
             "type": "object"
           },
           {
+            "description": "`None` when the response comes from a node running an older version that omitted the\ncause, so newer clients can still parse it.",
             "properties": {
+              "info": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TimeoutErrorCause"
+                  },
+                  {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true
+                  }
+                ]
+              },
               "name": {
                 "enum": [
                   "TIMEOUT_ERROR"
@@ -18739,12 +18777,18 @@
             "type": "integer"
           },
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -18934,7 +18978,12 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "block_hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -18945,7 +18994,12 @@
             "type": "integer"
           },
           "code_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
           },
           "global_contract_account_id": {
             "anyOf": [
@@ -18958,7 +19012,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by the deploying account id."
           },
           "global_contract_hash": {
             "anyOf": [
@@ -18971,19 +19026,26 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by code hash."
           },
           "locked": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Staked balance locked for validation, in yoctoNEAR."
           },
           "storage_paid_at": {
             "default": 0,
-            "description": "TODO(2271): deprecated.",
+            "description": "Deprecated and unused. TODO(2271): remove.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "storage_usage": {
+            "description": "Total storage used by the account, in bytes.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -20326,10 +20388,20 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "amount": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
                   "code_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/CryptoHash"
+                      }
+                    ],
+                    "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
                   },
                   "global_contract_account_id": {
                     "anyOf": [
@@ -20342,7 +20414,8 @@
                         ],
                         "nullable": true
                       }
-                    ]
+                    ],
+                    "description": "Set when the account uses a global contract referenced by the deploying account id."
                   },
                   "global_contract_hash": {
                     "anyOf": [
@@ -20355,19 +20428,26 @@
                         ],
                         "nullable": true
                       }
-                    ]
+                    ],
+                    "description": "Set when the account uses a global contract referenced by code hash."
                   },
                   "locked": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Staked balance locked for validation, in yoctoNEAR."
                   },
                   "storage_paid_at": {
                     "default": 0,
-                    "description": "TODO(2271): deprecated.",
+                    "description": "Deprecated and unused. TODO(2271): remove.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
                   },
                   "storage_usage": {
+                    "description": "Total storage used by the account, in bytes.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
@@ -20950,6 +21030,83 @@
           "peer_id"
         ],
         "type": "object"
+      },
+      "TimeoutErrorCause": {
+        "description": "Explains why a transaction status request returned a `RpcTransactionError::TimeoutError`:",
+        "oneOf": [
+          {
+            "description": "The node never observed the transaction on chain.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "NOT_OBSERVED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The transaction was observed but is still pending the requested finality. The\nlast-known status is included so the caller can re-poll for a higher finality.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "PENDING"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/RpcTransactionResponse"
+              }
+            },
+            "required": [
+              "cause",
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The node does not track the transaction's shard and could not get an answer from a\nchunk producer that does before the timeout.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "DOES_NOT_TRACK_SHARD"
+                ],
+                "type": "string"
+              },
+              "shard_id": {
+                "$ref": "#/components/schemas/ShardId"
+              }
+            },
+            "required": [
+              "cause",
+              "shard_id"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The node could not produce a usable transaction status before the timeout (for\nexample a repeated internal error, or no response at all).",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "ERROR"
+                ],
+                "type": "string"
+              },
+              "debug_info": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "debug_info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "TrackedShardsConfig": {
         "description": "Describes the expected behavior of the node regarding shard tracking.\nIf the node is an active validator, it will also track the shards it is responsible for as a validator.",
