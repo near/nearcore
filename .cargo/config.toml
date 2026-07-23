@@ -5,5 +5,9 @@
 # to get a useful backtrace on panic.
 rustflags = ["-Cforce-unwind-tables=y"]
 
+[env]
+# Force bundled liblzma to avoid missing system libraries on macOS builds.
+LZMA_API_STATIC = "1"
+
 [target.'cfg(target_arch = "x86_64")']
 rustflags = ["-Ctarget-feature=+sse2,+ssse3,+sse4.1,+sse4.2,+popcnt,+fma,+bmi1,+bmi2,+lzcnt,+movbe,+pclmulqdq", "-Cforce-unwind-tables=y"]
