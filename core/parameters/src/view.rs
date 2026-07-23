@@ -397,6 +397,10 @@ pub struct ExtCostsConfigView {
     pub p256_verify_base: Gas,
     /// Cost of P-256 ECDSA signature verification per byte
     pub p256_verify_byte: Gas,
+    /// Cost of ML-DSA-65 signature verification base
+    pub ml_dsa_verify_base: Gas,
+    /// Cost of ML-DSA-65 signature verification per byte
+    pub ml_dsa_verify_byte: Gas,
 
     /// Cost for calling logging.
     pub log_base: Gas,
@@ -568,6 +572,8 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             ecrecover_base: config.gas_cost(ExtCosts::ecrecover_base),
             p256_verify_base: config.gas_cost(ExtCosts::p256_verify_base),
             p256_verify_byte: config.gas_cost(ExtCosts::p256_verify_byte),
+            ml_dsa_verify_base: config.gas_cost(ExtCosts::ml_dsa_verify_base),
+            ml_dsa_verify_byte: config.gas_cost(ExtCosts::ml_dsa_verify_byte),
             log_base: config.gas_cost(ExtCosts::log_base),
             log_byte: config.gas_cost(ExtCosts::log_byte),
             storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
@@ -681,6 +687,8 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::ecrecover_base => view.ecrecover_base,
                 ExtCosts::p256_verify_base => view.p256_verify_base,
                 ExtCosts::p256_verify_byte => view.p256_verify_byte,
+                ExtCosts::ml_dsa_verify_base => view.ml_dsa_verify_base,
+                ExtCosts::ml_dsa_verify_byte => view.ml_dsa_verify_byte,
                 ExtCosts::log_base => view.log_base,
                 ExtCosts::log_byte => view.log_byte,
                 ExtCosts::storage_write_base => view.storage_write_base,

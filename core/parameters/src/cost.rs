@@ -171,6 +171,9 @@ impl ExtCostsConfig {
             ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
             ExtCosts::p256_verify_base => SAFETY_MULTIPLIER * 433_333_333_333,
             ExtCosts::p256_verify_byte => SAFETY_MULTIPLIER * 4_333_333,
+            // Placeholder values pending params-estimator calibration.
+            ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 433_333_333_333,
+            ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 4_333_333,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
@@ -359,6 +362,8 @@ pub enum ExtCosts {
     sha3_384_byte = 91,
     sha3_512_base = 92,
     sha3_512_byte = 93,
+    ml_dsa_verify_base = 94,
+    ml_dsa_verify_byte = 95,
 }
 
 // Type of an action, used in fees logic.
@@ -451,6 +456,8 @@ impl ExtCosts {
             ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
             ExtCosts::p256_verify_base => Parameter::WasmP256VerifyBase,
             ExtCosts::p256_verify_byte => Parameter::WasmP256VerifyByte,
+            ExtCosts::ml_dsa_verify_base => Parameter::WasmMlDsaVerifyBase,
+            ExtCosts::ml_dsa_verify_byte => Parameter::WasmMlDsaVerifyByte,
             ExtCosts::log_base => Parameter::WasmLogBase,
             ExtCosts::log_byte => Parameter::WasmLogByte,
             ExtCosts::storage_write_base => Parameter::WasmStorageWriteBase,
