@@ -45,6 +45,7 @@ mod max_receipt_size;
 mod meta_tx;
 mod ml_dsa_access_key;
 mod ml_dsa_verification_cost;
+mod ml_dsa_verify;
 mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;
