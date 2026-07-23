@@ -4,13 +4,13 @@
 //! `get_earliest_block_hash` anchors on `max(gc_stop_height, tail)`. Two regimes
 //! break the naive single-marker choices:
 //!
-//! * Resharding (`slow_test_reshard_earliest_available_after_gc`): the GC `tail`
+//! * Resharding (`slow_test_earliest_available_after_resharding`): the GC `tail`
 //!   comes to rest on the resharding boundary block `H_r`, whose split-parent shard
 //!   state has already been wiped, so resolving `account -> shard` via `H_r`'s
 //!   pre-split layout hit a missing shard and failed with `MissingTrieValue`.
 //!   Anchoring on `gc_stop_height` (= `H_r + 1`, the first child-epoch block) avoids
 //!   it.
-//! * State sync (`slow_test_earliest_available_servable_after_state_sync`): a
+//! * State sync (`slow_test_earliest_available_after_state_sync`): a
 //!   freshly-synced node has `tail` (its sync point) *above* `gc_stop_height`, which
 //!   is computed from `head_epoch - keep` and can point at epochs the node never
 //!   downloaded. Flooring at `tail` keeps the result servable.
@@ -54,7 +54,7 @@ const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 #[test]
 // Spice uses a separate view/query path; resharding under spice is not covered here.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_reshard_earliest_available_after_gc() {
+fn slow_test_earliest_available_after_resharding() {
     init_test_logger();
 
     let epoch_length = 5;
@@ -211,7 +211,7 @@ fn slow_test_reshard_earliest_available_after_gc() {
 #[test]
 // Spice uses a separate view/query path; sync under spice is not covered here.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_earliest_available_servable_after_state_sync() {
+fn slow_test_earliest_available_after_state_sync() {
     init_test_logger();
 
     let accounts = make_accounts(100);
