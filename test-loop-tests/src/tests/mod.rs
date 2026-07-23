@@ -85,6 +85,7 @@ mod stake_nodes;
 mod stale_pooled_txs;
 mod sync;
 mod tx_inclusion_with_missed_chunks;
+mod universal_account_id;
 mod unknown_prev_chunk_preemption;
 #[cfg(feature = "nightly")]
 mod v2_partial_witness_resolution;

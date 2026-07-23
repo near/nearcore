@@ -92,6 +92,10 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::gas_key_transfer_base => actual_fees_config.fee(ActionCosts::gas_key_transfer_base).clone(),
             ActionCosts::gas_key_byte => actual_fees_config.fee(ActionCosts::gas_key_byte).clone(),
             ActionCosts::gas_key_nonce_write_base => actual_fees_config.fee(ActionCosts::gas_key_nonce_write_base).clone(),
+            // No estimator for universal state init costs yet; use values from the config store.
+            ActionCosts::universal_state_init_base => actual_fees_config.fee(ActionCosts::universal_state_init_base).clone(),
+            ActionCosts::universal_state_init_byte => actual_fees_config.fee(ActionCosts::universal_state_init_byte).clone(),
+            ActionCosts::universal_state_init_entry => actual_fees_config.fee(ActionCosts::universal_state_init_entry).clone(),
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };
