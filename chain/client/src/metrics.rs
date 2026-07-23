@@ -320,25 +320,6 @@ pub(crate) static CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER: LazyLock<IntCo
         .unwrap()
     });
 
-pub(crate) static CLIENT_MESSAGES_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_client_messages_count",
-        "Number of messages client actor received by message type",
-        &["type"],
-    )
-    .unwrap()
-});
-
-pub(crate) static CLIENT_MESSAGES_PROCESSING_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    try_create_histogram_vec(
-        "near_client_messages_processing_time",
-        "Processing time of messages that client actor received, sorted by message type",
-        &["type"],
-        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
-
 pub(crate) static CHECK_TRIGGERS_TIME: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram(
         "near_client_triggers_time",
