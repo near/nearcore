@@ -25,6 +25,8 @@ use near_primitives::stateless_validation::partial_witness::{
 #[cfg(feature = "nightly")]
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
+#[cfg(feature = "nightly")]
+use near_primitives::types::BlockHeight;
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
@@ -184,138 +186,105 @@ fn v2_witness_with_height_below_anchor_height_is_rejected() {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
     assert!(
-        msg.contains("does not match anchor-implied height"),
+        msg.contains("below anchor-implied minimum height"),
         "error message must reference the loose cross-check; got: {msg}"
     );
 }
 
-/// A V2 witness whose parent has not arrived is rejected above anchor + 2 (a skipped
-/// slot). The exact pin means one anchor allows only one chunk key, blocking cache-spam
-/// across the `MAX_HEIGHTS_AHEAD` window.
 #[cfg(feature = "nightly")]
 #[test]
-fn v2_witness_with_height_above_anchor_height_is_rejected() {
-    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+fn v2_witness_parent_absent_accepted_at_and_above_anchor_minimum() {
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
 
+    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
     let shard_id = ShardId::new(0);
     let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
 
-    // The parent block is not stored locally. The anchor is genesis. Set the height
-    // to anchor + 3 (a skipped slot), which is above the required anchor + 2.
-    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
-    let forged_height = genesis_height + 3;
-    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        unknown_parent,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        0,
-        forged_height,
-        shard_id,
-        Gas::ZERO,
-        Gas::ZERO,
-        Balance::ZERO,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        vec![],
-        CongestionInfo::default(),
-        BandwidthRequests::empty(),
-        None,
-        signer.as_ref(),
-        PROTOCOL_VERSION,
-    ));
-
-    let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
-        epoch_id,
-        chunk_header,
-        genesis_hash,
-        0,
-        b"payload".to_vec(),
-        7,
-        signer.as_ref(),
-    ));
+    // Pin the genesis anchor's producer row to a producer the sampler would never pick, so the
+    // signature check discriminates instead of passing by single-validator coincidence.
+    let anchored = create_test_signer("anchored_producer");
+    let anchored_stake = ValidatorStake::new(
+        "anchored_producer".parse().unwrap(),
+        anchored.public_key(),
+        Balance::from_yoctonear(1),
+    );
+    let key_bytes = get_block_shard_id(&genesis_hash, shard_id);
+    let mut update = chain.chain_store().store().store_update();
+    update.delete(DBCol::ChunkProducers, &key_bytes);
+    update.commit();
+    let mut update = chain.chain_store().store().store_update();
+    update.insert_ser(DBCol::ChunkProducers, &key_bytes, &anchored_stake);
+    update.commit();
 
     let store = chain.chain_store().store();
-    let result = validate_partial_encoded_state_witness(
-        chain.epoch_manager.as_ref(),
-        &witness,
-        signer.validator_id(),
-        &store,
-    );
-
-    let err = result.err().expect("validation must reject above-height witness");
-    let Error::InvalidPartialChunkStateWitness(msg) = err else {
-        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    // Parent block is not stored locally; anchor is genesis.
+    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
+    let make_witness = |height: BlockHeight, witness_signer: &ValidatorSigner| {
+        let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            unknown_parent,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            0,
+            height,
+            shard_id,
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            CongestionInfo::default(),
+            BandwidthRequests::empty(),
+            None,
+            witness_signer,
+            PROTOCOL_VERSION,
+        ));
+        VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
+            epoch_id,
+            chunk_header,
+            genesis_hash,
+            0,
+            b"payload".to_vec(),
+            7,
+            witness_signer,
+        ))
     };
+    let validate = |witness: VersionedPartialEncodedStateWitness| {
+        validate_partial_encoded_state_witness(
+            chain.epoch_manager.as_ref(),
+            &witness,
+            signer.validator_id(),
+            &store,
+        )
+    };
+
+    // Signed by the anchored producer: accepted at the exact minimum (anchor + 2, no heights
+    // skipped) ...
     assert!(
-        msg.contains("does not match anchor-implied height"),
-        "error message must reference the loose cross-check; got: {msg}"
+        matches!(
+            validate(make_witness(genesis_height + 2, &anchored)),
+            Ok(ChunkRelevance::Relevant)
+        ),
+        "parent-absent witness at anchor + 2 must be accepted"
     );
-}
-
-/// A V2 witness whose parent has not arrived is accepted when its height is exactly
-/// anchor + 2. This is the case the anchor is meant to handle: we can validate the
-/// witness even though its parent block is not here yet.
-#[cfg(feature = "nightly")]
-#[test]
-fn v2_witness_with_absent_parent_and_valid_anchor_is_accepted() {
-    use crate::stateless_validation::validate::ChunkRelevance;
-
-    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
-
-    let genesis_hash = *chain.genesis().hash();
-    let genesis_height = chain.genesis().height();
-    let shard_id = ShardId::new(0);
-    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-
-    // The parent block is not stored locally. The anchor is genesis (seeded at
-    // startup). The height is exactly anchor + 2, so the check passes.
-    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
-    let height = genesis_height + 2;
-    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        unknown_parent,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        0,
-        height,
-        shard_id,
-        Gas::ZERO,
-        Gas::ZERO,
-        Balance::ZERO,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        vec![],
-        CongestionInfo::default(),
-        BandwidthRequests::empty(),
-        None,
-        signer.as_ref(),
-        PROTOCOL_VERSION,
-    ));
-
-    let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
-        epoch_id,
-        chunk_header,
-        genesis_hash,
-        0,
-        b"payload".to_vec(),
-        7,
-        signer.as_ref(),
-    ));
-
-    let store = chain.chain_store().store();
-    let result = validate_partial_encoded_state_witness(
-        chain.epoch_manager.as_ref(),
-        &witness,
-        signer.validator_id(),
-        &store,
-    );
-
+    // ... and on a skipped slot above it (anchor + 3).
     assert!(
-        matches!(result, Ok(ChunkRelevance::Relevant)),
-        "parent-absent witness with a valid anchor must be accepted; got {result:?}"
+        matches!(
+            validate(make_witness(genesis_height + 3, &anchored)),
+            Ok(ChunkRelevance::Relevant)
+        ),
+        "parent-absent witness on a skipped slot (anchor + 3) must be accepted"
+    );
+    // Control: the same skipped-slot height signed by the non-anchored producer is rejected,
+    // proving acceptance is gated on the anchored producer's signature, not the height alone.
+    assert!(
+        validate(make_witness(genesis_height + 3, signer.as_ref())).is_err(),
+        "skipped-slot witness signed by the wrong producer must be rejected"
     );
 }
 
@@ -615,7 +584,7 @@ fn v2_accesses_with_height_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract accesses chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_accesses chunk key mismatch"), "got: {msg}");
 }
 
 /// When the parent block is known, the cross-check rejects a forged anchor that does
@@ -646,7 +615,7 @@ fn v2_accesses_with_anchor_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract accesses chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_accesses chunk key mismatch"), "got: {msg}");
 }
 
 /// V2 accesses with a correct chunk key but signed by a non-producer are rejected
@@ -718,13 +687,9 @@ fn v2_accesses_with_known_parent_is_accepted() {
     );
 }
 
-/// A V2 accesses message with a real anchor, a missing parent, and a height above
-/// anchor + 2 is rejected on the loose path. Mirrors the witness twin
-/// `v2_witness_with_height_above_anchor_height_is_rejected`. Nightly-only: off nightly the
-/// anchored lookup ignores the real anchor and falls back to canonical sampling.
 #[cfg(feature = "nightly")]
 #[test]
-fn v2_accesses_with_height_above_anchor_height_is_rejected() {
+fn v2_accesses_with_height_above_anchor_height_is_accepted() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
@@ -739,20 +704,15 @@ fn v2_accesses_with_height_above_anchor_height_is_rejected() {
     assert!(matches!(accesses, ChunkContractAccesses::V2(_)));
 
     let store = chain.chain_store().store();
-    let err = validate_chunk_contract_accesses(
+    let result = validate_chunk_contract_accesses(
         chain.epoch_manager.as_ref(),
         &accesses,
         signer.as_ref(),
         &store,
-    )
-    .err()
-    .expect("validation must reject above-height accesses");
-    let Error::InvalidPartialChunkStateWitness(msg) = err else {
-        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
-    };
+    );
     assert!(
-        msg.contains("contract accesses") && msg.contains("does not match anchor-implied height"),
-        "error must reference the accesses loose cross-check; got: {msg}"
+        matches!(result, Ok(ChunkRelevance::Relevant)),
+        "parent-absent accesses on a skipped slot (height anchor + 3) must be accepted; got {result:?}"
     );
 }
 
@@ -954,7 +914,7 @@ fn v2_deploys_with_height_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract deploys chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_deploys chunk key mismatch"), "got: {msg}");
 }
 
 /// When the parent block is known, the cross-check rejects a forged anchor. This only
@@ -981,7 +941,7 @@ fn v2_deploys_with_anchor_mismatch_is_rejected() {
     let Error::InvalidPartialChunkStateWitness(msg) = err else {
         panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
     };
-    assert!(msg.contains("contract deploys chunk key mismatch"), "got: {msg}");
+    assert!(msg.contains("contract_deploys chunk key mismatch"), "got: {msg}");
 }
 
 /// V2 deploys with a correct chunk key but signed by a non-producer are rejected
@@ -1046,13 +1006,9 @@ fn v2_deploys_with_known_parent_is_accepted() {
     );
 }
 
-/// A V2 deploys message with a real anchor, a missing parent, and a height above
-/// anchor + 2 is rejected on the loose path. Mirrors the witness twin
-/// `v2_witness_with_height_above_anchor_height_is_rejected`. Nightly-only: off nightly the
-/// anchored lookup ignores the real anchor and falls back to canonical sampling.
 #[cfg(feature = "nightly")]
 #[test]
-fn v2_deploys_with_height_above_anchor_height_is_rejected() {
+fn v2_deploys_with_height_above_anchor_height_is_accepted() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
@@ -1067,16 +1023,11 @@ fn v2_deploys_with_height_above_anchor_height_is_rejected() {
     assert!(matches!(deploys, PartialEncodedContractDeploys::V2(_)));
 
     let store = chain.chain_store().store();
-    let err =
-        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store)
-            .err()
-            .expect("validation must reject above-height deploys");
-    let Error::InvalidPartialChunkStateWitness(msg) = err else {
-        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
-    };
+    let result =
+        validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store);
     assert!(
-        msg.contains("contract deploys") && msg.contains("does not match anchor-implied height"),
-        "error must reference the deploys loose cross-check; got: {msg}"
+        matches!(result, Ok(ChunkRelevance::Relevant)),
+        "parent-absent deploys on a skipped slot (height anchor + 3) must be accepted; got {result:?}"
     );
 }
 
