@@ -22,7 +22,6 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::spice::state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
     SpiceContractCodeRequest, SpiceContractCodeResponse,
@@ -657,11 +656,12 @@ impl SpiceChunkValidatorActor {
         let (Some(witness), Some(trusted)) = (&entry.witness, &entry.trusted) else {
             return Ok(());
         };
-        let expected_hash = witness.contract_accesses_hash();
         let Some(trusted_accesses) = entry.received_accesses.get(&trusted.sender) else {
             return Ok(());
         };
-        if compute_contract_accesses_hash(trusted_accesses) == *expected_hash {
+        let witness_accesses: HashSet<CodeHash> =
+            witness.contract_accesses().iter().cloned().collect();
+        if trusted_accesses == &witness_accesses {
             return Ok(());
         }
         // Trusted sender's accesses don't match. Invalidate and try next.
@@ -701,7 +701,7 @@ impl SpiceChunkValidatorActor {
             }
             WitnessProcessingReadiness::Ready(ctx) => {
                 let mut witness = partial.witness.unwrap();
-                witness.mut_main_state_transition().merge_contracts(partial.contracts);
+                witness.merge_contracts(partial.contracts);
                 self.validate_state_witness_and_send_endorsements(&ctx, witness, signer)
             }
         }
