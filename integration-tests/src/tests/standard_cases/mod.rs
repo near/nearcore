@@ -684,7 +684,8 @@ pub fn test_smart_contract_reward(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let bob = node_user.view_account(&bob_account()).unwrap();
-    assert_eq!(bob.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
+    let initial_amount = TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap();
+    assert_eq!(bob.amount, initial_amount);
     let transaction_result = node_user
         .function_call(
             alice_account(),
@@ -711,10 +712,19 @@ pub fn test_smart_contract_reward(node: impl Node) {
         .checked_sub(fee_helper.function_call_exec_gas(b"run_test".len() as u64))
         .unwrap();
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
-    assert_eq!(
-        bob.amount,
-        TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_add(reward).unwrap()
-    );
+    assert_eq!(bob.amount, initial_amount.checked_add(reward).unwrap());
+
+    // Once `RemoveGasRewards` is enabled, a function call pays no gas reward to
+    // the contract account: the reward is zero and the contract account balance
+    // is left unchanged by the call. Before the feature, the contract account
+    // receives a reward (30% of the burned function-call gas).
+    let protocol_version = node.genesis().config.protocol_version;
+    if ProtocolFeature::RemoveGasRewards.enabled(protocol_version) {
+        assert_eq!(reward, Balance::ZERO);
+        assert_eq!(bob.amount, initial_amount);
+    } else {
+        assert_ne!(reward, Balance::ZERO);
+    }
 }
 
 pub fn test_transaction_invalid_signature(node: impl Node) {

@@ -2,6 +2,9 @@
 
 ## [unreleased]
 
+### Protocol Changes
+* Remove gas rewards: executing a `FunctionCall` no longer pays part of the burned gas back to the contract account as a reward. The `burnt_gas_reward` parameter is changed from 30% (3/10) to 0%. See [HSP-027](https://gov.near.org/t/hsp-027-remove-the-near-developer-gas-rebate/42213)
+
 ### Non-protocol Changes
 * Removed the long-deprecated `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, and `num_chunk_only_producer_seats` fields from `EpochConfig`. They were given serde defaults in 2.12 and are unused. Existing epoch-config JSON files that still contain these keys keep loading, as the keys are now ignored. ([#15481](https://github.com/near/nearcore/issues/15481))
 * Removed centralized (external-storage) state sync. Nodes now always sync state from peers, which has been the default for a long time. **Breaking config change:** `state_sync.sync` no longer accepts `ExternalStorage`; a node whose `config.json` still sets `"state_sync": {"sync": {"ExternalStorage": ... }}` will fail to start. Remove the `state_sync.sync` block (peer-based sync is the default) before upgrading. The deprecated `--state-sync-bucket` flag and the `state-parts-dump-check` tool are also removed. Dumping state to external storage (`state_sync.dump`) is unchanged.
