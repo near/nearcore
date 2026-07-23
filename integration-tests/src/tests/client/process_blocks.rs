@@ -1300,10 +1300,7 @@ fn test_tx_forwarding_no_double_forwarding() {
     let tx = env.tx_from_actions(vec![], &signer, signer.get_account_id());
     // The transaction has already been forwarded, so it won't be forwarded again.
     let is_forwarded = true;
-    assert_eq!(
-        env.rpc_handlers[0].process_tx(tx, is_forwarded, false),
-        ProcessTxResponse::NoResponse
-    );
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, is_forwarded, false), ProcessTxResponse::Dropped);
     assert!(env.network_adapters[0].requests.read().is_empty());
 }
 

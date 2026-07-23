@@ -801,11 +801,12 @@ impl TestEnv {
         let response = self.rpc_handlers[0].process_tx(tx, false, false);
         // Check if the transaction got rejected
         match response {
-            ProcessTxResponse::NoResponse
+            ProcessTxResponse::Dropped
             | ProcessTxResponse::RequestRouted
             | ProcessTxResponse::ValidTx => (),
             ProcessTxResponse::InvalidTx(e) => return Err(e),
             ProcessTxResponse::DoesNotTrackShard => panic!("test setup is buggy"),
+            ProcessTxResponse::InternalError(err) => panic!("process_tx failed: {err}"),
         }
         let max_iters = 100;
         let tip = self.clients[0].chain.head().unwrap();
