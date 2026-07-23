@@ -4,6 +4,7 @@ use near_async::messaging::CanSendAsync;
 use near_async::time::{Clock, Duration};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus,
+    TxStatusOutcome,
 };
 use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
@@ -136,7 +137,7 @@ async fn test_execution_outcome_for_chunk() {
     assert!(matches!(res, ProcessTxResponse::ValidTx));
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    let block_hash = actor_handles
+    let tx_status_outcome = actor_handles
         .view_client_actor
         .send_async(TxStatus {
             tx_hash,
@@ -145,11 +146,11 @@ async fn test_execution_outcome_for_chunk() {
         })
         .await
         .unwrap()
-        .unwrap()
-        .into_outcome()
-        .unwrap()
-        .transaction_outcome
-        .block_hash;
+        .unwrap();
+    let TxStatusOutcome::Observed(tx_status) = tx_status_outcome else {
+        panic!("expected the transaction to be observed");
+    };
+    let block_hash = (*tx_status).into_outcome().unwrap().transaction_outcome.block_hash;
 
     let mut execution_outcomes_in_block = actor_handles
         .view_client_actor

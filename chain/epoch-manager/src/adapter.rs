@@ -1144,6 +1144,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let epoch_manager = self.read();
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
+        // A default final hash means nothing is finalized yet -> empty blacklist, no walk.
         if final_block_hash == CryptoHash::default() {
             return Ok(HashMap::new());
         }
@@ -1151,7 +1152,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(&final_block_hash)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        // Missing epoch-start (genesis) -> treat as start -> grace (empty); other errors propagate.
+        // Grace window is measured against the last-final block's height in the aggregator's own
+        // epoch, matching the blacklist basis. A missing epoch-start (genesis) is treated as
+        // "just started" -> grace (empty); any other error propagates rather than masking
+        // storage corruption.
         let epoch_start = match epoch_manager.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
             Ok(start) => start,
             Err(EpochError::EpochOutOfBounds(_)) => final_block_height,
@@ -1164,7 +1168,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
             epoch_info.as_ref(),
             &shard_layout,
             blocks_into_epoch,
-        ))
+        )
+        .blacklist)
     }
 
     fn get_chunk_validator_assignments(

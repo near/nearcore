@@ -121,29 +121,21 @@ pub trait ChainStoreAccess {
     fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
-    /// Returns hash of the first available block after genesis.
+    /// Returns hash of the earliest block whose state the node can still serve.
     fn get_earliest_block_hash(&self) -> Result<Option<CryptoHash>, Error> {
-        // To find the earliest available block we use the `tail` marker primarily
-        // used by garbage collection system.
-        // NOTE: `tail` is the block height at which we can say that there is
-        // at most 1 block available in the range from the genesis height to
-        // the tail. Thus, the strategy is to find the first block AFTER the tail
-        // height, and use the `prev_hash` to get the reference to the earliest
-        // block.
-        // The earliest block can be the genesis block.
+        // The earliest servable block is the first one at or above both
+        // markers:
+        // - `gc_stop_height`: during normal operation everything below it is
+        //   (or soon will be) garbage collected
+        // - `tail`: after state sync `gc_stop_height` can fall below `tail`,
+        //   pointing at blocks the node never downloaded; `tail` is the oldest
+        //   block actually present.
+        // In steady state `tail == gc_stop_height - 1`, so the max is `gc_stop_height`.
         let head_header_height = self.head_header()?.height();
-        let tail = self.tail();
-
-        // There is a corner case when there are no blocks after the tail, and
-        // the tail is in fact the earliest block available on the chain.
-        if let Ok(block_hash) = self.get_block_hash_by_height(tail) {
-            return Ok(Some(block_hash));
-        }
-        for height in tail + 1..=head_header_height {
+        let earliest_kept_height = self.gc_stop_height().max(self.tail());
+        for height in earliest_kept_height..=head_header_height {
             if let Ok(block_hash) = self.get_block_hash_by_height(height) {
-                let earliest_block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                debug_assert!(self.block_exists(&earliest_block_hash));
-                return Ok(Some(earliest_block_hash));
+                return Ok(Some(block_hash));
             }
         }
         Ok(None)

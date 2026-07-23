@@ -4,7 +4,7 @@ use near_client::ViewClientActor;
 use near_crypto::SecretKey;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, BlockReference};
 use near_primitives::views::{ActionView, SignedTransactionView};
 use std::collections::HashMap;
 
@@ -141,6 +141,43 @@ pub async fn test_convert_block_changes_to_transactions(
         "nfvalidator2_action_receipt_gas_reward_transaction",
         nfvalidator2_action_receipt_gas_reward_transaction
     );
+}
+
+pub async fn test_query_gas_key_info(view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>) {
+    // Known account with a normal (non-gas) access key: the loop terminates and
+    // reports no gas-key balance instead of erroring.
+    let balance = crate::gas_key_utils::query_gas_key_balance(
+        BlockReference::latest(),
+        "test".parse().unwrap(),
+        view_client_addr,
+    )
+    .await
+    .expect("querying a known account's gas-key balance should succeed");
+    assert_eq!(balance, Balance::ZERO, "account has no gas keys");
+
+    // Unknown account: the UnknownAccount branch yields an empty balance rather
+    // than an error.
+    let balance = crate::gas_key_utils::query_gas_key_balance(
+        BlockReference::latest(),
+        "nonexistent.near".parse().unwrap(),
+        view_client_addr,
+    )
+    .await
+    .expect("querying an unknown account should succeed with zero balance");
+    assert_eq!(balance, Balance::ZERO);
+
+    // The multi-account wrapper runs one paginated query per account and
+    // aggregates the results; both known accounts resolve to empty gas-key maps.
+    let info = crate::gas_key_utils::GasKeyInfo::query(
+        BlockReference::latest(),
+        ["test".parse().unwrap(), "test2".parse().unwrap()].into_iter(),
+        view_client_addr.clone(),
+    )
+    .await
+    .expect("multi-account gas-key query should succeed")
+    .into_inner();
+    assert_eq!(info.len(), 2, "one entry per queried account");
+    assert!(info.values().all(|keys| keys.is_empty()), "no gas keys expected");
 }
 
 /// Tests per-receipt gas key balance changes: transfer in, gas deduction, key deletion,

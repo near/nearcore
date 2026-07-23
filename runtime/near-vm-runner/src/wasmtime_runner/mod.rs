@@ -68,6 +68,10 @@ const DEFAULT_MAX_ELEMENTS_PER_TABLE: usize = 10_000;
 /// Guest page size, in bytes
 const GUEST_PAGE_SIZE: usize = 1 << 16;
 
+/// The maximum size, in bytes, of a core instance's `VMContext` runtime
+/// metadata slot that the pooling allocator reserves per instance.
+const MAX_CORE_INSTANCE_SIZE: usize = 1 << 20;
+
 #[derive(Hash, PartialEq, Eq)]
 struct VMKey {
     config: Arc<Config>,
@@ -341,7 +345,7 @@ impl Ctx {
         let current_account_locked_balance = context.account_locked_balance;
         let config = Arc::clone(&result_state.config);
         let recorded_storage_counter = RecordedStorageCounter::new(
-            ext.get_recorded_storage_size(),
+            ext.storage_proof_size_before_receipt(),
             result_state.config.limit_config.per_receipt_storage_proof_size_limit,
         );
         let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
@@ -489,6 +493,7 @@ impl WasmtimeVM {
                 .total_tables(max_tables)
                 .max_memories_per_module(1)
                 .max_tables_per_module(max_tables_per_contract)
+                .max_core_instance_size(MAX_CORE_INSTANCE_SIZE)
                 .table_keep_resident(max_elements_per_contract_table);
 
             engine_config
