@@ -2085,6 +2085,99 @@ pub fn p256_verify(
     }
 }
 
+/// Verify an ML-DSA-65 (FIPS 204) signature given a message and a public key.
+///
+/// The signature must be 3309 bytes and the public key must be the 1952-byte
+/// raw FIPS 204 encoding. The message is of arbitrary length and is passed to
+/// the verifier as-is: ML-DSA hashes the message internally, so — unlike
+/// `p256_verify` — the caller must not pre-hash. Verification uses an empty
+/// context string, matching NEAR's transaction-level ML-DSA-65 signatures.
+///
+/// Returns a bool indicating success (1) or failure (0) as a `u64`.
+///
+/// # Errors
+///
+/// * If the signature's size is not 3309 or the public key's size is not 1952,
+///   returns [HostError::MlDsaVerifyInvalidInput]. Well-sized inputs that fail
+///   verification return 0 instead of aborting.
+/// * If any of the signature, message or public key arguments are out of
+///   memory bounds, returns [`HostError::MemoryAccessViolation`]
+///
+/// # Cost
+///
+/// Each input can either be in memory or in a register. Set the length of
+/// the input to `u64::MAX` to declare that the input is a register number
+/// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
+/// depends on whether it is from memory or from a register. It is either
+/// read_memory_base + num_bytes * read_memory_byte in the former case or
+/// read_register_base + num_bytes * read_register_byte in the latter. This
+/// function is labeled as `input_cost` below.
+///
+/// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
+///  input_cost(num_bytes_public_key) + ml_dsa_verify_base +
+///  ml_dsa_verify_byte * num_bytes_message`
+pub fn ml_dsa_verify(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    signature_len: u64,
+    signature_ptr: u64,
+    message_len: u64,
+    message_ptr: u64,
+    public_key_len: u64,
+    public_key_ptr: u64,
+) -> Result<u64> {
+    use near_crypto::{MlDsa65PublicKey, MlDsa65Signature, PublicKey, Signature};
+
+    ctx.result_state.gas_counter.pay_base(ml_dsa_verify_base)?;
+
+    let signature = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            signature_ptr,
+            signature_len,
+        )?;
+        match MlDsa65Signature::try_from(&vec[..]) {
+            Ok(signature) => Signature::MLDSA65(signature),
+            Err(_) => {
+                return Err(VMLogicError::HostError(HostError::MlDsaVerifyInvalidInput {
+                    msg: "invalid signature length".to_string(),
+                }));
+            }
+        }
+    };
+
+    let message = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        message_ptr,
+        message_len,
+    )?;
+    ctx.result_state.gas_counter.pay_per(ml_dsa_verify_byte, message.len() as u64)?;
+
+    let public_key = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            public_key_ptr,
+            public_key_len,
+        )?;
+        match MlDsa65PublicKey::try_from(&vec[..]) {
+            Ok(public_key) => PublicKey::MLDSA65(public_key),
+            Err(_) => {
+                return Err(VMLogicError::HostError(HostError::MlDsaVerifyInvalidInput {
+                    msg: "invalid public key length".to_string(),
+                }));
+            }
+        }
+    };
+
+    Ok(signature.verify(&message, &public_key) as u64)
+}
+
 /// Consume gas. Counts both towards `burnt_gas` and `used_gas`.
 ///
 /// # Errors
