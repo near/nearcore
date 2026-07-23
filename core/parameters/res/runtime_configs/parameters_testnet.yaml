@@ -290,6 +290,7 @@ discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
 gas_key_host_fns: false
+fix_ml_dsa_cost_charging: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
 sha3_host_fns: false
