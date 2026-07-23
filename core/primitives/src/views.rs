@@ -10,8 +10,8 @@ use crate::action::delegate::{
 };
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
-    WithdrawFromGasKeyAction,
+    GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+    UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -47,6 +47,7 @@ use crate::types::{
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
     StoreValue, ValidatorKickoutReason,
 };
+use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -1545,6 +1546,14 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 15,
+    UniversalStateInit {
+        code: Option<GlobalContractIdentifierView>,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        access_keys: Vec<PublicKeyHandle>,
+        deposit: Balance,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1615,6 +1624,12 @@ impl From<Action> for ActionView {
                 public_key: action.public_key,
                 amount: action.amount,
             },
+            Action::UniversalStateInit(action) => {
+                let (code, data, access_keys) = action.state_init.take();
+                let code = code.map(Into::into);
+                let access_keys = access_keys.into_iter().collect();
+                ActionView::UniversalStateInit { code, data, access_keys, deposit: action.deposit }
+            }
         }
     }
 }
@@ -1696,6 +1711,16 @@ impl TryFrom<ActionView> for Action {
                 Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
                     public_key,
                     amount,
+                }))
+            }
+            ActionView::UniversalStateInit { code, data, access_keys, deposit } => {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: UniversalStateInit::V1(UniversalStateInitV1 {
+                        code: code.map(GlobalContractIdentifier::from),
+                        data,
+                        access_keys: access_keys.into_iter().collect(),
+                    }),
+                    deposit,
                 }))
             }
         })

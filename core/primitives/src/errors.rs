@@ -470,6 +470,25 @@ pub enum ActionsValidationError {
     } = 20,
     /// The method name in a FunctionCall action must not be empty.
     FunctionCallEmptyMethodName = 21,
+    /// The receiver id of a `UniversalStateInit` action does not match the id
+    /// derived from its state init.
+    InvalidUniversalStateInitReceiver {
+        receiver_id: AccountId,
+        derived_id: AccountId,
+    } = 22,
+    /// A `UniversalStateInit` state init defines neither contract code nor an
+    /// access key, so the resulting account could never be used.
+    UnusableUniversalStateInit = 23,
+    /// A storage key in a `UniversalStateInit` state init exceeds the limit.
+    UniversalStateInitKeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 24,
+    /// A storage value in a `UniversalStateInit` state init exceeds the limit.
+    UniversalStateInitValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 25,
 }
 
 /// Describes the error for validating a receipt.
@@ -675,6 +694,30 @@ impl Display for ActionsValidationError {
             ),
             ActionsValidationError::FunctionCallEmptyMethodName => {
                 write!(f, "The method name in a FunctionCall action must not be empty")
+            }
+            ActionsValidationError::InvalidUniversalStateInitReceiver {
+                receiver_id,
+                derived_id,
+            } => {
+                write!(
+                    f,
+                    "UniversalStateInit action payload is invalid for account {receiver_id}, derived id is {derived_id}",
+                )
+            }
+            ActionsValidationError::UnusableUniversalStateInit => {
+                write!(f, "UniversalStateInit defines neither contract code nor an access key",)
+            }
+            ActionsValidationError::UniversalStateInitKeyLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "UniversalStateInit contains key of length {length} but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::UniversalStateInitValueLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "UniversalStateInit contains value of length {length} but at most {limit} is allowed",
+                )
             }
         }
     }

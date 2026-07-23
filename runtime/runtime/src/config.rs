@@ -188,6 +188,30 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
+            UniversalStateInit(action) => {
+                let state_init = &action.state_init;
+                let num_entries = state_init.data().len() as u64;
+                let num_bytes = state_init.len_bytes() as u64;
+                let num_keys = state_init.access_keys().len() as u64;
+                let base_fee =
+                    fees.fee(ActionCosts::universal_state_init_base).send_fee(sender_is_receiver);
+                let entry_fee =
+                    fees.fee(ActionCosts::universal_state_init_entry).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::universal_state_init_byte).send_fee(sender_is_receiver);
+                // Each installed key is a full-access key write, priced the same as `AddKey`.
+                let key_fee =
+                    fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
+                universal_state_init_fee(
+                    base_fee,
+                    entry_fee,
+                    byte_fee,
+                    key_fee,
+                    num_entries,
+                    num_bytes,
+                    num_keys,
+                )
+            }
             WithdrawFromGasKey(action) => {
                 gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.trie_id_len())
                     .total()
@@ -196,6 +220,28 @@ pub fn total_send_fees(
         result = result.checked_add_result(delta)?;
     }
     Ok(result)
+}
+
+/// Sum the universal-state-init action fee: base + per-entry + per-byte + per-key.
+fn universal_state_init_fee(
+    base_fee: ParameterCost,
+    entry_fee: ParameterCost,
+    byte_fee: ParameterCost,
+    key_fee: ParameterCost,
+    num_entries: u64,
+    num_bytes: u64,
+    num_keys: u64,
+) -> ParameterCost {
+    let all_entries_fee = entry_fee.checked_mul(num_entries).unwrap();
+    let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+    let all_keys_fee = key_fee.checked_mul(num_keys).unwrap();
+    base_fee
+        .checked_add(all_bytes_fee)
+        .unwrap()
+        .checked_add(all_entries_fee)
+        .unwrap()
+        .checked_add(all_keys_fee)
+        .unwrap()
 }
 
 fn permission_send_fees(
@@ -343,6 +389,26 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             let all_bytes_fee = byte_fee.checked_mul(num_bytes as u64).unwrap();
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
+        }
+        UniversalStateInit(action) => {
+            let state_init = &action.state_init;
+            let num_entries = state_init.data().len() as u64;
+            let num_bytes = state_init.len_bytes() as u64;
+            let num_keys = state_init.access_keys().len() as u64;
+            let base_fee = fees.fee(ActionCosts::universal_state_init_base).exec_fee();
+            let entry_fee = fees.fee(ActionCosts::universal_state_init_entry).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::universal_state_init_byte).exec_fee();
+            // Each installed key is a full-access key write, priced the same as `AddKey`.
+            let key_fee = fees.fee(ActionCosts::add_full_access_key).exec_fee();
+            universal_state_init_fee(
+                base_fee,
+                entry_fee,
+                byte_fee,
+                key_fee,
+                num_entries,
+                num_bytes,
+                num_keys,
+            )
         }
         TransferToGasKey(action) => {
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())

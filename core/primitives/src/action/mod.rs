@@ -3,7 +3,8 @@ pub mod delegate;
 // This type used to be defined here, then moved to core primitives to give access to the vm
 // runtime. Reexporting it here avoids breakage on depending crates.
 use crate::{
-    deterministic_account_id::DeterministicAccountStateInit, trie_key::GlobalContractCodeIdentifier,
+    deterministic_account_id::DeterministicAccountStateInit,
+    trie_key::GlobalContractCodeIdentifier, universal_state_init::UniversalStateInit,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -220,6 +221,27 @@ pub struct DeterministicStateInitAction {
     pub deposit: Balance,
 }
 
+/// Create a `0u` universal account from its state init. The receiver id must
+/// equal `derive_universal_account_id(state_init)`; the attached `deposit`
+/// covers the new account's storage staking.
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct UniversalStateInitAction {
+    pub state_init: UniversalStateInit,
+    pub deposit: Balance,
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -367,6 +389,7 @@ pub enum Action {
     WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
     /// Meta transaction carrying a `DelegateActionV2`, which supports gas keys.
     DelegateV2(Box<delegate::VersionedSignedDelegateAction>) = 14,
+    UniversalStateInit(Box<UniversalStateInitAction>) = 15,
 }
 
 const _: () = assert!(
@@ -396,6 +419,7 @@ impl Action {
             | Action::DeployGlobalContract(_)
             | Action::UseGlobalContract(_)
             | Action::DeterministicStateInit(_)
+            | Action::UniversalStateInit(_)
             | Action::TransferToGasKey(_)
             | Action::WithdrawFromGasKey(_) => false,
         }
@@ -412,6 +436,7 @@ impl Action {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
             Action::DeterministicStateInit(a) => a.deposit,
+            Action::UniversalStateInit(a) => a.deposit,
             Action::TransferToGasKey(a) => a.deposit,
             _ => Balance::ZERO,
         }
@@ -436,6 +461,10 @@ impl Action {
             | Action::DeployGlobalContract(_)
             | Action::UseGlobalContract(_)
             | Action::DeterministicStateInit(_) => false,
+            // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
+            Action::UniversalStateInit(a) => {
+                a.state_init.access_keys().iter().any(|handle| handle.key_type().is_post_quantum())
+            }
             // Each of these carries a single pubkey.
             Action::Stake(a) => a.public_key.key_type().is_post_quantum(),
             Action::AddKey(a) => a.public_key.key_type().is_post_quantum(),

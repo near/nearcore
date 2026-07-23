@@ -5,14 +5,14 @@ use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    GlobalContractIdentifier, UniversalStateInitAction, UseGlobalContractAction,
 };
 use near_primitives::errors::ActionsValidationError;
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, FunctionCallAction, StakeAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::utils::derive_near_deterministic_account_id;
+use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_vm_runner::logic::LimitConfig;
 
@@ -169,6 +169,9 @@ fn validate_action_with_mode(
         }
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver)
+        }
+        Action::UniversalStateInit(a) => {
+            validate_universal_state_init(limit_config, a, receiver, current_protocol_version)
         }
         Action::TransferToGasKey(_) => {
             validate_transfer_to_gas_key_action(current_protocol_version)
@@ -459,6 +462,55 @@ fn validate_deterministic_state_init(
     Ok(())
 }
 
+fn validate_universal_state_init(
+    limit_config: &LimitConfig,
+    action: &UniversalStateInitAction,
+    receiver_id: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(
+        ProtocolFeature::UniversalAccounts,
+        "UniversalAccounts",
+        current_protocol_version,
+    )?;
+
+    let state_init = &action.state_init;
+
+    // Reject states that have no contract code and no access keys.
+    state_init.validate().map_err(|_| ActionsValidationError::UnusableUniversalStateInit)?;
+
+    if let Some(code) = state_init.code() {
+        validate_global_contract_identifier(code)?;
+    }
+
+    // The account id must be exactly the one derived from the state init.
+    let derived_id = derive_universal_account_id(state_init);
+    if derived_id != *receiver_id {
+        return Err(ActionsValidationError::InvalidUniversalStateInitReceiver {
+            derived_id,
+            receiver_id: receiver_id.clone(),
+        });
+    }
+
+    // Individual storage keys and values must respect the trie limits.
+    for (key, value) in state_init.data() {
+        if key.len() as u64 > limit_config.max_length_storage_key {
+            return Err(ActionsValidationError::UniversalStateInitKeyLengthExceeded {
+                length: key.len() as u64,
+                limit: limit_config.max_length_storage_key,
+            });
+        }
+        if value.len() as u64 > limit_config.max_length_storage_value {
+            return Err(ActionsValidationError::UniversalStateInitValueLengthExceeded {
+                length: value.len() as u64,
+                limit: limit_config.max_length_storage_value,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_global_contract_identifier(
     identifier: &GlobalContractIdentifier,
 ) -> Result<(), ActionsValidationError> {
@@ -489,21 +541,22 @@ fn truncate_string(s: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_crypto::{KeyType, PublicKey, Signature};
+    use near_crypto::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
-    use near_primitives::action::GlobalContractDeployMode;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedSignedDelegateAction,
     };
+    use near_primitives::action::{GlobalContractDeployMode, UniversalStateInitAction};
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
     use near_primitives::transaction::{
         AddKeyAction, CreateAccountAction, DeleteKeyAction, TransactionNonce, TransferAction,
     };
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
     use near_primitives::version::PROTOCOL_VERSION;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use testlib::runtime_utils::alice_account;
 
     fn test_limit_config() -> LimitConfig {
@@ -1267,6 +1320,68 @@ mod tests {
                     },
                 )
             "#]],
+        );
+    }
+
+    #[test]
+    fn test_validate_universal_state_init() {
+        let limit = test_limit_config();
+        let feature_version = ProtocolFeature::UniversalAccounts.protocol_version();
+
+        let action_for = |state_init: &UniversalStateInit| {
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.clone(),
+                deposit: Balance::ZERO,
+            }))
+        };
+
+        let contract = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::AccountId("ft.near".parse().unwrap())),
+            data: BTreeMap::from([(b"k".to_vec(), b"v".to_vec())]),
+            access_keys: BTreeSet::new(),
+        });
+        let key: PublicKeyHandle =
+            SecretKey::from_seed(KeyType::ED25519, "uaid").public_key().into();
+        let key_only = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: BTreeSet::from([key]),
+        });
+
+        // Happy path: receiver equals the derived id, feature enabled. Both a
+        // contract account and a key-only account are valid.
+        for state_init in [&contract, &key_only] {
+            let receiver = derive_universal_account_id(state_init);
+            assert_eq!(
+                validate_action(&limit, &action_for(state_init), &receiver, feature_version),
+                Ok(())
+            );
+        }
+
+        // Pre-feature: rejected as an unsupported protocol feature.
+        let receiver = derive_universal_account_id(&contract);
+        assert!(matches!(
+            validate_action(&limit, &action_for(&contract), &receiver, feature_version - 1),
+            Err(ActionsValidationError::UnsupportedProtocolFeature { .. })
+        ));
+
+        // Receiver id that does not match the derived id.
+        let wrong = derive_universal_account_id(&key_only);
+        assert!(matches!(
+            validate_action(&limit, &action_for(&contract), &wrong, feature_version),
+            Err(ActionsValidationError::InvalidUniversalStateInitReceiver { .. })
+        ));
+
+        // An unusable state init (no code, no keys) is rejected regardless of receiver.
+        let empty = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: BTreeSet::new(),
+        });
+        let empty_receiver = derive_universal_account_id(&empty);
+        assert_eq!(
+            validate_action(&limit, &action_for(&empty), &empty_receiver, feature_version),
+            Err(ActionsValidationError::UnusableUniversalStateInit)
         );
     }
 

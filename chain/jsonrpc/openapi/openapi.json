@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.14"
+    "version": "1.2.15"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -2749,6 +2749,53 @@
               "WithdrawFromGasKey"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "UniversalStateInit": {
+                "properties": {
+                  "access_keys": {
+                    "items": {
+                      "$ref": "#/components/schemas/PublicKeyHandle"
+                    },
+                    "type": "array"
+                  },
+                  "code": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/GlobalContractIdentifierView"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "data",
+                  "access_keys",
+                  "deposit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInit"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -3223,6 +3270,96 @@
               "FunctionCallEmptyMethodName"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The receiver id of a `UniversalStateInit` action does not match the id\nderived from its state init.",
+            "properties": {
+              "InvalidUniversalStateInitReceiver": {
+                "properties": {
+                  "derived_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "receiver_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "receiver_id",
+                  "derived_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidUniversalStateInitReceiver"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A `UniversalStateInit` state init defines neither contract code nor an\naccess key, so the resulting account could never be used.",
+            "enum": [
+              "UnusableUniversalStateInit"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A storage key in a `UniversalStateInit` state init exceeds the limit.",
+            "properties": {
+              "UniversalStateInitKeyLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitKeyLengthExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A storage value in a `UniversalStateInit` state init exceeds the limit.",
+            "properties": {
+              "UniversalStateInitValueLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitValueLengthExceeded"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -11949,6 +12086,18 @@
             },
             "required": [
               "WithdrawFromGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "UniversalStateInit": {
+                "$ref": "#/components/schemas/UniversalStateInitAction"
+              }
+            },
+            "required": [
+              "UniversalStateInit"
             ],
             "type": "object"
           }
@@ -21392,6 +21541,77 @@
             "type": "string"
           }
         ]
+      },
+      "UniversalStateInit": {
+        "description": "Versioned initial state of a `0u` universal account. New fields or semantics\narrive as a new variant (`V2`, ...); the discriminant is the only version marker.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V1": {
+                "$ref": "#/components/schemas/UniversalStateInitV1"
+              }
+            },
+            "required": [
+              "V1"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "UniversalStateInitAction": {
+        "description": "Create a `0u` universal account from its state init. The receiver id must\nequal `derive_universal_account_id(state_init)`; the attached `deposit`\ncovers the new account's storage staking.",
+        "properties": {
+          "deposit": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "state_init": {
+            "$ref": "#/components/schemas/UniversalStateInit"
+          }
+        },
+        "required": [
+          "state_init",
+          "deposit"
+        ],
+        "type": "object"
+      },
+      "UniversalStateInitV1": {
+        "properties": {
+          "access_keys": {
+            "description": "Full-access keys as compact on-trie handles. Sorted for a canonical encoding.",
+            "items": {
+              "$ref": "#/components/schemas/PublicKeyHandle"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GlobalContractIdentifier"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Contract code, or `None` for a key-only (EOA) account."
+          },
+          "data": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Initial storage; empty unless seeded. Sorted keys give a canonical encoding.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "data",
+          "access_keys"
+        ],
+        "type": "object"
       },
       "UseGlobalContractAction": {
         "description": "Use global contract action",
