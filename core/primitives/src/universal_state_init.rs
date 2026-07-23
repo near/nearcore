@@ -42,7 +42,7 @@ use std::io;
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum UniversalStateInit {
-    V1(UniversalStateInitV1),
+    V1(UniversalStateInitV1) = 0,
 }
 
 #[serde_as]
