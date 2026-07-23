@@ -123,12 +123,16 @@ pub trait ChainStoreAccess {
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
     /// Returns hash of the earliest block whose state the node can still serve.
     fn get_earliest_block_hash(&self) -> Result<Option<CryptoHash>, Error> {
-        // Anchor on `gc_stop_height`, not the GC `tail`. Everything below
-        // `gc_stop_height` is or will soon be garbage collected and the tail
-        // sits one block or more *below* that kept window - it is retained only
-        // as a boundary marker, its state is not guaranteed.
+        // The earliest servable block is the first one at or above both
+        // markers:
+        // - `gc_stop_height`: during normal operation everything below it is
+        //   (or soon will be) garbage collected
+        // - `tail`: after state sync `gc_stop_height` can fall below `tail`,
+        //   pointing at blocks the node never downloaded; `tail` is the oldest
+        //   block actually present.
+        // In steady state `tail == gc_stop_height - 1`, so the max is `gc_stop_height`.
         let head_header_height = self.head_header()?.height();
-        let earliest_kept_height = self.gc_stop_height();
+        let earliest_kept_height = self.gc_stop_height().max(self.tail());
         for height in earliest_kept_height..=head_header_height {
             if let Ok(block_hash) = self.get_block_hash_by_height(height) {
                 return Ok(Some(block_hash));

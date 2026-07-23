@@ -1,4 +1,5 @@
 mod continuous_epoch_sync;
+mod earliest_available;
 mod epoch_sync;
 mod far_horizon;
 mod gc;
