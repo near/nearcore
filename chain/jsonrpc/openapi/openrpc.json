@@ -4008,6 +4008,22 @@
             ],
             "description": "Cost for logging per byte"
           },
+          "ml_dsa_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification base"
+          },
+          "ml_dsa_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification per byte"
+          },
           "p256_verify_base": {
             "allOf": [
               {
@@ -5962,6 +5978,28 @@
               "P256VerifyInvalidInput"
             ],
             "title": "P256VerifyInvalidInput",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Input length mismatch for ML-DSA-65 signature verification (signature is\nnot 3309 bytes or public key is not 1952 bytes). Parse failures of\notherwise well-sized inputs return 0 from the host function instead of\naborting.",
+            "properties": {
+              "MlDsaVerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "MlDsaVerifyInvalidInput"
+            ],
+            "title": "MlDsaVerifyInvalidInput",
             "type": "object"
           }
         ],
@@ -12499,6 +12537,10 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "ml_dsa_verify_host_fn": {
+            "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
+            "type": "boolean"
           },
           "one_yocto_on_promise": {
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
