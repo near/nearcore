@@ -125,7 +125,7 @@ fn blacklist_safety_valve_all_producers() {
     assert_eq!(res.blacklist, HashMap::from([(shard_id, HashSet::from([1]))]));
     let stats = &res.shard_stats[&shard_id];
     assert_eq!(stats.raw_candidate_count, 2);
-    assert!(stats.safety_valve_fired, "valve must fire when every producer is a candidate");
+    assert!(stats.safety_valve_fired(), "valve must fire when every producer is a candidate");
 }
 
 // 5. lone producer would be blacklisted -> keep-one leaves it eligible, so the shard
@@ -138,7 +138,7 @@ fn blacklist_single_producer_shard() {
     assert!(res.blacklist.is_empty(), "1-producer shard must never be blacklisted");
     let stats = &res.shard_stats[&shard_id];
     assert_eq!(stats.raw_candidate_count, 1);
-    assert!(stats.safety_valve_fired, "valve must fire when the only producer is a candidate");
+    assert!(stats.safety_valve_fired(), "valve must fire when the only producer is a candidate");
 }
 
 // 6. missed exactly 100 at < 80% -> blacklisted. Sharp lower edge of the miss floor

@@ -76,12 +76,18 @@ const EARLY_KICKOUT_EPOCH_GRACE_BLOCKS: u64 = 1000;
 pub struct BlacklistShardStats {
     /// RAW pre-safety-valve count of producers that met the blacklist criteria.
     pub raw_candidate_count: usize,
-    /// Whether the keep-one safety valve fired (all distinct producers on the shard
-    /// were candidates, so exactly one least-bad producer was kept).
-    pub safety_valve_fired: bool,
-    /// The kept least-bad producer when the valve fired, else None. Carries the id so
-    /// the seeder can log it without recomputing (the accessor must not log).
+    /// The kept least-bad producer when the safety valve fired (all distinct producers
+    /// on the shard were candidates, so exactly one least-bad producer was kept), else
+    /// None. Carries the id so the seeder can log it without recomputing (the accessor
+    /// must not log).
     pub kept: Option<ValidatorId>,
+}
+
+impl BlacklistShardStats {
+    /// The keep-one safety valve fired iff a producer was kept.
+    pub fn safety_valve_fired(&self) -> bool {
+        self.kept.is_some()
+    }
 }
 
 /// Result of [`compute_chunk_producer_blacklist`]: the applied blacklist plus
@@ -144,8 +150,7 @@ pub fn compute_chunk_producer_blacklist(
         // produced/expected). Pick over `blacklisted` (a subset of shard_tracker, so stats
         // exist) — NEVER index `producers`. Deterministic TOTAL order (consensus-critical,
         // identical on every node, never HashSet iteration order):
-        let safety_valve_fired = blacklisted.len() == producers.len();
-        let kept = if safety_valve_fired {
+        let kept = if blacklisted.len() == producers.len() {
             let keep = *blacklisted
                 .iter()
                 .max_by(|a, b| {
@@ -163,10 +168,7 @@ pub fn compute_chunk_producer_blacklist(
         } else {
             None
         };
-        shard_stats.insert(
-            *shard_id,
-            BlacklistShardStats { raw_candidate_count, safety_valve_fired, kept },
-        );
+        shard_stats.insert(*shard_id, BlacklistShardStats { raw_candidate_count, kept });
         // A 1-producer shard becomes empty after keep-one -> nothing to blacklist, skip.
         if !blacklisted.is_empty() {
             blacklist.insert(*shard_id, blacklisted);
@@ -2244,6 +2246,9 @@ impl EpochManager {
             // candidates, so drive the gauge over the full shard set. a recovered shard, or an
             // empty epoch-boundary reset, must fall back to 0 so the gauge never sticks stale.
             use crate::metrics::{EARLY_KICKOUT_BLACKLIST_SIZE, EARLY_KICKOUT_SAFETY_VALVE_FIRED};
+            // reset first so a shard retired by resharding drops its series instead of
+            // keeping a stale value forever; the loop below repopulates the current layout.
+            EARLY_KICKOUT_BLACKLIST_SIZE.reset();
             for shard_id in sample_shard_layout.shard_ids() {
                 let raw = shard_stats.get(&shard_id).map_or(0, |s| s.raw_candidate_count);
                 EARLY_KICKOUT_BLACKLIST_SIZE
@@ -2251,7 +2256,7 @@ impl EpochManager {
                     .set(raw as i64);
             }
             for (shard_id, stats) in &shard_stats {
-                if stats.safety_valve_fired {
+                if stats.safety_valve_fired() {
                     EARLY_KICKOUT_SAFETY_VALVE_FIRED
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
