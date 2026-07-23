@@ -1,6 +1,6 @@
 ---
-source: core/primitives/src/views.rs
-expression: "&view"
+source: core/parameters/src/config_store.rs
+expression: config_view
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -96,8 +96,8 @@ expression: "&view"
       "num_extra_bytes_record": 40
     },
     "burnt_gas_reward": [
-      0,
-      1
+      3,
+      10
     ],
     "pessimistic_gas_price_inflation_ratio": [
       1,
@@ -220,7 +220,7 @@ expression: "&view"
     "chain_id_host_fn": true,
     "bls12381_not_in_group_fix": false,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "limit_config": {

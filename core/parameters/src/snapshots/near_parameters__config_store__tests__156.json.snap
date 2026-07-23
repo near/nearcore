@@ -96,8 +96,8 @@ expression: config_view
       "num_extra_bytes_record": 40
     },
     "burnt_gas_reward": [
-      3,
-      10
+      0,
+      1
     ],
     "pessimistic_gas_price_inflation_ratio": [
       1,

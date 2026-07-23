@@ -59,6 +59,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
     (86, include_config!("86.yaml")),
+    // Remove gas rewards: set burnt_gas_reward from 30% to 0%.
+    (87, include_config!("87.yaml")),
     (129, include_config!("129.yaml")),
     (155, include_config!("155.yaml")),
     // Enable the sha3_256, sha3_384 and sha3_512 host functions.
