@@ -253,6 +253,8 @@ pub struct VMConfigView {
     pub one_yocto_on_promise: bool,
     /// See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).
     pub p256_verify_host_fn: bool,
+    /// See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).
+    pub ml_dsa_verify_host_fn: bool,
     /// See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).
     pub sha3_host_fns: bool,
     /// See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).
@@ -298,6 +300,7 @@ impl From<crate::vm::Config> for VMConfigView {
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
+            ml_dsa_verify_host_fn: config.ml_dsa_verify_host_fn,
             sha3_host_fns: config.sha3_host_fns,
             yield_with_id_host_fns: config.yield_with_id_host_fns,
             chain_id_host_fn: config.chain_id_host_fn,

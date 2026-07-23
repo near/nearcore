@@ -233,6 +233,10 @@ pub struct Config {
     /// NEP-635: <https://github.com/near/NEPs/pull/635>
     pub p256_verify_host_fn: bool,
 
+    /// Whether to enable the ML-DSA-65 (FIPS 204) signature verification host
+    /// function.
+    pub ml_dsa_verify_host_fn: bool,
+
     /// Whether to enable the `sha3_256`, `sha3_384` and `sha3_512` (FIPS-202)
     /// host functions.
     pub sha3_host_fns: bool,
@@ -283,6 +287,7 @@ impl Config {
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
+        self.ml_dsa_verify_host_fn = true;
         self.sha3_host_fns = true;
         self.yield_with_id_host_fns = true;
         self.chain_id_host_fn = true;
