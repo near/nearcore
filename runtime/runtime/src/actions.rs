@@ -764,7 +764,7 @@ pub(crate) fn check_actor_permissions(
         | Action::Transfer(_)
         | Action::TransferToGasKey(_) => (),
         Action::Delegate(_) | Action::DelegateV2(_) => (),
-        Action::DeterministicStateInit(_) => (),
+        Action::DeterministicStateInit(_) | Action::UniversalStateInit(_) => (),
     };
     Ok(())
 }
@@ -815,6 +815,10 @@ pub(crate) fn check_account_existence(
             // Does not exist => The account will be created by the action.
             // Does exist => Nothing happens but the receipt is not aborted to
             // allow optional init before other actions.
+        }
+        Action::UniversalStateInit(_) => {
+            // Same rule as DeterministicStateInit: a missing account is created
+            // by the action, and an already-initialized one is left untouched.
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)

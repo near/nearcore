@@ -80,11 +80,20 @@ impl DeterministicAccountStateInit {
     /// This length is multiplied by `action_deterministic_state_init_per_byte`
     /// for gas cost calculations of a state initialization.
     pub fn len_bytes(&self) -> usize {
-        self.data().iter().fold(0, |acc, (key, value)| {
-            acc.checked_add(key.len())
-                .expect("state init must not be that large")
-                .checked_add(value.len())
-                .expect("state init must not be that large")
-        })
+        state_init_data_len_bytes(self.data())
     }
+}
+
+/// Summed byte length of all keys and values in a state-init storage data map.
+///
+/// Multiplied by the per-byte state-init fee for gas accounting. Shared by the
+/// deterministic and universal (`UniversalStateInit`) state-init types, which
+/// both carry storage as a `BTreeMap<Vec<u8>, Vec<u8>>`.
+pub fn state_init_data_len_bytes(data: &BTreeMap<Vec<u8>, Vec<u8>>) -> usize {
+    data.iter().fold(0, |acc, (key, value)| {
+        acc.checked_add(key.len())
+            .expect("state init must not be that large")
+            .checked_add(value.len())
+            .expect("state init must not be that large")
+    })
 }

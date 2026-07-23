@@ -176,7 +176,8 @@ fn is_deploy_like_action(action: &Action) -> bool {
         Action::DeployContract(_)
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
-        | Action::DeterministicStateInit(_) => true,
+        | Action::DeterministicStateInit(_)
+        | Action::UniversalStateInit(_) => true,
         Action::Delegate(signed_delegate) => {
             signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
         }
