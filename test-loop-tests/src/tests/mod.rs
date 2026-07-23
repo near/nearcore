@@ -27,6 +27,8 @@ mod deploy_compute_cost;
 mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+mod early_kickout_e2e;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
