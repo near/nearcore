@@ -54,7 +54,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -543,7 +543,7 @@ fn test_witness_message(
     pre_state: PartialState,
     receipt_proofs: HashMap<ShardId, ReceiptProof>,
     receipts_hash: CryptoHash,
-    contract_accesses: Vec<CodeHash>,
+    contract_accesses: BTreeSet<CodeHash>,
 ) -> SpiceChunkStateWitnessMessage {
     let chunks = block.chunks();
     assert_eq!(chunks.len(), 1);
@@ -642,7 +642,7 @@ fn invalid_witness_message(
     let receipt_proofs = test_receipt_proofs(&actor, &prev_block);
     // Wrong applied-receipts hash makes pre-validation reject the witness.
     let receipts_hash = CryptoHash::default();
-    test_witness_message(&block, state_transition, receipt_proofs, receipts_hash, vec![])
+    test_witness_message(&block, state_transition, receipt_proofs, receipts_hash, BTreeSet::new())
 }
 
 /// Empty accesses message signals no contracts needed — witness should finalize immediately.

@@ -7,20 +7,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
-
-/// Computes a deterministic hash of a set of contract code hashes.
-/// The hashes are sorted lexicographically, concatenated, and hashed.
-pub fn compute_contract_accesses_hash(accesses: &HashSet<CodeHash>) -> CryptoHash {
-    let mut sorted: Vec<_> = accesses.iter().collect();
-    sorted.sort();
-    let mut buf = Vec::with_capacity(sorted.len() * CryptoHash::LENGTH);
-    for h in &sorted {
-        buf.extend_from_slice(h.0.as_bytes());
-    }
-    CryptoHash::hash_bytes(&buf)
-}
 
 /// The state witness for a chunk with spice; proves the state transition that the
 /// chunk attests to.
@@ -64,7 +52,7 @@ pub struct SpiceChunkStateWitnessV1 {
     pub transactions: Vec<SignedTransaction>,
     /// Code hashes of the contracts accessed during chunk application. Validators
     /// check the contract accesses message against this and fetch missing code.
-    pub contract_accesses: Vec<CodeHash>,
+    pub contract_accesses: BTreeSet<CodeHash>,
     /// Proof that the chunk body is invalid (e.g. bad tx_root). Present when
     /// a malicious chunk producer sends an invalid chunk body. The body must
     /// be RS-reconstructed (all parts filled) so validators can independently
@@ -80,7 +68,7 @@ impl SpiceChunkStateWitness {
         source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
-        contract_accesses: Vec<CodeHash>,
+        contract_accesses: BTreeSet<CodeHash>,
         proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     ) -> Self {
         Self::V1(SpiceChunkStateWitnessV1 {
@@ -134,7 +122,7 @@ impl SpiceChunkStateWitness {
         }
     }
 
-    pub fn contract_accesses(&self) -> &[CodeHash] {
+    pub fn contract_accesses(&self) -> &BTreeSet<CodeHash> {
         match self {
             Self::V1(witness) => &witness.contract_accesses,
         }

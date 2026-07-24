@@ -11,7 +11,7 @@ use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::{AccountId, ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 /// Maximum number of contracts allowed in a single SpiceContractCodeRequest.
@@ -851,7 +851,7 @@ impl SpiceChunkContractAccesses {
         contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = SpiceChunkContractAccessesInner::new(chunk_id, contracts);
+        let inner = SpiceChunkContractAccessesInner::new(chunk_id, contracts.into_iter().collect());
         let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         Self { inner, signature }
     }
@@ -860,7 +860,7 @@ impl SpiceChunkContractAccesses {
         &self.inner.chunk_id
     }
 
-    pub fn contracts(&self) -> &[CodeHash] {
+    pub fn contracts(&self) -> &BTreeSet<CodeHash> {
         &self.inner.contracts
     }
 
@@ -872,15 +872,15 @@ impl SpiceChunkContractAccesses {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 struct SpiceChunkContractAccessesInner {
     chunk_id: SpiceChunkId,
-    contracts: Vec<CodeHash>,
+    contracts: BTreeSet<CodeHash>,
     signature_differentiator: SignatureDifferentiator,
 }
 
 impl SpiceChunkContractAccessesInner {
-    fn new(chunk_id: SpiceChunkId, contracts: HashSet<CodeHash>) -> Self {
+    fn new(chunk_id: SpiceChunkId, contracts: BTreeSet<CodeHash>) -> Self {
         Self {
             chunk_id,
-            contracts: contracts.into_iter().collect(),
+            contracts,
             signature_differentiator: "SpiceChunkContractAccessesInner".to_owned(),
         }
     }

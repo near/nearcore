@@ -61,7 +61,7 @@ use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::num::NonZero;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -129,7 +129,7 @@ fn new_test_witness_for_chunk(
         receipt_proofs,
         receipts_hash,
         transactions,
-        vec![],
+        BTreeSet::new(),
         None,
     )
 }

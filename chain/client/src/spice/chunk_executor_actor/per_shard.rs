@@ -583,15 +583,13 @@ impl PerShardChunkExecutor {
                 .collect::<Result<_, Error>>()?
         };
         // TODO(spice-resharding): Handle witness validation when resharding.
-        let mut contract_accesses_list: Vec<CodeHash> = contract_accesses.iter().cloned().collect();
-        contract_accesses_list.sort();
         let state_witness = SpiceChunkStateWitness::new(
             near_primitives::types::SpiceChunkId { block_hash: *block_hash, shard_id },
             pre_state,
             source_receipt_proofs,
             applied_receipts_hash,
             transactions,
-            contract_accesses_list,
+            contract_accesses.iter().cloned().collect(),
             proof_of_invalid_chunk,
         );
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })

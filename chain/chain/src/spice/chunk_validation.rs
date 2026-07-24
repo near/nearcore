@@ -401,6 +401,7 @@ mod tests {
     use near_primitives::validator_signer::ValidatorSigner;
     use near_store::get_genesis_state_roots;
     use reed_solomon_erasure::galois_8::ReedSolomon;
+    use std::collections::BTreeSet;
     use std::str::FromStr as _;
     use tracing::Span;
 
@@ -620,7 +621,7 @@ mod tests {
             HashMap::new(),
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             vec![],
-            vec![],
+            BTreeSet::new(),
             None,
         );
 
@@ -662,7 +663,7 @@ mod tests {
             invalid_source_receipt_proofs,
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             test_chain.transactions(),
-            vec![],
+            BTreeSet::new(),
             None,
         );
 
@@ -963,7 +964,7 @@ mod tests {
         source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
-        contract_accesses: Vec<CodeHash>,
+        contract_accesses: BTreeSet<CodeHash>,
         proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     }
 
@@ -990,7 +991,7 @@ mod tests {
                 source_receipt_proofs: default.source_receipt_proofs().clone(),
                 applied_receipts_hash: *default.applied_receipts_hash(),
                 transactions: default.transactions().to_vec(),
-                contract_accesses: default.contract_accesses().to_vec(),
+                contract_accesses: default.contract_accesses().clone(),
                 proof_of_invalid_chunk: default
                     .proof_of_invalid_chunk()
                     .map(|b| Box::new(b.clone())),
@@ -1186,7 +1187,7 @@ mod tests {
                 self.source_receipt_proofs(),
                 self.applied_receipts_hash(),
                 vec![],
-                vec![],
+                BTreeSet::new(),
                 Some(Box::new(body)),
             )
         }
@@ -1297,7 +1298,7 @@ mod tests {
                 receipt_proofs,
                 receipts_hash,
                 transactions,
-                vec![],
+                BTreeSet::new(),
                 None,
             )
         }
@@ -1318,7 +1319,7 @@ mod tests {
                 receipt_proofs,
                 receipts_hash,
                 transactions,
-                vec![],
+                BTreeSet::new(),
                 None,
             )
         }
