@@ -118,6 +118,23 @@ impl Config {
             RateLimitedPeerMessageKey::EpochSyncResponse,
             SingleMessageConfig::new(1, 1.0 / 30.0, None),
         );
+        // Spice: ~10 producers x 5 blocks/s x ~10 shards, x3 headroom. Starting defaults, tune under load.
+        let per_shard = SingleMessageConfig::new(1500, 1500.0, None);
+        let base = SingleMessageConfig::new(150, 150.0, None);
+        for key in [
+            RateLimitedPeerMessageKey::SpicePartialData,
+            RateLimitedPeerMessageKey::SpicePartialDataRequest,
+            RateLimitedPeerMessageKey::SpiceChunkEndorsement,
+            RateLimitedPeerMessageKey::SpiceChunkContractAccesses,
+        ] {
+            config.rate_limits.insert(key, per_shard.clone());
+        }
+        for key in [
+            RateLimitedPeerMessageKey::SpiceContractCodeRequest,
+            RateLimitedPeerMessageKey::SpiceContractCodeResponse,
+        ] {
+            config.rate_limits.insert(key, base.clone());
+        }
         config
     }
 

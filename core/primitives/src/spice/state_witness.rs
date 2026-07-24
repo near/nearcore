@@ -2,25 +2,13 @@ use crate::sharding::{EncodedShardChunkBody, ReceiptProof};
 use crate::state::PartialState;
 use crate::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use crate::transaction::SignedTransaction;
-use crate::types::{ChunkExecutionResultHash, SpiceChunkId};
+use crate::types::SpiceChunkId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
-
-/// Computes a deterministic hash of a set of contract code hashes.
-/// The hashes are sorted lexicographically, concatenated, and hashed.
-pub fn compute_contract_accesses_hash(accesses: &HashSet<CodeHash>) -> CryptoHash {
-    let mut sorted: Vec<_> = accesses.iter().collect();
-    sorted.sort();
-    let mut buf = Vec::with_capacity(sorted.len() * CryptoHash::LENGTH);
-    for h in &sorted {
-        buf.extend_from_slice(h.0.as_bytes());
-    }
-    CryptoHash::hash_bytes(&buf)
-}
 
 /// The state witness for a chunk with spice; proves the state transition that the
 /// chunk attests to.
@@ -29,31 +17,6 @@ pub fn compute_contract_accesses_hash(accesses: &HashSet<CodeHash>) -> CryptoHas
 #[repr(u8)]
 pub enum SpiceChunkStateWitness {
     V1(SpiceChunkStateWitnessV1) = 0,
-}
-
-/// Represents the base state and the expected post-state-root of a chunk's state
-/// transition for spice. The actual state transition itself is not included here.
-#[derive(
-    Debug, Default, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema,
-)]
-pub struct SpiceChunkStateTransition {
-    /// The partial state before the state transition. This includes whatever
-    /// initial state that is necessary to compute the state transition for this
-    /// chunk.
-    pub base_state: PartialState,
-    /// The expected final state root after applying the state transition.
-    /// This is redundant information, because the post state root can be
-    /// derived by applying the state transition onto the base state, but
-    /// this makes it easier to debug why a state witness may fail to validate.
-    pub post_state_root: CryptoHash,
-}
-
-impl SpiceChunkStateTransition {
-    /// Merges contract bytes into the base_state trie values.
-    pub fn merge_contracts(&mut self, contracts: Vec<CodeBytes>) {
-        let PartialState::TrieValues(values) = &mut self.base_state;
-        values.extend(contracts.into_iter().map(|code| code.0));
-    }
 }
 
 /// There are following differences with ChunkStateWitnessV2
@@ -66,11 +29,8 @@ pub struct SpiceChunkStateWitnessV1 {
     /// Witness contains information to derive execution results of chunk corresponding to
     /// chunk_id.
     pub chunk_id: SpiceChunkId,
-    /// The base state and post-state-root of the main transition where we
-    /// apply transactions and receipts. Corresponds to the state transition
-    /// that takes us from the pre-state-root of the chunk of this shard to
-    /// the post-state-root of that same chunk.
-    pub main_state_transition: SpiceChunkStateTransition,
+    /// Recorded partial state before the chunk's main state transition.
+    pub pre_state: PartialState,
     /// For the main state transition, we apply transactions and receipts.
     /// Exactly which of them must be applied is a deterministic property
     /// based on the blockchain history this chunk is based on.
@@ -85,23 +45,14 @@ pub struct SpiceChunkStateWitnessV1 {
     /// receipts that must be applied, along with information that allows these
     /// receipts to be verifiable against the blockchain history.
     pub source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
-    /// An overall hash of the list of receipts that should be applied. This is
-    /// redundant information but is useful for diagnosing why a witness might
-    /// fail. This is the hash of the borsh encoding of the Vec<Receipt> in the
-    /// order that they should be applied.
+    /// Hash of the borsh-encoded receipts to apply, in application order.
     pub applied_receipts_hash: CryptoHash,
     /// The transactions to apply. These must be in the correct order in which
     /// they are to be applied.
     pub transactions: Vec<SignedTransaction>,
-    /// Hash of the execution results after executing the chunk. This is redundant
-    /// since it can be calculated by applying the chunk, but it's still useful
-    /// for debugging.
-    pub execution_result_hash: ChunkExecutionResultHash,
-    /// Hash of the contract code hashes accessed during chunk application.
-    /// Validators use this to verify that the contract accesses message they
-    /// received matches what the witness expects, preventing a malicious
-    /// producer from injecting invalid contract accesses.
-    pub contract_accesses_hash: CryptoHash,
+    /// Code hashes of the contracts accessed during chunk application. Validators
+    /// check the contract accesses message against this and fetch missing code.
+    pub contract_accesses: BTreeSet<CodeHash>,
     /// Proof that the chunk body is invalid (e.g. bad tx_root). Present when
     /// a malicious chunk producer sends an invalid chunk body. The body must
     /// be RS-reconstructed (all parts filled) so validators can independently
@@ -113,22 +64,20 @@ pub struct SpiceChunkStateWitnessV1 {
 impl SpiceChunkStateWitness {
     pub fn new(
         chunk_id: SpiceChunkId,
-        main_state_transition: SpiceChunkStateTransition,
+        pre_state: PartialState,
         source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
-        execution_result_hash: ChunkExecutionResultHash,
-        contract_accesses_hash: CryptoHash,
+        contract_accesses: BTreeSet<CodeHash>,
         proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     ) -> Self {
         Self::V1(SpiceChunkStateWitnessV1 {
             chunk_id,
-            main_state_transition,
+            pre_state,
             source_receipt_proofs,
             applied_receipts_hash,
             transactions,
-            execution_result_hash,
-            contract_accesses_hash,
+            contract_accesses,
             proof_of_invalid_chunk,
         })
     }
@@ -139,15 +88,19 @@ impl SpiceChunkStateWitness {
         }
     }
 
-    pub fn main_state_transition(&self) -> &SpiceChunkStateTransition {
+    pub fn pre_state(&self) -> &PartialState {
         match self {
-            Self::V1(witness) => &witness.main_state_transition,
+            Self::V1(witness) => &witness.pre_state,
         }
     }
 
-    pub fn mut_main_state_transition(&mut self) -> &mut SpiceChunkStateTransition {
+    /// Merge contract bytes into the recorded pre-state's trie values.
+    pub fn merge_contracts(&mut self, contracts: Vec<CodeBytes>) {
         match self {
-            Self::V1(witness) => &mut witness.main_state_transition,
+            Self::V1(witness) => {
+                let PartialState::TrieValues(values) = &mut witness.pre_state;
+                values.extend(contracts.into_iter().map(|code| code.0));
+            }
         }
     }
 
@@ -169,15 +122,9 @@ impl SpiceChunkStateWitness {
         }
     }
 
-    pub fn execution_result_hash(&self) -> &ChunkExecutionResultHash {
+    pub fn contract_accesses(&self) -> &BTreeSet<CodeHash> {
         match self {
-            Self::V1(witness) => &witness.execution_result_hash,
-        }
-    }
-
-    pub fn contract_accesses_hash(&self) -> &CryptoHash {
-        match self {
-            Self::V1(witness) => &witness.contract_accesses_hash,
+            Self::V1(witness) => &witness.contract_accesses,
         }
     }
 
