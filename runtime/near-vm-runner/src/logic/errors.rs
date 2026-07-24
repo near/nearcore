@@ -339,6 +339,13 @@ pub enum HostError {
     P256VerifyInvalidInput {
         msg: String,
     },
+    /// Input length mismatch for ML-DSA-65 signature verification (signature is
+    /// not 3309 bytes or public key is not 1952 bytes). Parse failures of
+    /// otherwise well-sized inputs return 0 from the host function instead of
+    /// aborting.
+    MlDsaVerifyInvalidInput {
+        msg: String,
+    },
     // Invalid input to bls12381 family of functions
     BLS12381InvalidInput {
         msg: String,
@@ -618,6 +625,9 @@ impl std::fmt::Display for HostError {
             }
             P256VerifyInvalidInput { msg } => {
                 write!(f, "P256 signature verification error: {}", msg)
+            }
+            MlDsaVerifyInvalidInput { msg } => {
+                write!(f, "ML-DSA-65 signature verification error: {}", msg)
             }
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(

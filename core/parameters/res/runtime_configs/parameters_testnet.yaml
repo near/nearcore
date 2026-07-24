@@ -190,6 +190,8 @@ wasm_ed25519_verify_base: 210_000_000_000
 wasm_ed25519_verify_byte: 9_000_000
 wasm_p256_verify_base: 1_300_000_000_000
 wasm_p256_verify_byte: 13_000_000
+wasm_ml_dsa_verify_base: 750_000_000_000
+wasm_ml_dsa_verify_byte: 13_000_000
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
 wasm_storage_write_base: 64_196_736_000
@@ -292,6 +294,7 @@ reftypes_bulk_memory: false
 gas_key_host_fns: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
+ml_dsa_verify_host_fn: false
 sha3_host_fns: false
 yield_with_id_host_fns: false
 chain_id_host_fn: false

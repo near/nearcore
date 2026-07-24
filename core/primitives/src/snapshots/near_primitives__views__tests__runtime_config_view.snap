@@ -1,6 +1,7 @@
 ---
 source: core/primitives/src/views.rs
 expression: "&view"
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -141,6 +142,8 @@ expression: "&view"
       "ecrecover_base": 278821988457,
       "p256_verify_base": 1300000000000,
       "p256_verify_byte": 13000000,
+      "ml_dsa_verify_base": 750000000000,
+      "ml_dsa_verify_byte": 13000000,
       "log_base": 3543313050,
       "log_byte": 13198791,
       "storage_write_base": 64196736000,
@@ -215,6 +218,7 @@ expression: "&view"
     "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
+    "ml_dsa_verify_host_fn": false,
     "sha3_host_fns": false,
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,

@@ -467,6 +467,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
                 p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
+                ml_dsa_verify_host_fn: params.get(Parameter::MlDsaVerifyHostFn)?,
                 sha3_host_fns: params.get(Parameter::Sha3HostFns)?,
                 yield_with_id_host_fns: params.get(Parameter::YieldWithIdHostFns)?,
                 chain_id_host_fn: params.get(Parameter::ChainIdHostFn)?,

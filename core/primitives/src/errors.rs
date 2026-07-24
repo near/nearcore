@@ -1498,6 +1498,11 @@ pub enum HostError {
     /// bytes or public key is not 33 bytes). Parse failures of otherwise
     /// well-sized inputs return 0 from the host function instead of aborting.
     P256VerifyInvalidInput { msg: String } = 33,
+    /// Input length mismatch for ML-DSA-65 signature verification (signature is
+    /// not 3309 bytes or public key is not 1952 bytes). Parse failures of
+    /// otherwise well-sized inputs return 0 from the host function instead of
+    /// aborting.
+    MlDsaVerifyInvalidInput { msg: String } = 34,
 }
 
 #[derive(
