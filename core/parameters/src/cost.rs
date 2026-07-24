@@ -171,8 +171,7 @@ impl ExtCostsConfig {
             ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
             ExtCosts::p256_verify_base => SAFETY_MULTIPLIER * 433_333_333_333,
             ExtCosts::p256_verify_byte => SAFETY_MULTIPLIER * 4_333_333,
-            // Placeholder values pending params-estimator calibration.
-            ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 866_666_666_666,
+            ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 250_000_000_000,
             ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 4_333_333,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
