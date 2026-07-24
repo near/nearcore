@@ -44,7 +44,7 @@ use std::collections::HashMap;
 const EPOCH_LENGTH: BlockHeightDelta = 10;
 const INITIAL_USER_BALANCE: Balance = Balance::from_near(10_000);
 
-fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
+pub(crate) fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
     if num_shards > 27 {
         todo!("don't know how to include more than 27 shards yet!");
     }
@@ -94,7 +94,7 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 /// Note: we check ALL consecutive epoch pairs, not just first vs last, because with few
 /// validators/shards the first and last epoch can coincidentally have the same assignment
 /// even though shuffling occurred in intermediate epochs.
-fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
+pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
     let client = env.node(0).client();
     let head = client.chain.head().unwrap();
     let genesis_height = client.chain.genesis().height();
