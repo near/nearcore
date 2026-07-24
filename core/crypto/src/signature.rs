@@ -1170,7 +1170,7 @@ impl Signature {
                 #[cfg(not(feature = "aws-lc-rs"))]
                 {
                     let _ = (signature, public_key);
-                    unimplemented!("ML-DSA-65 requires the aws-lc-rs feature")
+                    false
                 }
             }
             _ => false,
