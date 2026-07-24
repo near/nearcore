@@ -142,7 +142,7 @@ snapshot_kind: text
       "ecrecover_base": 278821988457,
       "p256_verify_base": 1300000000000,
       "p256_verify_byte": 13000000,
-      "ml_dsa_verify_base": 2600000000000,
+      "ml_dsa_verify_base": 750000000000,
       "ml_dsa_verify_byte": 13000000,
       "log_base": 3543313050,
       "log_byte": 13198791,
