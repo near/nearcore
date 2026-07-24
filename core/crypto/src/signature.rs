@@ -1,6 +1,8 @@
 use crate::hash_domain::HashDomainTag;
 use crate::util::try_fixed_array;
+#[cfg(feature = "aws-lc-rs")]
 use aws_lc_rs::signature::UnparsedPublicKey;
+#[cfg(feature = "aws-lc-rs")]
 use aws_lc_rs::unstable::signature::{ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair};
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
@@ -783,9 +785,16 @@ impl SecretKey {
             }
             KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1::SecretKey::new(&mut OsRng)),
             KeyType::MLDSA65 => {
-                let kp =
-                    PqdsaKeyPair::generate(&ML_DSA_65_SIGNING).expect("ML-DSA-65 keygen failed");
-                SecretKey::MLDSA65(ml_dsa_65_secret_from_keypair(&kp))
+                #[cfg(feature = "aws-lc-rs")]
+                {
+                    let kp = PqdsaKeyPair::generate(&ML_DSA_65_SIGNING)
+                        .expect("ML-DSA-65 keygen failed");
+                    SecretKey::MLDSA65(ml_dsa_65_secret_from_keypair(&kp))
+                }
+                #[cfg(not(feature = "aws-lc-rs"))]
+                {
+                    unimplemented!("ML-DSA-65 requires the aws-lc-rs feature")
+                }
             }
         }
     }
@@ -810,12 +819,21 @@ impl SecretKey {
             }
 
             SecretKey::MLDSA65(secret_key) => {
-                let kp = PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &secret_key.0[..])
-                    .expect("invalid ML-DSA-65 raw private key");
-                let mut sig_buf = Box::new([0u8; ML_DSA_65_SIGNATURE_LENGTH]);
-                let n = kp.sign(data, sig_buf.as_mut()).expect("ML-DSA-65 sign failed");
-                debug_assert_eq!(n, ML_DSA_65_SIGNATURE_LENGTH);
-                Signature::MLDSA65(MlDsa65Signature(sig_buf))
+                #[cfg(feature = "aws-lc-rs")]
+                {
+                    let kp =
+                        PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &secret_key.0[..])
+                            .expect("invalid ML-DSA-65 raw private key");
+                    let mut sig_buf = Box::new([0u8; ML_DSA_65_SIGNATURE_LENGTH]);
+                    let n = kp.sign(data, sig_buf.as_mut()).expect("ML-DSA-65 sign failed");
+                    debug_assert_eq!(n, ML_DSA_65_SIGNATURE_LENGTH);
+                    Signature::MLDSA65(MlDsa65Signature(sig_buf))
+                }
+                #[cfg(not(feature = "aws-lc-rs"))]
+                {
+                    let _ = secret_key;
+                    unimplemented!("ML-DSA-65 requires the aws-lc-rs feature")
+                }
             }
         }
     }
@@ -833,13 +851,22 @@ impl SecretKey {
                 PublicKey::SECP256K1(public_key)
             }
             SecretKey::MLDSA65(secret_key) => {
-                let kp = PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &secret_key.0[..])
-                    .expect("invalid ML-DSA-65 raw private key");
-                use aws_lc_rs::signature::KeyPair;
-                let pk_bytes: &[u8] = kp.public_key().as_ref();
-                let mut buf = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
-                buf.copy_from_slice(pk_bytes);
-                PublicKey::MLDSA65(MlDsa65PublicKey(buf))
+                #[cfg(feature = "aws-lc-rs")]
+                {
+                    let kp =
+                        PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &secret_key.0[..])
+                            .expect("invalid ML-DSA-65 raw private key");
+                    use aws_lc_rs::signature::KeyPair;
+                    let pk_bytes: &[u8] = kp.public_key().as_ref();
+                    let mut buf = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
+                    buf.copy_from_slice(pk_bytes);
+                    PublicKey::MLDSA65(MlDsa65PublicKey(buf))
+                }
+                #[cfg(not(feature = "aws-lc-rs"))]
+                {
+                    let _ = secret_key;
+                    unimplemented!("ML-DSA-65 requires the aws-lc-rs feature")
+                }
             }
         }
     }
@@ -854,6 +881,7 @@ impl SecretKey {
 
 /// Helper: extract the 4032-byte raw private key from a freshly-generated keypair.
 #[cfg(feature = "rand")]
+#[cfg(feature = "aws-lc-rs")]
 fn ml_dsa_65_secret_from_keypair(kp: &PqdsaKeyPair) -> MlDsa65SecretKey {
     use aws_lc_rs::encoding::{AsRawBytes, PqdsaPrivateKeyRaw};
     let raw: PqdsaPrivateKeyRaw<'static> =
@@ -867,6 +895,7 @@ fn ml_dsa_65_secret_from_keypair(kp: &PqdsaKeyPair) -> MlDsa65SecretKey {
 
 /// Helper: build an `MlDsa65SecretKey` from a 32-byte seed (deterministic).
 #[cfg(feature = "rand")]
+#[cfg(feature = "aws-lc-rs")]
 fn ml_dsa_65_secret_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<MlDsa65SecretKey, crate::errors::ParseKeyError> {
@@ -886,6 +915,7 @@ fn ml_dsa_65_secret_from_seed(
 ///
 /// Wraps `aws_lc_rs::unstable::signature::PqdsaKeyPair::from_seed`.
 #[cfg(feature = "rand")]
+#[cfg(feature = "aws-lc-rs")]
 pub fn ml_dsa_65_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<SecretKey, crate::errors::ParseKeyError> {
@@ -922,6 +952,7 @@ impl FromStr for SecretKey {
                 // private key by handing them to the library. Catches
                 // malformed-but-correct-length blobs at parse time
                 // rather than blowing up later in `sign()`.
+                #[cfg(feature = "aws-lc-rs")]
                 PqdsaKeyPair::from_raw_private_key(&ML_DSA_65_SIGNING, &data[..])
                     .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 Self::MLDSA65(MlDsa65SecretKey(Box::new(data)))
@@ -1131,8 +1162,16 @@ impl Signature {
                 SECP256K1.verify_ecdsa(&message, &sig, &pub_key).is_ok()
             }
             (Signature::MLDSA65(signature), PublicKey::MLDSA65(public_key)) => {
-                let unparsed = UnparsedPublicKey::new(&ML_DSA_65, &public_key.0[..]);
-                unparsed.verify(data, &signature.0[..]).is_ok()
+                #[cfg(feature = "aws-lc-rs")]
+                {
+                    let unparsed = UnparsedPublicKey::new(&ML_DSA_65, &public_key.0[..]);
+                    unparsed.verify(data, &signature.0[..]).is_ok()
+                }
+                #[cfg(not(feature = "aws-lc-rs"))]
+                {
+                    let _ = (signature, public_key);
+                    unimplemented!("ML-DSA-65 requires the aws-lc-rs feature")
+                }
             }
             _ => false,
         }

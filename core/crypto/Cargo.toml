@@ -12,7 +12,7 @@ publish = true
 workspace = true
 
 [dependencies]
-aws-lc-rs.workspace = true
+aws-lc-rs = { workspace = true, optional = true }
 blake2.workspace = true
 borsh.workspace = true
 bs58.workspace = true
@@ -58,7 +58,7 @@ name = "ml_dsa_worst_case"
 harness = false
 
 [features]
-default = ["rand"]
+default = ["rand", "aws-lc-rs"]
 rand = ["secp256k1/rand", "rand/getrandom", "ed25519-dalek/rand_core"]
 rand-std = ["secp256k1/rand-std"]
 protocol_schema = [
