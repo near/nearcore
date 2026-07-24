@@ -886,6 +886,15 @@ pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::ne
     .unwrap()
 });
 
+pub(crate) static CLOUD_ARCHIVAL_HEAD_HEIGHT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_cloud_archival_head_height",
+        "Cloud archive head height per archived component",
+        &["component"],
+    )
+    .unwrap()
+});
+
 pub(crate) static SPICE_CERTIFICATION_LAG: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_spice_certification_lag",
