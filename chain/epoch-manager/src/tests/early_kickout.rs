@@ -339,10 +339,8 @@ fn record_block_with_mask(
 /// `target` accumulates 0 produced / many expected (blacklist candidate) while the
 /// other producer stays at 100%. Returns the recorded block hashes (index = height).
 ///
-/// Stable-only: it uses the *plain* height sampler, so once the grace window lifts and the
-/// seeder starts excluding the target, the target's missed heights would be re-attributed to
-/// the replacement. On nightly (feature enabled) the accessor tests use `drive_down_node`,
-/// which mirrors the production blacklist-aware assignment instead.
+/// Stable-only: the plain height sampler keeps missing heights on `target`. On nightly the
+/// seeder excludes the target once the grace lifts, so those tests use `drive_down_node`.
 #[cfg(not(feature = "nightly"))]
 fn drive_targeted_misses(
     handle: &EpochManagerHandle,
@@ -531,14 +529,13 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
         boundary_idx as u64 > EARLY_KICKOUT_EPOCH_GRACE_BLOCKS,
         "boundary at height {boundary_idx} must be past the grace for a non-vacuous reset check"
     );
-    // A mid-epoch anchor, past the grace and inside epoch 0, is non-empty.
     let bl_pre = handle.get_chunk_producer_blacklist(&h[boundary_idx - 1]).unwrap();
     assert!(
         !bl_pre.is_empty(),
         "pre-boundary anchor past the grace must be non-empty, got {bl_pre:?}"
     );
-    // The boundary anchor's aggregator still belongs to epoch 0 while its next block starts
-    // epoch 1, so the epoch mismatch resets the blacklist to empty.
+    // Boundary anchor's aggregator is still epoch 0 while its next block starts epoch 1; the
+    // epoch mismatch resets the blacklist to empty.
     let bl_boundary = handle.get_chunk_producer_blacklist(&h[boundary_idx]).unwrap();
     assert!(bl_boundary.is_empty(), "epoch boundary must reset blacklist, got {bl_boundary:?}");
 }
@@ -555,17 +552,15 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-    // Grace is measured against the anchor's last-final block (grandparent, anchor height - 2),
-    // so the boundary in anchor height is the raw grace count + 2.
+    // Grace is measured against the last-final block (grandparent, anchor height - 2), so the
+    // boundary in anchor height is the raw grace count + 2.
     let epoch_start = handle.get_epoch_start_from_epoch_id(&epoch_id).unwrap();
 
-    // Last anchor inside the grace: down node is already miss-heavy, so empty is the grace, not
-    // a lack of misses.
+    // Down node is already miss-heavy, so an empty result here is the grace, not a lack of misses.
     let in_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 1) as usize;
     let bl_grace = handle.get_chunk_producer_blacklist(&h[in_grace]).unwrap();
     assert!(bl_grace.is_empty(), "anchor inside the grace window must be empty, got {bl_grace:?}");
-    // Seeder agrees with the accessor inside the grace: the seeded row is the plain pick (the
-    // grace suppresses exclusion for both).
+    // Inside the grace the seeded row is the plain pick (exclusion suppressed for both paths).
     let in_grace_ch = in_grace as u64 + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
     let plain_in_grace = epoch_info
         .get_validator(epoch_info.sample_chunk_producer(&layout, shard_id, in_grace_ch).unwrap());
@@ -574,7 +569,6 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
         .unwrap();
     assert_eq!(stored_in_grace, plain_in_grace, "in-grace seeded row must be the plain pick");
 
-    // First anchor past the grace: blacklist active.
     let past_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 2) as usize;
     let bl_past = handle.get_chunk_producer_blacklist(&h[past_grace]).unwrap();
     assert_eq!(
@@ -611,9 +605,9 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     );
 }
 
-// Scope A' equivalence: the seeded `DBCol::ChunkProducers` row equals the plain height
-// sampler while the blacklist is empty, and equals the blacklist-aware sampler (never the
-// down node) once it is non-empty. The strict consensus reader returns that same row.
+// The seeded `DBCol::ChunkProducers` row equals the plain height sampler while the blacklist
+// is empty, and the blacklist-aware sampler (never the down node) once it is non-empty. The
+// strict consensus reader returns that same row.
 #[cfg(feature = "nightly")]
 #[test]
 fn seeded_rows_match_blacklist_aware_sampler() {
@@ -674,8 +668,8 @@ fn seeded_rows_match_blacklist_aware_sampler() {
     );
 }
 
-// Missing-row invariant (from the Codex debate): wherever the blacklist as of an anchor is
-// non-empty, that anchor's `DBCol::ChunkProducers` rows are present for every shard. So the
+// Missing-row invariant: wherever the blacklist as of an anchor is non-empty, that anchor's
+// `DBCol::ChunkProducers` rows are present for every shard. So the
 // aggregator's lenient reader never height-samples (which would re-credit the down node)
 // while a blacklist is active -- the missing-row region and the non-empty-blacklist region
 // are disjoint.
@@ -868,9 +862,9 @@ fn record_block_frozen_final(
     .commit();
 }
 
-// Regression guard: with finality frozen the seeder walks to the pinned last-final block, so the
-// per-block walk is O(1) and total cost is linear, not the old O(stall-depth) suffix rescan. Two
-// stall depths pin that the per-block walk does not grow with depth.
+// Regression guard: with finality frozen the seeder walks only to the pinned last-final block,
+// so per-block cost is O(1) and total is linear, not the old O(stall-depth) suffix re-walk. Two
+// stall depths check the per-block walk does not grow with depth.
 #[cfg(feature = "nightly")]
 #[test]
 fn seed_walk_bounded_under_finality_stall() {
@@ -909,17 +903,17 @@ fn seed_walk_bounded_under_finality_stall() {
     );
     assert!(
         walked_short <= per_block_cap * short as usize,
-        "short stall walk {walked_short} exceeds {per_block_cap}/block — suffix rescan regression?"
+        "short stall walk {walked_short} exceeds {per_block_cap}/block — suffix re-walk regression?"
     );
     assert!(
         walked_long <= per_block_cap * long as usize,
-        "long stall walk {walked_long} exceeds {per_block_cap}/block — suffix rescan regression?"
+        "long stall walk {walked_long} exceeds {per_block_cap}/block — suffix re-walk regression?"
     );
-    // Linearity: 3x the depth must not more than 3x the walk (a quadratic rescan would ~9x).
+    // Linearity: 3x the depth must not more than 3x the walk (a quadratic re-walk would ~9x).
     assert!(
         walked_long * short as usize <= 2 * walked_short * long as usize,
         "per-block walk grew with stall depth ({walked_short} over {short} vs {walked_long} over \
-         {long}) — finality-stall suffix rescan regression?"
+         {long}) — finality-stall suffix re-walk regression?"
     );
 }
 

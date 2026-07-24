@@ -1138,9 +1138,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(HashMap::new());
         }
-        // Must mirror `EpochManager::seed_chunk_producers`: same last-final basis, else the
-        // `seeded_rows_match_*` tests would only agree by accident. Read-guard methods used
-        // directly since adapter methods would re-take `self.read()` and deadlock.
+        // Must mirror `seed_chunk_producers`'s last-final basis, or this live read disagrees
+        // with the stored row and forks. Read-guard methods directly; adapter methods would
+        // re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
@@ -1152,10 +1152,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(&final_block_hash)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        // Grace window is measured against the last-final block's height in the aggregator's own
-        // epoch, matching the blacklist basis. A missing epoch-start (genesis) is treated as
-        // "just started" -> grace (empty); any other error propagates rather than masking
-        // storage corruption.
+        // Grace measured against the last-final height, matching the blacklist basis. A missing
+        // epoch-start (genesis) counts as just-started (grace, empty); other errors propagate.
         let epoch_start = match epoch_manager.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
             Ok(start) => start,
             Err(EpochError::EpochOutOfBounds(_)) => final_block_height,

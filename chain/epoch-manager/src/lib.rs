@@ -1092,7 +1092,7 @@ impl EpochManager {
                 // the genesis epoch info; chunks at genesis + 1 and below have no
                 // grandparent and use the canonical sampler.
                 let genesis_shard_layout = self.get_shard_layout(&pre_genesis_epoch_id)?;
-                // No finalized ancestor at genesis; default final hash -> empty branch.
+                // genesis has no finalized ancestor -> default hash -> empty blacklist.
                 self.seed_chunk_producers(
                     &mut store_update,
                     &current_hash,
@@ -2207,11 +2207,10 @@ impl EpochManager {
     /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
     /// avoids seeding dead rows for last-of-epoch anchors across an activation edge.
     ///
-    /// The blacklist is computed as of the anchor's last-final block
-    /// (`final_block_hash`), which comes from the block header and so is identical
-    /// across nodes for a given canonical anchor. This determinism is required: the
-    /// seeded row is read verbatim by `get_chunk_producer_info_anchored`. Anchoring on
-    /// the final block also keeps the aggregator walk off the growing unfinalized
+    /// The blacklist basis is the anchor's last-final block (`final_block_hash`), not the
+    /// anchor itself: it is header-derived, so identical across nodes for a canonical anchor.
+    /// That determinism is required because the seeded row is read verbatim by
+    /// `get_chunk_producer_info_anchored`. It also keeps the walk off the growing not-yet-final
     /// suffix during a finality stall.
     fn seed_chunk_producers(
         &self,
@@ -2230,24 +2229,19 @@ impl EpochManager {
             if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
                 return Ok(());
             }
-            // Not `get_chunk_producer_blacklist` (adapter): it re-takes `self.read()` and would
-            // deadlock against the write lock the seeder holds. A default `final_block_hash`
-            // means nothing is finalized yet (genesis / first blocks): walking would error and
-            // these anchors sit deep in the grace anyway, so seed empty.
-            //
-            // `final_block_hash` must already be in the block cache / store. the epoch-sync first
-            // block is only in the pending `store_update`, so it uses
-            // `seed_chunk_producers_for_first_block` (empty blacklist, no walk) instead.
+            // Inlined, not via the `get_chunk_producer_blacklist` adapter: that re-takes
+            // `self.read()` and would deadlock under the seeder's write lock. A default
+            // `final_block_hash` means nothing is final yet (genesis / first blocks): skip the
+            // walk (it would error, and these anchors are deep inside the grace).
             let ChunkProducerBlacklist { blacklist, shard_stats } = if final_block_hash
                 == &CryptoHash::default()
             {
                 ChunkProducerBlacklist::empty()
             } else {
                 let aggregator = self.get_epoch_info_aggregator_upto_last(final_block_hash)?;
-                // Grace window is measured against the last-final block's height in the
-                // aggregator's own epoch, matching the blacklist basis. A missing `EpochStart`
-                // row (genesis) is treated as "just started" (blocks_into_epoch = 0 -> grace,
-                // empty). Propagate any other error rather than masking storage corruption.
+                // Grace measured against the last-final height, matching the blacklist basis. A
+                // missing `EpochStart` (genesis) counts as just-started (grace, empty); other
+                // errors propagate rather than mask storage corruption.
                 let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
                     Ok(start) => start,
                     Err(EpochError::EpochOutOfBounds(_)) => final_block_height,
