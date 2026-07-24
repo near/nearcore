@@ -140,15 +140,19 @@ fn test_producer_with_expired_transactions() {
         assert_eq!(actual, Balance::from_near(1000000), "no transfers should have happened");
     }
 
-    let Some(applied_tx_metric) = near_o11y::metrics::prometheus::gather()
-        .into_iter()
-        .find(|m| m.name() == "near_transaction_applied_total")
-    else {
-        panic!("no applied transactions metric found");
-    };
-    let [metric] = applied_tx_metric.get_metric() else { panic!("unexpected metric shape") };
-    let applied_txs = metric.get_counter().get_value();
-    assert_eq!(applied_txs, 76.0, "should have applied the submitted transactions");
+    // Count the transactions the malicious producer forced into its chunks. We read this from the
+    // producer's own chain rather than the `near_transaction_applied_total` metric: that metric is
+    // a process-global counter shared by every test in the binary, so it's polluted by other tests
+    // running concurrently. Walking this node's chunks is deterministic and isolated.
+    let mut included_txs = 0;
+    let mut block = node.head_block();
+    while block.header().height() > 10000 {
+        for chunk in node.block_chunks(&block) {
+            included_txs += chunk.to_transactions().len();
+        }
+        block = node.block(*block.header().prev_hash());
+    }
+    assert_eq!(included_txs, 26, "producer should have included the submitted transactions");
 }
 
 #[test]
@@ -258,6 +262,7 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
                         let new_witness = VersionedPartialEncodedStateWitness::new(
                             key.epoch_id,
                             dummy_header,
+                            CryptoHash::default(),
                             part_ord,
                             part,
                             (MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize) + 1,

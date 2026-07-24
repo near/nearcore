@@ -155,10 +155,7 @@ mod tests {
     fn returns_none_when_gas_key_nonce_missing() {
         let mut values = HashMap::new();
         values.insert(TrieKey::Account { account_id: alice() }.to_vec(), Ok(account_bytes()));
-        values.insert(
-            TrieKey::AccessKey { account_id: alice(), public_key: pk() }.to_vec(),
-            Ok(access_key_bytes()),
-        );
+        values.insert(TrieKey::access_key(alice(), pk()).to_vec(), Ok(access_key_bytes()));
         let trie = MockTrie { values };
         let mut overlay = SignerOverlay::new();
         let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), Some(0));
