@@ -48,12 +48,61 @@ pub enum RpcCallFunctionError {
     },
     #[error("Function call returned an error: {vm_error:?}")]
     ContractExecutionError {
-        vm_error: near_primitives::errors::FunctionCallError,
+        vm_error: RpcFunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
+}
+
+/// Mirror of `near_primitives::errors::FunctionCallError` for the RPC layer.
+///
+/// The `ExecutionError` variant holds a `serde_json::Value` instead of a `String`.
+/// When the panic message starts with `"Smart contract panicked: "` and the
+/// remainder is valid JSON, the parsed JSON is stored directly; otherwise the
+/// original string is kept as a JSON string value.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[repr(u8)]
+pub enum RpcFunctionCallError {
+    CompilationError(near_primitives::errors::CompilationError) = 0,
+    LinkError { msg: String } = 1,
+    MethodResolveError(near_primitives::errors::MethodResolveError) = 2,
+    WasmTrap(near_primitives::errors::WasmTrap) = 3,
+    WasmUnknownError = 4,
+    HostError(near_primitives::errors::HostError) = 5,
+    ExecutionError(serde_json::Value) = 7,
+}
+
+impl From<near_primitives::errors::FunctionCallError> for RpcFunctionCallError {
+    fn from(error: near_primitives::errors::FunctionCallError) -> Self {
+        const PREFIX: &str = "Smart contract panicked: ";
+
+        match error {
+            near_primitives::errors::FunctionCallError::CompilationError(e) => {
+                Self::CompilationError(e)
+            }
+            near_primitives::errors::FunctionCallError::LinkError { msg } => {
+                Self::LinkError { msg }
+            }
+            near_primitives::errors::FunctionCallError::MethodResolveError(e) => {
+                Self::MethodResolveError(e)
+            }
+            near_primitives::errors::FunctionCallError::WasmTrap(e) => Self::WasmTrap(e),
+            near_primitives::errors::FunctionCallError::WasmUnknownError => Self::WasmUnknownError,
+            near_primitives::errors::FunctionCallError::HostError(e) => Self::HostError(e),
+            near_primitives::errors::FunctionCallError::ExecutionError(msg) => {
+                let value = msg
+                    .strip_prefix(PREFIX)
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_else(|| serde_json::Value::String(msg));
+                Self::ExecutionError(value)
+            }
+            // _EVMError is unused, but handle it gracefully
+            _ => Self::ExecutionError(serde_json::Value::String(format!("{error:?}"))),
+        }
+    }
 }
 
 impl From<RpcCallFunctionError> for crate::errors::RpcError {
@@ -115,7 +164,7 @@ impl From<crate::types::query::RpcQueryError> for RpcCallFunctionError {
                 error,
                 block_height,
                 block_hash,
-            } => Self::ContractExecutionError { vm_error: error, block_height, block_hash },
+            } => Self::ContractExecutionError { vm_error: error.into(), block_height, block_hash },
             crate::types::query::RpcQueryError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             }
