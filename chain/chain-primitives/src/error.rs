@@ -299,6 +299,10 @@ pub enum Error {
     /// value recomputed from the chain.
     #[error("Invalid spice_chunk_endorsement_stats: {0}")]
     InvalidSpiceChunkEndorsementStats(String),
+    /// `chunk_execution_root` on a spice block header doesn't match the merkle
+    /// root recomputed from the block's certified chunk execution results.
+    #[error("Invalid chunk_execution_root: {0}")]
+    InvalidChunkExecutionRoot(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -395,7 +399,8 @@ impl Error {
             | Error::BadHeaderForProtocolVersion(_)
             | Error::InvalidSpiceCoreStatements(_)
             | Error::InvalidPrevLastCertifiedBlockEpochId(_)
-            | Error::InvalidSpiceChunkEndorsementStats(_) => true,
+            | Error::InvalidSpiceChunkEndorsementStats(_)
+            | Error::InvalidChunkExecutionRoot(_) => true,
         }
     }
 
@@ -489,6 +494,7 @@ impl Error {
                 "invalid_prev_last_certified_block_epoch_id"
             }
             Error::InvalidSpiceChunkEndorsementStats(_) => "invalid_spice_chunk_endorsement_stats",
+            Error::InvalidChunkExecutionRoot(_) => "invalid_chunk_execution_root",
         }
     }
 }

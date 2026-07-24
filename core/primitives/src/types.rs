@@ -2,6 +2,7 @@ use self::chunk_extra::ChunkExtra;
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
+use crate::merkle::merklize;
 use crate::shard_layout::ShardLayout;
 use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
@@ -1329,7 +1330,18 @@ pub struct StateChangesForShard {
 
 /// In spice missing chunks and equivalent to empty chunks so block hash and shard id always
 /// uniquely identifies chunks.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    BorshSerialize,
+    BorshDeserialize,
+    ProtocolSchema,
+)]
 pub struct SpiceChunkId {
     pub block_hash: CryptoHash,
     pub shard_id: ShardId,
@@ -1340,6 +1352,55 @@ pub struct SpiceChunkId {
 pub struct ChunkExecutionResult {
     pub chunk_extra: ChunkExtra,
     pub outgoing_receipts_root: CryptoHash,
+}
+
+/// Merkle leaf committing to a single chunk's certified execution roots.
+/// The `chunk_execution_root` in a spice block header is the merkle root over
+/// these leaves, sorted by `chunk_id`.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum ChunkExecutionRoots {
+    V1(ChunkExecutionRootsV1),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkExecutionRootsV1 {
+    pub chunk_id: SpiceChunkId,
+    pub state_root: CryptoHash,
+    pub outcome_root: CryptoHash,
+    pub outgoing_receipts_root: CryptoHash,
+}
+
+impl ChunkExecutionRoots {
+    pub fn chunk_id(&self) -> &SpiceChunkId {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.chunk_id,
+        }
+    }
+
+    pub fn from_execution_result(
+        chunk_id: &SpiceChunkId,
+        execution_result: &ChunkExecutionResult,
+    ) -> Self {
+        ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
+            chunk_id: chunk_id.clone(),
+            state_root: *execution_result.chunk_extra.state_root(),
+            outcome_root: *execution_result.chunk_extra.outcome_root(),
+            outgoing_receipts_root: execution_result.outgoing_receipts_root,
+        })
+    }
+}
+
+/// Merkle root over the block's certified chunk execution results, sorted by `chunk_id`.
+pub fn compute_chunk_execution_root<'a>(
+    execution_results: impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)>,
+) -> CryptoHash {
+    let mut leaves: Vec<ChunkExecutionRoots> = execution_results
+        .map(|(chunk_id, execution_result)| {
+            ChunkExecutionRoots::from_execution_result(chunk_id, execution_result)
+        })
+        .collect();
+    leaves.sort_by(|a, b| a.chunk_id().cmp(b.chunk_id()));
+    merklize(&leaves).0
 }
 
 /// Execution results for all shards in the block.
@@ -1404,9 +1465,77 @@ pub enum PromiseYieldStatus {
 
 #[cfg(test)]
 mod tests {
+    use super::chunk_extra::ChunkExtra;
     use super::validator_stake::ValidatorStake;
+    use super::{
+        ChunkExecutionResult, ChunkExecutionRoots, ChunkExecutionRootsV1, SpiceChunkId,
+        compute_chunk_execution_root,
+    };
+    use crate::bandwidth_scheduler::BandwidthRequests;
+    use crate::congestion_info::CongestionInfo;
+    use crate::hash::CryptoHash;
+    use crate::merkle::merklize;
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives_core::types::Balance;
+    use near_primitives_core::types::{Balance, Gas, ShardId};
+
+    fn execution_result(
+        state_root: CryptoHash,
+        outcome_root: CryptoHash,
+        outgoing_receipts_root: CryptoHash,
+    ) -> ChunkExecutionResult {
+        let chunk_extra = ChunkExtra::new(
+            &state_root,
+            outcome_root,
+            vec![],
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            Some(CongestionInfo::default()),
+            BandwidthRequests::empty(),
+            None,
+        );
+        ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
+    }
+
+    #[test]
+    fn test_chunk_execution_root_leaf_mapping_and_sorting() {
+        let block_hash = CryptoHash::hash_bytes(b"block");
+        let chunk_id_0 = SpiceChunkId { block_hash, shard_id: ShardId::new(0) };
+        let chunk_id_1 = SpiceChunkId { block_hash, shard_id: ShardId::new(1) };
+
+        let result_0 = execution_result(
+            CryptoHash::hash_bytes(b"state-0"),
+            CryptoHash::hash_bytes(b"outcome-0"),
+            CryptoHash::hash_bytes(b"receipts-0"),
+        );
+        let result_1 = execution_result(
+            CryptoHash::hash_bytes(b"state-1"),
+            CryptoHash::hash_bytes(b"outcome-1"),
+            CryptoHash::hash_bytes(b"receipts-1"),
+        );
+
+        // Feed the statements out of chunk_id order to exercise the sort.
+        let statements = [(&chunk_id_1, &result_1), (&chunk_id_0, &result_0)];
+        let got = compute_chunk_execution_root(statements.into_iter());
+
+        // Hand-build the leaves sorted by chunk_id with the intended field mapping.
+        let expected_leaves = vec![
+            ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
+                chunk_id: chunk_id_0.clone(),
+                state_root: *result_0.chunk_extra.state_root(),
+                outcome_root: *result_0.chunk_extra.outcome_root(),
+                outgoing_receipts_root: result_0.outgoing_receipts_root,
+            }),
+            ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
+                chunk_id: chunk_id_1.clone(),
+                state_root: *result_1.chunk_extra.state_root(),
+                outcome_root: *result_1.chunk_extra.outcome_root(),
+                outgoing_receipts_root: result_1.outgoing_receipts_root,
+            }),
+        ];
+        let expected = merklize(&expected_leaves).0;
+        assert_eq!(got, expected);
+    }
 
     fn new_validator_stake(stake: Balance) -> ValidatorStake {
         ValidatorStake::new(

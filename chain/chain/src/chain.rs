@@ -36,7 +36,10 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::{validate_chunk_with_chunk_extra, validate_optimistic_block_relevant};
+use crate::validate::{
+    validate_chunk_with_chunk_extra, validate_optimistic_block_relevant,
+    validate_spice_chunk_execution_root,
+};
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -2537,6 +2540,11 @@ impl Chain {
 
         if !ProtocolFeature::Spice.enabled(protocol_version) {
             validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
+        } else {
+            validate_spice_chunk_execution_root(
+                block.header().chunk_execution_root(),
+                block.spice_core_statements(),
+            )?;
         }
 
         self.ping_missing_chunks(prev_hash, block)?;

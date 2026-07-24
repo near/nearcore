@@ -6,6 +6,7 @@ use borsh::BorshSerialize;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::BlockHeader;
+use near_primitives::block_body::SpiceCoreStatements;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -15,7 +16,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunkBody, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId, compute_chunk_execution_root};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Verifies that chunk's proofs in the header match the body.
@@ -224,6 +225,28 @@ pub fn validate_block_shard_split(
         )));
     }
 
+    Ok(())
+}
+
+/// Verify that a spice block header's `chunk_execution_root` matches the merkle
+/// root recomputed from the block's certified chunk execution results. Called
+/// only for spice blocks, whose headers must carry the root; a missing root is
+/// rejected.
+pub fn validate_spice_chunk_execution_root(
+    header_chunk_execution_root: Option<CryptoHash>,
+    core_statements: &SpiceCoreStatements,
+) -> Result<(), Error> {
+    let Some(header_root) = header_chunk_execution_root else {
+        return Err(Error::InvalidChunkExecutionRoot(
+            "spice block header is missing chunk_execution_root".to_string(),
+        ));
+    };
+    let body_root = compute_chunk_execution_root(core_statements.iter_execution_results());
+    if header_root != body_root {
+        return Err(Error::InvalidChunkExecutionRoot(format!(
+            "header {header_root} does not match body {body_root}"
+        )));
+    }
     Ok(())
 }
 
