@@ -2032,6 +2032,9 @@ impl<T: ChainAccess> TxMirror<T> {
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
             finality: Finality::Final,
             validate_genesis: false,
+            // The target is a forked chain; receipts inherited in its genesis
+            // state have no producing block on this chain, so skip them.
+            tolerate_missing_local_receipts: true,
         };
         let near_config =
             indexer_config.load_near_config().context("failed to load near config").unwrap();

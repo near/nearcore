@@ -473,6 +473,7 @@ fn start_indexer_with_shard_tracker(
         await_for_node_synced: AwaitForNodeSyncedEnum::StreamWhileSyncing,
         finality: Finality::None,
         validate_genesis: false,
+        tolerate_missing_local_receipts: false,
     };
 
     let store_config =
