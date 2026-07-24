@@ -15,13 +15,19 @@ use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::partial_witness::{
+    MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
+};
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -134,15 +140,25 @@ fn test_producer_with_expired_transactions() {
         assert_eq!(actual, Balance::from_near(1000000), "no transfers should have happened");
     }
 
-    let Some(applied_tx_metric) = near_o11y::metrics::prometheus::gather()
-        .into_iter()
-        .find(|m| m.name() == "near_transaction_applied_total")
-    else {
-        panic!("no applied transactions metric found");
-    };
-    let [metric] = applied_tx_metric.get_metric() else { panic!("unexpected metric shape") };
-    let applied_txs = metric.get_counter().get_value();
-    assert_eq!(applied_txs, 76.0, "should have applied the submitted transactions");
+    // Count the transactions the malicious producer forced into its chunks. We read this from the
+    // producer's own chain rather than the `near_transaction_applied_total` metric: that metric is
+    // a process-global counter shared by every test in the binary, so it's polluted by other tests
+    // running concurrently. Walking this node's chunks is deterministic and isolated.
+    let mut included_txs = 0;
+    let mut block = node.head_block();
+    while block.header().height() > 10000 {
+        let chunks = node.block_chunks(&block);
+        // Only count chunks newly produced at this height. A skipped chunk is carried forward into
+        // subsequent blocks under the same hash; its `chunk_mask` bit is false there, so gating on
+        // the mask avoids double-counting its transactions.
+        for (chunk, is_new) in chunks.iter().zip(block.header().chunk_mask()) {
+            if *is_new {
+                included_txs += chunk.to_transactions().len();
+            }
+        }
+        block = node.block(*block.header().prev_hash());
+    }
+    assert_eq!(included_txs, 26, "producer should have included the submitted transactions");
 }
 
 #[test]
@@ -206,6 +222,99 @@ fn test_producer_sending_large_encoded_length_chunks() {
     }));
 
     env.node_runner(0).run_for_number_of_blocks(10);
+}
+
+/// Verifies that a partial state witness whose `encoded_length` exceeds
+/// `MAX_COMPRESSED_STATE_WITNESS_SIZE` is rejected at validation time, before
+/// it can be stored or forwarded to other chunk validators.
+///
+/// Setup: 3 validators so that node 1 has node 2 to forward to. Node 0's
+/// outbound partial witnesses are intercepted and their `encoded_length`
+/// inflated above the cap (re-signed by node 0). Node 1's outbound is watched
+/// for any `PartialEncodedStateWitnessForward` carrying an inflated witness:
+/// with the fix in `validate_partial_encoded_state_witness`, validation
+/// rejects the part before forwarding and the flag stays false.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(3, 0).build();
+
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
+
+    // Node 0's owned-part distribution addresses one part to node 1 (the node whose forwarding we
+    // watch below). We inflate it and record that node 1 was actually sent an inflated inbound
+    // part, so the "did not forward" assertion can't pass vacuously (e.g. if node 1 never received
+    // an inflated part in the first place).
+    let recipient_account = create_validator_id(1);
+    let inflated_reached_recipient = Arc::new(AtomicBool::new(false));
+    let inflated_reached_recipient_clone = Arc::clone(&inflated_reached_recipient);
+    let producer_pm_handle = env.node_datas[0].peer_manager_sender.actor_handle();
+    let producer_pm_actor = env.test_loop.data.get_mut(&producer_pm_handle);
+    producer_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        match request {
+            NetworkRequests::PartialEncodedStateWitness(parts) => {
+                let inflated = parts
+                    .into_iter()
+                    .map(|(account_id, witness)| {
+                        let key = witness.chunk_production_key();
+                        let chunk_producer_info =
+                            epoch_manager.get_chunk_producer_info(&key).unwrap();
+                        let signer = create_test_signer(chunk_producer_info.account_id().as_str());
+                        let dummy_header = ShardChunkHeader::new_dummy(
+                            key.height_created,
+                            key.shard_id,
+                            CryptoHash::default(),
+                        );
+                        let part_ord = witness.part_ord();
+                        let part = witness.into_part().into_vec();
+                        let new_witness = VersionedPartialEncodedStateWitness::new(
+                            key.epoch_id,
+                            dummy_header,
+                            CryptoHash::default(),
+                            part_ord,
+                            part,
+                            (MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize) + 1,
+                            &signer,
+                            PROTOCOL_VERSION,
+                        );
+                        if account_id == recipient_account {
+                            inflated_reached_recipient_clone.store(true, Ordering::Relaxed);
+                        }
+                        (account_id, new_witness)
+                    })
+                    .collect();
+                HandlerResult::Unhandled(NetworkRequests::PartialEncodedStateWitness(inflated))
+            }
+            _ => HandlerResult::Unhandled(request),
+        }
+    }));
+
+    let inflated_forward_seen = Arc::new(AtomicBool::new(false));
+    let inflated_forward_seen_clone = Arc::clone(&inflated_forward_seen);
+    let recipient_pm_handle = env.node_datas[1].peer_manager_sender.actor_handle();
+    let recipient_pm_actor = env.test_loop.data.get_mut(&recipient_pm_handle);
+    recipient_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        if let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = &request {
+            if witness.encoded_length() > MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize {
+                inflated_forward_seen_clone.store(true, Ordering::Relaxed);
+            }
+        }
+        HandlerResult::Unhandled(request)
+    }));
+
+    env.node_runner(0).run_for_number_of_blocks(15);
+
+    assert!(
+        inflated_reached_recipient.load(Ordering::Relaxed),
+        "test setup invariant: node 1 should have been sent an inflated inbound witness part",
+    );
+    assert!(
+        !inflated_forward_seen.load(Ordering::Relaxed),
+        "node 1 should reject inflated witness at validation and not forward it",
+    );
 }
 
 /// Tests chain behavior when a malicious chunk producer withholds chunk parts
