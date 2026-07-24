@@ -25,7 +25,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId,
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId, SpiceChunkId,
 };
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::QueryRequest;
@@ -1115,4 +1115,53 @@ fn test_spice_block_rejected_on_chunk_execution_root_mismatch() {
 
     let result = client.process_block_test(block.into(), Provenance::NONE);
     assert_matches!(result, Err(Error::InvalidChunkExecutionRoot(_)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chunk_certifying_block_index() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(2, 0).delay_warmup().build();
+    // Certification lags consensus, so at the final head older chunks are
+    // certified by final blocks while recent ones are not certified yet.
+    env.delay_endorsements_propagation(4);
+    let mut env = env.warmup();
+
+    let genesis_height = env.node(0).client().chain.genesis().height();
+    env.node_runner(0).run_until_certified(genesis_height + 10);
+
+    let chain_store = &env.node(0).client().chain.chain_store;
+    let final_head = chain_store.final_head().unwrap();
+    let head = chain_store.head().unwrap();
+    assert!(head.height > final_head.height, "expected a non-final block above the final head");
+
+    // Ground truth over the whole canonical chain: a chunk is indexed iff a final
+    // block certified it. Collect every chunk and, from final blocks only, the
+    // block that certified it.
+    let mut certified_by_final: HashMap<SpiceChunkId, CryptoHash> = HashMap::new();
+    let mut chunks: Vec<SpiceChunkId> = Vec::new();
+    let mut hash = head.last_block_hash;
+    loop {
+        let block = chain_store.get_block(&hash).unwrap();
+        for chunk in block.chunks().iter() {
+            chunks.push(SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() });
+        }
+        if block.header().height() <= final_head.height {
+            for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+                certified_by_final.insert(chunk_id.clone(), *block.hash());
+            }
+        }
+        let prev_hash = *block.header().prev_hash();
+        if prev_hash == CryptoHash::default() {
+            break;
+        }
+        hash = prev_hash;
+    }
+    assert!(!certified_by_final.is_empty(), "expected some chunks certified by a final block");
+
+    for chunk_id in &chunks {
+        let expected = certified_by_final.get(chunk_id).copied();
+        assert_eq!(chain_store.get_chunk_certifying_block(chunk_id), expected);
+    }
 }

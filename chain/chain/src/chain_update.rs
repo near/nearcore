@@ -28,10 +28,11 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId, SpiceChunkId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreUpdateAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::mem;
 use std::sync::Arc;
@@ -414,11 +415,59 @@ impl<'a> ChainUpdate<'a> {
             };
         if last_final_block_header.height() > final_head.height {
             let tip = Tip::from_header(&last_final_block_header);
+            self.record_chunk_certifying_blocks(&last_final_block_header, final_head.height)?;
             self.chain_store_update.save_final_head(&tip)?;
             Ok(Some(tip))
         } else {
             Ok(None)
         }
+    }
+
+    /// For spice, records each newly-final block as the certifying block of the
+    /// chunks it certifies. Finalized blocks never reorg, so entries are write-once.
+    fn record_chunk_certifying_blocks(
+        &mut self,
+        new_final_header: &BlockHeader,
+        previous_final_height: BlockHeight,
+    ) -> Result<(), Error> {
+        if new_final_header.chunk_execution_root().is_none() {
+            return Ok(());
+        }
+        let mut certified: Vec<(SpiceChunkId, CryptoHash)> = Vec::new();
+        let mut hash = *new_final_header.hash();
+        loop {
+            let block = match self.chain_store_update.get_block(&hash) {
+                Ok(block) => block,
+                // Below the retained range, e.g. after a state-sync final-head reset;
+                // a node cannot record certifying blocks it no longer stores.
+                Err(Error::DBNotFoundErr(_)) => break,
+                Err(err) => return Err(err),
+            };
+            if block.header().height() <= previous_final_height {
+                break;
+            }
+            let block_hash = *block.hash();
+            for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+                certified.push((chunk_id.clone(), block_hash));
+            }
+            let prev_hash = *block.header().prev_hash();
+            if prev_hash == CryptoHash::default() {
+                break;
+            }
+            hash = prev_hash;
+        }
+        if certified.is_empty() {
+            return Ok(());
+        }
+        let mut store_update = self.chain_store_update.store().store_update();
+        {
+            let mut adapter = ChainStoreUpdateAdapter::new(&mut store_update);
+            for (chunk_id, block_hash) in &certified {
+                adapter.set_chunk_certifying_block(chunk_id, block_hash);
+            }
+        }
+        self.chain_store_update.merge(store_update);
+        Ok(())
     }
 
     /// Directly updates the head if we've just appended a new block to it or handle
