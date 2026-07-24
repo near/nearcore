@@ -84,6 +84,9 @@ mod function_call_error {
                     Self::ExecutionError(format!("Loading Error: {}", msg))
                 }
                 From::WasmUnknownError { msg } => Self::ExecutionError(msg),
+                From::WasmCompilationUnknownError { msg } => {
+                    Self::ExecutionError(format!("Unknown Compilation Error: {msg}"))
+                }
                 From::WasmTrap(ref _e) => Self::ExecutionError(outer_err.to_string()),
             }
         }

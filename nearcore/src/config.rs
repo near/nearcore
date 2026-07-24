@@ -430,6 +430,12 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 
+    /// Optional path to the compiler daemon executable.
+    ///
+    /// Relative paths are interpreted relative to `home_dir`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compiler_daemon_binary_path: Option<PathBuf>,
+
     /// Location where to store a cache of compiled contracts.
     ///
     /// This cache can be manually emptied occasionally to keep storage usage down and does not
@@ -527,6 +533,7 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             contract_cache_max_size: ByteSize::gb(128),
+            compiler_daemon_binary_path: None,
             contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,

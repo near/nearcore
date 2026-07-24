@@ -179,7 +179,7 @@ fn test_wasmtime_artifact_output_stability() {
         }
         let vm = WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into()))
             .unwrap();
-        let serialized = vm.compile_uncached(&contract).unwrap();
+        let serialized = vm.compile_uncached(&contract).unwrap().unwrap();
         let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
@@ -228,7 +228,7 @@ fn test_wasmtime_sparse_contract_compiled_size() {
     let contract = ContractCode::new(sparse_wasm_contract(), None);
     let config = test_vm_config(Some(VMKind::Wasmtime));
     let vm = WasmtimeVM::new_for_target(Arc::new(config), None).unwrap();
-    let serialized = vm.compile_uncached(&contract).unwrap();
+    let serialized = vm.compile_uncached(&contract).unwrap().unwrap();
     assert!(
         serialized.len() < 500_000,
         "sparse contract compiled to {} bytes; check memory_guaranteed_dense_image_size",
@@ -254,7 +254,7 @@ fn test_wasmtime_sparse_contract_stability() {
     let prepared_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
     let vm =
         WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into())).unwrap();
-    let serialized = vm.compile_uncached(&contract).unwrap();
+    let serialized = vm.compile_uncached(&contract).unwrap().unwrap();
     let compiled_hash = crate::utils::stable_hash(&serialized);
 
     assert!(

@@ -30,7 +30,7 @@ use near_store::{
     get_gas_key_nonce,
 };
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
-use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache};
 use std::num::NonZeroU32;
 use std::ops::Bound;
 use std::{str, sync::Arc, time::Instant};
@@ -477,6 +477,8 @@ impl TrieViewer {
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
             apply_state.shard_id,
+            // View calls are user-facing (RPC) but off the block-production path.
+            CompilePriority::Interactive,
         );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
         let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });

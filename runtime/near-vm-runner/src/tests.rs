@@ -1,6 +1,8 @@
 mod cache;
 mod chain_id_integration;
 mod compile_errors;
+#[cfg(feature = "wasmtime_vm")]
+mod compiler_daemon;
 #[cfg(feature = "prepare")]
 mod fuzzers;
 mod p256_verify_integration;

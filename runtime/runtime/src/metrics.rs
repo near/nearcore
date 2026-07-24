@@ -289,6 +289,14 @@ pub static FUNCTION_CALL_PROCESSED_WASM_UNKNOWN_ERRORS: LazyLock<IntCounter> = L
     .unwrap()
     },
 );
+pub static FUNCTION_CALL_PROCESSED_WASM_COMPILATION_UNKNOWN_ERRORS: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_function_call_processed_wasm_compilation_unknown_errors",
+            "the number of function calls soft-failed due to an unknown Wasm compilation error, since starting this node",
+        )
+        .unwrap()
+    });
 pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_function_call_processed_cache_errors",

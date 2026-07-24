@@ -81,6 +81,7 @@ use near_store::{
     set_access_key_by_handle, set_account, set_gas_key_nonce, set_postponed_receipt,
     set_promise_yield_receipt, set_received_data,
 };
+use near_vm_runner::CompilePriority;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
@@ -3132,6 +3133,7 @@ impl<'a> ApplyProcessingState<'a> {
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
             self.apply_state.shard_id,
+            CompilePriority::Critical,
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3301,6 +3303,7 @@ pub mod estimator {
     use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};
+    use near_vm_runner::CompilePriority;
     use std::collections::HashMap;
     use std::collections::VecDeque;
     use std::num::NonZeroU64;
@@ -3353,6 +3356,7 @@ pub mod estimator {
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
             apply_state.shard_id,
+            CompilePriority::Critical,
         );
         let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(
