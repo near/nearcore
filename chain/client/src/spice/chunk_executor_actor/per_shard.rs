@@ -45,8 +45,8 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use node_runtime::SignedValidPeriodTransactions;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -473,6 +473,15 @@ impl PerShardChunkExecutor {
         }
         // RPC nodes skip endorsement/distribution above; persistence below still runs.
         let mut store_update = self.chain_store.store().store_update();
+        // The chain path persists produced-receipt bodies when it saves the
+        // partial chunk; spice chunks are tx-only, so persist them here instead so
+        // they stay fetchable by id once consumed as incoming receipts later. Same
+        // `store_update` as the `ChunkExtra` write below, so a replay that finds
+        // the chunk extra skips this and avoids double-incrementing the refcount.
+        // The matching decrement is `gc_spice_outgoing_receipt_bodies`.
+        for receipt in &new_chunk_result.apply_result.outgoing_receipts {
+            store_update.chain_store_update().save_receipt(receipt);
+        }
         apply_chunk_postprocessing(
             &mut store_update,
             self.runtime_adapter.as_ref(),
