@@ -147,8 +147,14 @@ fn test_producer_with_expired_transactions() {
     let mut included_txs = 0;
     let mut block = node.head_block();
     while block.header().height() > 10000 {
-        for chunk in node.block_chunks(&block) {
-            included_txs += chunk.to_transactions().len();
+        let chunks = node.block_chunks(&block);
+        // Only count chunks newly produced at this height. A skipped chunk is carried forward into
+        // subsequent blocks under the same hash; its `chunk_mask` bit is false there, so gating on
+        // the mask avoids double-counting its transactions.
+        for (chunk, is_new) in chunks.iter().zip(block.header().chunk_mask()) {
+            if *is_new {
+                included_txs += chunk.to_transactions().len();
+            }
         }
         block = node.block(*block.header().prev_hash());
     }
@@ -238,8 +244,13 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
 
-    let any_witness_inflated = Arc::new(AtomicBool::new(false));
-    let any_witness_inflated_clone = Arc::clone(&any_witness_inflated);
+    // Node 0's owned-part distribution addresses one part to node 1 (the node whose forwarding we
+    // watch below). We inflate it and record that node 1 was actually sent an inflated inbound
+    // part, so the "did not forward" assertion can't pass vacuously (e.g. if node 1 never received
+    // an inflated part in the first place).
+    let recipient_account = create_validator_id(1);
+    let inflated_reached_recipient = Arc::new(AtomicBool::new(false));
+    let inflated_reached_recipient_clone = Arc::clone(&inflated_reached_recipient);
     let producer_pm_handle = env.node_datas[0].peer_manager_sender.actor_handle();
     let producer_pm_actor = env.test_loop.data.get_mut(&producer_pm_handle);
     producer_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
@@ -269,10 +280,12 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
                             &signer,
                             PROTOCOL_VERSION,
                         );
+                        if account_id == recipient_account {
+                            inflated_reached_recipient_clone.store(true, Ordering::Relaxed);
+                        }
                         (account_id, new_witness)
                     })
                     .collect();
-                any_witness_inflated_clone.store(true, Ordering::Relaxed);
                 HandlerResult::Unhandled(NetworkRequests::PartialEncodedStateWitness(inflated))
             }
             _ => HandlerResult::Unhandled(request),
@@ -295,8 +308,8 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
     env.node_runner(0).run_for_number_of_blocks(15);
 
     assert!(
-        any_witness_inflated.load(Ordering::Relaxed),
-        "test setup invariant: at least one outbound witness from node 0 should have been inflated",
+        inflated_reached_recipient.load(Ordering::Relaxed),
+        "test setup invariant: node 1 should have been sent an inflated inbound witness part",
     );
     assert!(
         !inflated_forward_seen.load(Ordering::Relaxed),
