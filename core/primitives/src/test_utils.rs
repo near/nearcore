@@ -607,6 +607,13 @@ impl BlockHeader {
         }
     }
 
+    pub fn set_chunk_execution_root(&mut self, value: CryptoHash) {
+        match self {
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.chunk_execution_root = value,
+            _ => unreachable!("chunk_execution_root only exists on spice headers (V7)"),
+        }
+    }
+
     pub fn set_prev_state_root(&mut self, value: MerkleHash) {
         match self {
             BlockHeader::BlockHeaderV1(_)

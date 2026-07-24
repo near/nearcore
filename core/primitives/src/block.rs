@@ -16,6 +16,8 @@ use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 #[cfg(feature = "clock")]
 use crate::types::AccountId;
+#[cfg(feature = "clock")]
+use crate::types::compute_chunk_execution_root;
 use crate::types::{
     Balance, BlockExecutionResults, BlockHeight, EpochId, Gas, SpiceChunkEndorsementStats,
 };
@@ -271,6 +273,10 @@ impl Block {
             BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements)
         };
 
+        let chunk_execution_root = body.is_spice_block().then(|| {
+            compute_chunk_execution_root(body.spice_core_statements().iter_execution_results())
+        });
+
         let header = BlockHeader::new(
             current_protocol_version,
             latest_protocol_version,
@@ -303,6 +309,7 @@ impl Block {
             shard_split,
             prev_last_certified_block_epoch_id,
             spice_chunk_endorsement_stats,
+            chunk_execution_root,
         );
 
         Self::new_block(header, body)
