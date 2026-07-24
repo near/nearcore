@@ -1393,6 +1393,7 @@ mod tests {
     use super::{KeyType, PublicKey, SecretKey, Signature};
 
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_sign_verify() {
         for key_type in [KeyType::ED25519, KeyType::SECP256K1, KeyType::MLDSA65] {
@@ -1489,6 +1490,7 @@ mod tests {
     }
 
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_borsh_serialization() {
         use borsh::BorshDeserialize;
@@ -1523,6 +1525,7 @@ mod tests {
     /// `1 + ML_DSA_65_PUBLIC_KEY_LENGTH = 1953` bytes (one tag byte + the
     /// raw key bytes), and the leading tag must be `2`.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_borsh_tag_and_length() {
         use super::ML_DSA_65_PUBLIC_KEY_LENGTH;
@@ -1537,6 +1540,7 @@ mod tests {
     /// input length ≤ 65). ML-DSA-65 pubkeys are 1952 bytes; encoding them
     /// must work in both display and parse-roundtrip.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_display_roundtrip() {
         let sk = SecretKey::from_seed(KeyType::MLDSA65, "display-test");
@@ -1570,6 +1574,7 @@ mod tests {
 
     /// ML-DSA-65 verify must reject a signature produced by a different key.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_wrong_key_rejected() {
         use sha2::Digest;
@@ -1583,6 +1588,7 @@ mod tests {
 
     /// Tampering with the message must invalidate the signature.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_tampered_message_rejected() {
         use sha2::Digest;
@@ -1597,6 +1603,7 @@ mod tests {
 
     /// Tampering with the signature bytes must cause verify to return false.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_tampered_signature_rejected() {
         use borsh::BorshDeserialize;
@@ -1614,6 +1621,7 @@ mod tests {
 
     /// `from_seed` must be deterministic - same seed in, same key out.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_from_seed_deterministic() {
         let sk1 = SecretKey::from_seed(KeyType::MLDSA65, "deterministic-seed");
@@ -1624,6 +1632,7 @@ mod tests {
     /// Cross-scheme verification must always fail (signature.verify against a
     /// different-curve pubkey returns false, never panics).
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_cross_scheme_verify_returns_false() {
         use sha2::Digest;
@@ -1642,6 +1651,7 @@ mod tests {
 
     /// Verify pubkey/signature length invariants for ML-DSA-65.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_byte_lengths() {
         use super::{ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SIGNATURE_LENGTH};
@@ -1685,6 +1695,7 @@ mod tests {
     /// `MlDsa65PublicKey::to_public_key_handle()` must be deterministic, 32 bytes,
     /// and distinct between different keys.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_pubkey_hash_deterministic() {
         let pk1 = SecretKey::from_seed(KeyType::MLDSA65, "hash-1").public_key();
@@ -1750,6 +1761,7 @@ mod tests {
     /// hash) must never decode as a `PublicKey`, and tag 2 (the full
     /// ML-DSA-65 pubkey) must never decode as a `PublicKeyHandle`.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_reserved_tags_rejected_both_ways() {
         use super::{KeyTag, PublicKeyHandle};
@@ -1771,6 +1783,7 @@ mod tests {
     /// `PublicKeyHandle::trie_id_len` matches the hash size for ML-DSA-65 and
     /// the borsh length for the other schemes.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_key_handle_trie_id_len_per_scheme() {
         use super::PublicKeyHandle;
@@ -1815,6 +1828,7 @@ mod tests {
     /// across versions must always agree on the same (pk, msg, sig)
     /// triple. The round-trip below catches verify regressions.
     #[cfg(feature = "rand")]
+    #[cfg(feature = "aws-lc-rs")]
     #[test]
     fn test_ml_dsa_65_known_answer() {
         const KAT_SEED: &str = "kat-seed-v1";
