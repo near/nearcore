@@ -1,6 +1,6 @@
 ---
-source: core/primitives/src/views.rs
-expression: "&view"
+source: core/parameters/src/config_store.rs
+expression: config_view
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
