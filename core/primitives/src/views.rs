@@ -40,12 +40,13 @@ use crate::transaction::{
     ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
+use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
-    Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, ChunkExecutionRoots, EpochHeight,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats,
+    StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
+    StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -2766,6 +2767,51 @@ impl LightClientBlockLiteView {
             &combine_hash(&hash(&inner_lite_bytes), &self.inner_rest_hash),
             &self.prev_block_hash,
         )
+    }
+}
+
+/// Proof that a chunk's certified execution roots are committed by a spice block
+/// that a light client can trust via its `light_client_head`.
+///
+/// `roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;
+/// `certifying_block_proof` places the certifying block into the head's block merkle tree.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkExecutionProofView {
+    pub roots: ChunkExecutionRoots,
+    pub roots_proof: MerklePath,
+    pub certifying_block_header_lite: LightClientBlockLiteView,
+    pub certifying_block_proof: MerklePath,
+}
+
+/// Which piece of a shard's state a light-client state proof targets.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "target_type", rename_all = "snake_case")]
+pub enum StateProofTarget {
+    Account { account_id: AccountId },
+    ContractCode { account_id: AccountId },
+    ContractData { account_id: AccountId, key: StoreKey },
+    AccessKey { account_id: AccountId, public_key: PublicKey },
+}
+
+impl StateProofTarget {
+    pub fn to_trie_key(&self) -> TrieKey {
+        match self {
+            StateProofTarget::Account { account_id } => {
+                TrieKey::Account { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractCode { account_id } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractData { account_id, key } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: key.clone().into() }
+            }
+            StateProofTarget::AccessKey { account_id, public_key } => TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                key_handle: public_key.clone().into(),
+            },
+        }
     }
 }
 

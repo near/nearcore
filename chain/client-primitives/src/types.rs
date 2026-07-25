@@ -5,11 +5,12 @@ use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
-    MaybeBlockId, ShardId, TransactionOrReceiptId,
+    MaybeBlockId, ShardId, SpiceChunkId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
-    StateChangesRequestView, StateSyncStatusView, SyncStatusView, TxStatusView,
+    ChunkExecutionProofView, EpochSyncStatusView, ExecutionOutcomeWithIdView,
+    LightClientBlockLiteView, QueryRequest, StateChangesRequestView, StateItem, StateProofTarget,
+    StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -912,6 +913,78 @@ impl From<near_chain_primitives::error::Error> for GetBlockProofError {
                 Self::InternalError { error_message }
             }
             err => Self::Unreachable { error_message: err.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GetLightClientChunkExecutionProof {
+    pub chunk_id: SpiceChunkId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientExecutionOutcomeProof {
+    pub id: TransactionOrReceiptId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientExecutionOutcomeProofResponse {
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    pub outcome_proof: ExecutionOutcomeWithIdView,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientStateProof {
+    pub chunk_id: SpiceChunkId,
+    pub target: StateProofTarget,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientStateProofResponse {
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    pub value: Option<StateItem>,
+    pub state_proof: Vec<Arc<[u8]>>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetLightClientProofError {
+    #[error("chunk {chunk_id:?} is not yet certified")]
+    ChunkNotCertified { chunk_id: SpiceChunkId },
+    #[error(
+        "light client head at height {head_height} is behind the block certifying chunk \
+         {chunk_id:?}, which needs head height >= {required_head_height}"
+    )]
+    LightClientHeadTooOld {
+        chunk_id: SpiceChunkId,
+        required_head_height: BlockHeight,
+        head_height: BlockHeight,
+    },
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: \
+         {error_message}"
+    )]
+    UnknownBlock { error_message: String },
+    #[error("{transaction_or_receipt_id} does not exist")]
+    UnknownTransactionOrReceipt { transaction_or_receipt_id: CryptoHash },
+    #[error("node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: ShardId },
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetLightClientProofError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::error::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            near_chain_primitives::error::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
+            }
+            err => Self::InternalError { error_message: err.to_string() },
         }
     }
 }

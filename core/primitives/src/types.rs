@@ -1340,8 +1340,11 @@ pub struct StateChangesForShard {
     Ord,
     BorshSerialize,
     BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SpiceChunkId {
     pub block_hash: CryptoHash,
     pub shard_id: ShardId,
@@ -1357,12 +1360,34 @@ pub struct ChunkExecutionResult {
 /// Merkle leaf committing to a single chunk's certified execution roots.
 /// The `chunk_execution_root` in a spice block header is the merkle root over
 /// these leaves, sorted by `chunk_id`.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ChunkExecutionRoots {
     V1(ChunkExecutionRootsV1),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkExecutionRootsV1 {
     pub chunk_id: SpiceChunkId,
     pub state_root: CryptoHash,
@@ -1390,16 +1415,24 @@ impl ChunkExecutionRoots {
     }
 }
 
-/// Merkle root over the block's certified chunk execution results, sorted by `chunk_id`.
-pub fn compute_chunk_execution_root<'a>(
+/// Leaves for the block's certified chunk execution results, sorted by `chunk_id`.
+pub fn sorted_chunk_execution_roots<'a>(
     execution_results: impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)>,
-) -> CryptoHash {
+) -> Vec<ChunkExecutionRoots> {
     let mut leaves: Vec<ChunkExecutionRoots> = execution_results
         .map(|(chunk_id, execution_result)| {
             ChunkExecutionRoots::from_execution_result(chunk_id, execution_result)
         })
         .collect();
     leaves.sort_by(|a, b| a.chunk_id().cmp(b.chunk_id()));
+    leaves
+}
+
+/// Merkle root over the block's certified chunk execution results, sorted by `chunk_id`.
+pub fn compute_chunk_execution_root<'a>(
+    execution_results: impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)>,
+) -> CryptoHash {
+    let leaves = sorted_chunk_execution_roots(execution_results);
     merklize(&leaves).0
 }
 
