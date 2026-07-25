@@ -27,7 +27,8 @@ struct BlockHeader {
     prev_hash: BlockHash,
     height: BlockHeight,
     epoch_id: EpochId,
-    last_final_block_hash: BlockHash,
+    last_final_block: BlockHash,
+    last_ds_final_block: BlockHash,
     approvals: Vec<Option<Signature>>
     ...
 }
@@ -154,11 +155,10 @@ We first define a convenience function to fetch approvals that can be included i
 
 ```python
 def get_approvals(self, target_height):
-    return [approval for approval
-                     in self.approvals
-                     if approval.target_height == target_height and
-                        (isinstance(approval.inner, Skip) and approval.prev_height == self.head_height or
-                         isinstance(approval.inner, Endorsement) and approval.prev_hash == self.head_hash)]
+    return [approval for approval in self.approvals
+            if approval.target_height == target_height and
+               ((isinstance(approval.inner, Skip) and approval.inner.height == self.head_height) or
+                (isinstance(approval.inner, Endorsement) and approval.inner.block_hash == self.head_hash))]
 ```
 
 A block producer assigned for a particular height produces a block at that height whenever they have `get_approvals` return approvals from block producers whose stake collectively exceeds 2/3 of the total stake.
