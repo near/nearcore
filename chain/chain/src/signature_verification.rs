@@ -57,6 +57,24 @@ pub fn verify_chunk_header_signature_by_hash_and_parts(
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 
+/// Verify a chunk header signature by resolving the producer from `epoch_id`
+/// (epoch-based).
+pub fn verify_chunk_header_signature_with_epoch_manager(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_header: &ShardChunkHeader,
+    epoch_id: EpochId,
+) -> Result<bool, Error> {
+    let key = ChunkProductionKey {
+        epoch_id,
+        height_created: chunk_header.height_created(),
+        shard_id: chunk_header.shard_id(),
+    };
+    let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
+    Ok(chunk_header
+        .signature()
+        .verify(chunk_header.chunk_hash().as_ref(), chunk_producer.public_key()))
+}
+
 pub fn verify_block_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,

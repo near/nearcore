@@ -98,6 +98,7 @@ use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
     resolve_and_verify_anchored_producer, verify_chunk_header_signature_by_hash,
     verify_chunk_header_signature_by_hash_and_parts,
+    verify_chunk_header_signature_with_epoch_manager,
 };
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
@@ -1412,9 +1413,10 @@ impl ShardsManagerActor {
     }
 
     /// Preliminary chunk header validation. Checks shard_id and protocol_version
-    /// using epoch-based resolution. Does NOT check the signature — that requires
-    /// the chunk producer from the DB (via prev_block_hash), which may not be
-    /// available yet. Signature is verified later in `validate_chunk_header_full`.
+    /// using epoch-based resolution, and verifies the producer signature at arrival:
+    /// under `EarlyKickout` via the anchored producer lookup, otherwise
+    /// via epoch-based producer resolution. This drops an unauthenticated
+    /// chunk before it is cached, so it cannot claim the dedup slot.
     ///
     // The epoch_id is resolved via a three-layer fallback:
     // 1) if prev_block_hash is processed, we use that
@@ -1435,9 +1437,6 @@ impl ShardsManagerActor {
         let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
             .entered();
 
-        // For pre-`EarlyKickout` messages the signature is intentionally NOT checked here — it
-        // requires the chunk producer resolved from `prev_block_hash`, which may not be available
-        // yet, so it is verified later in `validate_chunk_header_full`.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1510,8 +1509,28 @@ impl ShardsManagerActor {
             if !header.signature().verify(chunk_hash.as_ref(), producer.public_key()) {
                 return Err(Error::InvalidChunkSignature);
             }
+        } else {
+            // Pre-`EarlyKickout` (and spice) path: no producer reassignment exists, so the
+            // producer resolved epoch-based from `epoch_id` is authoritative.
+            self.verify_chunk_header_signature(header, epoch_id).map_err(err_mapper)?;
         }
 
+        Ok(())
+    }
+
+    fn verify_chunk_header_signature(
+        &self,
+        header: &ShardChunkHeader,
+        epoch_id: EpochId,
+    ) -> Result<(), Error> {
+        let sig_valid = verify_chunk_header_signature_with_epoch_manager(
+            self.epoch_manager.as_ref(),
+            header,
+            epoch_id,
+        )?;
+        if !sig_valid {
+            return Err(Error::InvalidChunkSignature);
+        }
         Ok(())
     }
 
