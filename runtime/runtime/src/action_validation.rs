@@ -138,7 +138,9 @@ fn validate_action_with_mode(
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
         Action::DeployGlobalContract(a) => validate_deploy_global_contract_action(limit_config, a),
         Action::UseGlobalContract(a) => validate_use_global_contract_action(a),
-        Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
+        Action::FunctionCall(a) => {
+            validate_function_call_action(limit_config, a, current_protocol_version, mode)
+        }
         Action::Transfer(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
@@ -245,14 +247,23 @@ fn validate_use_global_contract_action(
     Ok(())
 }
 
-/// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
-/// the length of the arguments doesn't exceed the limit.
+/// Validates `FunctionCallAction`. Checks that the method name is non-empty, that its length
+/// doesn't exceed the limit, and that the length of the arguments doesn't exceed the limit.
 fn validate_function_call_action(
     limit_config: &LimitConfig,
     action: &FunctionCallAction,
+    current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     if action.gas == Gas::ZERO {
         return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
+    }
+
+    if mode == ValidateReceiptMode::NewReceipt
+        && ProtocolFeature::RejectEmptyMethodName.enabled(current_protocol_version)
+        && action.method_name.is_empty()
+    {
+        return Err(ActionsValidationError::FunctionCallEmptyMethodName);
     }
 
     if action.method_name.len() as u64 > limit_config.max_length_method_name {

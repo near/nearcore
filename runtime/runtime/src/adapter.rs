@@ -58,7 +58,12 @@ pub trait ViewRuntimeAdapter {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKeyHandle, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
+        after: Option<&PublicKeyHandle>,
+        limit: Option<NonZeroU32>,
+    ) -> Result<
+        (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
+        crate::state_viewer::errors::ViewAccessKeyError,
+    >;
 
     fn view_gas_key_nonces(
         &self,

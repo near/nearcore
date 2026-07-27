@@ -443,6 +443,13 @@ pub enum ProtocolFeature {
     /// rather than a zero-gas nop) when a compiled module fails to load at
     /// `Module::deserialize`.
     FixContractLoadingError,
+    /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
+    RejectEmptyMethodName,
+    EnforcePerReceiptStorageProofLimit,
+    /// Remove gas rewards: stop paying part of the gas burned by a
+    /// `FunctionCall` back to the contract account as a reward. Sets the
+    /// `burnt_gas_reward` parameter from 30% (3/10) to 0%.
+    RemoveGasRewards,
 }
 
 impl ProtocolFeature {
@@ -569,8 +576,11 @@ impl ProtocolFeature {
             | ProtocolFeature::ClampOutgoingGasAdmission
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
+            ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
 
             ProtocolFeature::FixContractLoadingError => 86,
+            ProtocolFeature::RejectEmptyMethodName => 87,
+            ProtocolFeature::RemoveGasRewards => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -622,7 +632,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 86;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 87;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 156;

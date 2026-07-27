@@ -28,6 +28,10 @@ pub enum ViewAccessKeyError {
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} does not exist")]
     AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
+    #[error(
+        "Account {requested_account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
+    )]
+    TooManyAccessKeys { requested_account_id: near_primitives::types::AccountId, limit: u32 },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
 }

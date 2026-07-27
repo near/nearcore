@@ -8,13 +8,23 @@ use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, Balance, StateChangeCause};
 use near_primitives::version::ProtocolVersion;
 use near_store::test_utils::TestTriesBuilder;
-use near_store::{ShardUId, TrieUpdate, set_access_key, set_account};
+use near_store::{ShardTries, ShardUId, TrieUpdate, set_access_key, set_account};
 
 pub(crate) fn setup_account(
     account_id: &AccountId,
     public_key: &PublicKey,
     access_key: &AccessKey,
 ) -> TrieUpdate {
+    setup_account_with_tries(account_id, public_key, access_key).1
+}
+
+/// Like [`setup_account`] but also returns the backing [`ShardTries`], so a test
+/// can commit further overlay writes and obtain a read-only view `Trie`.
+pub(crate) fn setup_account_with_tries(
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    access_key: &AccessKey,
+) -> (ShardTries, TrieUpdate) {
     let tries = TestTriesBuilder::new().build();
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
     let account =
@@ -28,7 +38,8 @@ pub(crate) fn setup_account(
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit();
 
-    tries.new_trie_update(ShardUId::single_shard(), root)
+    let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    (tries, state_update)
 }
 
 /// Takes `state_update` from the caller so local-contract tests can deploy code into it first.

@@ -100,3 +100,78 @@ impl SignerOverlay {
         Ok(Some((account, key_entry)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use borsh::to_vec;
+    use near_crypto::KeyType;
+    use near_primitives::account::AccountContract;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::Balance;
+    use near_store::trie::AccessOptions;
+
+    struct MockTrie {
+        values: HashMap<Vec<u8>, Result<Vec<u8>, StorageError>>,
+    }
+
+    impl TrieAccess for MockTrie {
+        fn get(
+            &self,
+            key: &TrieKey,
+            _opts: AccessOptions,
+        ) -> Result<Option<Vec<u8>>, StorageError> {
+            match self.values.get(&key.to_vec()) {
+                None => Ok(None),
+                Some(Ok(v)) => Ok(Some(v.clone())),
+                Some(Err(e)) => Err(e.clone()),
+            }
+        }
+
+        fn contains_key(&self, _: &TrieKey, _: AccessOptions) -> Result<bool, StorageError> {
+            unimplemented!()
+        }
+    }
+
+    fn alice() -> AccountId {
+        "alice".parse().unwrap()
+    }
+
+    fn pk() -> PublicKey {
+        PublicKey::empty(KeyType::ED25519)
+    }
+
+    fn account_bytes() -> Vec<u8> {
+        let account =
+            Account::new(Balance::from_yoctonear(1), Balance::ZERO, AccountContract::None, 0);
+        to_vec(&account).unwrap()
+    }
+
+    fn access_key_bytes() -> Vec<u8> {
+        to_vec(&AccessKey::full_access()).unwrap()
+    }
+
+    #[test]
+    fn returns_none_when_gas_key_nonce_missing() {
+        let mut values = HashMap::new();
+        values.insert(TrieKey::Account { account_id: alice() }.to_vec(), Ok(account_bytes()));
+        values.insert(TrieKey::access_key(alice(), pk()).to_vec(), Ok(access_key_bytes()));
+        let trie = MockTrie { values };
+        let mut overlay = SignerOverlay::new();
+        let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), Some(0));
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn propagates_storage_error_from_account_lookup() {
+        let mut values = HashMap::new();
+        values.insert(
+            TrieKey::Account { account_id: alice() }.to_vec(),
+            Err(StorageError::StorageInternalError),
+        );
+        let trie = MockTrie { values };
+        let mut overlay = SignerOverlay::new();
+        let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None);
+        assert!(matches!(result, Err(StorageError::StorageInternalError)));
+    }
+}

@@ -535,6 +535,7 @@ impl Runtime {
         action_index: usize,
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
+        storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
@@ -659,6 +660,7 @@ impl Runtime {
                     is_last_action,
                     epoch_info_provider,
                     contract,
+                    storage_proof_size_before_receipt,
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {
@@ -830,6 +832,15 @@ impl Runtime {
         result.gas_burnt = exec_fees.gas;
         result.compute_usage = exec_fees.compute;
 
+        let storage_proof_size_before_receipt =
+            if ProtocolFeature::EnforcePerReceiptStorageProofLimit
+                .enabled(apply_state.current_protocol_version)
+            {
+                Some(state_update.trie.recorded_storage_size_upper_bound())
+            } else {
+                None
+            };
+
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions().iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
@@ -851,6 +862,7 @@ impl Runtime {
                 action_index,
                 &action_receipt.actions(),
                 epoch_info_provider,
+                storage_proof_size_before_receipt,
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
