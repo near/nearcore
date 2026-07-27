@@ -121,8 +121,9 @@ pub struct ProcessTxRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessTxResponse {
-    /// No response.
-    NoResponse,
+    /// The node dropped the transaction without acting on it (e.g. a forwarded transaction
+    /// that this node will neither relay nor include).
+    Dropped,
     /// Valid transaction inserted into mempool as response to Transaction.
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
@@ -132,6 +133,8 @@ pub enum ProcessTxResponse {
     /// The node being queried does not track the shard needed and therefore cannot provide useful
     /// response.
     DoesNotTrackShard,
+    /// Processing the transaction failed with an internal error; the string carries debug context.
+    InternalError(String),
 }
 
 /// Account announcements that needs to be validated before being processed.

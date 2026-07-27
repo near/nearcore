@@ -103,6 +103,10 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
             } => Self::UnknownAccessKey { public_key, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewAccessKeyError::TooManyAccessKeys {
+                requested_account_id,
+                limit,
+            } => Self::TooManyAccessKeys { requested_account_id, limit, block_height, block_hash },
             node_runtime::state_viewer::errors::ViewAccessKeyError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },

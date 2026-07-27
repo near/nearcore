@@ -63,34 +63,68 @@ const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
-const EARLY_KICKOUT_MIN_MISSES: u64 = 20;
+const EARLY_KICKOUT_MIN_MISSES: u64 = 100;
 const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 80;
 const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
-const EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS: u64 = 50;
+/// Grace window at the start of each epoch: no chunk producer is blacklisted until the
+/// anchor is at least this many blocks into the epoch. Absorbs upgrade-restart downtime.
+const EARLY_KICKOUT_EPOCH_GRACE_BLOCKS: u64 = 1000;
+
+/// Per-shard observability for the blacklist computation. Emitted once at the
+/// seeder (the production write path); the accessor recomputes on every read and
+/// must not emit, or it would double-count.
+pub struct BlacklistShardStats {
+    /// RAW pre-safety-valve count of producers that met the blacklist criteria.
+    pub raw_candidate_count: usize,
+    /// The kept least-bad producer when the safety valve fired (all distinct producers
+    /// on the shard were candidates, so exactly one least-bad producer was kept), else
+    /// None. Carries the id so the seeder can log it without recomputing (the accessor
+    /// must not log).
+    pub kept: Option<ValidatorId>,
+}
+
+impl BlacklistShardStats {
+    /// The keep-one safety valve fired iff a producer was kept.
+    pub fn safety_valve_fired(&self) -> bool {
+        self.kept.is_some()
+    }
+}
+
+/// Result of [`compute_chunk_producer_blacklist`]: the applied blacklist plus
+/// per-shard stats for observability.
+pub struct ChunkProducerBlacklist {
+    pub blacklist: HashMap<ShardId, HashSet<ValidatorId>>,
+    /// Only shards where at least one producer was a candidate (raw_candidate_count > 0).
+    pub shard_stats: HashMap<ShardId, BlacklistShardStats>,
+}
+
+impl ChunkProducerBlacklist {
+    fn empty() -> Self {
+        ChunkProducerBlacklist { blacklist: HashMap::new(), shard_stats: HashMap::new() }
+    }
+}
 
 /// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
 /// A validator is blacklisted on a shard when, within the current epoch:
-///   - expected >= EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS  (sample-size guard)
 ///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
 ///   - produced * 100 < expected * 80                     (production ratio < 80%)
 /// Safety valve: if blacklisting would remove every distinct producer on a shard,
-/// that shard is omitted (caller falls through to default sampling).
+/// exactly one least-bad producer (highest produced/expected ratio) is kept eligible.
 pub fn compute_chunk_producer_blacklist(
     shard_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
     epoch_info: &EpochInfo,
     shard_layout: &ShardLayout,
-) -> HashMap<ShardId, HashSet<ValidatorId>> {
-    let mut result = HashMap::new();
+) -> ChunkProducerBlacklist {
+    let mut blacklist = HashMap::new();
+    let mut shard_stats = HashMap::new();
     for (shard_id, validators) in shard_tracker {
         let Ok(shard_index) = shard_layout.get_shard_index(*shard_id) else { continue };
         let Some(settlement) = epoch_info.chunk_producers_settlement().get(shard_index) else {
             continue;
         };
-        // Distinct chunk PRODUCERS for this shard. shard_tracker also holds
-        // endorsement-only entries (chunk validators that never produced); they must
-        // not be blacklist candidates and must not skew the safety-valve denominator.
-        // (Today expected>=MIN skips them since production.expected==0 — but make it
-        // explicit so threshold tuning can't silently reintroduce the bug.)
+        // distinct chunk producers for this shard. shard_tracker also holds endorsement-only
+        // entries (chunk validators that never produced); they must not be blacklist candidates
+        // or skew the safety-valve denominator.
         let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
         let mut blacklisted = HashSet::new();
         for (&validator_id, stats) in validators {
@@ -98,9 +132,6 @@ pub fn compute_chunk_producer_blacklist(
                 continue;
             }
             let (produced, expected) = (stats.produced(), stats.expected());
-            if expected < EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS {
-                continue;
-            }
             let missed = expected.saturating_sub(produced);
             // u128 keeps the ratio comparison overflow-proof.
             if missed >= EARLY_KICKOUT_MIN_MISSES
@@ -110,13 +141,62 @@ pub fn compute_chunk_producer_blacklist(
                 blacklisted.insert(validator_id);
             }
         }
-        // Safety valve: never blacklist every distinct producer on a shard. Backstopped
-        // by sample_chunk_producer_excluding -> None on full exclusion.
-        if !blacklisted.is_empty() && blacklisted.len() < producers.len() {
-            result.insert(*shard_id, blacklisted);
+        let raw_candidate_count = blacklisted.len();
+        if raw_candidate_count == 0 {
+            continue;
+        }
+        // Safety valve: never blacklist every distinct producer on a shard. When all of
+        // them are candidates, keep exactly one eligible = LEAST-BAD (highest
+        // produced/expected). Pick over `blacklisted` (a subset of shard_tracker, so stats
+        // exist) — NEVER index `producers`. Deterministic TOTAL order (consensus-critical,
+        // identical on every node, never HashSet iteration order):
+        let kept = if blacklisted.len() == producers.len() {
+            let keep = *blacklisted
+                .iter()
+                .max_by(|a, b| {
+                    let (sa, sb) = (&validators[*a], &validators[*b]);
+                    let (pa, ea) = (sa.produced() as u128, sa.expected() as u128);
+                    let (pb, eb) = (sb.produced() as u128, sb.expected() as u128);
+                    (pa * eb)
+                        .cmp(&(pb * ea)) // higher produced/expected ratio (integer cross-mult, no float)
+                        .then(eb.cmp(&ea)) // tiebreak: fewer expected
+                        .then((**b).cmp(&**a)) // tiebreak: lower validator_id
+                })
+                .expect("safety-valve branch: blacklisted is non-empty");
+            blacklisted.remove(&keep);
+            Some(keep)
+        } else {
+            None
+        };
+        shard_stats.insert(*shard_id, BlacklistShardStats { raw_candidate_count, kept });
+        // A 1-producer shard becomes empty after keep-one -> nothing to blacklist, skip.
+        if !blacklisted.is_empty() {
+            blacklist.insert(*shard_id, blacklisted);
         }
     }
-    result
+    ChunkProducerBlacklist { blacklist, shard_stats }
+}
+
+/// Per-shard blacklist for `target_epoch_id`, or empty when either the aggregator belongs to
+/// a different epoch (a last-of-epoch anchor whose next epoch has no stats yet) or the anchor
+/// is still within the epoch's start-of-epoch grace window (`blocks_into_epoch` = anchor
+/// height − epoch-start height). Shared by the record-block seeder and the
+/// `get_chunk_producer_blacklist` accessor so the reset and grace checks can't drift between
+/// them.
+pub(crate) fn blacklist_for_epoch(
+    aggregator: &EpochInfoAggregator,
+    target_epoch_id: &EpochId,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+    blocks_into_epoch: BlockHeight,
+) -> ChunkProducerBlacklist {
+    if aggregator.epoch_id != *target_epoch_id {
+        return ChunkProducerBlacklist::empty();
+    }
+    if blocks_into_epoch < EARLY_KICKOUT_EPOCH_GRACE_BLOCKS {
+        return ChunkProducerBlacklist::empty();
+    }
+    compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
 }
 
 /// In the current architecture, various components have access to the same
@@ -1017,9 +1097,10 @@ impl EpochManager {
                     &current_hash,
                     genesis_height,
                     &genesis_epoch_info,
+                    &pre_genesis_epoch_id,
                     &genesis_epoch_info,
                     &genesis_shard_layout,
-                );
+                )?;
             } else {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
 
@@ -1069,9 +1150,10 @@ impl EpochManager {
                         block_info.hash(),
                         block_info.height(),
                         &own_epoch_info,
+                        &sample_epoch_id,
                         &sample_epoch_info,
                         &sample_shard_layout,
-                    );
+                    )?;
                 }
                 if block_info.last_finalized_height() > self.largest_final_height {
                     self.largest_final_height = block_info.last_finalized_height();
@@ -2125,23 +2207,77 @@ impl EpochManager {
         block_hash: &CryptoHash,
         block_height: BlockHeight,
         own_epoch_info: &EpochInfo,
+        sample_epoch_id: &EpochId,
         sample_epoch_info: &EpochInfo,
         sample_shard_layout: &ShardLayout,
-    ) {
+    ) -> Result<(), EpochError> {
         #[cfg(feature = "nightly")]
         {
             if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
-                return;
+                return Ok(());
             }
-            let height = block_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+            // `get_epoch_info_aggregator_upto_last` is an `EpochManager` method (`&self`, no
+            // lock); calling the `get_chunk_producer_blacklist` accessor here would re-take
+            // `self.read()` and deadlock, since the seeder already holds the write lock.
+            //
+            // `block_hash` must already be in the block cache / store. the epoch-sync first
+            // block is only in the pending `store_update`, so it uses
+            // `seed_chunk_producers_for_first_block` (empty blacklist, no walk) instead.
+            let aggregator = self.get_epoch_info_aggregator_upto_last(block_hash)?;
+            // Grace window is measured against the aggregator's own epoch. At genesis the
+            // `EpochStart` row for `EpochId::default()` does not exist yet -> treat the missing
+            // start as "just started" (blocks_into_epoch = 0 -> grace, empty). Propagate any
+            // other error rather than masking storage corruption as an empty blacklist.
+            let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
+                Ok(start) => start,
+                Err(EpochError::EpochOutOfBounds(_)) => block_height,
+                Err(e) => return Err(e),
+            };
+            let blocks_into_epoch = block_height.saturating_sub(epoch_start);
+            let ChunkProducerBlacklist { blacklist, shard_stats } = blacklist_for_epoch(
+                &aggregator,
+                sample_epoch_id,
+                sample_epoch_info,
+                sample_shard_layout,
+                blocks_into_epoch,
+            );
+            // emit only here, never in the accessor: the accessor recomputes on every
+            // consensus read and would double-count. `shard_stats` only holds shards with
+            // candidates, so drive the gauge over the full shard set. a recovered shard, or an
+            // empty epoch-boundary reset, must fall back to 0 so the gauge never sticks stale.
+            use crate::metrics::{EARLY_KICKOUT_BLACKLIST_SIZE, EARLY_KICKOUT_SAFETY_VALVE_FIRED};
+            // reset first so a shard retired by resharding drops its series instead of
+            // keeping a stale value forever; the loop below repopulates the current layout.
+            EARLY_KICKOUT_BLACKLIST_SIZE.reset();
             for shard_id in sample_shard_layout.shard_ids() {
-                if let Some(validator_id) =
-                    sample_epoch_info.sample_chunk_producer(sample_shard_layout, shard_id, height)
-                {
-                    let validator_stake = sample_epoch_info.get_validator(validator_id);
-                    store_update.set_chunk_producer(block_hash, shard_id, &validator_stake);
+                let raw = shard_stats.get(&shard_id).map_or(0, |s| s.raw_candidate_count);
+                EARLY_KICKOUT_BLACKLIST_SIZE
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(raw as i64);
+            }
+            for (shard_id, stats) in &shard_stats {
+                if stats.safety_valve_fired() {
+                    EARLY_KICKOUT_SAFETY_VALVE_FIRED
+                        .with_label_values(&[&shard_id.to_string()])
+                        .inc();
+                    if let Some(kept) = stats.kept {
+                        tracing::warn!(
+                            target: "early_kickout",
+                            %shard_id,
+                            kept = %sample_epoch_info.validator_account_id(kept),
+                            "safety valve: kept least-bad producer"
+                        );
+                    }
                 }
             }
+            self.seed_chunk_producer_rows(
+                store_update,
+                block_hash,
+                block_height,
+                sample_epoch_info,
+                sample_shard_layout,
+                &blacklist,
+            );
         }
         #[cfg(not(feature = "nightly"))]
         let _ = (
@@ -2149,15 +2285,91 @@ impl EpochManager {
             block_hash,
             block_height,
             own_epoch_info,
+            sample_epoch_id,
             sample_epoch_info,
             sample_shard_layout,
         );
+        Ok(())
+    }
+
+    /// Sample each shard's chunk producer at the anchor offset, excluding the
+    /// per-shard `blacklist`, and write the rows into `store_update`. Shared by
+    /// the record-block and epoch-sync seeders, which differ only in how the
+    /// blacklist is obtained.
+    #[cfg(feature = "nightly")]
+    fn seed_chunk_producer_rows(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_hash: &CryptoHash,
+        block_height: BlockHeight,
+        sample_epoch_info: &EpochInfo,
+        sample_shard_layout: &ShardLayout,
+        blacklist: &HashMap<ShardId, HashSet<ValidatorId>>,
+    ) {
+        use crate::metrics::EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED;
+        let empty = HashSet::new();
+        let height = block_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        for shard_id in sample_shard_layout.shard_ids() {
+            let shard_blacklist = blacklist.get(&shard_id).unwrap_or(&empty);
+            let sampled = sample_epoch_info.sample_chunk_producer_excluding(
+                sample_shard_layout,
+                shard_id,
+                height,
+                shard_blacklist,
+            );
+            // The blacklist's safety valve (compute_chunk_producer_blacklist) never
+            // excludes every producer on a shard, so the sampler must yield one for any
+            // shard that has producers. A `None` here means the shard's settlement is
+            // empty (nothing to seed) — anything else means the safety valve was
+            // weakened and a shard was left with no eligible producer.
+            debug_assert!(
+                sampled.is_some()
+                    || sample_shard_layout
+                        .get_shard_index(shard_id)
+                        .ok()
+                        .and_then(|i| sample_epoch_info.chunk_producers_settlement().get(i))
+                        .is_none_or(|s| s.is_empty()),
+                "kickout seeder excluded every producer on shard {shard_id}",
+            );
+            if let Some(validator_id) = sampled {
+                let validator_stake = sample_epoch_info.get_validator(validator_id);
+                // A slot was reassigned iff its plain (non-excluded) pick is itself blacklisted.
+                // Testing `plain != sampled` would be wrong: the excluding sampler renormalizes the
+                // eligible set, so it can pick a different producer even when the plain pick was fine.
+                if !shard_blacklist.is_empty() {
+                    let plain = sample_epoch_info.sample_chunk_producer(
+                        sample_shard_layout,
+                        shard_id,
+                        height,
+                    );
+                    if let Some(plain) = plain.filter(|p| shard_blacklist.contains(p)) {
+                        EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED
+                            .with_label_values(&[&shard_id.to_string()])
+                            .inc();
+                        tracing::debug!(
+                            target: "epoch_manager",
+                            %shard_id,
+                            height,
+                            kicked = %sample_epoch_info.get_validator(plain).account_id(),
+                            reassigned_to = %validator_stake.account_id(),
+                            "early kickout: chunk producer slot reassigned",
+                        );
+                    }
+                }
+                store_update.set_chunk_producer(block_hash, shard_id, &validator_stake);
+            }
+        }
     }
 
     /// Seed chunk producers for a block that is the first block of its epoch, so
     /// chunks anchored at it belong to that same epoch. Used by the epoch-sync
     /// path, which installs the current epoch's first `BlockInfo` outside
     /// `record_block_info`.
+    ///
+    /// Uses an empty blacklist: the first block of an epoch has no in-epoch stats
+    /// yet. This also sidesteps the aggregator walk in `seed_chunk_producers` —
+    /// the epoch-sync block lives only in the pending `store_update`, so a walk
+    /// from it via `get_block_info` would fail with `MissingBlock`.
     fn seed_chunk_producers_for_first_block(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
@@ -2166,14 +2378,21 @@ impl EpochManager {
         let epoch_id = block_info.epoch_id();
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let shard_layout = self.get_shard_layout(epoch_id)?;
-        self.seed_chunk_producers(
-            store_update,
-            block_info.hash(),
-            block_info.height(),
-            &epoch_info,
-            &epoch_info,
-            &shard_layout,
-        );
+        #[cfg(feature = "nightly")]
+        {
+            if ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
+                self.seed_chunk_producer_rows(
+                    store_update,
+                    block_info.hash(),
+                    block_info.height(),
+                    &epoch_info,
+                    &shard_layout,
+                    &HashMap::new(),
+                );
+            }
+        }
+        #[cfg(not(feature = "nightly"))]
+        let _ = (store_update, &epoch_info, &shard_layout);
         Ok(())
     }
 

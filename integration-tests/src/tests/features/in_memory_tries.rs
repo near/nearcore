@@ -260,7 +260,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 // get a chance to produce the txn if they don't track the shard.
                 for tx_processor in &env.rpc_handlers {
                     match tx_processor.process_tx(txn.clone(), false, false) {
-                        ProcessTxResponse::NoResponse => panic!("No response"),
+                        ProcessTxResponse::Dropped => panic!("transaction was dropped"),
                         ProcessTxResponse::InvalidTx(err) => panic!("Invalid tx: {}", err),
                         _ => {}
                     }

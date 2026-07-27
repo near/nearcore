@@ -8,6 +8,7 @@ pub use near_primitives_core::global_contract;
 pub use near_primitives_core::hash;
 pub use near_primitives_core::num_rational;
 pub use near_primitives_core::serialize;
+pub use near_primitives_core::universal_account_id;
 
 pub mod action;
 pub mod bandwidth_scheduler;
@@ -49,6 +50,7 @@ pub mod transaction;
 pub mod trie_key;
 pub mod trie_split;
 pub mod types;
+pub mod universal_state_init;
 pub mod upgrade_schedule;
 pub mod utils;
 pub mod validator_mandates;

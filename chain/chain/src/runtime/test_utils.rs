@@ -1,6 +1,7 @@
 use super::{NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, GenesisConfig,
+    default_view_access_keys_limit,
 };
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
@@ -27,6 +28,7 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             None,
+            default_view_access_keys_limit(),
             None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -57,6 +59,7 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             None,
+            default_view_access_keys_limit(),
             max_gas_burnt_view,
             runtime_config_store,
             gc_num_epochs_to_keep,

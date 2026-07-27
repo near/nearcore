@@ -24,6 +24,51 @@ EPOCH_LENGTH = 60
 NODE_PREFIX = "test"
 
 
+def load_json(path: pathlib.Path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def force_static_genesis_shard_layout(node_dir: str) -> None:
+    """Make the epoch config selected for the genesis protocol version static.
+
+    `dump-epoch-configs --chain-id=mainnet` emits a dynamic (resharding) shard
+    layout config for protocol versions where dynamic resharding is enabled
+    (>= 85). Genesis epoch creation rejects a dynamic layout for the genesis
+    protocol version, so synthesize a static config for it, seeded from the most
+    recent static mainnet layout (the layout used before resharding stabilized).
+    """
+    epoch_configs_dir = pathlib.Path(node_dir) / 'epoch_configs'
+    genesis_version = load_json(pathlib.Path(node_dir) /
+                                'genesis.json')['protocol_version']
+
+    # Map each dumped protocol version to its config file.
+    configs = {int(p.stem): p for p in epoch_configs_dir.glob('*.json')}
+    # `EpochConfigStore::get_config` picks the highest version <= target.
+    candidates = [v for v in configs if v <= genesis_version]
+    assert candidates, f"no epoch config <= {genesis_version} in {epoch_configs_dir}"
+
+    selected = load_json(configs[max(candidates)])
+    if 'shard_layout' in selected:
+        return  # already static, nothing to force
+
+    # Seed the layout from the most recent static config at or below genesis.
+    static_versions = [
+        v for v in candidates if 'shard_layout' in load_json(configs[v])
+    ]
+    assert static_versions, "no static epoch config to seed genesis shard layout"
+    shard_layout = load_json(configs[max(static_versions)])['shard_layout']
+
+    # Keep the latest params, drop the dynamic config, use the static layout.
+    selected.pop('dynamic_resharding_config', None)
+    selected['shard_layout'] = shard_layout
+    out_path = epoch_configs_dir / f'{genesis_version}.json'
+    with open(out_path, 'w') as f:
+        json.dump(selected, f, indent=2)
+    logger.info(f"Forced static shard layout for genesis protocol version "
+                f"{genesis_version} in {out_path}")
+
+
 def get_proto_version(exe: pathlib.Path) -> int:
     line = subprocess.check_output((exe, '--version'), text=True)
     m = re.search(r'.* \(protocol ([0-9]+)\)', line)
@@ -221,6 +266,7 @@ class TestUpgrade:
             cluster.apply_genesis_changes(node_dir, genesis_config_changes)
             # Dump epoch configs to use mainnet shard layout
             self.dump_epoch_configs(node_dir, self._protocols.current)
+            force_static_genesis_shard_layout(node_dir)
 
         for node_dir in node_dirs[:NUM_VALIDATORS]:
             # Validators should track only assigned shards
