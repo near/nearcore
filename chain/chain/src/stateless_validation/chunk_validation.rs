@@ -105,7 +105,7 @@ pub enum ImplicitTransitionParams {
     /// of that chunk and its shard.
     ApplyOldChunk(ApplyChunkBlockContext, ShardUId),
     /// Transition resulted from resharding. Defined by boundary account, mode
-    /// saying which of child shards to retain, parent shard uid, and the
+    /// saying which of child shards to retain, child shard uid, and the
     /// locally determined boundary block hash.
     Resharding(AccountId, RetainMode, ShardUId, CryptoHash),
 }
@@ -708,12 +708,6 @@ pub fn validate_chunk_state_witness_impl(
                 child_shard_uid,
                 boundary_block_hash,
             ) => {
-                if transition.block_hash != boundary_block_hash {
-                    return Err(Error::InvalidChunkStateWitness(format!(
-                        "implicit resharding transition block hash mismatch: expected {boundary_block_hash:?}, found {:?}",
-                        transition.block_hash
-                    )));
-                }
                 let old_root = *chunk_extra.state_root();
                 let partial_storage = PartialStorage { nodes: transition.base_state.clone() };
                 let parent_trie = Trie::from_recorded_storage(partial_storage, old_root, true);
@@ -722,9 +716,9 @@ pub fn validate_chunk_state_witness_impl(
                 // important to do this step before the `retain_split_shard`
                 // because only the parent trie has the needed information.
                 //
-                // Resolve the epochs (and thus shard layouts) from the resharding
-                // transition's own block, i.e. the boundary block, exactly as the
-                // producer does in `ReshardingManager::process_...`. Using the
+                // Resolve the epochs (and thus shard layouts) from the locally
+                // determined boundary block, not the unvalidated witness hash,
+                // as the producer does in `ReshardingManager::process_...`. Using the
                 // main-transition `block_hash` here is wrong: if the parent shard
                 // produced no chunk in the last old-layout epoch, that block lies
                 // in an earlier epoch and resolves to the old layout, so the
