@@ -694,7 +694,8 @@ pub struct ClientConfig {
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a state sync block request response
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_timeout: Duration,
+    #[serde(alias = "state_sync_external_timeout")]
+    pub block_request_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_p2p_timeout: Duration,

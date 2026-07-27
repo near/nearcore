@@ -766,7 +766,7 @@ impl NearConfig {
                 header_sync_expected_height_per_second: config
                     .consensus
                     .header_sync_expected_height_per_second,
-                state_sync_external_timeout: config.consensus.state_sync_external_timeout,
+                block_request_timeout: config.consensus.state_sync_external_timeout,
                 state_sync_p2p_timeout: config.consensus.state_sync_p2p_timeout,
                 state_sync_retry_backoff: config.consensus.state_sync_retry_backoff,
                 min_num_peers: config.consensus.min_num_peers,
