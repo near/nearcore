@@ -50,7 +50,7 @@ fn make_unknown_prev_chunk(height: BlockHeight, shard_id: ShardId) -> PartialEnc
 /// End-to-end: for the target shard, an unknown-prev chunk is injected into each
 /// recipient just before the genuine `PartialEncodedChunkMessage`. Its producer
 /// signature fails at arrival, so it is dropped instead of preempting the genuine
-/// chunk; the target shard is present at every height, like the untargeted one.
+/// chunk; the target shard is present at every height, like the non-targeted one.
 #[test]
 fn test_unknown_prev_chunk_does_not_skip_chunk() {
     init_test_logger();
