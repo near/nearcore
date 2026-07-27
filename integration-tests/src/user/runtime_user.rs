@@ -132,6 +132,7 @@ impl RuntimeUser {
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
+                    RuntimeError::WasmCompilationUnknownError(_) => ServerError::Closed,
                 })?;
             client.cumulative_subsidized = client
                 .cumulative_subsidized

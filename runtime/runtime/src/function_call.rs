@@ -130,9 +130,6 @@ pub(crate) fn action_function_call(
             FunctionCallError::WasmUnknownError { .. } => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_UNKNOWN_ERRORS.inc();
             }
-            FunctionCallError::WasmCompilationUnknownError { .. } => {
-                metrics::FUNCTION_CALL_PROCESSED_WASM_COMPILATION_UNKNOWN_ERRORS.inc();
-            }
         }
         // Update action result with the abort error converted to the
         // transaction runtime's format of errors.
@@ -284,16 +281,14 @@ pub(crate) fn execute_function_call(
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
     // Most VM runner errors translate to a `RuntimeError` and are propagated
-    // up. Unknown execution and compilation errors are soft-failed into the
-    // outcome instead of panicking: a consensus failure on one chunk is
-    // preferable to crashing all nodes if a VM bug surfaces post-deploy.
+    // up. Unknown execution errors are soft-failed into the outcome instead of
+    // panicking. Unknown compilation errors abort chunk application so that a
+    // validator does not endorse or commit a potentially nondeterministic state
+    // transition (OOM or timeout). User-code errors are reported via
+    // `outcome.aborted` and never reach these arms.
     //
-    // TODO(runtime-team): Resolve whether nondeterministic compilation failures
-    // should remain committed to the function-call outcome, matching unknown
-    // execution errors, or instead make chunk application fail and retry.
-    //
-    // User-code errors are reported via `outcome.aborted` and never reach these
-    // arms.
+    // TODO: Compilation must become asynchronous before this can
+    // work with SPICE, where validators endorse before execution.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -329,11 +324,9 @@ pub(crate) fn execute_function_call(
             }));
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
+            metrics::FUNCTION_CALL_PROCESSED_WASM_COMPILATION_UNKNOWN_ERRORS.inc();
             tracing::error!(target: "runtime", "wasm compilation unknown error: {}", debug_message);
-            debug_assert!(false, "wasm compilation unknown error: {}", debug_message);
-            return Ok(VMOutcome::nop_outcome(FunctionCallError::WasmCompilationUnknownError {
-                msg: debug_message,
-            }));
+            return Err(RuntimeError::WasmCompilationUnknownError(debug_message));
         }
         Ok(r) => r,
     };

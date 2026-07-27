@@ -71,6 +71,9 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    /// Contract compilation failed for a reason that may be nondeterministic.
+    /// Chunk application must be aborted rather than committing an error outcome.
+    WasmCompilationUnknownError(String),
 }
 
 impl std::fmt::Display for RuntimeError {
