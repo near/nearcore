@@ -97,6 +97,9 @@ fn early_kickout_epoch_grace_blocks() -> u64 {
 /// exactly, where a global would leak a lowered grace into every concurrently running
 /// test-loop test and silently start reassigning producers there.
 #[cfg(feature = "test_features")]
+use std::marker::PhantomData;
+
+#[cfg(feature = "test_features")]
 mod early_kickout_test_thresholds {
     use std::cell::Cell;
 
@@ -133,11 +136,16 @@ fn early_kickout_epoch_grace_blocks() -> u64 {
 /// [`set_early_kickout_thresholds_for_testing`] was called. Dropping on unwind is what
 /// keeps a panicking test from leaking its lowered thresholds into the next test when
 /// the harness reuses the thread (`--test-threads=1`).
+///
+/// Deliberately `!Send`: the override lives in thread-local state, so a guard dropped on
+/// a different thread would restore THAT thread's thresholds and leave the installing
+/// thread lowered forever — exactly the leak the guard exists to prevent.
 #[cfg(feature = "test_features")]
 #[must_use = "the override only lasts as long as this guard is alive"]
 pub struct EarlyKickoutThresholdGuard {
     prev_min_misses: u64,
     prev_epoch_grace_blocks: u64,
+    _not_send: PhantomData<*const ()>,
 }
 
 #[cfg(feature = "test_features")]
@@ -159,7 +167,7 @@ pub fn set_early_kickout_thresholds_for_testing(
         min_misses.unwrap_or(EARLY_KICKOUT_MIN_MISSES),
         epoch_grace_blocks.unwrap_or(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS),
     );
-    EarlyKickoutThresholdGuard { prev_min_misses, prev_epoch_grace_blocks }
+    EarlyKickoutThresholdGuard { prev_min_misses, prev_epoch_grace_blocks, _not_send: PhantomData }
 }
 
 /// Per-shard observability for the blacklist computation. Emitted once at the
