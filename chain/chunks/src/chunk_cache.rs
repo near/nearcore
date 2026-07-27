@@ -30,7 +30,7 @@ use time::ext::InstantExt;
 pub const DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON: BlockHeightDelta = 128;
 
 /// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
-const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
+pub(crate) const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 /// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
 /// When a PartialEncodedChunk is received, it can be merged to the existing EncodedChunksCacheEntry

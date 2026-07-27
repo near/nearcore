@@ -79,7 +79,7 @@
 //! validation means).
 
 use crate::adapter::ShardsManagerRequestFromClient;
-use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
+use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry, MAX_HEIGHTS_AHEAD};
 use crate::client::{DecodedChunk, ShardsManagerResponse, ShardsManagerResponseSender};
 use crate::logic::{
     chunk_needs_to_be_fetched_from_archival, create_partial_chunk, make_outgoing_receipts_proofs,
@@ -1505,6 +1505,7 @@ impl ShardsManagerActor {
                 &prev_prev_block_hash,
                 self.store.store_ref(),
                 "chunk",
+                Some(MAX_HEIGHTS_AHEAD),
             )?;
             if !header.signature().verify(chunk_hash.as_ref(), producer.public_key()) {
                 return Err(Error::InvalidChunkSignature);
