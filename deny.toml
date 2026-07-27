@@ -36,11 +36,9 @@ deny = [
 skip = [
     # wasmer and wasmtime
     { name = "memoffset", version = "=0.6.5" },
-    { name = "memoffset", version = "=0.8.0" },
     { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
-    { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
     { name = "wasmparser", version = "=0.236.1" },
@@ -64,9 +62,6 @@ skip = [
     { name = "rand_core", version = "<0.9" },
     { name = "rand_chacha", version = "<0.9" },
     { name = "getrandom", version = "^0.2" },
-
-    # criterion, rocksdb depend on this older version of the crate.
-    { name = "rustc-hash", version = "<2" },
 
     # bindgen (build-dep of librocksdb-sys) pulls an older itertools.
     { name = "itertools", version = "<0.14" },
