@@ -1139,12 +1139,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
             return Ok(HashMap::new());
         }
         // Must mirror `seed_chunk_producers`'s last-final basis, or this live read disagrees
-        // with the stored row and forks. Read-guard methods directly; adapter methods would
-        // re-take `self.read()` and deadlock.
+        // with the stored row. Read-guard methods directly; adapter methods would re-take
+        // `self.read()` and deadlock.
         let epoch_manager = self.read();
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
-        // A default final hash means nothing is finalized yet -> empty blacklist, no walk.
         if final_block_hash == CryptoHash::default() {
             return Ok(HashMap::new());
         }

@@ -877,7 +877,6 @@ fn seed_walk_bounded_under_finality_stall() {
         let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
         record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
         let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
-        // Finality frozen at genesis: `largest_final_height` never advances.
         for height in 1..=count {
             record_block_frozen_final(
                 &mut em,
@@ -895,7 +894,6 @@ fn seed_walk_bounded_under_finality_stall() {
     let long = 120u64;
     let walked_short = stall_walk(short);
     let walked_long = stall_walk(long);
-    // Generous constant-per-block cap; the point is it does not grow with stall depth.
     let per_block_cap = 4;
     assert!(
         walked_short >= short as usize,

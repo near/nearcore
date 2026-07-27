@@ -104,8 +104,8 @@ impl ChunkProducerBlacklist {
     }
 }
 
-/// The block a set of chunks is anchored at, plus its last-final block — the basis for the
-/// kickout blacklist. See [`EpochManager::seed_chunk_producers`].
+/// The block a set of chunks is anchored at, plus its last-final block. The last-final block
+/// is the kickout blacklist's basis. See [`EpochManager::seed_chunk_producers`].
 struct SeedAnchor {
     hash: CryptoHash,
     height: BlockHeight,
@@ -1109,7 +1109,6 @@ impl EpochManager {
                 // the genesis epoch info; chunks at genesis + 1 and below have no
                 // grandparent and use the canonical sampler.
                 let genesis_shard_layout = self.get_shard_layout(&pre_genesis_epoch_id)?;
-                // genesis has no finalized ancestor -> default hash -> empty blacklist.
                 self.seed_chunk_producers(
                     &mut store_update,
                     &SeedAnchor {
@@ -2223,9 +2222,9 @@ impl EpochManager {
     /// grandparent anchor of chunks at height `anchor.height +
     /// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`). No-op unless EarlyKickout is
     /// enabled for the anchor's own epoch (`own_epoch_info`). Producers are
-    /// sampled from the epoch the anchored chunks belong to (`sample`, the epoch
-    /// after the anchor); a chunk in a later epoch never reads this row (the
-    /// reader's cross-epoch arm samples canonically).
+    /// sampled from the epoch the anchored chunks belong to (`sample`); a chunk
+    /// in a later epoch never reads this row (the reader's cross-epoch arm
+    /// samples canonically).
     ///
     /// Writes into `store_update` so the rows commit atomically with the block's
     /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
@@ -2249,9 +2248,7 @@ impl EpochManager {
                 return Ok(());
             }
             // Inlined, not via the `get_chunk_producer_blacklist` adapter: that re-takes
-            // `self.read()` and would deadlock under the seeder's write lock. A default
-            // `final_block_hash` means nothing is final yet (genesis / first blocks): skip the
-            // walk (it would error, and these anchors are deep inside the grace).
+            // `self.read()` and would deadlock under the seeder's write lock.
             let ChunkProducerBlacklist { blacklist, shard_stats } = if anchor.final_hash
                 == CryptoHash::default()
             {
@@ -2313,8 +2310,6 @@ impl EpochManager {
                 &blacklist,
             );
         }
-        // reads every struct field, not just the params: all real field reads live in the
-        // nightly arm, so a field would otherwise be `never read` under `-D warnings`.
         #[cfg(not(feature = "nightly"))]
         let _ = (
             store_update,
