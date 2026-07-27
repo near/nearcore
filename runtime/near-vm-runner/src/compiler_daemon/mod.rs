@@ -66,7 +66,7 @@ const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Maximum time allowed to send one compilation request and receive its response.
 ///
-/// For now, timeouts result in skipping chuhnk endorsement. Async compilation
+/// For now, timeouts result in skipping chunk endorsement. Async compilation
 /// could help to handle it better.
 const COMPILATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
