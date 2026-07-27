@@ -12,6 +12,7 @@ mod child;
 mod parent;
 pub mod protocol;
 mod sandbox;
+mod watchdog;
 
 pub use child::daemon_main;
 #[cfg(feature = "test_features")]
@@ -19,6 +20,7 @@ pub use parent::spawned_worker_high_water;
 pub use parent::{
     compile_in_subprocess, is_daemon_configured, set_daemon_binary, set_daemon_pool_size,
 };
+use std::time::Duration;
 
 /// Minimum per-worker virtual memory budget.
 ///
@@ -59,5 +61,14 @@ const MAX_POOL_SIZE: usize = 8;
 /// usually results in less than 4GiB physical memory allocation.
 const DEFAULT_TOTAL_MEMORY_BUDGET_BYTES: u64 = 16 * bytesize::GIB;
 
-/// Per-request retry budget on IPC failure (worker crash).
+/// Maximum time allowed for a worker to report that it is ready.
+const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Maximum time allowed to send one compilation request and receive its response.
+///
+/// For now, timeouts result in skipping chuhnk endorsement. Async compilation
+/// could help to handle it better.
+const COMPILATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Per-request retry budget on IPC failure (worker crash or timeout).
 const MAX_SPAWN_ATTEMPTS: u32 = 2;

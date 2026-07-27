@@ -13,6 +13,8 @@ use super::protocol::{CompileRequest, CompileResponse, DaemonStartup, read_frame
 use super::sandbox::{self, SandboxStatus};
 use crate::wasmtime_runner::create_compiler_engine;
 use std::collections::{HashMap, hash_map};
+#[cfg(feature = "test_features")]
+use std::thread::park;
 
 /// Entry point for the dedicated compiler daemon binary.
 pub fn daemon_main() -> ! {
@@ -81,6 +83,12 @@ fn handle_compile(
     #[cfg(feature = "test_features")]
     if request.prepared_code == super::protocol::TEST_ABORT_REQUEST {
         std::process::abort();
+    }
+    #[cfg(feature = "test_features")]
+    if request.prepared_code == super::protocol::TEST_TIMEOUT_REQUEST {
+        loop {
+            park();
+        }
     }
 
     let engine = match engines.entry(request.max_memory_pages) {

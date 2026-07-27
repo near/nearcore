@@ -10,6 +10,11 @@ use std::io::{Read, Write};
 #[cfg(feature = "test_features")]
 pub const TEST_ABORT_REQUEST: &[u8] = b"near-vm-runner compiler daemon test abort";
 
+/// Prepared-code payload that makes a test daemon stop responding, exercising
+/// the parent-side request timeout and worker replacement.
+#[cfg(feature = "test_features")]
+pub const TEST_TIMEOUT_REQUEST: &[u8] = b"near-vm-runner compiler daemon test timeout";
+
 #[cfg(all(target_os = "linux", feature = "test_features"))]
 pub const TEST_LANDLOCK_PROBE_REQUEST: &[u8] = b"near-vm-runner compiler daemon landlock probe";
 

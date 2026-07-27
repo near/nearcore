@@ -14,6 +14,8 @@ use near_vm_runner::logic::errors::VMRunnerError;
 use near_vm_runner::prepare;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(feature = "test_features")]
+use std::time::{Duration, Instant};
 
 const TEST_POOL_SIZE: usize = 4;
 
@@ -29,6 +31,8 @@ fn main() {
     test_invalid_wasm();
     test_parallel_compilation();
     test_mixed_priority_compilation();
+    #[cfg(feature = "test_features")]
+    test_worker_timeout_is_unknown_compilation_error();
     #[cfg(feature = "test_features")]
     test_worker_crash_is_unknown_compilation_error();
 }
@@ -185,6 +189,34 @@ fn test_landlock_sandbox() {
     .unwrap()
     .unwrap();
     assert_eq!(result, compiler_daemon::protocol::TEST_LANDLOCK_PROBE_RESPONSE);
+}
+
+/// A worker that stops responding is killed and its request is reported as an
+/// unknown compilation error. A subsequent compile proves the pool remains usable.
+#[cfg(feature = "test_features")]
+fn test_worker_timeout_is_unknown_compilation_error() {
+    let config = test_config();
+    let started = Instant::now();
+    let result = compiler_daemon::compile_in_subprocess(
+        compiler_daemon::protocol::TEST_TIMEOUT_REQUEST,
+        &config.limit_config,
+        CompilePriority::Critical,
+    );
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after daemon timeout");
+    };
+    assert!(debug_message.contains("timed out during compilation request"), "{debug_message}");
+    assert!(started.elapsed() < Duration::from_secs(5), "daemon timeout took too long");
+
+    let prepared = prepared_module(&config, 99, 1);
+    let compiled = compiler_daemon::compile_in_subprocess(
+        &prepared,
+        &config.limit_config,
+        CompilePriority::Critical,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(!compiled.is_empty());
 }
 
 /// A worker crash is reported as an unknown compilation error. The runtime

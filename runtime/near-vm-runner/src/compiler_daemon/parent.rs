@@ -9,10 +9,12 @@
 //! waiting caller is served first (see [`CompilePriority`]).
 
 use super::protocol::{CompileRequest, CompileResponse, DaemonStartup, read_frame, write_frame};
+use super::watchdog::ProcessWatchdog;
 use crate::compile_priority::CompilePriority;
 use crate::compiler_daemon::{
-    DEFAULT_RAYON_THREADS_PER_WORKER, DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, MAX_POOL_SIZE,
-    MAX_SPAWN_ATTEMPTS, MIN_WORKER_MEMORY_LIMIT_BYTES,
+    COMPILATION_REQUEST_TIMEOUT, DAEMON_STARTUP_TIMEOUT, DEFAULT_RAYON_THREADS_PER_WORKER,
+    DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, MAX_POOL_SIZE, MAX_SPAWN_ATTEMPTS,
+    MIN_WORKER_MEMORY_LIMIT_BYTES,
 };
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use near_parameters::vm::LimitConfig;
@@ -21,7 +23,7 @@ use std::array::from_fn;
 use std::io::{Error as IoError, ErrorKind, Read, Write, stderr};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::thread::{Builder, JoinHandle, available_parallelism};
 use std::time::{Duration, Instant};
 
@@ -57,10 +59,11 @@ pub fn is_daemon_configured() -> bool {
 type CompileResult = Result<Vec<u8>, String>;
 
 struct DaemonProcess {
-    child: Child,
+    child: Arc<Mutex<Child>>,
     stdin: ChildStdin,
     stdout: ChildStdout,
     stderr_thread: Option<JoinHandle<()>>,
+    watchdog: ProcessWatchdog,
 }
 
 impl DaemonProcess {
@@ -81,7 +84,7 @@ impl DaemonProcess {
             .stderr(Stdio::piped());
         let mut child = command.spawn()?;
         let stdin = child.stdin.take().unwrap();
-        let mut stdout = child.stdout.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
         let child_stderr = child.stderr.take().unwrap();
         let stderr_thread = match Builder::new()
             .name("compiler-daemon-stderr".to_owned())
@@ -94,15 +97,43 @@ impl DaemonProcess {
                 return Err(err);
             }
         };
-        if let Err(err) = wait_for_startup(&mut stdout) {
-            let _ = child.kill();
-            let _ = child.wait();
-            if let Some(stderr_thread) = stderr_thread {
-                let _ = stderr_thread.join();
+        let child = Arc::new(Mutex::new(child));
+        let watchdog = match ProcessWatchdog::spawn(Arc::clone(&child)) {
+            Ok(watchdog) => watchdog,
+            Err(err) => {
+                let mut child = child.lock();
+                let _ = child.kill();
+                let _ = child.wait();
+                drop(child);
+                if let Some(stderr_thread) = stderr_thread {
+                    let _ = stderr_thread.join();
+                }
+                return Err(err);
             }
-            return Err(err);
-        }
-        Ok(Self { child, stdin, stdout, stderr_thread })
+        };
+        let mut process = Self { child, stdin, stdout, stderr_thread, watchdog };
+        process.wait_for_startup()?;
+        Ok(process)
+    }
+
+    fn wait_for_startup(&mut self) -> std::io::Result<()> {
+        let generation = self
+            .watchdog
+            .arm(DAEMON_STARTUP_TIMEOUT)
+            .map_err(|err| IoError::new(ErrorKind::BrokenPipe, err))?;
+        let result = read_frame(&mut self.stdout)
+            .map_err(|err| format!("failed to read startup response: {err}"))
+            .and_then(|bytes| {
+                let startup: DaemonStartup = borsh::from_slice(&bytes)
+                    .map_err(|err| format!("failed to deserialize startup response: {err}"))?;
+                match startup {
+                    DaemonStartup::Ready => Ok(()),
+                    DaemonStartup::Err(err) => Err(err),
+                }
+            });
+        self.watchdog
+            .finish(generation, DAEMON_STARTUP_TIMEOUT, "startup", result)
+            .map_err(IoError::other)
     }
 
     /// Send a compilation request and read the response. Returns:
@@ -112,37 +143,52 @@ impl DaemonProcess {
     fn compile_raw(&mut self, request: &CompileRequest) -> Result<CompileResult, String> {
         let request_bytes =
             borsh::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
-        write_frame(&mut self.stdin, &request_bytes)
-            .map_err(|e| format!("failed to send to compiler daemon: {e}"))?;
-        let response_bytes = read_frame(&mut self.stdout)
-            .map_err(|e| format!("failed to read from compiler daemon: {e}"))?;
-        let response: CompileResponse = borsh::from_slice(&response_bytes)
-            .map_err(|e| format!("failed to deserialize response: {e}"))?;
-        match response {
-            CompileResponse::Ok(bytes) => Ok(Ok(bytes)),
-            CompileResponse::Err(msg) => Ok(Err(msg)),
-        }
+        let timeout = compilation_request_timeout(request);
+        let generation = self.watchdog.arm(timeout)?;
+        let result = write_frame(&mut self.stdin, &request_bytes)
+            .map_err(|e| format!("failed to send to compiler daemon: {e}"))
+            .and_then(|()| {
+                read_frame(&mut self.stdout)
+                    .map_err(|e| format!("failed to read from compiler daemon: {e}"))
+            })
+            .and_then(|response_bytes| {
+                let response: CompileResponse = borsh::from_slice(&response_bytes)
+                    .map_err(|e| format!("failed to deserialize response: {e}"))?;
+                match response {
+                    CompileResponse::Ok(bytes) => Ok(Ok(bytes)),
+                    CompileResponse::Err(msg) => Ok(Err(msg)),
+                }
+            });
+        self.watchdog.finish(generation, timeout, "compilation request", result)
     }
 
-    fn is_alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+    fn is_alive(&self) -> bool {
+        matches!(self.child.lock().try_wait(), Ok(None))
+    }
+
+    /// OS process ID for diagnostic logging.
+    ///
+    /// Note: Pool bookkeeping uses leases and does not depend on this ID.
+    fn id(&self) -> u32 {
+        self.child.lock().id()
     }
 }
 
-fn wait_for_startup(stdout: &mut ChildStdout) -> std::io::Result<()> {
-    let bytes = read_frame(stdout)?;
-    let startup: DaemonStartup = borsh::from_slice(&bytes)
-        .map_err(|err| IoError::new(ErrorKind::InvalidData, err.to_string()))?;
-    match startup {
-        DaemonStartup::Ready => Ok(()),
-        DaemonStartup::Err(err) => Err(IoError::new(ErrorKind::PermissionDenied, err)),
+fn compilation_request_timeout(request: &CompileRequest) -> Duration {
+    #[cfg(feature = "test_features")]
+    if request.prepared_code == super::protocol::TEST_TIMEOUT_REQUEST {
+        return Duration::from_millis(100);
     }
+    COMPILATION_REQUEST_TIMEOUT
 }
 
 impl Drop for DaemonProcess {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.watchdog.shutdown();
+        let mut child = self.child.lock();
+        let _ = child.kill();
+        let _ = child.wait();
+        drop(child);
         if let Some(stderr_thread) = self.stderr_thread.take() {
             let _ = stderr_thread.join();
         }
@@ -228,7 +274,7 @@ impl DaemonPool {
             }
 
             // 1. Reuse an idle worker, draining any that have died.
-            while let Some(mut worker) = inner.idle.pop() {
+            while let Some(worker) = inner.idle.pop() {
                 if worker.is_alive() {
                     inner.waiters[idx] -= 1;
                     if !inner.idle.is_empty() {
@@ -403,6 +449,7 @@ pub fn compile_in_subprocess(
                 continue;
             }
         };
+        let worker_id = lease.worker.as_ref().unwrap().id();
         match lease.worker.as_mut().unwrap().compile_raw(&request) {
             Ok(Ok(bytes)) => {
                 lease.check_in();
@@ -414,7 +461,12 @@ pub fn compile_in_subprocess(
                 return Ok(Err(CompilationError::WasmtimeCompileError { msg }));
             }
             Err(ipc_err) => {
-                tracing::warn!(attempt, err = %ipc_err, "compiler daemon worker failed, re-spawning");
+                tracing::warn!(
+                    attempt,
+                    worker_id,
+                    err = %ipc_err,
+                    "compiler daemon worker failed, re-spawning"
+                );
                 last_err = ipc_err;
                 lease.discard();
             }
