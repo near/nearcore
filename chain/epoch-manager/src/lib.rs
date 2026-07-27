@@ -104,6 +104,23 @@ impl ChunkProducerBlacklist {
     }
 }
 
+/// The block a set of chunks is anchored at, plus its last-final block — the basis for the
+/// kickout blacklist. See [`EpochManager::seed_chunk_producers`].
+struct SeedAnchor {
+    hash: CryptoHash,
+    height: BlockHeight,
+    final_hash: CryptoHash,
+    final_height: BlockHeight,
+}
+
+/// The epoch whose validator set the anchored chunks are sampled from (the epoch after the
+/// anchor at an epoch boundary, the anchor's own epoch otherwise).
+struct SampleEpoch<'a> {
+    epoch_id: &'a EpochId,
+    epoch_info: &'a EpochInfo,
+    shard_layout: &'a ShardLayout,
+}
+
 /// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
 /// A validator is blacklisted on a shard when, within the current epoch:
 ///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
@@ -1095,14 +1112,18 @@ impl EpochManager {
                 // genesis has no finalized ancestor -> default hash -> empty blacklist.
                 self.seed_chunk_producers(
                     &mut store_update,
-                    &current_hash,
-                    genesis_height,
-                    &CryptoHash::default(),
-                    genesis_height,
+                    &SeedAnchor {
+                        hash: current_hash,
+                        height: genesis_height,
+                        final_hash: CryptoHash::default(),
+                        final_height: genesis_height,
+                    },
                     &genesis_epoch_info,
-                    &pre_genesis_epoch_id,
-                    &genesis_epoch_info,
-                    &genesis_shard_layout,
+                    SampleEpoch {
+                        epoch_id: &pre_genesis_epoch_id,
+                        epoch_info: genesis_epoch_info.as_ref(),
+                        shard_layout: &genesis_shard_layout,
+                    },
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
@@ -1150,14 +1171,18 @@ impl EpochManager {
                     let sample_shard_layout = self.get_shard_layout(&sample_epoch_id)?;
                     self.seed_chunk_producers(
                         &mut store_update,
-                        block_info.hash(),
-                        block_info.height(),
-                        block_info.last_final_block_hash(),
-                        block_info.last_finalized_height(),
+                        &SeedAnchor {
+                            hash: *block_info.hash(),
+                            height: block_info.height(),
+                            final_hash: *block_info.last_final_block_hash(),
+                            final_height: block_info.last_finalized_height(),
+                        },
                         &own_epoch_info,
-                        &sample_epoch_id,
-                        &sample_epoch_info,
-                        &sample_shard_layout,
+                        SampleEpoch {
+                            epoch_id: &sample_epoch_id,
+                            epoch_info: sample_epoch_info.as_ref(),
+                            shard_layout: &sample_shard_layout,
+                        },
                     )?;
                 }
                 if block_info.last_finalized_height() > self.largest_final_height {
@@ -2194,20 +2219,19 @@ impl EpochManager {
         }
     }
 
-    /// Seed `DBCol::ChunkProducers` for chunks anchored at `block_hash` (the
-    /// grandparent anchor of chunks at height `block_height +
+    /// Seed `DBCol::ChunkProducers` for chunks anchored at `anchor.hash` (the
+    /// grandparent anchor of chunks at height `anchor.height +
     /// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`). No-op unless EarlyKickout is
     /// enabled for the anchor's own epoch (`own_epoch_info`). Producers are
-    /// sampled from the epoch the anchored chunks belong to (`sample_epoch_info`
-    /// / `sample_shard_layout`, the epoch after the anchor); a chunk in a later
-    /// epoch never reads this row (the reader's cross-epoch arm samples
-    /// canonically).
+    /// sampled from the epoch the anchored chunks belong to (`sample`, the epoch
+    /// after the anchor); a chunk in a later epoch never reads this row (the
+    /// reader's cross-epoch arm samples canonically).
     ///
     /// Writes into `store_update` so the rows commit atomically with the block's
     /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
     /// avoids seeding dead rows for last-of-epoch anchors across an activation edge.
     ///
-    /// The blacklist basis is the anchor's last-final block (`final_block_hash`), not the
+    /// The blacklist basis is the anchor's last-final block (`anchor.final_hash`), not the
     /// anchor itself: it is header-derived, so identical across nodes for a canonical anchor.
     /// That determinism is required because the seeded row is read verbatim by
     /// `get_chunk_producer_info_anchored`. It also keeps the walk off the growing not-yet-final
@@ -2215,14 +2239,9 @@ impl EpochManager {
     fn seed_chunk_producers(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        block_hash: &CryptoHash,
-        block_height: BlockHeight,
-        final_block_hash: &CryptoHash,
-        final_block_height: BlockHeight,
+        anchor: &SeedAnchor,
         own_epoch_info: &EpochInfo,
-        sample_epoch_id: &EpochId,
-        sample_epoch_info: &EpochInfo,
-        sample_shard_layout: &ShardLayout,
+        sample: SampleEpoch,
     ) -> Result<(), EpochError> {
         #[cfg(feature = "nightly")]
         {
@@ -2233,26 +2252,26 @@ impl EpochManager {
             // `self.read()` and would deadlock under the seeder's write lock. A default
             // `final_block_hash` means nothing is final yet (genesis / first blocks): skip the
             // walk (it would error, and these anchors are deep inside the grace).
-            let ChunkProducerBlacklist { blacklist, shard_stats } = if final_block_hash
-                == &CryptoHash::default()
+            let ChunkProducerBlacklist { blacklist, shard_stats } = if anchor.final_hash
+                == CryptoHash::default()
             {
                 ChunkProducerBlacklist::empty()
             } else {
-                let aggregator = self.get_epoch_info_aggregator_upto_last(final_block_hash)?;
+                let aggregator = self.get_epoch_info_aggregator_upto_last(&anchor.final_hash)?;
                 // Grace measured against the last-final height, matching the blacklist basis. A
                 // missing `EpochStart` (genesis) counts as just-started (grace, empty); other
                 // errors propagate rather than mask storage corruption.
                 let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
                     Ok(start) => start,
-                    Err(EpochError::EpochOutOfBounds(_)) => final_block_height,
+                    Err(EpochError::EpochOutOfBounds(_)) => anchor.final_height,
                     Err(e) => return Err(e),
                 };
-                let blocks_into_epoch = final_block_height.saturating_sub(epoch_start);
+                let blocks_into_epoch = anchor.final_height.saturating_sub(epoch_start);
                 blacklist_for_epoch(
                     &aggregator,
-                    sample_epoch_id,
-                    sample_epoch_info,
-                    sample_shard_layout,
+                    sample.epoch_id,
+                    sample.epoch_info,
+                    sample.shard_layout,
                     blocks_into_epoch,
                 )
             };
@@ -2264,7 +2283,7 @@ impl EpochManager {
             // reset first so a shard retired by resharding drops its series instead of
             // keeping a stale value forever; the loop below repopulates the current layout.
             EARLY_KICKOUT_BLACKLIST_SIZE.reset();
-            for shard_id in sample_shard_layout.shard_ids() {
+            for shard_id in sample.shard_layout.shard_ids() {
                 let raw = shard_stats.get(&shard_id).map_or(0, |s| s.raw_candidate_count);
                 EARLY_KICKOUT_BLACKLIST_SIZE
                     .with_label_values(&[&shard_id.to_string()])
@@ -2279,7 +2298,7 @@ impl EpochManager {
                         tracing::warn!(
                             target: "early_kickout",
                             %shard_id,
-                            kept = %sample_epoch_info.validator_account_id(kept),
+                            kept = %sample.epoch_info.validator_account_id(kept),
                             "safety valve: kept least-bad producer"
                         );
                     }
@@ -2287,24 +2306,26 @@ impl EpochManager {
             }
             self.seed_chunk_producer_rows(
                 store_update,
-                block_hash,
-                block_height,
-                sample_epoch_info,
-                sample_shard_layout,
+                &anchor.hash,
+                anchor.height,
+                sample.epoch_info,
+                sample.shard_layout,
                 &blacklist,
             );
         }
+        // reads every struct field, not just the params: all real field reads live in the
+        // nightly arm, so a field would otherwise be `never read` under `-D warnings`.
         #[cfg(not(feature = "nightly"))]
         let _ = (
             store_update,
-            block_hash,
-            block_height,
-            final_block_hash,
-            final_block_height,
+            anchor.hash,
+            anchor.height,
+            anchor.final_hash,
+            anchor.final_height,
             own_epoch_info,
-            sample_epoch_id,
-            sample_epoch_info,
-            sample_shard_layout,
+            sample.epoch_id,
+            sample.epoch_info,
+            sample.shard_layout,
         );
         Ok(())
     }
