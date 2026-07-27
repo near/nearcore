@@ -71,6 +71,7 @@ mod single_shard_tracking;
 mod spice;
 mod split_storage;
 mod stake_nodes;
+mod stale_pooled_txs;
 mod sync;
 mod tx_inclusion_with_missed_chunks;
 #[cfg(feature = "nightly")]
