@@ -16,9 +16,18 @@
 //!   `ChunkProducerNotInDB` errors.
 //!
 //! Both require `nightly` (feature gate) and `test_features` (adversarial
-//! messages).
+//! messages, plus the threshold override below).
+//!
+//! Production trips the blacklist at 100 misses accumulated past a 1000-block
+//! start-of-epoch grace, which is ~1100 blocks — far more than a test-loop chain
+//! can run. Both tests therefore shrink both thresholds through
+//! `set_early_kickout_thresholds_for_testing` so the gate trips in tens of
+//! blocks. The exact production values (100 / 80% / 1000) stay proven by the
+//! epoch-manager unit tests, which build without `test_features`; what these
+//! tests prove is the end-to-end wiring, which the thresholds do not affect.
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::tests::sync::util::{TEST_EPOCH_SYNC_HORIZON, far_horizon_height};
 use crate::utils::account::{
     create_account_id, create_validator_id, create_validators_spec, validators_spec_clients,
 };
@@ -27,6 +36,7 @@ use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
+use near_epoch_manager::set_early_kickout_thresholds_for_testing;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
@@ -36,21 +46,29 @@ use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 
+/// Grace window used by both tests, in blocks into the epoch. Small enough that a
+/// test-loop chain clears it in seconds, large enough that the first blocks of an
+/// epoch still cannot blacklist anyone.
+const TEST_EPOCH_GRACE_BLOCKS: u64 = 20;
+/// Miss floor used by both tests. A target holding ~half its shard's slots reaches
+/// this within ~10 heights of leaving the grace window.
+const TEST_MIN_MISSES: u64 = 5;
+
 /// Test A — flagship reassignment test.
 ///
 /// Setup: 4 block+chunk producers over 2 shards (balance-shards puts 2
 /// producers on each shard, so blacklisting one always leaves a clean
 /// replacement and never trips the all-blacklisted safety valve),
-/// `kickouts_standard_80_percent`, and a long epoch so the induced miss crosses
-/// the mid-epoch thresholds well before the epoch boundary.
+/// `kickouts_standard_80_percent`, and an epoch long enough that the induced
+/// miss crosses the mid-epoch thresholds well before the epoch boundary.
 ///
 /// We stop one producer's chunk production with the adversarial message; its
-/// assigned chunks are missed. Once it crosses
-/// `EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS` (50) and `EARLY_KICKOUT_MIN_MISSES`
-/// (20) it is blacklisted on its shard, and the chunks it would have produced
-/// are reassigned. We assert (a) the miss-induced reassignment (the stored
-/// producer for the target's own scheduled slots is a different validator) and
-/// (b) liveness (the shard keeps producing chunks after the reassignment).
+/// assigned chunks are missed. Once the anchor is past the grace window and the
+/// target has missed at least `TEST_MIN_MISSES` chunks at under 80% production,
+/// it is blacklisted on its shard and the chunks it would have produced are
+/// reassigned. We assert (a) the miss-induced reassignment (the stored producer
+/// for the target's own scheduled slots is a different validator) and (b)
+/// liveness (the shard keeps producing chunks after the reassignment).
 #[test]
 fn test_early_kickout_reassignment() {
     init_test_logger();
@@ -60,9 +78,16 @@ fn test_early_kickout_reassignment() {
         "test requires EarlyKickout enabled for the genesis protocol version"
     );
 
-    // Long epoch: a 50%-share producer needs ~100 heights to reach the
-    // observed-blocks floor. A 200-block epoch leaves comfortable margin so the
-    // reassignment lands mid-epoch, before the standard end-of-epoch kickout.
+    // Shrink the gate for this thread; the whole test-loop chain runs on it. The guard
+    // restores the production values when the test ends, panic or not.
+    let _thresholds = set_early_kickout_thresholds_for_testing(
+        Some(TEST_MIN_MISSES),
+        Some(TEST_EPOCH_GRACE_BLOCKS),
+    );
+
+    // A 50%-share producer clears the grace and the miss floor within ~40 heights.
+    // A 200-block epoch leaves comfortable margin so the reassignment lands
+    // mid-epoch, before the standard end-of-epoch kickout.
     let epoch_length = 200;
     let validators_spec = create_validators_spec(4, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -107,8 +132,8 @@ fn test_early_kickout_reassignment() {
     );
 
     // Condition-based wait (no fixed heights): run until the mid-epoch kickout
-    // math blacklists the target on some shard, which requires crossing both
-    // EARLY_KICKOUT_MINIMUM_OBSERVED_BLOCKS (50) and EARLY_KICKOUT_MIN_MISSES (20).
+    // math blacklists the target on some shard, which requires the anchor to be
+    // past the grace window with at least `TEST_MIN_MISSES` misses at under 80%.
     {
         let em = epoch_manager.clone();
         let target = target_account.clone();
@@ -239,14 +264,14 @@ fn test_early_kickout_reassignment() {
 /// divergence.
 ///
 /// Setup uses skewed stakes so one producer dominates its shard's chunk sampling
-/// (crossing the observed-blocks floor quickly) while still sharing the shard with
-/// a healthy replacement. Standard kickout thresholds are left at 0 so the target
-/// is never removed at an epoch boundary; the early-kickout math keeps it
-/// blacklisted mid-epoch, so the reassignment recurs every epoch.
+/// (accumulating misses quickly) while still sharing the shard with a healthy
+/// replacement. Standard kickout thresholds are left at 0 so the target is never
+/// removed at an epoch boundary; the early-kickout math keeps it blacklisted
+/// mid-epoch, so the reassignment recurs every epoch.
 ///
 /// Note: the epoch-sync-seeded row is always the synced epoch's FIRST block, whose
-/// blacklist is provably empty (a first-of-epoch anchor cannot reach the
-/// observed-blocks floor), so that seeded row equals the plain schedule by design.
+/// blacklist is provably empty (a first-of-epoch anchor is inside the grace
+/// window), so that seeded row equals the plain schedule by design.
 /// The meaningful bootstrap property is checked two ways: (1) the seeded
 /// first-block rows exist and match the source (no missing row), and (2) after the
 /// node catches up, across a post-sync window with the reassignment active it
@@ -266,12 +291,20 @@ fn test_early_kickout_epoch_sync_bootstrap() {
         "test requires EarlyKickout enabled for the genesis protocol version"
     );
 
+    // Shrink the gate for this thread; the whole test-loop chain runs on it. The guard
+    // restores the production values when the test ends, panic or not.
+    let _thresholds = set_early_kickout_thresholds_for_testing(
+        Some(TEST_MIN_MISSES),
+        Some(TEST_EPOCH_GRACE_BLOCKS),
+    );
+
     let epoch_length = 100;
     let target_account = create_validator_id(0);
 
     // Skewed stakes: validator0 dominates chunk-producer sampling on its shard
-    // (~90% of slots), so it crosses the observed-blocks floor in ~55 heights,
-    // while the shard still holds a healthy replacement.
+    // (~90% of slots), so it clears the grace and the miss floor within ~30
+    // heights of each epoch start, while the shard still holds a healthy
+    // replacement.
     let stakes = [1_000_000u128, 100_000, 100_000, 100_000];
     let validators: Vec<AccountInfo> = (0..4)
         .map(|i| {
@@ -309,11 +342,13 @@ fn test_early_kickout_epoch_sync_bootstrap() {
         NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::StopProduce),
     );
 
-    // Run several epochs so (a) a fresh node is beyond the epoch-sync horizon (2
-    // epochs), forcing the far-horizon path, and (b) the target is blacklisted in
-    // the current epoch. The head-height advance gets us past 3 epochs; the
-    // condition wait then guarantees the blacklist has actually formed.
-    env.node_runner(0).run_until_head_height(3 * epoch_length);
+    // Run several epochs so (a) a fresh node is beyond the epoch-sync horizon,
+    // forcing the far-horizon path, and (b) the target is blacklisted in the current
+    // epoch. `far_horizon_height` is the same depth the sync tests use; anything
+    // shallower makes the epoch-sync proof itself invalid ("need at least two epochs
+    // in all_epochs") and silently degrades this into a header-sync-from-genesis
+    // test. The condition wait then guarantees the blacklist has actually formed.
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
     {
         let em = source_em.clone();
         let target = target_account.clone();
@@ -344,7 +379,7 @@ fn test_early_kickout_epoch_sync_bootstrap() {
         .account_id(&new_account)
         .config_modifier(|config| {
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
-            config.epoch_sync.epoch_sync_horizon_num_epochs = 2;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
     env.add_node("ek_sync_node", node_state);
@@ -410,8 +445,8 @@ fn test_early_kickout_epoch_sync_bootstrap() {
     // persistent miss to re-blacklist the target WITHIN it (finalized). Pinning to
     // `observe_epoch` is essential: the trailing final_head still sits in the prior
     // epoch (where the target was already blacklisted) right after the boundary, so
-    // an unpinned wait would return immediately, before this epoch crosses the
-    // observed-blocks floor. Blacklist observed on the full-aggregator source.
+    // an unpinned wait would return immediately, before this epoch clears its own
+    // grace window. Blacklist observed on the full-aggregator source.
     env.node_runner(new_node_idx).run_until_new_epoch();
     let observe_epoch = env.node(new_node_idx).head().epoch_id;
     {
@@ -439,7 +474,7 @@ fn test_early_kickout_epoch_sync_bootstrap() {
         );
     }
     // Post-blacklist runway so many of the target's own slots have a grandparent
-    // anchor that blacklists it (still within the same epoch: floor ~55 + 20 < 100).
+    // anchor that blacklists it (still within the same epoch: ~30 + 20 < 100).
     env.node_runner(new_node_idx).run_for_number_of_blocks(20);
 
     // Assertion 2: scan the current (fully-processed) epoch on the FOLLOWER for the

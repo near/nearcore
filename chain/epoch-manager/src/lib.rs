@@ -70,6 +70,98 @@ const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
 /// anchor is at least this many blocks into the epoch. Absorbs upgrade-restart downtime.
 const EARLY_KICKOUT_EPOCH_GRACE_BLOCKS: u64 = 1000;
 
+/// Miss floor for the blacklist. Always the production constant unless this is a
+/// `test_features` build; see [`early_kickout_min_misses`] below.
+#[cfg(not(feature = "test_features"))]
+fn early_kickout_min_misses() -> u64 {
+    EARLY_KICKOUT_MIN_MISSES
+}
+
+/// Start-of-epoch grace. Always the production constant unless this is a `test_features`
+/// build; see [`early_kickout_epoch_grace_blocks`] below.
+#[cfg(not(feature = "test_features"))]
+fn early_kickout_epoch_grace_blocks() -> u64 {
+    EARLY_KICKOUT_EPOCH_GRACE_BLOCKS
+}
+
+/// Test-only overrides for the two early-kickout thresholds.
+///
+/// Reaching the production gate (100 misses past a 1000-block grace) takes ~1100 blocks,
+/// which a test-loop chain cannot afford. These knobs let a test shrink both so the gate
+/// trips in tens of blocks. The exact production values stay proven by the epoch-manager
+/// unit tests, which build without `test_features` and therefore read the plain consts.
+///
+/// Thread-local, not process-global, on purpose: `cargo test` runs test functions on
+/// parallel threads within one process, while a test-loop chain executes entirely on the
+/// thread that drives its event loop. Thread-local state therefore isolates each test
+/// exactly, where a global would leak a lowered grace into every concurrently running
+/// test-loop test and silently start reassigning producers there.
+#[cfg(feature = "test_features")]
+mod early_kickout_test_thresholds {
+    use std::cell::Cell;
+
+    thread_local! {
+        static MIN_MISSES: Cell<u64> = const { Cell::new(super::EARLY_KICKOUT_MIN_MISSES) };
+        static EPOCH_GRACE_BLOCKS: Cell<u64> =
+            const { Cell::new(super::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS) };
+    }
+
+    pub(super) fn min_misses() -> u64 {
+        MIN_MISSES.get()
+    }
+
+    pub(super) fn epoch_grace_blocks() -> u64 {
+        EPOCH_GRACE_BLOCKS.get()
+    }
+
+    pub(super) fn swap(min_misses: u64, epoch_grace_blocks: u64) -> (u64, u64) {
+        (MIN_MISSES.replace(min_misses), EPOCH_GRACE_BLOCKS.replace(epoch_grace_blocks))
+    }
+}
+
+#[cfg(feature = "test_features")]
+fn early_kickout_min_misses() -> u64 {
+    early_kickout_test_thresholds::min_misses()
+}
+
+#[cfg(feature = "test_features")]
+fn early_kickout_epoch_grace_blocks() -> u64 {
+    early_kickout_test_thresholds::epoch_grace_blocks()
+}
+
+/// Restores the early-kickout thresholds this thread had before
+/// [`set_early_kickout_thresholds_for_testing`] was called. Dropping on unwind is what
+/// keeps a panicking test from leaking its lowered thresholds into the next test when
+/// the harness reuses the thread (`--test-threads=1`).
+#[cfg(feature = "test_features")]
+#[must_use = "the override only lasts as long as this guard is alive"]
+pub struct EarlyKickoutThresholdGuard {
+    prev_min_misses: u64,
+    prev_epoch_grace_blocks: u64,
+}
+
+#[cfg(feature = "test_features")]
+impl Drop for EarlyKickoutThresholdGuard {
+    fn drop(&mut self) {
+        early_kickout_test_thresholds::swap(self.prev_min_misses, self.prev_epoch_grace_blocks);
+    }
+}
+
+/// Overrides the early-kickout thresholds for the CALLING THREAD, which for a test-loop
+/// test is the thread the whole chain runs on. `None` keeps the production constant. Call
+/// before the chain starts producing blocks and hold the returned guard for the whole test.
+#[cfg(feature = "test_features")]
+pub fn set_early_kickout_thresholds_for_testing(
+    min_misses: Option<u64>,
+    epoch_grace_blocks: Option<u64>,
+) -> EarlyKickoutThresholdGuard {
+    let (prev_min_misses, prev_epoch_grace_blocks) = early_kickout_test_thresholds::swap(
+        min_misses.unwrap_or(EARLY_KICKOUT_MIN_MISSES),
+        epoch_grace_blocks.unwrap_or(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS),
+    );
+    EarlyKickoutThresholdGuard { prev_min_misses, prev_epoch_grace_blocks }
+}
+
 /// Per-shard observability for the blacklist computation. Emitted once at the
 /// seeder (the production write path); the accessor recomputes on every read and
 /// must not emit, or it would double-count.
@@ -151,7 +243,7 @@ pub fn compute_chunk_producer_blacklist(
             let (produced, expected) = (stats.produced(), stats.expected());
             let missed = expected.saturating_sub(produced);
             // u128 keeps the ratio comparison overflow-proof.
-            if missed >= EARLY_KICKOUT_MIN_MISSES
+            if missed >= early_kickout_min_misses()
                 && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
                     < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
             {
@@ -210,7 +302,7 @@ pub(crate) fn blacklist_for_epoch(
     if aggregator.epoch_id != *target_epoch_id {
         return ChunkProducerBlacklist::empty();
     }
-    if blocks_into_epoch < EARLY_KICKOUT_EPOCH_GRACE_BLOCKS {
+    if blocks_into_epoch < early_kickout_epoch_grace_blocks() {
         return ChunkProducerBlacklist::empty();
     }
     compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
