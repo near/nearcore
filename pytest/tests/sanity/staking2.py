@@ -91,9 +91,15 @@ def doit(seq=[]):
 
     config = None
     nodes = start_cluster(
-        2, 1, 1, config, [["epoch_length", EPOCH_LENGTH],
-                          ["block_producer_kickout_threshold", 40],
-                          ["chunk_producer_kickout_threshold", 40]],
+        2,
+        1,
+        1,
+        config,
+        [
+            ["epoch_length", EPOCH_LENGTH],
+            ["block_producer_kickout_threshold", 40],
+            ["chunk_producer_kickout_threshold", 40],
+        ],
         {
             0: {
                 "tracked_shards_config": "AllShards",
@@ -146,7 +152,8 @@ def doit(seq=[]):
                     },
                 },
             }
-        })
+        },
+    )
 
     started = time.time()
     last_iter = started
