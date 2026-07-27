@@ -59,6 +59,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
     (86, include_config!("86.yaml")),
+    (87, include_config!("87.yaml")),
     (129, include_config!("129.yaml")),
     // Price gas-key exec fees on trie_id_len() and send fees on len().
     (153, include_config!("153.yaml")),
