@@ -4531,11 +4531,11 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
 
 /// A contract that creates an ML-DSA-65 gas key must not leak total supply.
 ///
-/// The pre-execution / refund path prices the key on `trie_id_len()` (33 bytes)
-/// while the host path reserves the exec fee on `len()` (1953). The extra
-/// reserved gas is neither burnt nor refunded, so total supply silently drops.
-/// This asserts the DESIRED state - supply is conserved - so it is red until the
-/// host exec fee uses `trie_id_len()`.
+/// Before this fix, the pre-execution / refund path priced the key on
+/// `trie_id_len()` (33 bytes) while the host path reserved the exec fee on
+/// `len()` (1953); the extra reserved gas was neither burnt nor refunded, so
+/// total supply silently dropped. This guards against that regression: supply
+/// is conserved now that the host exec fee also uses `trie_id_len()`.
 #[test]
 fn test_gas_key_add_key_conserves_supply() {
     if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
@@ -4650,8 +4650,8 @@ fn test_gas_key_add_key_conserves_supply() {
 /// The gas-key SEND fee prices bytes put on the wire, so it must scale with
 /// `public_key.len()` (1953 for ML-DSA-65), not the on-trie `trie_id_len()`
 /// (33). A "use `trie_id_len` everywhere" fix would leave this wrong; only the
-/// split (send = `len`, exec = `trie_id_len`) is correct. Asserts the DESIRED
-/// state, so it is red until `config.rs` prices the send fee on `len()`.
+/// split (send = `len`, exec = `trie_id_len`) is correct, which is what
+/// `config.rs` now does.
 #[test]
 fn test_gas_key_transfer_send_fee_uses_wire_length() {
     if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
