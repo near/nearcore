@@ -933,29 +933,42 @@ impl CloudArchivalWriter {
         if let Some(block_head) = block_head {
             let height_bytes = borsh::to_vec(&block_head).unwrap();
             transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), height_bytes);
-            metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT
-                .with_label_values(&["block"])
-                .set(block_head as i64);
         }
 
         for &(shard_id, height) in shard_heads {
             let height_bytes = borsh::to_vec(&height).unwrap();
             transaction.set(DBCol::BlockMisc, cloud_shard_head_key(shard_id), height_bytes);
-            metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT
-                .with_label_values(&[shard_id.to_string().as_str()])
-                .set(height as i64);
         }
 
         let min_head_bytes = borsh::to_vec(&min_height).unwrap();
         transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), min_head_bytes);
-        metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT.with_label_values(&["min"]).set(min_height as i64);
 
         let prev_epoch_end = self.compute_initial_prev_epoch_end(min_height)?;
         let prev_epoch_end_bytes = borsh::to_vec(&prev_epoch_end).unwrap();
         transaction.set(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY.to_vec(), prev_epoch_end_bytes);
 
         self.hot_store.database().write(transaction);
+        Self::report_head_heights(block_head, shard_heads, min_height);
         Ok(())
+    }
+
+    /// Reports the archived head heights the hot store holds.
+    fn report_head_heights(
+        block_head: Option<BlockHeight>,
+        shard_heads: &[(ShardId, BlockHeight)],
+        min_height: BlockHeight,
+    ) {
+        if let Some(block_head) = block_head {
+            metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT
+                .with_label_values(&["block"])
+                .set(block_head as i64);
+        }
+        for &(shard_id, height) in shard_heads {
+            metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT
+                .with_label_values(&[shard_id.to_string().as_str()])
+                .set(height as i64);
+        }
+        metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT.with_label_values(&["min"]).set(min_height as i64);
     }
 
     fn compute_initial_prev_epoch_end(
@@ -1002,17 +1015,12 @@ impl CloudArchivalWriter {
         let mut transaction = DBTransaction::new();
         if block_advanced {
             transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), height_bytes.clone());
-            metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT.with_label_values(&["block"]).set(height as i64);
         }
         for &(shard_id, shard_head) in advanced_shards {
             let shard_head_bytes = borsh::to_vec(&shard_head).unwrap();
             transaction.set(DBCol::BlockMisc, cloud_shard_head_key(shard_id), shard_head_bytes);
-            metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT
-                .with_label_values(&[shard_id.to_string().as_str()])
-                .set(shard_head as i64);
         }
         transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), height_bytes);
-        metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT.with_label_values(&["min"]).set(height as i64);
         if let Some(new_prev_epoch_end) = new_prev_epoch_end {
             transaction.set(
                 DBCol::BlockMisc,
@@ -1021,6 +1029,7 @@ impl CloudArchivalWriter {
             );
         }
         self.hot_store.database().write(transaction);
+        Self::report_head_heights(block_advanced.then_some(height), advanced_shards, height);
         Ok(())
     }
 }
