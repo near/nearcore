@@ -13,10 +13,13 @@ use std::sync::Arc;
 
 /// Compile and load a contract with 100k globals.
 ///
-/// Each global produces 8 bytes of instance data, so globals alone add 800kB.
-/// In total, that breaches the (default) limit of 1MiB for
-/// `max_core_instance_size` for the Wasmtime pooling allocator, so loading the
-/// module at `Module::deserialize` fails.
+/// Each defined global occupies 16 bytes of a core instance's `VMContext`, so
+/// globals alone add ~1.6 MB. That breaches the 1MiB `max_core_instance_size`
+/// slot of the Wasmtime pooling allocator, so loading the module at
+/// `Module::deserialize` fails.
+///
+/// With `max_globals_per_contract` set to 100k this contract still passes
+/// `prepare` and is caught by the Wasmtime backstop at load time.
 ///
 /// Pre-`FixContractLoadingError` this surfaces as `VMRunnerError::LoadingError`,
 /// which the runtime maps to a zero-gas nop — the contract-loading work is left
