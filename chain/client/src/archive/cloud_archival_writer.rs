@@ -530,11 +530,10 @@ impl CloudArchivalWriter {
         // TODO(cloud_archival): Race condition between this check and the upload below.
         // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
         let ext_head = self.cloud_storage.retrieve_cloud_block_head_if_exists().await?;
-        if ext_head.is_some_and(|h| h >= batch_range.end()) {
-            return Ok(false);
+        if ext_head.is_none_or(|h| h < batch_range.end()) {
+            self.cloud_storage.archive_block_batch(&self.hot_store, batch_range).await?;
+            self.cloud_storage.update_cloud_block_head(batch_range.end()).await?;
         }
-        self.cloud_storage.archive_block_batch(&self.hot_store, batch_range).await?;
-        self.cloud_storage.update_cloud_block_head(batch_range.end()).await?;
         Ok(true)
     }
 
@@ -560,19 +559,18 @@ impl CloudArchivalWriter {
             // TODO(cloud_archival): Race condition between this check and the upload below.
             // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
             let ext_head = self.cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id).await?;
-            if ext_head.is_some_and(|h| h >= batch_end) {
-                continue;
+            if ext_head.is_none_or(|h| h < batch_end) {
+                self.cloud_storage
+                    .archive_shard_batch(
+                        &self.hot_store,
+                        &shard_batch.layout,
+                        &shard_batch.range,
+                        shard_batch.shard_uid,
+                        shard_batch.sync_point,
+                    )
+                    .await?;
+                self.cloud_storage.update_cloud_shard_head(shard_id, batch_end).await?;
             }
-            self.cloud_storage
-                .archive_shard_batch(
-                    &self.hot_store,
-                    &shard_batch.layout,
-                    &shard_batch.range,
-                    shard_batch.shard_uid,
-                    shard_batch.sync_point,
-                )
-                .await?;
-            self.cloud_storage.update_cloud_shard_head(shard_id, batch_end).await?;
             advanced_shards.push(ShardHeadUpdate {
                 shard_id,
                 head: batch_end,
