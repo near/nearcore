@@ -28,7 +28,7 @@ use near_client_primitives::types::{
     GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
     GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError, TxStatusOutcome,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -59,10 +59,9 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
-    SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
-    TxExecutionStatus, TxStatusView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
@@ -648,7 +647,7 @@ impl ViewClientActor {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-    ) -> Result<TxStatusView, TxStatusError> {
+    ) -> Result<TxStatusOutcome, TxStatusError> {
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
             // https://github.com/near/nearcore/issues/9545
@@ -656,12 +655,12 @@ impl ViewClientActor {
             if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
                 request_manager.tx_status_requests.pop(&tx_hash);
                 let status = self.get_tx_execution_status(&res)?;
-                return Ok(TxStatusView {
-                    execution_outcome: Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
-                        res,
-                    )),
+                let execution_outcome =
+                    Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res));
+                return Ok(TxStatusOutcome::Observed(Box::new(TxStatusView {
+                    execution_outcome,
                     status,
-                });
+                })));
             }
         }
 
@@ -671,8 +670,8 @@ impl ViewClientActor {
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.shard_tracker.cares_about_shard(&head.prev_block_hash, target_shard_id) {
-            match self.chain.get_partial_transaction_result(&tx_hash) {
-                Ok(tx_result) => {
+            match self.chain.get_partial_transaction_result_option(&tx_hash) {
+                Ok(Some(tx_result)) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
@@ -683,35 +682,16 @@ impl ViewClientActor {
                     } else {
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(tx_result)
                     };
-                    Ok(TxStatusView { execution_outcome: Some(res), status })
+                    let tx_status_view = TxStatusView { execution_outcome: Some(res), status };
+                    Ok(TxStatusOutcome::Observed(Box::new(tx_status_view)))
                 }
-                Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if let Some(transaction) = self.chain.chain_store.get_transaction(&tx_hash) {
-                        let transaction =
-                            SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
-                        if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
-                            let outcome = FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
-                                FinalExecutionOutcomeView {
-                                    status: FinalExecutionStatus::Started,
-                                    transaction,
-                                    transaction_outcome: tx_outcome.into(),
-                                    receipts_outcome: vec![],
-                                },
-                            );
-                            Ok(TxStatusView {
-                                execution_outcome: Some(outcome),
-                                status: TxExecutionStatus::Included,
-                            })
-                        } else {
-                            Ok(TxStatusView {
-                                execution_outcome: None,
-                                status: TxExecutionStatus::Included,
-                            })
-                        }
-                    } else {
-                        Err(TxStatusError::MissingTransaction(tx_hash))
-                    }
-                }
+                // The transaction is in the store (included) but has no execution outcome yet.
+                Ok(None) => Ok(TxStatusOutcome::Observed(Box::new(TxStatusView {
+                    execution_outcome: None,
+                    status: TxExecutionStatus::Included,
+                }))),
+                // The transaction is not in this node's store at all.
+                Err(near_chain::Error::DBNotFoundErr(_)) => Ok(TxStatusOutcome::NotObserved),
                 Err(err) => {
                     tracing::warn!(target: "client", ?err, "error trying to get transaction result");
                     Err(err.into())
@@ -740,7 +720,7 @@ impl ViewClientActor {
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
                 ));
             }
-            Ok(TxStatusView { execution_outcome: None, status: TxExecutionStatus::None })
+            Ok(TxStatusOutcome::DoesNotTrackShard { shard_id: target_shard_id })
         }
     }
 
@@ -890,8 +870,8 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
     }
 }
 
-impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActor {
-    fn handle(&mut self, msg: TxStatus) -> Result<TxStatusView, TxStatusError> {
+impl Handler<TxStatus, Result<TxStatusOutcome, TxStatusError>> for ViewClientActor {
+    fn handle(&mut self, msg: TxStatus) -> Result<TxStatusOutcome, TxStatusError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
@@ -1711,13 +1691,14 @@ impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewCl
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        if let Ok(Some(result)) =
-            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
-        {
-            Some(Box::new(result.into_outcome()))
-        } else {
-            None
-        }
+        let tx_status = self.get_tx_status(tx_hash, signer_account_id, false);
+        let Ok(TxStatusOutcome::Observed(view)) = tx_status else {
+            return None;
+        };
+        let Some(result) = view.execution_outcome else {
+            return None;
+        };
+        Some(Box::new(result.into_outcome()))
     }
 }
 

@@ -448,6 +448,20 @@ pub enum ProtocolFeature {
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
     EnforcePerReceiptStorageProofLimit,
+    /// Remove gas rewards: stop paying part of the gas burned by a
+    /// `FunctionCall` back to the contract account as a reward. Sets the
+    /// `burnt_gas_reward` parameter from 30% (3/10) to 0%.
+    RemoveGasRewards,
+    /// Fix two related ML-DSA-65 cost-charging issues (both harmless for
+    /// classical schemes, where the relevant quantities coincide):
+    /// - Gas keys: price the exec (storage) fee on the on-trie identifier length
+    ///   (`trie_id_len()`) and the send (transmission) fee on the wire length
+    ///   (`len()`), rather than pricing the exec fee on the wire length.
+    /// - Meta transactions: meter the inner `DelegateAction` signature
+    ///   verification compute on the receiver shard that actually runs the
+    ///   verification, instead of on the signer shard, so it counts against the
+    ///   right `compute_limit`.
+    FixMlDsaCostCharging,
 }
 
 impl ProtocolFeature {
@@ -578,6 +592,7 @@ impl ProtocolFeature {
 
             ProtocolFeature::FixContractLoadingError => 86,
             ProtocolFeature::RejectEmptyMethodName => 87,
+            ProtocolFeature::RemoveGasRewards => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -585,7 +600,8 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::ReceiptPromiseInputSizeLimit => 153,
+            ProtocolFeature::FixMlDsaCostCharging => 153,
+            ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -630,10 +646,10 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 86;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 87;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 156;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

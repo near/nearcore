@@ -1154,15 +1154,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
             Err(e) => return Err(e),
         };
         let blocks_into_epoch = anchor_height.saturating_sub(epoch_start);
-        // `blacklist_for_epoch` resets to empty when the aggregator's epoch differs from the
-        // anchor's (a boundary anchor whose next epoch has no stats yet) or within the grace.
         Ok(crate::blacklist_for_epoch(
             &aggregator,
             &epoch_id,
             epoch_info.as_ref(),
             &shard_layout,
             blocks_into_epoch,
-        ))
+        )
+        .blacklist)
     }
 
     fn get_chunk_validator_assignments(

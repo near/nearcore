@@ -2,7 +2,7 @@ use itertools::Itertools;
 use okapi::openapi3::{OpenApi, SchemaObject};
 use schemars::JsonSchema;
 use schemars::transform::transform_subschemas;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
 
@@ -406,6 +406,58 @@ impl schemars::transform::Transform for RemoveRequiredFrom {
     }
 }
 
+/// Makes one field optional (drops it from `required`) in a single tagged variant
+/// of a `oneOf` schema. `RpcTransactionError` is `#[serde(tag = "name", content = "info")]`,
+/// so schemars marks the `info` content field required for every non-unit variant —
+/// including `TIMEOUT_ERROR`, whose payload is actually an `Option<TimeoutErrorCause>`.
+/// Advertising `info` as required would make clients generated from this spec reject
+/// `TIMEOUT_ERROR` responses from older nodes that omit it. Dropping it from `required`
+/// keeps those clients compatible across the node-upgrade boundary.
+#[derive(Debug, Clone)]
+pub struct MakeVariantFieldOptional {
+    schema: &'static str,
+    variant: &'static str,
+    field: &'static str,
+}
+
+impl MakeVariantFieldOptional {
+    pub fn new(schema: &'static str, variant: &'static str, field: &'static str) -> Self {
+        Self { schema, variant, field }
+    }
+}
+
+impl schemars::transform::Transform for MakeVariantFieldOptional {
+    fn transform(&mut self, schema: &mut schemars::Schema) {
+        // Schemas are in `$defs` at this point in the pipeline (see RemoveRequiredFrom).
+        if let Some(Value::Object(defs)) = schema.get_mut("$defs") {
+            if let Some(Value::Object(target)) = defs.get_mut(self.schema) {
+                if let Some(Value::Array(variants)) = target.get_mut("oneOf") {
+                    for variant in variants.iter_mut() {
+                        if variant_has_tag(variant, self.variant) {
+                            if let Some(Value::Array(required)) = variant.get_mut("required") {
+                                required.retain(|field| field.as_str() != Some(self.field));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Continue transforming subschemas recursively
+        transform_subschemas(self, schema);
+    }
+}
+
+/// Whether `variant` is the `#[serde(tag = "name")]` branch tagged with `tag`.
+fn variant_has_tag(variant: &Value, tag: &str) -> bool {
+    variant
+        .get("properties")
+        .and_then(|properties| properties.get("name"))
+        .and_then(|name| name.get("enum"))
+        .and_then(|values| values.as_array())
+        .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(tag)))
+}
+
 /// Interchanges `oneOf` and `allOf` in the schema for InterchangeOneOfsAndAllOfs transform
 fn interchange_one_ofs_and_all_ofs(
     schema: &mut schemars::Schema,
@@ -456,6 +508,12 @@ fn interchange_one_ofs_and_all_ofs(
 fn schemas_map<T: JsonSchema>() -> SchemasMap {
     let mut settings = schemars::generate::SchemaSettings::openapi3();
     settings.transforms.push(Box::new(RemoveRequiredFrom::new(SCHEMAS_TO_REMOVE_REQUIRED_FROM)));
+    // `TimeoutError`'s `info` payload is an `Option`, so it must not be advertised as required.
+    settings.transforms.push(Box::new(MakeVariantFieldOptional::new(
+        "RpcTransactionError",
+        "TIMEOUT_ERROR",
+        "info",
+    )));
 
     settings.transforms.insert(
         0,

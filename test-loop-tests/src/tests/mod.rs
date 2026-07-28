@@ -27,6 +27,7 @@ mod deploy_compute_cost;
 mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
+mod earliest_available;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
@@ -71,6 +72,7 @@ mod single_shard_tracking;
 mod spice;
 mod split_storage;
 mod stake_nodes;
+mod stale_pooled_txs;
 mod sync;
 mod tx_inclusion_with_missed_chunks;
 #[cfg(feature = "nightly")]

@@ -259,6 +259,25 @@ impl PublicKeyBuffer {
     }
 }
 
+/// Public-key byte length for a gas-key EXEC (storage) fee computation. Once the
+/// fix is enabled this is the on-trie identifier length; otherwise it falls back
+/// to `pk_len` (the decoded key's wire length, same as the send fee), preserving
+/// the pre-fix behavior.
+pub(crate) fn gas_key_exec_pk_len(
+    public_key_res: &Result<near_crypto::PublicKey>,
+    config: &Config,
+    pk_len: usize,
+) -> usize {
+    match public_key_res {
+        // Exec (storage) fee should reflect how many bytes the key occupies in
+        // storage, not on the wire.
+        Ok(pk) if config.fix_ml_dsa_cost_charging => pk.trie_id_len(),
+        // Preserve the existing behavior if the fix is not enabled (or the key
+        // failed to decode); changing it would break protocol consensus.
+        _ => pk_len,
+    }
+}
+
 impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
@@ -3120,7 +3139,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
         let send = gas_key_transfer_send_fee(&self.fees_config, sir, pk_len);
-        let exec = gas_key_transfer_exec_fee(&self.fees_config, receiver_id.len(), pk_len);
+        let exec_pk_len = gas_key_exec_pk_len(&public_key_res, &self.config, pk_len);
+        let exec = gas_key_transfer_exec_fee(&self.fees_config, receiver_id.len(), exec_pk_len);
         let burn_base = send.base;
         let use_base =
             burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
@@ -3185,8 +3205,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
         let send_fee = gas_key_add_key_send_fee(&self.fees_config, sir);
-        let exec_fee =
-            gas_key_add_key_exec_fee(&self.fees_config, receiver_id.len(), pk_len, num_nonces);
+        let exec_fee = gas_key_add_key_exec_fee(
+            &self.fees_config,
+            receiver_id.len(),
+            gas_key_exec_pk_len(&public_key_res, &self.config, pk_len),
+            num_nonces,
+        );
         self.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
         self.ext.append_action_add_gas_key_with_full_access(
             receipt_idx,
@@ -3261,7 +3285,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let exec_fee = gas_key_add_key_exec_fee(
             &self.fees_config,
             receipt_receiver_id.len(),
-            pk_len,
+            gas_key_exec_pk_len(&public_key_res, &self.config, pk_len),
             num_nonces,
         );
         self.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;

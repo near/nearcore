@@ -1,0 +1,10 @@
+# Bound the combined size of a single receipt's resolved promise inputs.
+# The value is measured against the borsh-encoded `ReceivedData` of each input,
+# and is set to `max_length_returned_data` (4 MiB) plus the worst-case per-input
+# framing overhead (`max_number_input_data_dependencies` * 5 bytes = 640), so
+# that up to 4 MiB of promise-input data always fits regardless of how it is
+# split across data receipts (in particular, a single maximum-size return is
+# always accepted).
+# See ProtocolFeature::ReceiptPromiseInputSizeLimit and
+# docs/architecture/how/receipt_promise_input_size_limit.md
+max_receipt_total_input_size: {old: 4_294_967_295, new: 4_194_944}

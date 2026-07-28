@@ -63,11 +63,7 @@ impl RpcFrom<TxStatusError> for RpcTransactionError {
             TxStatusError::ChainError(err) => {
                 Self::InternalError { debug_info: format!("{:?}", err) }
             }
-            TxStatusError::MissingTransaction(requested_transaction_hash) => {
-                Self::UnknownTransaction { requested_transaction_hash }
-            }
             TxStatusError::InternalError(debug_info) => Self::InternalError { debug_info },
-            TxStatusError::TimeoutError => Self::TimeoutError,
         }
     }
 }
