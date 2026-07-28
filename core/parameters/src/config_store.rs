@@ -66,8 +66,10 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (155, include_config!("155.yaml")),
     // Enable the sha3_256, sha3_384 and sha3_512 host functions.
     (156, include_config!("156.yaml")),
-    // Bound the combined size of a single receipt's resolved promise inputs.
+    // Cap the number of defined globals per contract.
     (157, include_config!("157.yaml")),
+    // Bound the combined size of a single receipt's resolved promise inputs.
+    (158, include_config!("158.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
