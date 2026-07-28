@@ -1,6 +1,5 @@
 //! Cloud archival writer: moves finalized data from the hot store to the cloud storage.
 //! Runs in a loop until the cloud head catches up with the hot final head.
-use crate::metrics;
 use futures::FutureExt;
 use near_async::futures::FutureSpawner;
 use near_async::time::Clock;
@@ -15,6 +14,7 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::archive::CloudArchivingError;
+use near_store::archive::cloud_storage::metrics;
 use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
 use near_store::archive::cloud_storage::{BatchRange, compute_next_batch};
 use near_store::db::{

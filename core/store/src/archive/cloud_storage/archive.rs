@@ -1,3 +1,4 @@
+use super::metrics;
 use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::batch::{BatchRange, compute_batch_id};
@@ -7,7 +8,6 @@ use crate::archive::cloud_storage::epoch_data::build_epoch_data;
 use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shards::build_shard_batch;
-use crate::metrics;
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId, ShardVersion};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
