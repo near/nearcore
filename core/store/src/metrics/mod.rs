@@ -259,7 +259,8 @@ pub static CLOUD_ARCHIVAL_UPLOAD_DURATION_SECONDS: LazyLock<HistogramVec> = Lazy
         "near_cloud_archival_upload_duration_seconds",
         "Latency of object uploads to the cloud archive, by object type",
         &["object_type"],
-        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+        // Cloud uploads run tens of ms; a 10ms floor keeps the low buckets usable.
+        Some(exponential_buckets(0.01, 1.6, 20).unwrap()),
     )
     .unwrap()
 });

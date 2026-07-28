@@ -148,6 +148,16 @@ struct ShardBatchToArchive {
     layout: ShardLayout,
     range: BatchRange,
     sync_point: Option<BlockHeight>,
+    /// A removed parent shard's final batch, ending at the resharding block.
+    retired_parent: bool,
+}
+
+/// A shard's head height to reflect in the gauge; `retired` drops the shard's
+/// series instead of setting it.
+struct ShardHeadUpdate {
+    shard_id: ShardId,
+    head: BlockHeight,
+    retired: bool,
 }
 
 /// Creates the cloud archival writer if it is configured.
@@ -529,12 +539,12 @@ impl CloudArchivalWriter {
     }
 
     /// Archives shard batches for tracked shards whose local head is behind
-    /// `batch_range.end()`. Returns the shard IDs that were advanced.
+    /// `batch_range.end()`. Returns the shards that advanced.
     async fn archive_shard_batches_if_lagging(
         &self,
         batch_range: &BatchRange,
         epoch_ending_block_hash: Option<CryptoHash>,
-    ) -> Result<Vec<(ShardId, BlockHeight)>, CloudArchivingError> {
+    ) -> Result<Vec<ShardHeadUpdate>, CloudArchivingError> {
         let shard_batches = self.shard_batches_to_archive(batch_range, epoch_ending_block_hash)?;
         let mut advanced_shards = Vec::new();
         for shard_batch in shard_batches {
@@ -563,7 +573,11 @@ impl CloudArchivalWriter {
                 )
                 .await?;
             self.cloud_storage.update_cloud_shard_head(shard_id, batch_end).await?;
-            advanced_shards.push((shard_id, batch_end));
+            advanced_shards.push(ShardHeadUpdate {
+                shard_id,
+                head: batch_end,
+                retired: shard_batch.retired_parent,
+            });
         }
         Ok(advanced_shards)
     }
@@ -598,6 +612,7 @@ impl CloudArchivalWriter {
                     layout: layout.clone(),
                     range: *batch_range,
                     sync_point: None,
+                    retired_parent: false,
                 })
                 .collect());
         };
@@ -620,6 +635,7 @@ impl CloudArchivalWriter {
                     layout: resharding.new_layout.clone(),
                     range: *batch_range,
                     sync_point: None,
+                    retired_parent: false,
                 });
             } else {
                 // A new child shard carries inverse changes for the reader's
@@ -629,6 +645,7 @@ impl CloudArchivalWriter {
                     layout: resharding.new_layout.clone(),
                     range: BatchRange::new(child_shard_batch_start, batch_range.end()),
                     sync_point: Some(resharding.sync_point),
+                    retired_parent: false,
                 });
             }
         }
@@ -645,6 +662,7 @@ impl CloudArchivalWriter {
                     layout: resharding.old_layout.clone(),
                     range: BatchRange::new(batch_range.start(), resharding.resharding_block_height),
                     sync_point: None,
+                    retired_parent: true,
                 });
             }
         }
@@ -948,14 +966,19 @@ impl CloudArchivalWriter {
         transaction.set(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY.to_vec(), prev_epoch_end_bytes);
 
         self.hot_store.database().write(transaction);
-        Self::report_head_heights(block_head, shard_heads, min_height);
+        // No shard retires during initialization.
+        let head_updates: Vec<ShardHeadUpdate> = shard_heads
+            .iter()
+            .map(|&(shard_id, head)| ShardHeadUpdate { shard_id, head, retired: false })
+            .collect();
+        Self::report_head_heights(block_head, &head_updates, min_height);
         Ok(())
     }
 
-    /// Reports the archived head heights the hot store holds.
+    /// Reports archived head-height gauges; a retired parent's series is dropped.
     fn report_head_heights(
         block_head: Option<BlockHeight>,
-        shard_heads: &[(ShardId, BlockHeight)],
+        head_updates: &[ShardHeadUpdate],
         min_height: BlockHeight,
     ) {
         if let Some(block_head) = block_head {
@@ -963,10 +986,16 @@ impl CloudArchivalWriter {
                 .with_label_values(&["block"])
                 .set(block_head as i64);
         }
-        for &(shard_id, height) in shard_heads {
-            metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT
-                .with_label_values(&[shard_id.to_string().as_str()])
-                .set(height as i64);
+        for update in head_updates {
+            let component = update.shard_id.to_string();
+            if update.retired {
+                let _ =
+                    metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT.remove_label_values(&[component.as_str()]);
+            } else {
+                metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT
+                    .with_label_values(&[component.as_str()])
+                    .set(update.head as i64);
+            }
         }
         metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT.with_label_values(&["min"]).set(min_height as i64);
     }
@@ -1008,7 +1037,7 @@ impl CloudArchivalWriter {
         &self,
         height: BlockHeight,
         block_advanced: bool,
-        advanced_shards: &[(ShardId, BlockHeight)],
+        advanced_shards: &[ShardHeadUpdate],
         new_prev_epoch_end: Option<CryptoHash>,
     ) -> Result<(), near_chain_primitives::Error> {
         let height_bytes = borsh::to_vec(&height).unwrap();
@@ -1016,9 +1045,13 @@ impl CloudArchivalWriter {
         if block_advanced {
             transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), height_bytes.clone());
         }
-        for &(shard_id, shard_head) in advanced_shards {
-            let shard_head_bytes = borsh::to_vec(&shard_head).unwrap();
-            transaction.set(DBCol::BlockMisc, cloud_shard_head_key(shard_id), shard_head_bytes);
+        for advanced in advanced_shards {
+            let shard_head_bytes = borsh::to_vec(&advanced.head).unwrap();
+            transaction.set(
+                DBCol::BlockMisc,
+                cloud_shard_head_key(advanced.shard_id),
+                shard_head_bytes,
+            );
         }
         transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), height_bytes);
         if let Some(new_prev_epoch_end) = new_prev_epoch_end {
