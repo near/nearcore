@@ -22,7 +22,6 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::spice::state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
     SpiceContractCodeRequest, SpiceContractCodeResponse,
@@ -35,7 +34,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter::repeat_n;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -82,7 +81,7 @@ struct PartialChunkData {
     /// Contract accesses received from each producer. We trust the first one
     /// (populate `trusted`, start requesting contracts) but keep others to
     /// fall back to if the trusted sender turns out to be malicious.
-    received_accesses: HashMap<AccountId, HashSet<CodeHash>>,
+    received_accesses: HashMap<AccountId, BTreeSet<CodeHash>>,
     /// The sender whose accesses we are currently acting on.
     /// None = haven't received any contract accesses message yet.
     trusted: Option<TrustedAccesses>,
@@ -96,8 +95,8 @@ struct PartialChunkData {
 /// removes it from the cache and returns the partial chunk data.
 ///
 /// This assumes the currently trusted contract accesses are correct. The caller
-/// should verify the contract accesses hash against the witness and re-do with
-/// a different sender's accesses if the hash doesn't match.
+/// should verify the contract accesses against the witness and re-do with
+/// a different sender's accesses if they don't match.
 fn try_take_ready_chunk(
     partial_chunk_data: &mut LruCache<SpiceChunkId, PartialChunkData>,
     chunk_id: &SpiceChunkId,
@@ -272,7 +271,7 @@ impl SpiceChunkValidatorActor {
                 self.partial_chunk_data
                     .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                     .witness = Some(witness);
-                // Eagerly check the trusted accesses hash against the witness.
+                // Eagerly check the trusted accesses against the witness.
                 // If the trusted sender is wrong, discard and try the next one
                 // before waiting for contract code that will never arrive.
                 self.validate_trusted_accesses(&chunk_id, signer.clone())?;
@@ -541,7 +540,7 @@ impl SpiceChunkValidatorActor {
             return Err(Error::Other("invalid spice contract accesses signature".to_owned()));
         };
 
-        let all_contracts: HashSet<CodeHash> = accesses.contracts().iter().cloned().collect();
+        let all_contracts = accesses.contracts().clone();
 
         let entry =
             self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
@@ -642,8 +641,8 @@ impl SpiceChunkValidatorActor {
         Ok(())
     }
 
-    /// Eagerly checks the trusted contract accesses hash against the witness.
-    /// If both are present and the hash doesn't match, invalidates the trusted
+    /// Eagerly checks the trusted contract accesses against the witness.
+    /// If both are present and they don't match, invalidates the trusted
     /// sender and tries the next one. This catches malicious senders early,
     /// before waiting for contract code that will never arrive.
     fn validate_trusted_accesses(
@@ -657,11 +656,10 @@ impl SpiceChunkValidatorActor {
         let (Some(witness), Some(trusted)) = (&entry.witness, &entry.trusted) else {
             return Ok(());
         };
-        let expected_hash = witness.contract_accesses_hash();
         let Some(trusted_accesses) = entry.received_accesses.get(&trusted.sender) else {
             return Ok(());
         };
-        if compute_contract_accesses_hash(trusted_accesses) == *expected_hash {
+        if trusted_accesses == witness.contract_accesses() {
             return Ok(());
         }
         // Trusted sender's accesses don't match. Invalidate and try next.
@@ -671,7 +669,7 @@ impl SpiceChunkValidatorActor {
             ?chunk_id,
             %sender,
             "received invalid contract accesses from producer; \
-             hash does not match witness"
+             does not match witness"
         );
         let mut partial = self.partial_chunk_data.pop(chunk_id).unwrap();
         partial.received_accesses.remove(&sender);
@@ -701,7 +699,7 @@ impl SpiceChunkValidatorActor {
             }
             WitnessProcessingReadiness::Ready(ctx) => {
                 let mut witness = partial.witness.unwrap();
-                witness.mut_main_state_transition().merge_contracts(partial.contracts);
+                witness.merge_contracts(partial.contracts);
                 self.validate_state_witness_and_send_endorsements(&ctx, witness, signer)
             }
         }

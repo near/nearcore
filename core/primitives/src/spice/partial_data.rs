@@ -34,10 +34,16 @@ pub struct SpiceDataPart {
     pub merkle_proof: MerklePath,
 }
 
-// TODO(spice): Version this struct since it is sent over the network.
-/// Partial data for spice with unverified signature.
+/// Partial data with unverified signature.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct SpicePartialData {
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum SpicePartialData {
+    V1(SpicePartialDataV1) = 0,
+}
+
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SpicePartialDataV1 {
     inner: SpicePartialDataInner,
     sender: AccountId,
     signature: Signature,
@@ -52,28 +58,36 @@ impl SpicePartialData {
     ) -> Self {
         let inner = SpicePartialDataInner { id, commitment, parts };
         let signature = signer.sign_bytes(&inner.serialize_for_signing());
-        Self { inner, signature, sender: signer.validator_id().clone() }
+        Self::V1(SpicePartialDataV1 { inner, signature, sender: signer.validator_id().clone() })
     }
 
     pub fn block_hash(&self) -> &CryptoHash {
-        self.inner.id.block_hash()
+        match self {
+            Self::V1(v1) => v1.inner.id.block_hash(),
+        }
     }
 
     pub fn sender(&self) -> &AccountId {
-        &self.sender
+        match self {
+            Self::V1(v1) => &v1.sender,
+        }
     }
 
     pub fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedPartialData> {
-        let data = self.inner.serialize_for_signing();
-        if !self.signature.verify(&data, public_key) {
-            return None;
+        match self {
+            Self::V1(v1) => {
+                let data = v1.inner.serialize_for_signing();
+                if !v1.signature.verify(&data, public_key) {
+                    return None;
+                }
+                Some(SpiceVerifiedPartialData {
+                    id: v1.inner.id,
+                    commitment: v1.inner.commitment,
+                    parts: v1.inner.parts,
+                    sender: v1.sender,
+                })
+            }
         }
-        Some(SpiceVerifiedPartialData {
-            id: self.inner.id,
-            commitment: self.inner.commitment,
-            parts: self.inner.parts,
-            sender: self.sender,
-        })
     }
 }
 
@@ -110,5 +124,9 @@ pub fn testonly_create_spice_partial_data(
     signature: Signature,
     sender: AccountId,
 ) -> SpicePartialData {
-    SpicePartialData { inner: SpicePartialDataInner { id, commitment, parts }, signature, sender }
+    SpicePartialData::V1(SpicePartialDataV1 {
+        inner: SpicePartialDataInner { id, commitment, parts },
+        signature,
+        sender,
+    })
 }
