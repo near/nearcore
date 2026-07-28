@@ -677,6 +677,12 @@ pub fn validate_chunk_state_witness_impl(
         .into_iter()
         .zip(state_witness.implicit_transitions().into_iter())
     {
+        let transition_block_hash = match &implicit_transition_params {
+            ImplicitTransitionParams::ApplyOldChunk(..) => transition.block_hash,
+            ImplicitTransitionParams::Resharding(_, _, _, boundary_block_hash) => {
+                *boundary_block_hash
+            }
+        };
         let (shard_uid, new_state_root, new_congestion_info) = match implicit_transition_params {
             ImplicitTransitionParams::ApplyOldChunk(block, shard_uid) => {
                 let shard_context = ShardContext { shard_uid, should_apply_chunk: false };
@@ -716,14 +722,8 @@ pub fn validate_chunk_state_witness_impl(
                 // important to do this step before the `retain_split_shard`
                 // because only the parent trie has the needed information.
                 //
-                // Resolve the epochs (and thus shard layouts) from the locally
-                // determined boundary block, not the unvalidated witness hash,
-                // as the producer does in `ReshardingManager::process_...`. Using the
-                // main-transition `block_hash` here is wrong: if the parent shard
-                // produced no chunk in the last old-layout epoch, that block lies
-                // in an earlier epoch and resolves to the old layout, so the
-                // child's new shard id is absent and validation fails with
-                // `InvalidShardId`, permanently halting the resharded shard.
+                // The boundary block is the last block of the old epoch. Resolve
+                // both shard layouts from it, matching the producer.
                 let epoch_id = epoch_manager.get_epoch_id(&boundary_block_hash)?;
                 let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
                 let parent_congestion_info = chunk_extra.congestion_info();
@@ -755,7 +755,7 @@ pub fn validate_chunk_state_witness_impl(
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Post state root {:?} for implicit transition at block {:?} to shard {:?}, does not match expected state root {:?}",
                 chunk_extra.state_root(),
-                transition.block_hash,
+                transition_block_hash,
                 shard_uid,
                 transition.post_state_root
             )));
