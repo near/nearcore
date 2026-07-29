@@ -97,8 +97,6 @@ pub struct StoreConfig {
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
 
-    pub state_snapshot_config: StateSnapshotConfig,
-
     #[serde(skip_serializing_if = "RocksDbConfig::is_default")]
     pub rocksdb: RocksDbConfig,
 }
@@ -108,31 +106,6 @@ impl StoreConfig {
     pub fn state_snapshot_store_config() -> Self {
         Self::default()
     }
-
-    pub fn enable_state_snapshot(&mut self) {
-        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
-    }
-
-    pub fn disable_state_snapshot(&mut self) {
-        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Disabled;
-    }
-}
-
-/// Config used to control state snapshot creation. This is used for state sync and resharding.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct StateSnapshotConfig {
-    pub state_snapshot_type: StateSnapshotType,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub enum StateSnapshotType {
-    /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
-    #[default]
-    #[serde(alias = "EveryEpoch")] // TODO: Remove after 2.8 release
-    Enabled,
-    #[serde(alias = "ForReshardingOnly")] // TODO: Remove after 2.8 release
-    Disabled,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -264,8 +237,6 @@ impl Default for StoreConfig {
             load_memtries_for_tracked_shards: false,
 
             migration_snapshot: Default::default(),
-
-            state_snapshot_config: Default::default(),
 
             rocksdb: Default::default(),
         }

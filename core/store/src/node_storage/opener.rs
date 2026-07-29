@@ -1,7 +1,6 @@
 use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
-use crate::config::StateSnapshotType;
 use crate::db::ColdDB;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
@@ -287,7 +286,6 @@ impl<'a> StoreOpener<'a> {
     /// and runs the migration on each of them.
     ///
     /// Migrations is not performed in the following cases:
-    /// - If snapshots are disabled
     /// - If the migrator is not found
     /// - If the state snapshots directory does not exist
     /// - If the state snapshot is already migrated
@@ -297,17 +295,9 @@ impl<'a> StoreOpener<'a> {
             return Ok(());
         }
 
-        let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
-            StateSnapshotType::Enabled => {
-                // At this point, the self.hot.path was built from home_dir and store_config.path.
-                let config = StateSnapshotConfig::enabled(&self.hot.path);
-                config.state_snapshots_dir().unwrap().to_path_buf()
-            }
-            StateSnapshotType::Disabled => {
-                tracing::debug!(target: "db_opener", "state snapshots are disabled, skipping state snapshots migration");
-                return Ok(());
-            }
-        };
+        // At this point, the self.hot.path was built from home_dir and store_config.path.
+        let config = StateSnapshotConfig::enabled(&self.hot.path);
+        let state_snapshots_dir = config.state_snapshots_dir().unwrap().to_path_buf();
 
         if !state_snapshots_dir.exists() {
             tracing::debug!(

@@ -30,7 +30,7 @@ use near_store::db::RocksDB;
 use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::{
-    DBCol, FINAL_HEAD_KEY, Store, TrieDBStorage, TrieStorage,
+    DBCol, FINAL_HEAD_KEY, StateSnapshotConfig, Store, TrieDBStorage, TrieStorage,
     checkpoint_hot_storage_and_cleanup_columns, get_genesis_state_roots,
 };
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config, open_storage};
@@ -251,8 +251,6 @@ impl ForkNetworkCommand {
         .await
         .global();
 
-        near_config.config.store.disable_state_snapshot();
-
         match &self.command {
             SubCommand::Init(InitCmd { shard_layout_file, shard_layout_protocol_version }) => {
                 let shard_layout_override = {
@@ -471,9 +469,17 @@ impl ForkNetworkCommand {
         let all_shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(all_shard_uids.len(), prev_state_roots.len());
 
-        let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+        // fork-network runs with state snapshots disabled: a pending snapshot locks
+        // flat-storage head updates, which would interfere with the state rewriting
+        // done here.
+        let runtime = NightshadeRuntime::from_config_with_state_snapshot(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager,
+            StateSnapshotConfig::Disabled,
+        )
+        .context("could not create the transaction runtime")?;
         runtime.get_tries().load_memtries_for_enabled_shards(&all_shard_uids, None, true)?;
 
         let shard_tries = runtime.get_tries();
@@ -571,9 +577,17 @@ impl ForkNetworkCommand {
         let (prev_state_roots, flat_head, _epoch_id, target_shard_layout) =
             self.get_state_roots_and_hash(store.clone(), epoch_manager.as_ref())?;
 
-        let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+        // fork-network runs with state snapshots disabled: a pending snapshot locks
+        // flat-storage head updates, which would interfere with the state rewriting
+        // done here.
+        let runtime = NightshadeRuntime::from_config_with_state_snapshot(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager,
+            StateSnapshotConfig::Disabled,
+        )
+        .context("could not create the transaction runtime")?;
         let runtime_config = runtime.get_runtime_config(protocol_version);
 
         let shard_uids = target_shard_layout.shard_uids().collect::<Vec<_>>();
@@ -741,9 +755,17 @@ impl ForkNetworkCommand {
         )?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis.config, Some(home_dir));
-        let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
-                .context("could not create the transaction runtime")?;
+        // fork-network runs with state snapshots disabled: a pending snapshot locks
+        // flat-storage head updates, which would interfere with the state rewriting
+        // done here.
+        let runtime = NightshadeRuntime::from_config_with_state_snapshot(
+            home_dir,
+            store,
+            &near_config,
+            epoch_manager.clone(),
+            StateSnapshotConfig::Disabled,
+        )
+        .context("could not create the transaction runtime")?;
         let chain_genesis = ChainGenesis::new(&genesis.config);
         Self::set_genesis_block(
             epoch_manager.as_ref(),
