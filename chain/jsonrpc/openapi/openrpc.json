@@ -2226,6 +2226,17 @@
             ],
             "description": "The merkle root of all the block hashes"
           },
+          "chunk_execution_root": {
+            "description": "Merkle root over the block's certified chunk execution results.\n`None` for pre-spice headers.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "epoch_id": {
             "allOf": [
               {
@@ -2344,6 +2355,16 @@
             "type": [
               "array",
               "null"
+            ]
+          },
+          "chunk_execution_root": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "chunk_headers_root": {
