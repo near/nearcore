@@ -171,8 +171,9 @@ impl ExtCostsConfig {
             ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
             ExtCosts::p256_verify_base => SAFETY_MULTIPLIER * 433_333_333_333,
             ExtCosts::p256_verify_byte => SAFETY_MULTIPLIER * 4_333_333,
-            ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 250_000_000_000,
-            ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 4_333_333,
+            // based on relative measurements compared to ed25519
+            ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 180_000_000_000,
+            ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 3_666_666,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,

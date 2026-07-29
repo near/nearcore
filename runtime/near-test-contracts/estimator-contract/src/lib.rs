@@ -1091,7 +1091,7 @@ pub unsafe fn ml_dsa_verify_32b_500() {
 #[unsafe(no_mangle)]
 pub unsafe fn ml_dsa_verify_16kib_64() {
     // 16 KiB message. `ml_dsa_verify_byte` is priced to cover the host-side
-    // marshalling of every byte of the declared message length.
+    // hashing of every byte of the declared message length.
     let message = [b'a'; 16384];
 
     // Same key pair as ml_dsa_verify_32b_500.

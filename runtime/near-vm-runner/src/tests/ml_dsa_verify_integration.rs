@@ -2,9 +2,7 @@
 //!
 //! These build a tiny WASM contract that imports `ml_dsa_verify`, lays the
 //! inputs out in linear memory, invokes the host function, and returns its
-//! result. They exercise the full pipeline through the real WASM VM (Wasmtime)
-//! — imports wiring, memory marshalling, gas accounting, and the feature gate —
-//! in a way the logic-only unit tests cannot.
+//! result
 //!
 //! ML-DSA signing is hedged (randomized), so the known-answer vector is a fixed
 //! valid `(public_key, message, signature)` triple rather than something

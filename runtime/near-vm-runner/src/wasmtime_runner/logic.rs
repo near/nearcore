@@ -2089,8 +2089,8 @@ pub fn p256_verify(
 ///
 /// The signature must be 3309 bytes and the public key must be the 1952-byte
 /// raw FIPS 204 encoding. The message is of arbitrary length and is passed to
-/// the verifier as-is: ML-DSA hashes the message internally, so — unlike
-/// `p256_verify` — the caller must not pre-hash. Verification uses an empty
+/// the verifier as-is: ML-DSA hashes the message internally, so the caller 
+/// must not pre-hash. Verification uses an empty
 /// context string, matching NEAR's transaction-level ML-DSA-65 signatures.
 ///
 /// Returns a bool indicating success (1) or failure (0) as a `u64`.
