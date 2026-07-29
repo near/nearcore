@@ -2255,22 +2255,28 @@ impl EpochManager {
                 ChunkProducerBlacklist::empty()
             } else {
                 let aggregator = self.get_epoch_info_aggregator_upto_last(&anchor.final_hash)?;
-                // Grace measured against the last-final height, matching the blacklist basis. A
-                // missing `EpochStart` (genesis) counts as just-started (grace, empty); other
-                // errors propagate rather than mask storage corruption.
-                let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
-                    Ok(start) => start,
-                    Err(EpochError::EpochOutOfBounds(_)) => anchor.final_height,
-                    Err(e) => return Err(e),
-                };
-                let blocks_into_epoch = anchor.final_height.saturating_sub(epoch_start);
-                blacklist_for_epoch(
-                    &aggregator,
-                    sample.epoch_id,
-                    sample.epoch_info,
-                    sample.shard_layout,
-                    blocks_into_epoch,
-                )
+                if aggregator.epoch_id != *sample.epoch_id {
+                    // Cross-epoch anchor: `blacklist_for_epoch` would return empty anyway.
+                    // Checked here, before the epoch-start walk, because right after epoch
+                    // sync the aggregator can sit on a prev-epoch block whose `BlockInfo`
+                    // was never installed — the walk would fail on a legitimate state.
+                    ChunkProducerBlacklist::empty()
+                } else {
+                    // Grace measured against the last-final height, matching the blacklist
+                    // basis. Derived from the `BlockInfo` walk (per-hash keys), not
+                    // `DBCol::EpochStart`: boundary fork siblings share that row and
+                    // overwrite each other, so its value depends on block processing order.
+                    // A miss here is structural corruption — propagate, don't map to grace.
+                    let epoch_start = self.get_epoch_start_height(&anchor.final_hash)?;
+                    let blocks_into_epoch = anchor.final_height.saturating_sub(epoch_start);
+                    blacklist_for_epoch(
+                        &aggregator,
+                        sample.epoch_id,
+                        sample.epoch_info,
+                        sample.shard_layout,
+                        blocks_into_epoch,
+                    )
+                }
             };
             // emit only here, never in the accessor: the accessor recomputes on every
             // consensus read and would double-count. `shard_stats` only holds shards with

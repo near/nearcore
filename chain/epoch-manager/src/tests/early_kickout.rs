@@ -13,6 +13,8 @@ use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_
 use crate::{
     EpochManager, EpochManagerAdapter, EpochManagerHandle, compute_chunk_producer_blacklist,
 };
+#[cfg(feature = "nightly")]
+use crate::{SampleEpoch, SeedAnchor};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::{CryptoHash, hash};
@@ -20,8 +22,16 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 #[cfg(feature = "nightly")]
 use near_primitives::types::EpochId;
+#[cfg(feature = "nightly")]
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, ChunkStats, ShardId, ValidatorId};
+#[cfg(feature = "nightly")]
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::PROTOCOL_VERSION;
+#[cfg(feature = "nightly")]
+use near_store::DBCol;
+#[cfg(feature = "nightly")]
+use near_store::adapter::StoreAdapter;
 use std::collections::{HashMap, HashSet};
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
@@ -961,4 +971,108 @@ fn seed_chunk_producers_fires_safety_valve_metric() {
     let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
     assert_eq!(bl.len(), 1, "expected exactly one shard in the blacklist, got {bl:?}");
     assert_eq!(bl[&shard_id].len(), 1, "keep-one must blacklist exactly one of two producers");
+}
+
+// Post-epoch-sync regression for the seeder's epoch-start basis. Right after
+// `init_after_epoch_sync` the aggregator sits on the prev epoch's THIRD-last block, whose
+// `BlockInfo` is deliberately never installed (only first / second-last / last are). An
+// anchor whose last-final block is exactly that position is a legitimate, supported state:
+// the aggregator walk short-circuits and returns the prev-epoch aggregator. Because the
+// aggregator's epoch differs from the sample epoch, the seeder must take the cross-epoch
+// early-return and seed the canonical (empty-blacklist) row — a bare
+// `get_epoch_start_height(final_hash)` there would fail with `MissingBlock`.
+#[cfg(feature = "nightly")]
+#[test]
+fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let mut em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
+    let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap().as_ref().clone();
+    let shard_layout = em.get_shard_layout(&EpochId::default()).unwrap();
+
+    let prev_epoch_id = EpochId(hash(b"prev epoch"));
+    let epoch_id = EpochId(hash(b"current epoch"));
+    let next_epoch_id = EpochId(hash(b"next epoch"));
+    let first = hash(b"prev epoch first block");
+    let third_last = hash(b"prev epoch third-last block");
+    let second_last = hash(b"prev epoch second-last block");
+    let last = hash(b"prev epoch last block");
+
+    // Mirrors what the epoch-sync proof installs: `BlockInfo`s carrying their epoch id and
+    // the epoch's first block, saved verbatim without going through `record_block_info`.
+    let prev_epoch_block = |cur: CryptoHash, height: u64, prev: CryptoHash| {
+        let mut info = BlockInfo::new(
+            cur,
+            height,
+            height.saturating_sub(2),
+            CryptoHash::default(),
+            prev,
+            vec![],
+            vec![true],
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            height * NUM_NS_IN_SECOND,
+            ChunkEndorsementsBitmap::new(1),
+            None,
+        );
+        *info.epoch_id_mut() = prev_epoch_id;
+        *info.epoch_first_block_mut() = first;
+        info
+    };
+
+    let mut store_update = em.store.store_update();
+    em.init_after_epoch_sync(
+        &mut store_update,
+        prev_epoch_block(first, 90, hash(b"block before prev epoch")),
+        prev_epoch_block(second_last, 98, third_last),
+        prev_epoch_block(last, 99, second_last),
+        &prev_epoch_id,
+        epoch_info.clone(),
+        &epoch_id,
+        epoch_info.clone(),
+        &next_epoch_id,
+        epoch_info.clone(),
+    )
+    .unwrap();
+    store_update.commit();
+
+    // The anchor's last-final block IS the aggregator position, so the walk short-circuits
+    // without touching the missing `BlockInfo`; the returned aggregator belongs to the prev
+    // epoch while the sample epoch is the current one.
+    let anchor = SeedAnchor {
+        hash: hash(b"current epoch block"),
+        height: 101,
+        final_hash: third_last,
+        final_height: 97,
+    };
+    let mut seed_update = em.store.store_update();
+    em.seed_chunk_producers(
+        &mut seed_update,
+        &anchor,
+        &epoch_info,
+        SampleEpoch { epoch_id: &epoch_id, epoch_info: &epoch_info, shard_layout: &shard_layout },
+    )
+    .expect("cross-epoch anchor after epoch sync must seed, not error");
+    seed_update.commit();
+
+    // Empty blacklist -> the seeded row is the canonical sample at the anchor offset.
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let key = get_block_shard_id(&anchor.hash, shard_id);
+    let seeded = em
+        .store
+        .store_ref()
+        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+        .expect("seeder must write the ChunkProducers row for the anchor");
+    let canonical = epoch_info
+        .sample_chunk_producer(
+            &shard_layout,
+            shard_id,
+            anchor.height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+        )
+        .unwrap();
+    assert_eq!(
+        seeded.account_id(),
+        epoch_info.get_validator(canonical).account_id(),
+        "empty blacklist must seed the canonical sample",
+    );
 }
