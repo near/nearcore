@@ -1687,8 +1687,11 @@ fn test_per_receipt_storage_proof_size_limit() {
     assert!(error_message.contains("storage proof"), "unexpected error message: {error_message}");
 }
 
-#[test]
-fn test_validation_rejects_missing_contract_code() {
+/// Deploys a contract, records a witness for a call to it (which excludes the
+/// contract body), then applies that call over the recorded storage.
+fn apply_call_to_contract_missing_from_witness(
+    apply_reason: ApplyChunkReason,
+) -> Result<ApplyResult, RuntimeError> {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
         Balance::from_near(1_000_000),
@@ -1748,43 +1751,35 @@ fn test_validation_rejects_missing_contract_code() {
     // A validator with an empty compiled-contract cache has no source for the
     // body other than the witness, which excludes it.
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
-    let apply_with_missing_code = |apply_state: &ApplyState| {
-        runtime.apply(
-            Trie::from_recorded_storage(partial_storage.clone(), root, false),
-            &None,
-            apply_state,
-            std::slice::from_ref(&call_receipt),
-            SignedValidPeriodTransactions::empty(),
-            &epoch_info_provider,
-            Default::default(),
-        )
-    };
+    apply_state.apply_reason = apply_reason;
+    runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        std::slice::from_ref(&call_receipt),
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    )
+}
 
-    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+#[test]
+fn test_validation_rejects_missing_contract_code() {
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     assert_matches!(
-        apply_with_missing_code(&apply_state),
+        apply_call_to_contract_missing_from_witness(ApplyChunkReason::ValidateChunkStateWitness),
         Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
             context: MissingTrieValueContext::TrieMemoryPartialStorage,
             hash,
         }))) if hash == *contract_code.hash()
     );
+}
 
-    // Block production resolves the body from its own trie, so the guard must
-    // not change the outcome outside witness validation.
-    apply_state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
-    let apply_result = apply_with_missing_code(&apply_state).unwrap();
-    let [ExecutionOutcomeWithId { outcome, .. }] = &apply_result.outcomes[..] else {
-        panic!("expected a single outcome, got {:?}", apply_result.outcomes);
-    };
-    assert_matches!(
-        &outcome.status,
-        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::CodeDoesNotExist { .. }
-            )),
-            ..
-        }))
-    );
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "contract code is missing from the trie")]
+fn test_tracked_shard_apply_asserts_on_missing_contract_code() {
+    let _ = apply_call_to_contract_missing_from_witness(ApplyChunkReason::UpdateTrackedShard);
 }
 
 // Tests excluding contract code from state witness and recording of contract deployments and function calls.
