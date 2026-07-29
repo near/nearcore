@@ -1684,7 +1684,12 @@ impl ShardsManagerActor {
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
             // because prev_block_hash may not be ready
-            if !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root()) {
+            //
+            // from_shard_id is not covered by the receipts merkle root, so it must be checked
+            // explicitly.
+            if proof.1.from_shard_id != header.shard_id()
+                || !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root())
+            {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
@@ -2430,7 +2435,7 @@ impl PartialEncodedChunkResponseSource {
 mod test {
     use super::*;
     use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
-    use crate::logic::persist_chunk;
+    use crate::logic::{make_outgoing_receipts_proofs, persist_chunk};
     use crate::test_utils::*;
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
@@ -3665,6 +3670,42 @@ mod test {
         assert_matches!(
             messages[0],
             ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
+    }
+
+    #[test]
+    fn test_receipt_proof_with_mismatched_from_shard_id_rejected() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let header = &fixture.mock_chunk_header;
+        let mut proof = make_outgoing_receipts_proofs(header, vec![], &fixture.epoch_manager)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(proof.1.from_shard_id, header.shard_id());
+        proof.1.from_shard_id = fixture
+            .epoch_manager
+            .get_shard_layout(&EpochId::default())
+            .unwrap()
+            .shard_ids()
+            .find(|shard_id| *shard_id != header.shard_id())
+            .unwrap();
+
+        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: fixture.mock_chunk_header.clone(),
+            parts: vec![],
+            prev_outgoing_receipts: vec![proof],
+        });
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial_encoded_chunk),
+            Some(&fixture.mock_shard_tracker),
+        );
+        assert_matches!(result, Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof)));
+
+        assert!(
+            shards_manager.encoded_chunks.get(fixture.mock_chunk_header.chunk_hash()).is_none()
         );
     }
 
