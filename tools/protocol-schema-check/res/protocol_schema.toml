@@ -244,7 +244,6 @@ PublicKey = 3910595699
 PublicKeyHandle = 668833534
 RawStateChange = 3620499887
 RawStateChangesWithTrieKey = 3407627494
-RawStateInit = 4017803110
 RawTrieNode = 1893029771
 RawTrieNodeWithSize = 2270541653
 Receipt = 1532724933
