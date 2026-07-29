@@ -1,3 +1,4 @@
+use super::metrics;
 use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::batch::{BatchRange, compute_batch_id};
@@ -183,9 +184,19 @@ impl CloudStorage {
         value: Vec<u8>,
     ) -> Result<(), CloudArchivingError> {
         let path = self.file_path(&file_id);
-        self.external
-            .put(&path, &value)
-            .await
-            .map_err(|error| CloudArchivingError::PutError { file_id, error })
+        let object_type = file_id.object_type();
+        // Record only on a successful put, so failed attempts don't inflate the histograms.
+        let timer = metrics::CLOUD_ARCHIVAL_UPLOAD_DURATION_SECONDS
+            .with_label_values(&[object_type])
+            .start_timer();
+        if let Err(error) = self.external.put(&path, &value).await {
+            timer.stop_and_discard();
+            return Err(CloudArchivingError::PutError { file_id, error });
+        }
+        metrics::CLOUD_ARCHIVAL_UPLOAD_SIZE_BYTES
+            .with_label_values(&[object_type])
+            .observe(value.len() as f64);
+        timer.observe_duration();
+        Ok(())
     }
 }

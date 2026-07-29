@@ -473,8 +473,9 @@ pub fn derive_near_deterministic_account_id(
     state_init: &DeterministicAccountStateInit,
 ) -> AccountId {
     use sha3::Digest;
-    let data = borsh::to_vec(&state_init).expect("borsh must not fail");
-    let hash = sha3::Keccak256::digest(&data);
+    let mut hasher = sha3::Keccak256::new();
+    borsh::to_writer(&mut hasher, state_init).expect("borsh must not fail");
+    let hash: [u8; 32] = hasher.finalize().into();
     format!("0s{}", hex::encode(&hash[12..32])).parse().unwrap()
 }
 
@@ -482,11 +483,10 @@ pub fn derive_near_deterministic_account_id(
 /// Returns the `0u` universal account id fully defined by `state_init`: SHA3-256
 /// (FIPS-202) over its canonical borsh, encoded with the UAID address codec.
 pub fn derive_universal_account_id(state_init: &UniversalStateInit) -> AccountId {
-    use sha3::{Digest, Sha3_256};
-    // Hash the exact canonical bytes carried by `RawStateInit`, so the derived id
-    // and the wire form can never drift apart.
-    let data = state_init.to_raw().0;
-    let hash: [u8; 32] = Sha3_256::digest(&data).into();
+    use sha3::Digest;
+    let mut hasher = sha3::Sha3_256::new();
+    borsh::to_writer(&mut hasher, &state_init).expect("borsh must not fail");
+    let hash = hasher.finalize().into();
     encode_universal_account_id(&hash)
 }
 
