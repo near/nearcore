@@ -291,17 +291,22 @@ pub(crate) fn execute_function_call(
     // are reported via `outcome.aborted` and never reach these arms.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
-            // A missing body for an account that commits to a code hash is
-            // witness incompleteness, not an execution result. Fail like any
-            // other missing witness value rather than treating it as no-op.
-            if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness
-                && runtime_ext.account().contract().is_some()
-            {
-                return Err(StorageError::MissingTrieValue(MissingTrieValue {
-                    context: MissingTrieValueContext::TrieMemoryPartialStorage,
-                    hash: contract_code_hash,
-                })
-                .into());
+            if runtime_ext.account().contract().is_some() {
+                debug_assert!(
+                    apply_state.apply_reason != ApplyChunkReason::UpdateTrackedShard,
+                    "inconsistent state: contract code is missing from the trie, but the account has a non-empty contract"
+                );
+
+                // A missing body for an account that commits to a code hash is
+                // witness incompleteness, not an execution result. Fail like any
+                // other missing witness value rather than treating it as no-op.
+                if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness {
+                    return Err(StorageError::MissingTrieValue(MissingTrieValue {
+                        context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                        hash: contract_code_hash,
+                    })
+                    .into());
+                }
             }
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),
