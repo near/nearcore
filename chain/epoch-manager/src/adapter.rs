@@ -1150,19 +1150,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let final_block_height = anchor_info.last_finalized_height();
         let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(&final_block_hash)?;
         if aggregator.epoch_id != epoch_id {
-            // Cross-epoch anchor: `blacklist_for_epoch` would return empty anyway. Checked
-            // here, before the epoch-start walk, because right after epoch sync the
-            // aggregator can sit on a prev-epoch block whose `BlockInfo` was never
-            // installed — the walk would fail on a legitimate state.
+            // Cross-epoch anchor: empty either way; checked before the walk for the same
+            // post-epoch-sync reason as in `seed_chunk_producers`.
             return Ok(HashMap::new());
         }
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        // Grace measured against the last-final height, matching the blacklist basis. Derived
-        // from the `BlockInfo` walk (per-hash keys), not `DBCol::EpochStart`: boundary fork
-        // siblings share that row and overwrite each other, so its value depends on block
-        // processing order. A miss here is structural corruption — propagate, don't map to
-        // grace. Inherent method on the guard; the trait default would re-take `self.read()`.
+        // Same epoch-start basis as `seed_chunk_producers`. Inherent method on the
+        // guard: the trait default would re-take `self.read()` and deadlock.
         let epoch_start = epoch_manager.get_epoch_start_height(&final_block_hash)?;
         let blocks_into_epoch = final_block_height.saturating_sub(epoch_start);
         Ok(crate::blacklist_for_epoch(

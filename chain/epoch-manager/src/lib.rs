@@ -2256,17 +2256,15 @@ impl EpochManager {
             } else {
                 let aggregator = self.get_epoch_info_aggregator_upto_last(&anchor.final_hash)?;
                 if aggregator.epoch_id != *sample.epoch_id {
-                    // Cross-epoch anchor: `blacklist_for_epoch` would return empty anyway.
-                    // Checked here, before the epoch-start walk, because right after epoch
-                    // sync the aggregator can sit on a prev-epoch block whose `BlockInfo`
-                    // was never installed — the walk would fail on a legitimate state.
+                    // Cross-epoch anchor: empty either way, but checked before the walk —
+                    // right after epoch sync the aggregator block's `BlockInfo` may not exist.
                     ChunkProducerBlacklist::empty()
                 } else {
-                    // Grace measured against the last-final height, matching the blacklist
-                    // basis. Derived from the `BlockInfo` walk (per-hash keys), not
-                    // `DBCol::EpochStart`: boundary fork siblings share that row and
-                    // overwrite each other, so its value depends on block processing order.
-                    // A miss here is structural corruption — propagate, don't map to grace.
+                    // Epoch start via the `BlockInfo` walk, not `DBCol::EpochStart`: boundary
+                    // fork siblings overwrite that shared row, so its value depends on
+                    // processing order. A genesis final block resolves through the stored
+                    // dummy `BlockInfo` (height 0). A miss here is structural corruption —
+                    // propagate, don't map to grace.
                     let epoch_start = self.get_epoch_start_height(&anchor.final_hash)?;
                     let blocks_into_epoch = anchor.final_height.saturating_sub(epoch_start);
                     blacklist_for_epoch(

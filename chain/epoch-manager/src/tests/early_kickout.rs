@@ -973,14 +973,10 @@ fn seed_chunk_producers_fires_safety_valve_metric() {
     assert_eq!(bl[&shard_id].len(), 1, "keep-one must blacklist exactly one of two producers");
 }
 
-// Post-epoch-sync regression for the seeder's epoch-start basis. Right after
-// `init_after_epoch_sync` the aggregator sits on the prev epoch's THIRD-last block, whose
-// `BlockInfo` is deliberately never installed (only first / second-last / last are). An
-// anchor whose last-final block is exactly that position is a legitimate, supported state:
-// the aggregator walk short-circuits and returns the prev-epoch aggregator. Because the
-// aggregator's epoch differs from the sample epoch, the seeder must take the cross-epoch
-// early-return and seed the canonical (empty-blacklist) row — a bare
-// `get_epoch_start_height(final_hash)` there would fail with `MissingBlock`.
+// Post-epoch-sync regression: the aggregator sits on the prev epoch's third-last block,
+// whose `BlockInfo` is deliberately never installed. An anchor final on that position is a
+// legitimate state; the seeder's cross-epoch early-return must fire before the epoch-start
+// walk, which would fail with `MissingBlock` there.
 #[cfg(feature = "nightly")]
 #[test]
 fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
@@ -997,8 +993,7 @@ fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
     let second_last = hash(b"prev epoch second-last block");
     let last = hash(b"prev epoch last block");
 
-    // Mirrors what the epoch-sync proof installs: `BlockInfo`s carrying their epoch id and
-    // the epoch's first block, saved verbatim without going through `record_block_info`.
+    // Mirrors what the epoch-sync proof installs, bypassing `record_block_info`.
     let prev_epoch_block = |cur: CryptoHash, height: u64, prev: CryptoHash| {
         let mut info = BlockInfo::new(
             cur,
@@ -1036,9 +1031,8 @@ fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
     .unwrap();
     store_update.commit();
 
-    // The anchor's last-final block IS the aggregator position, so the walk short-circuits
-    // without touching the missing `BlockInfo`; the returned aggregator belongs to the prev
-    // epoch while the sample epoch is the current one.
+    // Final block == the aggregator position: the aggregator walk short-circuits and
+    // returns the prev-epoch aggregator, mismatching the (current) sample epoch.
     let anchor = SeedAnchor {
         hash: hash(b"current epoch block"),
         height: 101,

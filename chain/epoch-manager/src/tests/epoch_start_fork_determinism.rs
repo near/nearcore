@@ -1,45 +1,27 @@
-//! Does `EpochStart[E]` depend on the order in which a node processed two competing forks?
+//! Fork-order determinism of the early-kickout epoch-start basis.
 //!
-//! `EpochManager::save_epoch_start` (`chain/epoch-manager/src/lib.rs:1943-1952`) writes
-//! `EpochStart[epoch_id] = block.height` unconditionally: no absent-guard, no height
-//! comparison, no idempotence. Its only caller is the epoch-boundary arm of
-//! `record_block_info` (`lib.rs:1148-1153`).
-//!
-//! Whether a block is "the first block of epoch E" is decided from its **parent** alone
-//! (`lib.rs:1130-1146`): `prev_block_info.is_genesis()`, or
-//! `is_next_block_in_next_epoch(&prev_block_info)`, which reads nothing but `prev_block_info`
-//! (`lib.rs:1820-1837`). The resulting `EpochId` also comes from the parent
-//! (`get_next_epoch_id_from_info(&prev_block_info)`). So two blocks on competing forks that
-//! share one parent are *both* epoch-first, *both* claim the same `EpochId`, and each writes
-//! its own height. Last write wins; nothing repairs it when one fork is abandoned.
-//!
-//! The precondition is already in the tree:
-//! `integration-tests/src/tests/client/doomslug.rs:25-35` produces two children of genesis at
-//! heights 1 and 3 and processes both. This file reproduces exactly that shape at the
-//! epoch-manager level and follows it downstream.
+//! Two blocks on competing forks that share one parent at an epoch boundary are both
+//! epoch-first and both claim the same `EpochId` (the epoch-first decision reads only the
+//! parent), so `save_epoch_start` overwrites the shared `EpochStart` row: last write wins,
+//! and nothing repairs it when one fork is abandoned. The doomslug fixture in
+//! integration-tests already produces this shape (two children of genesis at heights 1 and
+//! 3); this file reproduces it at the epoch-manager level and follows it downstream.
 //!
 //! Three layers, each asserting the *safe* behaviour so a failure is the reproduction:
 //!
-//! 1. `epoch_start_does_not_depend_on_fork_processing_order` — the consensus basis. Two
-//!    epoch managers see the same two boundary siblings in opposite orders; the epoch-start
-//!    height the grace checks consume (`get_epoch_start_height`, the per-hash `BlockInfo`
-//!    walk) must match. The `EpochStart` column itself remains order-dependent by design
-//!    and is deliberately no longer on the consensus path.
-//! 2. `grace_expiry_does_not_depend_on_fork_processing_order` — does it reach the grace
-//!    window. Both nodes then extend the *same* canonical chain with *identical* blocks past
-//!    `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS`. The grace calculation in `seed_chunk_producers`
-//!    (mirrored in `get_chunk_producer_blacklist`) is
-//!    `anchor.final_height - epoch_start >= GRACE`, so the two nodes must still agree on
-//!    whether the blacklist is active at every anchor.
-//! 3. `anchored_chunk_producer_does_not_depend_on_fork_processing_order` — does it reach
-//!    consensus. The seeded `DBCol::ChunkProducers` row is what
-//!    `get_chunk_producer_info_anchored` returns verbatim when a chunk at
-//!    `anchor.height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET` is validated. Two honest nodes
-//!    must name the same chunk producer for that grandchild chunk.
+//! 1. `epoch_start_does_not_depend_on_fork_processing_order` — the consensus basis
+//!    (`get_epoch_start_height`, the per-hash `BlockInfo` walk) must match across both
+//!    processing orders. The `EpochStart` column itself stays order-dependent by design and
+//!    is deliberately not on the consensus path.
+//! 2. `grace_expiry_does_not_depend_on_fork_processing_order` — both nodes extend the same
+//!    canonical chain past `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` and must agree on whether the
+//!    blacklist is active at every anchor.
+//! 3. `anchored_chunk_producer_does_not_depend_on_fork_processing_order` — both nodes must
+//!    name the same producer for the anchor's grandchild chunk (the seeded
+//!    `DBCol::ChunkProducers` row is read verbatim by chunk validation).
 //!
 //! Control: `same_processing_order_nodes_agree_everywhere` runs the identical fixture with
-//! both nodes using the *same* order and asserts all three quantities match. Without it, a
-//! failure above could be fixture nondeterminism rather than fork-order dependence.
+//! the same order on both nodes, ruling out fixture nondeterminism.
 
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager};
@@ -66,8 +48,7 @@ const EPOCH_LENGTH: u64 = 10_000;
 /// blacklist candidate and the safety valve (keep-one) never fires.
 const NUM_SHARDS: u64 = 1;
 
-/// The two same-parent boundary siblings: exactly the heights `doomslug.rs:25-32` produces.
-/// Both are children of genesis, so both take the `prev_block_info.is_genesis()` arm.
+/// The two same-parent boundary siblings, exactly the heights the doomslug fixture produces.
 const SIBLING_LOW: BlockHeight = 1;
 const SIBLING_HIGH: BlockHeight = 3;
 
@@ -93,13 +74,9 @@ fn canonical_hash(height: BlockHeight) -> CryptoHash {
     CryptoHash::hash_bytes(format!("epoch-start-fork/canonical-{height}").as_bytes())
 }
 
-/// Records one block with explicit last-final fields.
-///
-/// Deliberately a local copy of the private `record_block_with_mask` in
-/// `tests/early_kickout.rs`: that helper derives the last-final block from the parent's
-/// parent, which is wrong for a genesis-parented sibling at a *skipped* height — such a
-/// block has no grandparent and therefore nothing final yet. Passing the fields explicitly
-/// keeps the fork siblings honest instead of masking the defect behind an unrelated error.
+/// Records one block with explicit last-final fields. Not `record_block_with_mask`: deriving
+/// last-final from the grandparent is wrong for a genesis-parented sibling at a skipped
+/// height, which has no grandparent and nothing final yet.
 fn record(
     em: &mut EpochManager,
     prev: CryptoHash,
@@ -148,16 +125,11 @@ fn record(
     .commit();
 }
 
-/// Builds one node.
-///
-/// Genesis, then the two boundary siblings in the requested order, then the canonical chain
-/// extending the LOW sibling up to `head_height`. The high sibling is an orphaned fork that
-/// is never an ancestor of any final block, so it contributes nothing to the epoch-info
-/// aggregator — the *only* state it can leave behind is `EpochStart`.
-///
-/// The chunk mask is a pure function of height (missed exactly when the canonical
-/// height sampler picks `down`), so both nodes record byte-identical blocks and their
-/// aggregators stay identical. Any divergence observed later is therefore fork order alone.
+/// Builds one node: genesis, the two boundary siblings in the requested order, then the
+/// canonical chain extending the LOW sibling. The orphaned high sibling never feeds the
+/// epoch-info aggregator, so the only state it can leave behind is `EpochStart`. The chunk
+/// mask is a pure function of height, so both nodes record byte-identical blocks and any
+/// divergence observed later is fork order alone.
 fn build_node(high_first: bool, down: ValidatorId, head_height: BlockHeight) -> EpochManagerHandle {
     let mut em = new_epoch_manager();
     let genesis = genesis_hash();
@@ -202,18 +174,11 @@ fn epoch_start(handle: &EpochManagerHandle) -> BlockHeight {
     handle.get_epoch_start_from_epoch_id(&EpochId::default()).unwrap()
 }
 
-/// LAYER 1. The consensus basis: the epoch-start height the grace checks consume must not
-/// depend on the order in which the node happened to commit two competing forks.
-///
-/// The `EpochStart` column itself REMAINS order-dependent: both siblings claim
-/// `EpochId::default()` and `save_epoch_start` overwrites unconditionally, so the last one
-/// committed wins. That is accepted — the column is deliberately no longer on the consensus
-/// path. The grace checks instead derive the epoch start per anchor via
-/// `get_epoch_start_height` (the `BlockInfo.epoch_first_block` walk, keyed by block hash),
-/// which this test pins across both processing orders.
+/// LAYER 1. The epoch-start basis the grace checks consume (`get_epoch_start_height`) must
+/// not depend on fork processing order. The `EpochStart` column itself remains
+/// order-dependent by design; it is deliberately not on the consensus path.
 #[test]
 fn epoch_start_does_not_depend_on_fork_processing_order() {
-    // Only genesis and the two siblings are needed here.
     let low_first = build_node(false, 0, SIBLING_LOW);
     let high_first = build_node(true, 0, SIBLING_LOW);
 
@@ -239,12 +204,9 @@ fn epoch_start_does_not_depend_on_fork_processing_order() {
     }
 }
 
-/// Anchor heights where the two nodes' epoch-start values straddle the grace threshold.
-///
-/// The grace test is `anchor.final_height - EpochStart[E] >= EARLY_KICKOUT_EPOCH_GRACE_BLOCKS`
-/// and the fixture's last-final block is the anchor's grandparent, so
-/// `final_height == anchor_height - 2`. A node holding `EpochStart = s` therefore activates
-/// the blacklist from `anchor_height = GRACE + s + 2` onward.
+/// Anchor heights where the two nodes' `EpochStart` values straddle the grace threshold:
+/// last-final is the anchor's grandparent, so a node holding `EpochStart = s` activates the
+/// blacklist from `anchor_height = GRACE + s + 2` onward.
 #[cfg(feature = "nightly")]
 fn disagreement_anchors() -> std::ops::RangeInclusive<BlockHeight> {
     (EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_LOW + 2)
@@ -263,14 +225,10 @@ fn head_height() -> BlockHeight {
     *scan_anchors().end()
 }
 
-/// Chooses the down validator so that the grandchild height of the *first* disagreeing
-/// anchor is canonically theirs.
-///
-/// Without this the reproduction would ride on sampler luck at two specific heights: if the
-/// canonical pick there happened to be the healthy validator, the blacklist-aware pick and
-/// the plain pick would coincide and layer 3 would be silent even though layer 2 diverged.
-/// This does not manufacture the divergence; it only makes it observable at a height that
-/// can be named up front.
+/// Chooses the down validator so the grandchild height of the first disagreeing anchor is
+/// canonically theirs. Otherwise layer 3 would ride on sampler luck: if the canonical pick
+/// there is the healthy validator, blacklist-aware and plain picks coincide and the test is
+/// silent even when layer 2 diverged. This makes the divergence observable, not manufactured.
 #[cfg(feature = "nightly")]
 fn pick_down_validator() -> ValidatorId {
     let em = new_epoch_manager();
@@ -315,10 +273,9 @@ fn belief_at(handle: &EpochManagerHandle, anchor_height: BlockHeight) -> Belief 
     }
 }
 
-/// `(produced, expected)` per `(account, shard)` out of the epoch-info aggregator up to
-/// `block_hash`. `get_validator_info(BlockHash(h))` is built directly from
-/// `get_epoch_info_aggregator_upto_last(h).shard_tracker` (`lib.rs:1602-1640`) — the same map
-/// `compute_chunk_producer_blacklist` reads — so this is the blacklist's only other input.
+/// `(produced, expected)` per `(account, shard)` up to `block_hash`, via
+/// `get_validator_info`, which reads the same aggregator `shard_tracker` the blacklist math
+/// does — so this is the blacklist's only input besides the epoch start.
 #[cfg(feature = "nightly")]
 fn chunk_counters(
     handle: &EpochManagerHandle,
@@ -426,9 +383,8 @@ fn grace_expiry_does_not_depend_on_fork_processing_order() {
         "grace window (GRACE={EARLY_KICKOUT_EPOCH_GRACE_BLOCKS}, down validator {down}):\n{table}",
     );
 
-    // `blacklist_for_epoch` has exactly two inputs that can vary here: the aggregator and
-    // `blocks_into_epoch`. Pin the aggregator at the first disagreeing anchor's last-final
-    // block so a split there can only come from `EpochStart`.
+    // Pin the aggregator at the first disagreeing anchor's basis so a split there can only
+    // come from the epoch-start value, not aggregator drift.
     let first_split = *disagreement_anchors().start();
     let basis = canonical_hash(first_split - 2);
     let counters_a = chunk_counters(&a, basis);
@@ -443,9 +399,8 @@ fn grace_expiry_does_not_depend_on_fork_processing_order() {
         "precondition: at the basis of anchor {first_split} the two nodes' aggregators must be \
          identical, otherwise a grace split there is aggregator drift, not EpochStart",
     );
-    // Downstream consequence, printed rather than asserted: once the two nodes seed different
-    // ChunkProducers rows, the aggregator attributes later heights to different validators, so
-    // the produced/expected counters that drive end-of-epoch kickouts diverge too.
+    // Printed, not asserted: divergent seeded rows also make the end-of-epoch kickout
+    // counters drift apart downstream.
     println!(
         "aggregator after the split (block {}): A={:?} B={:?}",
         head_height() - 2,
