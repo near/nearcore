@@ -2220,7 +2220,7 @@ impl EpochManager {
     /// next epoch) is not read on any honest path — no cross-epoch prediction
     /// needed. (The row is not literally dead: the best-effort V2 resolver can
     /// read it with a sender-claimed epoch on the parent-missing branch, but that
-    /// path is signature-neutral and re-checked once the parent is known.)
+    /// path is non-consensus and re-checked once the parent is known.)
     ///
     /// Writes into `store_update` so the rows commit atomically with the block's
     /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
