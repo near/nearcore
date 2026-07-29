@@ -186,6 +186,17 @@ fn validate_delegate_action(
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
+    // Check the count before `get_actions()` clones the list, so a huge
+    // nested-action list can't force the allocation before being rejected.
+    // Consensus-neutral: same `TotalNumberOfActionsExceeded` as the check in
+    // `validate_actions_with_mode` below.
+    let num_actions = delegate_action.actions().len() as u64;
+    if num_actions > limit_config.max_actions_per_receipt {
+        return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
+            total_number_of_actions: num_actions,
+            limit: limit_config.max_actions_per_receipt,
+        });
+    }
     let actions = delegate_action.get_actions();
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
@@ -1093,6 +1104,44 @@ mod tests {
                 PROTOCOL_VERSION,
             ),
             Ok(()),
+        );
+    }
+
+    /// A `Delegate` action whose nested-action count exceeds the limit is
+    /// rejected with `TotalNumberOfActionsExceeded` before the inner actions are
+    /// materialized via `get_actions()`.
+    #[test]
+    fn test_validate_delegate_action_too_many_nested_actions() {
+        let mut limit_config = test_limit_config();
+        limit_config.max_actions_per_receipt = 3;
+        let receiver = "alice.near".parse().unwrap();
+        let signed_delegate_action = SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: "token.test.near".parse().unwrap(),
+                actions: (0..4)
+                    .map(|_| {
+                        NonDelegateAction::try_from(Action::CreateAccount(CreateAccountAction {}))
+                            .unwrap()
+                    })
+                    .collect(),
+                nonce: 19000001,
+                max_block_height: 57,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::default(),
+        };
+        assert_eq!(
+            validate_action(
+                &limit_config,
+                &Action::Delegate(Box::new(signed_delegate_action)),
+                &receiver,
+                PROTOCOL_VERSION,
+            ),
+            Err(ActionsValidationError::TotalNumberOfActionsExceeded {
+                total_number_of_actions: 4,
+                limit: 3,
+            }),
         );
     }
 
