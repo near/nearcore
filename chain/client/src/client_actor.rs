@@ -1700,8 +1700,7 @@ impl ClientActor {
     /// the tip. Uses the head's producer-signed timestamp, so a peer can't forge it.
     fn head_is_stale(&self, head: &Tip) -> Result<bool, near_chain::Error> {
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
-        let head_time =
-            Utc::from_unix_timestamp_nanos(head_header.raw_timestamp() as i128).unwrap();
+        let head_time = head_header.timestamp();
         let now = self.clock.now_utc();
         if now <= head_time {
             return Ok(false);
@@ -1771,6 +1770,7 @@ impl ClientActor {
             })
             .max_by_key(|(_, height)| *height);
         let Some((peer_id, height)) = best_peer else {
+            tracing::debug!(target: "sync", connected_peers = self.network_info.connected_peers.len(), "no peer with a verified height");
             return Ok(SyncRequirement::NoPeers);
         };
         let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
