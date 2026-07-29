@@ -1,0 +1,2 @@
+# Enable the ML-DSA-65 (FIPS 204) signature verification host function.
+ml_dsa_verify_host_fn: { old: false, new: true }

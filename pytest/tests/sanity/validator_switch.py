@@ -17,7 +17,6 @@ import utils
 EPOCH_LENGTH = 20
 tracked_shards = {
     "tracked_shards_config": "AllShards",
-    "store.state_snapshot_config.state_snapshot_type": "Enabled"
 }
 
 nodes = start_cluster(

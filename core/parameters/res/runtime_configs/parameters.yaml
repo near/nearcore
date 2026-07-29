@@ -193,8 +193,8 @@ wasm_ed25519_verify_base: 210_000_000_000
 wasm_ed25519_verify_byte: 9_000_000
 wasm_p256_verify_base: 1_300_000_000_000
 wasm_p256_verify_byte: 13_000_000
-# ML-DSA-65 (FIPS 204) verification, cost derived relative to ed25519
-wasm_ml_dsa_verify_base: 550_000_000_000
+# ML-DSA-65 (FIPS 204) verification, cost derived from measurements relative to ed25519
+wasm_ml_dsa_verify_base: 540_000_000_000
 wasm_ml_dsa_verify_byte: 11_000_000
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
@@ -298,6 +298,7 @@ discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
 gas_key_host_fns: false
+fix_ml_dsa_cost_charging: false
 one_yocto_on_promise: false
 p256_verify_host_fn: false
 ml_dsa_verify_host_fn: false

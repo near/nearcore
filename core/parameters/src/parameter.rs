@@ -236,6 +236,7 @@ pub enum Parameter {
     MaxParamsPerFunction,
     MaxParamsPerContract,
     MaxOperandStackBytesPerFunction,
+    MaxGlobalsPerContract,
 
     // Contract runtime features
     FlatStorageReads,
@@ -243,6 +244,7 @@ pub enum Parameter {
     FixContractLoadingError,
     VmKind,
     EthImplicitAccounts,
+    FixMlDsaCostCharging,
     DiscardCustomSections,
     ReftypesBulkMemory,
 
@@ -409,6 +411,7 @@ impl Parameter {
             Parameter::MaxParamsPerFunction,
             Parameter::MaxParamsPerContract,
             Parameter::MaxOperandStackBytesPerFunction,
+            Parameter::MaxGlobalsPerContract,
         ]
         .iter()
     }

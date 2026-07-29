@@ -188,7 +188,7 @@ Gas:
 
 | parameter                 | value                         |
 |---------------------------|-------------------------------|
-| `wasm_ml_dsa_verify_base` | `550_000_000_000` (550 Ggas)  |
+| `wasm_ml_dsa_verify_base` | `540_000_000_000` (540 Ggas)  |
 | `wasm_ml_dsa_verify_byte` | `11_000_000` (11 Mgas)        |
 
 ### 8. Out-of-scope (and why)

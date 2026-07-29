@@ -56,7 +56,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::archive::cloud_storage::config::{CloudArchivalConfig, CloudStorageContext};
-use near_store::config::{SplitStorageConfig, StateSnapshotType};
+use near_store::config::SplitStorageConfig;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -925,21 +925,38 @@ impl NightshadeRuntime {
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
-        let state_snapshot_config =
-            match config.config.store.state_snapshot_config.state_snapshot_type {
-                StateSnapshotType::Enabled => {
-                    let hot_store_path =
-                        home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
-                    match &config.client_config.cloud_archival_writer {
-                        Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
-                            hot_store_path,
-                            writer_config.snapshot_every_n_epochs,
-                        ),
-                        None => StateSnapshotConfig::enabled(hot_store_path),
-                    }
-                }
-                StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
-            };
+        let hot_store_path =
+            home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
+        // State snapshots are always enabled for a running node; they let it serve
+        // state parts to peers and are required by cloud archival. Offline tools that
+        // must run without snapshots use `from_config_with_state_snapshot` instead.
+        let state_snapshot_config = match &config.client_config.cloud_archival_writer {
+            Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
+                hot_store_path,
+                writer_config.snapshot_every_n_epochs,
+            ),
+            None => StateSnapshotConfig::enabled(hot_store_path),
+        };
+        Self::from_config_with_state_snapshot(
+            home_dir,
+            store,
+            config,
+            epoch_manager,
+            state_snapshot_config,
+        )
+    }
+
+    /// Like [`NightshadeRuntimeExt::from_config`] but with an explicitly provided
+    /// state snapshot config. Regular nodes should use `from_config`, which always
+    /// enables snapshots. This entry point exists for offline tools (e.g.
+    /// fork-network) that need to run with `StateSnapshotConfig::Disabled`.
+    pub fn from_config_with_state_snapshot(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        state_snapshot_config: StateSnapshotConfig,
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
         // refactor...

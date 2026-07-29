@@ -69,16 +69,6 @@ pub struct UniversalStateInitV1 {
     pub access_keys: BTreeSet<PublicKeyHandle>,
 }
 
-/// Reason a [`UniversalStateInit`] is not a usable account state.
-///
-/// The flat struct can express unusable field combinations, so validity is a
-/// runtime invariant rather than a type-level guarantee.
-#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-pub enum InvalidUniversalStateInit {
-    #[error("universal state init defines neither contract code nor access keys")]
-    NoCodeNoKeys,
-}
-
 /// Reason a [`RawStateInit`]'s bytes are not an acceptable [`UniversalStateInit`].
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRawStateInitError {
@@ -115,15 +105,6 @@ impl UniversalStateInit {
         match self {
             UniversalStateInit::V1(_) => 1,
         }
-    }
-
-    /// Reject unusable states: an init with neither code nor an access key can
-    /// never be controlled or run, so it must not create an account.
-    pub fn validate(&self) -> Result<(), InvalidUniversalStateInit> {
-        if self.code().is_none() && self.access_keys().is_empty() {
-            return Err(InvalidUniversalStateInit::NoCodeNoKeys);
-        }
-        Ok(())
     }
 
     /// Canonical borsh of this state init, ready to wrap in a [`RawStateInit`].
@@ -199,36 +180,6 @@ mod tests {
         assert!(k.code().is_none());
         assert!(k.data().is_empty());
         assert_eq!(k.access_keys().len(), 1);
-    }
-
-    #[test]
-    fn validate_rejects_unusable() {
-        // Neither code nor keys: unusable even with data present.
-        let no_code_no_keys = UniversalStateInit::V1(UniversalStateInitV1 {
-            code: None,
-            data: BTreeMap::new(),
-            access_keys: BTreeSet::new(),
-        });
-        assert_eq!(no_code_no_keys.validate(), Err(InvalidUniversalStateInit::NoCodeNoKeys));
-
-        let data_only = UniversalStateInit::V1(UniversalStateInitV1 {
-            code: None,
-            data: BTreeMap::from([(b"x".to_vec(), b"y".to_vec())]),
-            access_keys: BTreeSet::new(),
-        });
-        assert_eq!(data_only.validate(), Err(InvalidUniversalStateInit::NoCodeNoKeys));
-
-        // A contract account and a key-only account are both usable.
-        assert!(contract_init().validate().is_ok());
-        assert!(key_only_init().validate().is_ok());
-
-        // A pure contract account (code, but no keys and no data) is usable.
-        let code_only = UniversalStateInit::V1(UniversalStateInitV1 {
-            code: Some(GlobalContractIdentifier::CodeHash(CryptoHash::default())),
-            data: BTreeMap::new(),
-            access_keys: BTreeSet::new(),
-        });
-        assert!(code_only.validate().is_ok());
     }
 
     #[test]
