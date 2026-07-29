@@ -127,7 +127,6 @@ pub fn validate_partial_encoded_state_witness(
             v2.prev_prev_block_hash(),
             store,
             "witness",
-            None,
         )?,
     };
     if !partial_witness.verify(chunk_producer.public_key()) {
@@ -156,7 +155,6 @@ pub fn validate_partial_encoded_contract_deploys(
             v2.prev_prev_block_hash(),
             store,
             "contract_deploys",
-            None,
         )?,
     };
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
@@ -397,7 +395,6 @@ fn validate_witness_contract_accesses_signature(
             v2.prev_prev_block_hash(),
             store,
             "contract_accesses",
-            None,
         )?,
     };
     if !accesses.verify_signature(chunk_producer.public_key()) {

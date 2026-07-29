@@ -92,7 +92,6 @@ fn verify_anchored_chunk_key(
     prev_prev_block_hash: &CryptoHash,
     store: &Store,
     msg_label: &str,
-    max_anchor_height_gap: Option<BlockHeight>,
 ) -> Result<(), Error> {
     match epoch_manager.get_block_info(prev_block_hash) {
         Ok(parent_info) => {
@@ -118,27 +117,24 @@ fn verify_anchored_chunk_key(
         }
         Err(EpochError::MissingBlock(_)) => {
             if prev_prev_block_hash != &CryptoHash::default() {
-                // Parent not here yet, so only the anchor is known.
+                // Parent not here yet, so only the anchor is known. A chunk on a skipped slot is dropped
+                // here: the anchor is only a performance optimization for the common
+                // no-skip case, and the chunk is re-requested once the parent is processed.
                 let anchor_height = epoch_manager.get_block_info(prev_prev_block_hash)?.height();
-                let min_height = anchor_height
+                let expected_height = anchor_height
                     .checked_add(CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET)
                     .expect("block height overflow");
-                if height_created < min_height {
+                if height_created < expected_height {
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
                         "V2 {msg_label} height {height_created} below \
-                         anchor-implied minimum height {min_height}"
+                         anchor-implied height {expected_height}"
                     )));
                 }
-                if let Some(max_anchor_height_gap) = max_anchor_height_gap {
-                    let max_height = anchor_height
-                        .checked_add(max_anchor_height_gap)
-                        .expect("block height overflow");
-                    if height_created > max_height {
+                if height_created > expected_height {
                         return Err(Error::DBNotFoundErr(format!(
-                            "{msg_label} anchor {prev_prev_block_hash:?} too far below height \
-                             {height_created} (max {max_height}); deferring until parent is known"
+                        "{msg_label} height {height_created} above anchor-implied height \
+                         {expected_height}; deferring until parent {prev_block_hash:?} is known"
                         )));
-                    }
                 }
             } else {
                 // Default (genesis) anchor with no parent: nothing pins the height. A real
@@ -197,7 +193,6 @@ pub fn resolve_and_verify_anchored_producer(
     prev_prev_block_hash: &CryptoHash,
     store: &Store,
     msg_label: &str,
-    max_anchor_height_gap: Option<BlockHeight>,
 ) -> Result<ValidatorStake, Error> {
     let producer = resolve_anchored_producer(
         epoch_manager,
@@ -215,7 +210,6 @@ pub fn resolve_and_verify_anchored_producer(
         prev_prev_block_hash,
         store,
         msg_label,
-        max_anchor_height_gap,
     )?;
     Ok(producer)
 }
@@ -231,15 +225,13 @@ mod tests {
     use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
     use near_primitives::test_utils::TestBlockBuilder;
-    use near_primitives::types::{BlockHeight, EpochId};
-
-    const TEST_MAX_ANCHOR_GAP: BlockHeight = 5;
+    use near_primitives::types::EpochId;
 
     /// Exercises the parent-absent branch of `verify_anchored_chunk_key`: when the chunk's
-    /// parent is not processed yet only the grandparent anchor is known, so the height can
-    /// only be bounded from below (`>= anchor + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`).
+    /// parent is not processed yet only the grandparent anchor is known, so the height is
+    /// pinned to exactly `anchor + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`.
     #[test]
-    fn test_anchored_key_parent_absent_accepts_skipped_height() {
+    fn test_anchored_key_parent_absent_pins_height_to_anchor_offset() {
         let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
         let (mut chain, epoch_manager, _runtime, signer) = setup(clock.clock());
 
@@ -266,7 +258,7 @@ mod tests {
         let store = chain.chain_store().store();
         // `epoch_id` is only consulted in the parent-known branch, so any value works here.
         let epoch_id = EpochId::default();
-        let min_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let expected_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 
         let check = |height_created| {
             verify_anchored_chunk_key(
@@ -277,83 +269,17 @@ mod tests {
                 &anchor_hash,
                 &store,
                 "chunk",
-                Some(TEST_MAX_ANCHOR_GAP),
             )
         };
 
-        // Skipped-height chunk well above the anchor-implied minimum: accepted only because
-        // the bound is a lower bound, not an exact match.
-        assert_matches!(check(min_height + 3), Ok(()));
-        // Boundary: exactly the minimum is accepted.
-        assert_matches!(check(min_height), Ok(()));
-        // Below the minimum is impossible for a valid chunk and must be rejected.
-        assert_matches!(check(min_height - 1), Err(Error::InvalidPartialChunkStateWitness(_)));
-    }
-
-    #[test]
-    fn test_anchored_key_parent_absent_defers_far_anchor() {
-        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
-        let (mut chain, epoch_manager, _runtime, signer) = setup(clock.clock());
-
-        let mut prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-        for _ in 0..3 {
-            clock.advance(Duration::milliseconds(1));
-            let block =
-                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
-            chain.process_block_test(block.clone()).unwrap();
-            prev = block;
-        }
-        let anchor_hash = *prev.hash();
-        let anchor_height = epoch_manager.get_block_info(&anchor_hash).unwrap().height();
-
-        let missing_parent = CryptoHash::hash_bytes(&[42]);
-        assert!(
-            epoch_manager.get_block_info(&missing_parent).is_err(),
-            "prev_block_hash must be unprocessed to exercise the parent-absent branch"
-        );
-
-        let store = chain.chain_store().store();
-        let epoch_id = EpochId::default();
-
-        let check = |height_created| {
-            verify_anchored_chunk_key(
-                epoch_manager.as_ref(),
-                &epoch_id,
-                height_created,
-                &missing_parent,
-                &anchor_hash,
-                &store,
-                "chunk",
-                Some(TEST_MAX_ANCHOR_GAP),
-            )
-        };
-
-        // At the maximum gap the chunk is still early-validated.
-        assert_matches!(check(anchor_height + TEST_MAX_ANCHOR_GAP), Ok(()));
-        // One past the maximum: the anchor is too far below to trust while the parent is
-        // unknown, so it is deferred (not rejected) via `DBNotFoundErr`.
-        assert_matches!(
-            check(anchor_height + TEST_MAX_ANCHOR_GAP + 1),
-            Err(Error::DBNotFoundErr(_))
-        );
-        // A much larger gap (a 600-height stall's worth) is likewise deferred, never
-        // hard-rejected — it recovers later via the parent-present branch.
-        assert_matches!(check(anchor_height + 600), Err(Error::DBNotFoundErr(_)));
-
-        // With no bound opted in (`None`, the witness/contract-deploy paths), the same far
-        // anchor is accepted — the upper bound is chunk-header-only.
-        assert_matches!(
-            verify_anchored_chunk_key(
-                epoch_manager.as_ref(),
-                &epoch_id,
-                anchor_height + 600,
-                &missing_parent,
-                &anchor_hash,
-                &store,
-                "chunk",
-                None,
-            ),
-            Ok(())
-        );
+        // Exactly the anchor-implied height is the only accepted value.
+        assert_matches!(check(expected_height), Ok(()));
+        // Above it (a skipped slot, or a forged height we cannot disprove yet) is deferred via
+        // `DBNotFoundErr`, never treated as the sender's fault. The chunk is validated against
+        // the parent once that block is processed.
+        assert_matches!(check(expected_height + 1), Err(Error::DBNotFoundErr(_)));
+        assert_matches!(check(expected_height + 600), Err(Error::DBNotFoundErr(_)));
+        // Below the offset is impossible for any chunk, so it is a hard rejection.
+        assert_matches!(check(expected_height - 1), Err(Error::InvalidPartialChunkStateWitness(_)));
     }
 }

@@ -126,74 +126,12 @@ fn v2_witness_with_height_mismatch_is_rejected() {
     );
 }
 
-/// A V2 witness whose parent has not arrived is rejected when its height is below
-/// anchor + 2.
+/// With the parent absent the height is pinned to exactly `anchor + 2`: that is accepted
+/// (signed by the anchored producer), a skipped slot above it is deferred (it may be honest,
+/// so the sender is not blamed), and a height below it is rejected outright.
 #[cfg(feature = "nightly")]
 #[test]
-fn v2_witness_with_height_below_anchor_height_is_rejected() {
-    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
-
-    let genesis_hash = *chain.genesis().hash();
-    let genesis_height = chain.genesis().height();
-    let shard_id = ShardId::new(0);
-    let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-
-    // The parent block is not stored locally. The anchor is genesis. Set the height
-    // to anchor + 1, which is below the required anchor + 2.
-    let unknown_parent = CryptoHash::hash_bytes(b"unknown_parent_block");
-    let forged_height = genesis_height + 1;
-    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        unknown_parent,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        0,
-        forged_height,
-        shard_id,
-        Gas::ZERO,
-        Gas::ZERO,
-        Balance::ZERO,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        vec![],
-        CongestionInfo::default(),
-        BandwidthRequests::empty(),
-        None,
-        signer.as_ref(),
-        PROTOCOL_VERSION,
-    ));
-
-    let witness = VersionedPartialEncodedStateWitness::V2(PartialEncodedStateWitnessV2::new(
-        epoch_id,
-        chunk_header,
-        genesis_hash,
-        0,
-        b"payload".to_vec(),
-        7,
-        signer.as_ref(),
-    ));
-
-    let store = chain.chain_store().store();
-    let result = validate_partial_encoded_state_witness(
-        chain.epoch_manager.as_ref(),
-        &witness,
-        signer.validator_id(),
-        &store,
-    );
-
-    let err = result.err().expect("validation must reject below-height witness");
-    let Error::InvalidPartialChunkStateWitness(msg) = err else {
-        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
-    };
-    assert!(
-        msg.contains("below anchor-implied minimum height"),
-        "error message must reference the loose cross-check; got: {msg}"
-    );
-}
-
-#[cfg(feature = "nightly")]
-#[test]
-fn v2_witness_parent_absent_accepted_at_and_above_anchor_minimum() {
+fn v2_witness_parent_absent_accepted_only_at_anchor_offset() {
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::utils::get_block_shard_id;
     use near_store::DBCol;
@@ -263,8 +201,8 @@ fn v2_witness_parent_absent_accepted_at_and_above_anchor_minimum() {
         )
     };
 
-    // Signed by the anchored producer: accepted at the exact minimum (anchor + 2, no heights
-    // skipped) ...
+    // Signed by the anchored producer at the anchor-implied height (anchor + 2, no heights
+    // skipped): accepted.
     assert!(
         matches!(
             validate(make_witness(genesis_height + 2, &anchored)),
@@ -272,19 +210,32 @@ fn v2_witness_parent_absent_accepted_at_and_above_anchor_minimum() {
         ),
         "parent-absent witness at anchor + 2 must be accepted"
     );
-    // ... and on a skipped slot above it (anchor + 3).
+    // Control: the same height signed by the non-anchored producer is rejected, proving
+    // acceptance is gated on the anchored producer's signature, not the height alone.
     assert!(
-        matches!(
-            validate(make_witness(genesis_height + 3, &anchored)),
-            Ok(ChunkRelevance::Relevant)
-        ),
-        "parent-absent witness on a skipped slot (anchor + 3) must be accepted"
+        validate(make_witness(genesis_height + 2, signer.as_ref())).is_err(),
+        "witness signed by the wrong producer must be rejected"
     );
-    // Control: the same skipped-slot height signed by the non-anchored producer is rejected,
-    // proving acceptance is gated on the anchored producer's signature, not the height alone.
+    // A skipped slot above the anchor-implied height is not accepted
+    // but it is deferred, not blamed on the sender: the height
+    // may be honest and we cannot tell without the parent.
+    let err = validate(make_witness(genesis_height + 3, &anchored))
+        .err()
+        .expect("validation must not accept a skipped-slot witness with an absent parent");
     assert!(
-        validate(make_witness(genesis_height + 3, signer.as_ref())).is_err(),
-        "skipped-slot witness signed by the wrong producer must be rejected"
+        matches!(err, Error::DBNotFoundErr(_)),
+        "skipped-slot witness must be deferred via DBNotFoundErr, not rejected; got {err:?}"
+    );
+    // Below the anchor-implied height is impossible for any chunk, so it is a hard rejection.
+    let err = validate(make_witness(genesis_height + 1, &anchored))
+        .err()
+        .expect("validation must reject a witness below the anchor-implied height");
+    let Error::InvalidPartialChunkStateWitness(msg) = err else {
+        panic!("expected InvalidPartialChunkStateWitness, got {err:?}");
+    };
+    assert!(
+        msg.contains("below anchor-implied height"),
+        "error message must reference the anchor-implied height pin; got: {msg}"
     );
 }
 
@@ -689,7 +640,7 @@ fn v2_accesses_with_known_parent_is_accepted() {
 
 #[cfg(feature = "nightly")]
 #[test]
-fn v2_accesses_with_height_above_anchor_height_is_accepted() {
+fn v2_accesses_with_height_above_anchor_height_is_deferred() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
@@ -710,9 +661,10 @@ fn v2_accesses_with_height_above_anchor_height_is_accepted() {
         signer.as_ref(),
         &store,
     );
+    let err = result.err().expect("validation must not accept a skipped-slot accesses message");
     assert!(
-        matches!(result, Ok(ChunkRelevance::Relevant)),
-        "parent-absent accesses on a skipped slot (height anchor + 3) must be accepted; got {result:?}"
+        matches!(err, Error::DBNotFoundErr(_)),
+        "skipped-slot accesses must be deferred via DBNotFoundErr, not rejected; got {err:?}"
     );
 }
 
@@ -1008,7 +960,7 @@ fn v2_deploys_with_known_parent_is_accepted() {
 
 #[cfg(feature = "nightly")]
 #[test]
-fn v2_deploys_with_height_above_anchor_height_is_accepted() {
+fn v2_deploys_with_height_above_anchor_height_is_deferred() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
@@ -1025,9 +977,10 @@ fn v2_deploys_with_height_above_anchor_height_is_accepted() {
     let store = chain.chain_store().store();
     let result =
         validate_partial_encoded_contract_deploys(chain.epoch_manager.as_ref(), &deploys, &store);
+    let err = result.err().expect("validation must not accept a skipped-slot deploys message");
     assert!(
-        matches!(result, Ok(ChunkRelevance::Relevant)),
-        "parent-absent deploys on a skipped slot (height anchor + 3) must be accepted; got {result:?}"
+        matches!(err, Error::DBNotFoundErr(_)),
+        "skipped-slot deploys must be deferred via DBNotFoundErr, not rejected; got {err:?}"
     );
 }
 
