@@ -1401,6 +1401,21 @@ impl PeerActor {
             conn.stop(Some(ban_reason));
         }
 
+        // Ingress cap for AnnounceAccount entries: each one is signature-verified downstream,
+        // so an unbounded `accounts` field is a parallel DoS vector to the edges field above.
+        let max_accounts = network_state.config.routing_graph_max_accounts_per_message;
+        if rtu.accounts.len() > max_accounts {
+            tracing::warn!(
+                target: "network",
+                peer_id = %conn.peer_info.id,
+                accounts_count = rtu.accounts.len(),
+                limit = max_accounts,
+                "too many AnnounceAccount entries in SyncRoutingTable message, dropping accounts"
+            );
+            metrics::ACCOUNT_ANNOUNCEMENT_DROPPED.inc_by(rtu.accounts.len() as u64);
+            return;
+        }
+
         // For every announce we received, we fetch the last announce with the same account_id
         // that we already broadcasted. Client actor will both verify signatures of the received announces
         // as well as filter out those which are older than the fetched ones (to avoid overriding
