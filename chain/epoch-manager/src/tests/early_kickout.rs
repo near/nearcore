@@ -508,13 +508,17 @@ fn early_kickout_attribution_does_not_flap() {
     );
 }
 
-// 11. v152+ epoch-boundary reset: at an epoch boundary the aggregator still belongs to the
-//     previous epoch, so the accessor returns empty even though epoch 0 stats are miss-heavy.
+// 11. v152+ epoch-boundary reset: the accessor samples the anchor's own epoch (mirroring the
+//     seeder), so the boundary anchor (last block of epoch 0) still carries epoch 0's
+//     miss-heavy blacklist. The reset lands on the first epoch-1 anchor: its own epoch flips
+//     while its last-final block (the aggregator basis) still sits in epoch 0, so the
+//     aggregator/target epoch mismatch empties the blacklist; the start-of-epoch grace keeps
+//     it empty for the anchors after that.
 //     Setup: epoch length 1200 exceeds the 1000-block grace (otherwise the whole epoch sits in
 //     the grace and the reset check is vacuous), and the drive length 1300 crosses into epoch 1
 //     so a boundary exists. `boundary_idx` is the last block whose next block starts a new epoch;
-//     `h[i] == height` because `drive_down_node` stores hashes by height, so `boundary_idx - 1`
-//     is the mid-epoch anchor and `boundary_idx` is the boundary anchor.
+//     `h[i] == height` because `drive_down_node` stores hashes by height, so `boundary_idx`
+//     is the boundary anchor and `boundary_idx + 1` the first epoch-1 anchor.
 #[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
@@ -534,10 +538,13 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
         !bl_pre.is_empty(),
         "pre-boundary anchor past the grace must be non-empty, got {bl_pre:?}"
     );
-    // Boundary anchor's aggregator is still epoch 0 while its next block starts epoch 1; the
-    // epoch mismatch resets the blacklist to empty.
+    // The boundary anchor samples its own epoch (epoch 0), matching the seeder: still
+    // blacklisted.
     let bl_boundary = handle.get_chunk_producer_blacklist(&h[boundary_idx]).unwrap();
-    assert!(bl_boundary.is_empty(), "epoch boundary must reset blacklist, got {bl_boundary:?}");
+    assert!(!bl_boundary.is_empty(), "boundary anchor keeps its own epoch's blacklist, got empty");
+    // First epoch-1 anchor: own epoch flips while the aggregator basis lags in epoch 0 — reset.
+    let bl_next = handle.get_chunk_producer_blacklist(&h[boundary_idx + 1]).unwrap();
+    assert!(bl_next.is_empty(), "first new-epoch anchor must reset blacklist, got {bl_next:?}");
 }
 
 // Start-of-epoch grace: with the down node already miss-heavy, the accessor stays empty until

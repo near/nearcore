@@ -1,4 +1,4 @@
-use crate::EpochManagerHandle;
+use crate::{EpochManagerHandle, blacklist_for_epoch};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
@@ -619,10 +619,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns the per-shard set of chunk producers whose cumulative epoch stats are past the
-    /// early-kickout thresholds, computed from the aggregator's stats up to `anchor_hash`.
-    /// The epoch is derived from `anchor_hash` via `get_epoch_id_from_prev_block`. Gated by
-    /// `ProtocolFeature::EarlyKickout`: empty when the feature is off, and empty at an epoch
-    /// boundary (the aggregator's stats belong to the anchor's epoch).
+    /// early-kickout thresholds, computed from the aggregator's stats up to the anchor's
+    /// last-final block. The epoch is the anchor's own (via `get_epoch_id`), mirroring
+    /// `seed_chunk_producers`. Gated by `ProtocolFeature::EarlyKickout`: empty when the
+    /// feature is off, and empty for early-epoch anchors (the aggregator basis still sits in
+    /// the previous epoch, then the start-of-epoch grace applies).
     fn get_chunk_producer_blacklist(
         &self,
         anchor_hash: &CryptoHash,
@@ -1133,14 +1134,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         anchor_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(anchor_hash)?;
+        // The anchor's own epoch, matching the seeder's gate and sample epoch.
+        let epoch_id = self.get_epoch_id(anchor_hash)?;
         let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(HashMap::new());
         }
-        // Must mirror `seed_chunk_producers`'s last-final basis, or this live read disagrees
-        // with the stored row. Read-guard methods directly; adapter methods would re-take
-        // `self.read()` and deadlock.
+        // Must mirror `seed_chunk_producers` (epoch basis and last-final basis), or this live
+        // read disagrees with the stored row. Read-guard methods directly; adapter methods
+        // would re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
@@ -1159,7 +1161,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             Err(e) => return Err(e),
         };
         let blocks_into_epoch = final_block_height.saturating_sub(epoch_start);
-        Ok(crate::blacklist_for_epoch(
+        Ok(blacklist_for_epoch(
             &aggregator,
             &epoch_id,
             epoch_info.as_ref(),
