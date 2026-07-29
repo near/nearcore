@@ -1765,8 +1765,8 @@ fn test_validation_rejects_missing_contract_code() {
         apply_with_missing_code(&apply_state),
         Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
             context: MissingTrieValueContext::TrieMemoryPartialStorage,
-            hash: _,
-        })))
+            hash,
+        }))) if hash == *contract_code.hash()
     );
 
     // Block production resolves the body from its own trie, so the guard must
