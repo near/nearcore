@@ -45,6 +45,21 @@ pub enum CloudStorageFileID {
     StateHeader(EpochHeight, EpochId, ShardId),
 }
 
+impl CloudStorageFileID {
+    /// Stable label naming the object kind, used as a metric label.
+    pub(crate) fn object_type(&self) -> &'static str {
+        match self {
+            CloudStorageFileID::Config => "config",
+            CloudStorageFileID::BlockHead => "block_head",
+            CloudStorageFileID::ShardHead(_) => "shard_head",
+            CloudStorageFileID::Epoch(_) => "epoch",
+            CloudStorageFileID::BlockBatch(_) => "block_batch",
+            CloudStorageFileID::ShardBatch(..) => "shard_batch",
+            CloudStorageFileID::StateHeader(..) => "state_header",
+        }
+    }
+}
+
 impl CloudStorage {
     /// Returns the directory path and file name for the given file identifier.
     pub fn location_dir_and_file(&self, file_id: &CloudStorageFileID) -> (String, String) {
