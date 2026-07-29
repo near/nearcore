@@ -113,8 +113,7 @@ struct SeedAnchor {
     final_height: BlockHeight,
 }
 
-/// The epoch whose validator set the anchored chunks are sampled from (the epoch after the
-/// anchor at an epoch boundary, the anchor's own epoch otherwise).
+/// The anchor's own epoch, whose validator set the anchored chunks are sampled from.
 struct SampleEpoch<'a> {
     epoch_id: &'a EpochId,
     epoch_info: &'a EpochInfo,
@@ -1117,7 +1116,6 @@ impl EpochManager {
                         final_hash: CryptoHash::default(),
                         final_height: genesis_height,
                     },
-                    &genesis_epoch_info,
                     SampleEpoch {
                         epoch_id: &pre_genesis_epoch_id,
                         epoch_info: genesis_epoch_info.as_ref(),
@@ -1160,14 +1158,9 @@ impl EpochManager {
                 // so every driver (chain, replay, tests) records them; the aggregator
                 // and the consensus reader read these rows for the block's grandchildren.
                 {
-                    let own_epoch_info = self.get_epoch_info(block_info.epoch_id())?;
-                    let sample_epoch_id = if self.is_next_block_in_next_epoch(&block_info)? {
-                        self.get_next_epoch_id_from_info(&block_info)?
-                    } else {
-                        *block_info.epoch_id()
-                    };
-                    let sample_epoch_info = self.get_epoch_info(&sample_epoch_id)?;
-                    let sample_shard_layout = self.get_shard_layout(&sample_epoch_id)?;
+                    let epoch_id = *block_info.epoch_id();
+                    let epoch_info = self.get_epoch_info(&epoch_id)?;
+                    let shard_layout = self.get_shard_layout(&epoch_id)?;
                     self.seed_chunk_producers(
                         &mut store_update,
                         &SeedAnchor {
@@ -1176,11 +1169,10 @@ impl EpochManager {
                             final_hash: *block_info.last_final_block_hash(),
                             final_height: block_info.last_finalized_height(),
                         },
-                        &own_epoch_info,
                         SampleEpoch {
-                            epoch_id: &sample_epoch_id,
-                            epoch_info: sample_epoch_info.as_ref(),
-                            shard_layout: &sample_shard_layout,
+                            epoch_id: &epoch_id,
+                            epoch_info: epoch_info.as_ref(),
+                            shard_layout: &shard_layout,
                         },
                     )?;
                 }
@@ -2221,10 +2213,14 @@ impl EpochManager {
     /// Seed `DBCol::ChunkProducers` for chunks anchored at `anchor.hash` (the
     /// grandparent anchor of chunks at height `anchor.height +
     /// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`). No-op unless EarlyKickout is
-    /// enabled for the anchor's own epoch (`own_epoch_info`). Producers are
-    /// sampled from the epoch the anchored chunks belong to (`sample`); a chunk
-    /// in a later epoch never reads this row (the reader's cross-epoch arm
-    /// samples canonically).
+    /// enabled for the anchor's own epoch (`epoch`). Producers are always sampled
+    /// from the anchor's own epoch: `get_chunk_producer_info_anchored` consumes
+    /// the row only when the chunk's epoch equals the anchor's epoch, so a
+    /// last-of-epoch anchor's row (its grandchild at `height + 2` falls in the
+    /// next epoch) is not read on any honest path — no cross-epoch prediction
+    /// needed. (The row is not literally dead: the best-effort V2 resolver can
+    /// read it with a sender-claimed epoch on the parent-missing branch, but that
+    /// path is signature-neutral and re-checked once the parent is known.)
     ///
     /// Writes into `store_update` so the rows commit atomically with the block's
     /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
@@ -2239,12 +2235,11 @@ impl EpochManager {
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         anchor: &SeedAnchor,
-        own_epoch_info: &EpochInfo,
-        sample: SampleEpoch,
+        epoch: SampleEpoch,
     ) -> Result<(), EpochError> {
         #[cfg(feature = "nightly")]
         {
-            if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
+            if !ProtocolFeature::EarlyKickout.enabled(epoch.epoch_info.protocol_version()) {
                 return Ok(());
             }
             // Inlined, not via the `get_chunk_producer_blacklist` adapter: that re-takes
@@ -2266,9 +2261,9 @@ impl EpochManager {
                 let blocks_into_epoch = anchor.final_height.saturating_sub(epoch_start);
                 blacklist_for_epoch(
                     &aggregator,
-                    sample.epoch_id,
-                    sample.epoch_info,
-                    sample.shard_layout,
+                    epoch.epoch_id,
+                    epoch.epoch_info,
+                    epoch.shard_layout,
                     blocks_into_epoch,
                 )
             };
@@ -2280,7 +2275,7 @@ impl EpochManager {
             // reset first so a shard retired by resharding drops its series instead of
             // keeping a stale value forever; the loop below repopulates the current layout.
             EARLY_KICKOUT_BLACKLIST_SIZE.reset();
-            for shard_id in sample.shard_layout.shard_ids() {
+            for shard_id in epoch.shard_layout.shard_ids() {
                 let raw = shard_stats.get(&shard_id).map_or(0, |s| s.raw_candidate_count);
                 EARLY_KICKOUT_BLACKLIST_SIZE
                     .with_label_values(&[&shard_id.to_string()])
@@ -2295,7 +2290,7 @@ impl EpochManager {
                         tracing::warn!(
                             target: "early_kickout",
                             %shard_id,
-                            kept = %sample.epoch_info.validator_account_id(kept),
+                            kept = %epoch.epoch_info.validator_account_id(kept),
                             "safety valve: kept least-bad producer"
                         );
                     }
@@ -2305,8 +2300,8 @@ impl EpochManager {
                 store_update,
                 &anchor.hash,
                 anchor.height,
-                sample.epoch_info,
-                sample.shard_layout,
+                epoch.epoch_info,
+                epoch.shard_layout,
                 &blacklist,
             );
         }
@@ -2317,10 +2312,9 @@ impl EpochManager {
             anchor.height,
             anchor.final_hash,
             anchor.final_height,
-            own_epoch_info,
-            sample.epoch_id,
-            sample.epoch_info,
-            sample.shard_layout,
+            epoch.epoch_id,
+            epoch.epoch_info,
+            epoch.shard_layout,
         );
         Ok(())
     }
