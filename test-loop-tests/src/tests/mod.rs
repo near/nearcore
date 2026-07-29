@@ -29,6 +29,7 @@ mod deterministic_account_id;
 mod doomslug;
 mod earliest_available;
 #[cfg(feature = "nightly")]
+mod early_kickout_boundary;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
