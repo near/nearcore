@@ -1087,10 +1087,12 @@ impl PeerActor {
                 // Check for abusive behavior (sending too many peers)
                 if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
                     self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
+                    return;
                 }
                 // Check for abusive behavior (sending too many direct peers)
                 if direct_peers.len() > MAX_TIER2_PEERS {
                     self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
+                    return;
                 }
 
                 let node_id = self.network_state.config.node_id();
