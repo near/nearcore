@@ -68,8 +68,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (156, include_config!("156.yaml")),
     // Cap the number of defined globals per contract.
     (157, include_config!("157.yaml")),
-    // Bound the combined size of a single receipt's resolved promise inputs.
-    (158, include_config!("158.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

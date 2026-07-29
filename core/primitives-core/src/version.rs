@@ -593,6 +593,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingError => 86,
             ProtocolFeature::RejectEmptyMethodName => 87,
             ProtocolFeature::RemoveGasRewards => 87,
+            ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -601,7 +602,6 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::FixMlDsaCostCharging => 153,
-            ProtocolFeature::ReceiptPromiseInputSizeLimit => 158,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -649,7 +649,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 87;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 158;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
