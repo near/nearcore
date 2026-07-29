@@ -131,10 +131,10 @@ fn verify_anchored_chunk_key(
                     )));
                 }
                 if height_created > expected_height {
-                        return Err(Error::DBNotFoundErr(format!(
+                    return Err(Error::DBNotFoundErr(format!(
                         "{msg_label} height {height_created} above anchor-implied height \
                          {expected_height}; deferring until parent {prev_block_hash:?} is known"
-                        )));
+                    )));
                 }
             } else {
                 // Default (genesis) anchor with no parent: nothing pins the height. A real
