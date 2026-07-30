@@ -2,6 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::chains;
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
@@ -33,7 +34,7 @@ fn test_chain_id_returns_chain_id() {
     let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
     match &outcome.status {
         FinalExecutionStatus::SuccessValue(bytes) => {
-            assert_eq!(bytes, b"test", "expected the genesis chain id");
+            assert_eq!(bytes, chains::TEST_CHAIN.as_bytes(), "expected the genesis chain id");
         }
         other => panic!("expected SuccessValue, got {other:?}"),
     }

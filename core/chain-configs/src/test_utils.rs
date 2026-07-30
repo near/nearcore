@@ -11,6 +11,7 @@ use crate::{
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::chains;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -220,7 +221,7 @@ pub fn add_account_with_key(
 }
 
 pub fn random_chain_id() -> String {
-    format!("test-chain-{}", generate_random_string(5))
+    format!("{}-{}", chains::TEST_CHAIN, generate_random_string(5))
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
@@ -258,7 +259,7 @@ impl ClientConfig {
 
         ClientConfig {
             version: Default::default(),
-            chain_id: "unittest".to_string(),
+            chain_id: chains::TEST_CHAIN.to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
             expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
             block_production_tracking_delay: MutableConfigValue::new(

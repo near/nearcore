@@ -12,6 +12,7 @@ use near_client::sync::external::{StateFileType, external_storage_location};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
+use near_primitives::chains;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::{PartId, StatePart};
@@ -96,7 +97,7 @@ fn slow_test_state_dump() {
             let num_parts = 1;
             for part_id in 0..num_parts {
                 let path = root_dir.path().join(external_storage_location(
-                    "unittest",
+                    chains::TEST_CHAIN,
                     &epoch_id,
                     epoch_height,
                     shard_id,

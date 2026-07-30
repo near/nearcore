@@ -16,6 +16,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::GlobalContractDeployMode;
+use near_primitives::chains;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
@@ -442,7 +443,7 @@ async fn test_status() {
     let client = new_client(&setup.server_addr);
 
     let status = client.status().await.unwrap();
-    assert_eq!(status.chain_id, "unittest");
+    assert_eq!(status.chain_id, chains::TEST_CHAIN);
     // Height may vary depending on block production, so we just check that we get a valid response
     assert!(status.sync_info.latest_block_height < 100); // Should be reasonable for test
     assert_eq!(status.sync_info.syncing, false);
