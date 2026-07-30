@@ -31,10 +31,17 @@ fn test_genesis_chunk_request_does_not_panic() {
         _ => HandlerResult::Unhandled(request),
     }));
 
-    let validator = env.validator();
-    let genesis_block = validator.client().chain.genesis_block();
-    let genesis_chunk_hash = genesis_block.chunks().iter_raw().next().unwrap().chunk_hash().clone();
-    drop(validator);
+    let genesis_chunk_hash = env
+        .validator()
+        .client()
+        .chain
+        .genesis_block()
+        .chunks()
+        .iter_raw()
+        .next()
+        .unwrap()
+        .chunk_hash()
+        .clone();
 
     let request = PartialEncodedChunkRequestMsg {
         chunk_hash: genesis_chunk_hash.clone(),
