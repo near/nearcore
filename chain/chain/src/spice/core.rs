@@ -312,32 +312,45 @@ impl SpiceCoreReader {
 
         let mut core_statements = Vec::new();
         for chunk_info in uncertified_chunks {
-            for account_id in chunk_info.missing_endorsements {
-                if let Some(endorsement) = self.get_endorsement(
-                    &chunk_info.chunk_id.block_hash,
-                    chunk_info.chunk_id.shard_id,
-                    &account_id,
-                ) {
-                    core_statements.push(
-                        endorsement.into_core_statement(chunk_info.chunk_id.clone(), account_id),
-                    );
-                }
-            }
+            self.push_core_statements_for_chunk(chunk_info, &mut core_statements);
+        }
+        Ok(core_statements)
+    }
 
-            let Some(execution_result) = get_execution_result_from_store(
-                &self.chain_store,
+    /// Emits every core statement this node can contribute for a single uncertified chunk: the
+    /// endorsements it holds that are not on chain yet, and the chunk's execution result if the
+    /// chunk is certified locally. Returns whether anything was emitted.
+    fn push_core_statements_for_chunk(
+        &self,
+        chunk_info: SpiceUncertifiedChunkInfo,
+        core_statements: &mut Vec<SpiceCoreStatement>,
+    ) -> bool {
+        let statements_before = core_statements.len();
+
+        for account_id in chunk_info.missing_endorsements {
+            if let Some(endorsement) = self.get_endorsement(
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
-            ) else {
-                continue;
-            };
+                &account_id,
+            ) {
+                core_statements
+                    .push(endorsement.into_core_statement(chunk_info.chunk_id.clone(), account_id));
+            }
+        }
+
+        if let Some(execution_result) = get_execution_result_from_store(
+            &self.chain_store,
+            &chunk_info.chunk_id.block_hash,
+            chunk_info.chunk_id.shard_id,
+        ) {
             // Execution results are stored only for endorsed chunks.
             core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
                 chunk_id: chunk_info.chunk_id,
                 execution_result: Arc::unwrap_or_clone(execution_result),
             });
         }
-        Ok(core_statements)
+
+        core_statements.len() > statements_before
     }
 
     /// Epoch id of the last fully certified block as of `prev_hash`.
