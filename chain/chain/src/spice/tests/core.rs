@@ -40,7 +40,7 @@ use near_primitives::types::{
 use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -428,6 +428,45 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_core_statements_for_next_block_past_the_limit_creates_valid_block() {
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let block = build_uncertified_chunk_backlog(&mut chain, &core_reader);
+
+    let uncertified_chunks = core_reader.get_uncertified_chunks(block.hash()).unwrap();
+    assert!(uncertified_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK);
+
+    // Every chunk of the oldest block is endorsed by all validators, so the produced block carries
+    // their execution results; every other chunk gets a single endorsement, which is below the
+    // stake threshold. Certifying an oldest-first prefix of each shard is what
+    // `SkippedExecutionResult` demands, so this is the shape a producer is allowed to build.
+    let oldest_block_hash = uncertified_chunks[0].chunk_id.block_hash;
+    for chunk_info in &uncertified_chunks {
+        let validators = test_validators();
+        let endorsers = if chunk_info.chunk_id.block_hash == oldest_block_hash {
+            &validators[..]
+        } else {
+            &validators[..1]
+        };
+        endorse_chunk(&chain, &mut core_writer_actor, &chunk_info.chunk_id, endorsers);
+    }
+
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
+    let next_block = build_block(&chain, &block, core_statements);
+
+    let referenced: HashSet<&SpiceChunkId> =
+        next_block.spice_core_statements().iter().map(|statement| statement.chunk_id()).collect();
+    assert_eq!(
+        referenced.len(),
+        MAX_REFERENCED_CHUNKS_PER_BLOCK,
+        "production should have spent exactly the budget"
+    );
+    let result = core_reader.validate_core_statements_in_block(&next_block);
+    assert!(result.is_ok(), "produced block was rejected: {result:?}");
 }
 
 #[test]
@@ -1176,38 +1215,6 @@ fn test_validate_core_statements_in_block_with_too_many_referenced_chunks() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_validate_core_statements_in_block_with_exactly_limit_referenced_chunks() {
-    let (mut chain, core_reader) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-
-    let block_core_statements = (0..MAX_REFERENCED_CHUNKS_PER_BLOCK)
-        .map(|i| SpiceCoreStatement::ChunkExecutionResult {
-            chunk_id: SpiceChunkId {
-                block_hash: CryptoHash::hash_bytes(&i.to_le_bytes()),
-                shard_id: chunk_header.shard_id(),
-            },
-            execution_result: test_execution_result_for_chunk(chunk_header),
-        })
-        .collect_vec();
-
-    // The off-by-one guard: at exactly the limit the block must get past the limit check. It
-    // still fails for other reasons (these chunk ids don't resolve to a block), so this asserts
-    // only that the limit itself did not fire.
-    let next_block = build_block(&mut chain, &block, block_core_statements);
-    let result = core_reader.validate_core_statements_in_block(&next_block);
-    assert!(
-        !matches!(result, Err(InvalidSpiceCoreStatementsError::TooManyReferencedChunks { .. })),
-        "limit fired at exactly the limit: {result:?}"
-    );
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_counts_chunks_not_statements() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
@@ -1881,6 +1888,22 @@ fn process_block(chain: &mut Chain, block: Arc<Block>) {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
+}
+
+fn endorse_chunk(
+    chain: &Chain,
+    core_writer_actor: &mut SpiceCoreWriterActor,
+    chunk_id: &SpiceChunkId,
+    validators: &[String],
+) {
+    let block = chain.chain_store().get_block(&chunk_id.block_hash).unwrap();
+    let chunks = block.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|header| header.shard_id() == chunk_id.shard_id).unwrap();
+    for validator in validators {
+        let endorsement = test_chunk_endorsement(validator, &block, chunk_header);
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+    }
 }
 
 fn test_validators() -> Vec<String> {
