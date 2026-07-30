@@ -308,7 +308,7 @@ impl SpiceCoreReader {
         }
         let block_hash = block_header.hash();
 
-        let uncertified_chunks = self.get_uncertified_chunks(block_hash)?;
+        let uncertified_chunks = round_robin_by_shard(self.get_uncertified_chunks(block_hash)?);
 
         let mut core_statements = Vec::new();
         let mut referenced_chunks = 0;
@@ -740,6 +740,19 @@ impl SpiceCoreReader {
         }
         Ok(result)
     }
+}
+
+/// Reorders uncertified chunks so that a block's budget of
+/// [`MAX_REFERENCED_CHUNKS_PER_BLOCK`] gets spread across shards rather than spent in list order.
+///
+/// Ascending-height order is preserved *within* each shard: a shard's certification frontier
+/// advances from its oldest uncertified chunk, and `SkippedExecutionResult` requires the execution
+/// results a block carries to form a per-shard height-ordered prefix.
+// TODO(spice): interleave the shards; this is still the identity.
+pub(crate) fn round_robin_by_shard(
+    uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
+) -> Vec<SpiceUncertifiedChunkInfo> {
+    uncertified_chunks
 }
 
 /// Reads the certified chunk execution result for `(block_hash, shard_id)` from

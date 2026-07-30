@@ -1,7 +1,7 @@
 use crate::spice::core::{
     MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, compute_spice_endorsement_stats,
     credit_chunk_endorsement_stats, find_newly_certified_block_hashes, fold_endorsement_stats,
-    record_uncertified_chunks_for_block,
+    record_uncertified_chunks_for_block, round_robin_by_shard,
 };
 use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
@@ -428,6 +428,27 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
+}
+
+#[test]
+fn test_round_robin_by_shard_does_not_let_one_shard_exhaust_the_budget() {
+    let stalled_shard_id = ShardId::new(0);
+    let healthy_chunk_id =
+        SpiceChunkId { block_hash: CryptoHash::hash_bytes(b"healthy"), shard_id: ShardId::new(2) };
+
+    let mut uncertified_chunks = (0..=MAX_REFERENCED_CHUNKS_PER_BLOCK)
+        .map(|i| uncertified_chunk_info(CryptoHash::hash_bytes(&i.to_le_bytes()), stalled_shard_id))
+        .collect_vec();
+    uncertified_chunks
+        .push(uncertified_chunk_info(healthy_chunk_id.block_hash, healthy_chunk_id.shard_id));
+
+    let ordered = round_robin_by_shard(uncertified_chunks);
+
+    let position = ordered.iter().position(|info| info.chunk_id == healthy_chunk_id).unwrap();
+    assert!(
+        position < MAX_REFERENCED_CHUNKS_PER_BLOCK,
+        "chunk of a shard that is keeping up sits at {position}, beyond the budget"
+    );
 }
 
 #[test]
