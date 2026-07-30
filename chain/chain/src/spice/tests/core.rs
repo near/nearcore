@@ -451,6 +451,72 @@ fn test_round_robin_by_shard_does_not_let_one_shard_exhaust_the_budget() {
     );
 }
 
+/// When several shards are backed up, each has to get a comparable slice of the budget instead of
+/// the lowest shard ids taking all of it.
+#[test]
+fn test_round_robin_by_shard_gives_every_shard_a_share_of_the_budget() {
+    let shard_ids = [ShardId::new(0), ShardId::new(1), ShardId::new(2)];
+    let uncertified_chunks = shard_ids
+        .iter()
+        .flat_map(|shard_id| {
+            (0..MAX_REFERENCED_CHUNKS_PER_BLOCK).map(|i| {
+                uncertified_chunk_info(CryptoHash::hash_bytes(&i.to_le_bytes()), *shard_id)
+            })
+        })
+        .collect_vec();
+
+    let ordered = round_robin_by_shard(uncertified_chunks);
+
+    let fair_share = MAX_REFERENCED_CHUNKS_PER_BLOCK / shard_ids.len();
+    for shard_id in shard_ids {
+        let within_budget = ordered[..MAX_REFERENCED_CHUNKS_PER_BLOCK]
+            .iter()
+            .filter(|info| info.chunk_id.shard_id == shard_id)
+            .count();
+        assert!(
+            within_budget >= fair_share,
+            "shard {shard_id} got {within_budget} of the first {MAX_REFERENCED_CHUNKS_PER_BLOCK} \
+             slots, expected at least {fair_share}"
+        );
+    }
+}
+
+/// Ascending-height order within a shard has to survive the reordering, because the execution
+/// results a block carries must form a per-shard height-ordered prefix — otherwise validation
+/// rejects the block with `SkippedExecutionResult`.
+#[test]
+fn test_round_robin_by_shard_preserves_order_within_each_shard() {
+    let shard_ids = [ShardId::new(0), ShardId::new(1), ShardId::new(2)];
+    // Uneven backlogs, so that some shards run out of chunks while others still have them.
+    let uncertified_chunks = shard_ids
+        .iter()
+        .zip([1usize, 5, 9])
+        .flat_map(|(shard_id, backlog)| {
+            (0..backlog).map(|i| {
+                uncertified_chunk_info(CryptoHash::hash_bytes(&i.to_le_bytes()), *shard_id)
+            })
+        })
+        .collect_vec();
+
+    let ordered = round_robin_by_shard(uncertified_chunks.clone());
+
+    assert_eq!(ordered.len(), uncertified_chunks.len(), "reordering dropped or added chunks");
+    for shard_id in shard_ids {
+        let chunk_ids_of_shard = |chunks: &[SpiceUncertifiedChunkInfo]| {
+            chunks
+                .iter()
+                .filter(|info| info.chunk_id.shard_id == shard_id)
+                .map(|info| info.chunk_id.clone())
+                .collect_vec()
+        };
+        assert_eq!(
+            chunk_ids_of_shard(&ordered),
+            chunk_ids_of_shard(&uncertified_chunks),
+            "shard {shard_id} chunks were reordered relative to each other"
+        );
+    }
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statements_for_next_block_counts_chunks_endorsed_below_threshold() {
