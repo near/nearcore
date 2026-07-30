@@ -33,6 +33,7 @@ mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod gas_keys;
+mod genesis_chunk_request;
 mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
