@@ -1023,11 +1023,9 @@ fn test_validate_core_statements_in_block_with_too_many_referenced_chunks() {
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
     let result = core_reader.validate_core_statements_in_block(&next_block);
-    let Err(InvalidSpiceCoreStatementsError::TooManyReferencedChunks { chunks, limit }) = result
-    else {
+    let Err(InvalidSpiceCoreStatementsError::TooManyReferencedChunks { limit }) = result else {
         panic!("expected TooManyReferencedChunks, got {result:?}");
     };
-    assert_eq!(chunks, MAX_REFERENCED_CHUNKS_PER_BLOCK + 1);
     assert_eq!(limit, MAX_REFERENCED_CHUNKS_PER_BLOCK);
 }
 

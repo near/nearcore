@@ -437,6 +437,17 @@ impl SpiceCoreReader {
                 .ok_or(UnknownBlock { block_hash: *block_hash })
         }
 
+        // Bounds the work everything below can be made to do. Runs before any store read or
+        // signature verification, and stops accumulating as soon as the limit is passed, so an
+        // oversized block costs neither the lookups nor a set proportional to its body.
+        let mut referenced_chunks: HashSet<&SpiceChunkId> = HashSet::new();
+        for core_statement in block.spice_core_statements() {
+            referenced_chunks.insert(core_statement.chunk_id());
+            if referenced_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK {
+                return Err(TooManyReferencedChunks { limit: MAX_REFERENCED_CHUNKS_PER_BLOCK });
+            }
+        }
+
         let prev_uncertified_chunks = self
             .get_uncertified_chunks(block.header().prev_hash())
             .map_err(|err| {
