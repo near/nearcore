@@ -1,5 +1,6 @@
 use near_jsonrpc::client::new_http_client;
 use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
+use near_primitives::chains;
 
 #[tokio::test]
 async fn test_status() {
@@ -9,6 +10,6 @@ async fn test_status() {
     let client = new_http_client(&setup.server_addr);
     let status_response = client.status().await.expect("Failed to get status");
 
-    assert_eq!(status_response.chain_id, "unittest");
+    assert_eq!(status_response.chain_id, chains::TEST_CHAIN);
     assert_eq!(status_response.sync_info.syncing, false);
 }

@@ -4,6 +4,7 @@ use crate::{
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::chains;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigBuilder, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -277,7 +278,7 @@ impl Default for TestGenesisBuilder {
     // modify the defaults.
     fn default() -> Self {
         Self {
-            chain_id: "test".to_string(),
+            chain_id: chains::TEST_CHAIN.to_string(),
             protocol_version: PROTOCOL_VERSION,
             epoch_length: 100,
             shard_layout: ShardLayout::single_shard(),

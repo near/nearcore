@@ -43,6 +43,7 @@ use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_o11y::span_wrapped_msg::SpanWrapped;
+use near_primitives::chains;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -131,7 +132,7 @@ fn setup(
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
-        chain_id: "integration_test".to_string(),
+        chain_id: chains::TEST_CHAIN.to_string(),
     };
 
     let signer = MutableConfigValue::new(

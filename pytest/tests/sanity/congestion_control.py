@@ -273,7 +273,7 @@ class CongestionControlTest(unittest.TestCase):
             # runtime parameters to their original values. This is needed so
             # that the test doesn't need to be updated every time the parameters
             # are changed.
-            ("chain_id", "congestion_control_test"),
+            ("chain_id", "test-chain-congestion-control"),
         ]
         client_config_changes = {
             0: {
