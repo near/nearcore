@@ -27,6 +27,11 @@ use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// Upper bound on the number of distinct chunks a single block's core statements may reference.
+/// Bounds block body size, signature verification cost, and how far one block can advance the
+/// certification frontier.
+pub const MAX_REFERENCED_CHUNKS_PER_BLOCK: usize = 100;
+
 #[derive(Clone)]
 pub struct SpiceCoreReader {
     chain_store: ChainStoreAdapter,
