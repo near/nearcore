@@ -1033,6 +1033,38 @@ fn test_validate_core_statements_in_block_with_too_many_referenced_chunks() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_core_statements_in_block_with_exactly_limit_referenced_chunks() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+
+    let block_core_statements = (0..MAX_REFERENCED_CHUNKS_PER_BLOCK)
+        .map(|i| SpiceCoreStatement::ChunkExecutionResult {
+            chunk_id: SpiceChunkId {
+                block_hash: CryptoHash::hash_bytes(&i.to_le_bytes()),
+                shard_id: chunk_header.shard_id(),
+            },
+            execution_result: test_execution_result_for_chunk(chunk_header),
+        })
+        .collect_vec();
+
+    // The off-by-one guard: at exactly the limit the block must get past the limit check. It
+    // still fails for other reasons (these chunk ids don't resolve to a block), so this asserts
+    // only that the limit itself did not fire.
+    let next_block = build_block(&mut chain, &block, block_core_statements);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
+    assert!(
+        !matches!(result, Err(InvalidSpiceCoreStatementsError::TooManyReferencedChunks { .. })),
+        "limit fired at exactly the limit: {result:?}"
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_child_execution_result_included_before_parent() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
