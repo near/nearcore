@@ -1,6 +1,7 @@
 use crate::spice::core::{
-    SpiceCoreReader, compute_spice_endorsement_stats, credit_chunk_endorsement_stats,
-    find_newly_certified_block_hashes, fold_endorsement_stats, record_uncertified_chunks_for_block,
+    MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, compute_spice_endorsement_stats,
+    credit_chunk_endorsement_stats, find_newly_certified_block_hashes, fold_endorsement_stats,
+    record_uncertified_chunks_for_block,
 };
 use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
@@ -994,6 +995,40 @@ fn test_validate_core_statements_in_block_with_duplicate_execution_result() {
         panic!()
     };
     assert_eq!(index, duplicate_index);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_core_statements_in_block_with_too_many_referenced_chunks() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+
+    // Chunk ids here don't resolve to any block on purpose: the limit is checked before any
+    // store lookup or signature verification, so an oversized block is rejected without
+    // performing the work it is trying to force onto every node.
+    let block_core_statements = (0..=MAX_REFERENCED_CHUNKS_PER_BLOCK)
+        .map(|i| SpiceCoreStatement::ChunkExecutionResult {
+            chunk_id: SpiceChunkId {
+                block_hash: CryptoHash::hash_bytes(&i.to_le_bytes()),
+                shard_id: chunk_header.shard_id(),
+            },
+            execution_result: test_execution_result_for_chunk(chunk_header),
+        })
+        .collect_vec();
+
+    let next_block = build_block(&mut chain, &block, block_core_statements);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
+    let Err(InvalidSpiceCoreStatementsError::TooManyReferencedChunks { chunks, limit }) = result
+    else {
+        panic!("expected TooManyReferencedChunks, got {result:?}");
+    };
+    assert_eq!(chunks, MAX_REFERENCED_CHUNKS_PER_BLOCK + 1);
+    assert_eq!(limit, MAX_REFERENCED_CHUNKS_PER_BLOCK);
 }
 
 #[test]
