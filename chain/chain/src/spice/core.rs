@@ -24,7 +24,7 @@ use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 /// Upper bound on the number of distinct chunks a single block's core statements may reference.
@@ -748,11 +748,25 @@ impl SpiceCoreReader {
 /// Ascending-height order is preserved *within* each shard: a shard's certification frontier
 /// advances from its oldest uncertified chunk, and `SkippedExecutionResult` requires the execution
 /// results a block carries to form a per-shard height-ordered prefix.
-// TODO(spice): interleave the shards; this is still the identity.
 pub(crate) fn round_robin_by_shard(
     uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
 ) -> Vec<SpiceUncertifiedChunkInfo> {
-    uncertified_chunks
+    let mut ordered = Vec::with_capacity(uncertified_chunks.len());
+
+    let mut by_shard: BTreeMap<ShardId, VecDeque<SpiceUncertifiedChunkInfo>> = BTreeMap::new();
+    for chunk_info in uncertified_chunks {
+        by_shard.entry(chunk_info.chunk_id.shard_id).or_default().push_back(chunk_info);
+    }
+
+    while !by_shard.is_empty() {
+        by_shard.retain(|_shard_id, backlog| {
+            // Popping the front keeps each shard in ascending height order.
+            ordered.extend(backlog.pop_front());
+            !backlog.is_empty()
+        });
+    }
+
+    ordered
 }
 
 /// Reads the certified chunk execution result for `(block_hash, shard_id)` from
