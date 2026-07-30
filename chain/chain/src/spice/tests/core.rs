@@ -430,6 +430,41 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
     assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_core_statements_for_next_block_counts_chunks_endorsed_below_threshold() {
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let block = build_uncertified_chunk_backlog(&mut chain, &core_reader);
+
+    let uncertified_chunks = core_reader.get_uncertified_chunks(block.hash()).unwrap();
+    assert!(uncertified_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK);
+
+    // A single endorsement per chunk is below the stake threshold, so no execution result gets
+    // stored and every one of these chunks can contribute endorsements only.
+    for chunk_info in uncertified_chunks.iter().take(MAX_REFERENCED_CHUNKS_PER_BLOCK + 1) {
+        let endorsed_block =
+            chain.chain_store().get_block(&chunk_info.chunk_id.block_hash).unwrap();
+        let chunks = endorsed_block.chunks();
+        let chunk_header = chunks
+            .iter_raw()
+            .find(|header| header.shard_id() == chunk_info.chunk_id.shard_id)
+            .unwrap();
+        let endorsement =
+            test_chunk_endorsement(&test_validators()[0], &endorsed_block, chunk_header);
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+    }
+
+    // One endorsement each and no execution results, so the statement count is the number of
+    // chunks referenced: the limit, not the limit plus one.
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
+    assert!(
+        core_statements.iter().all(|s| matches!(s, SpiceCoreStatement::Endorsement(_))),
+        "expected endorsements only, got {core_statements:?}"
+    );
+    assert_eq!(core_statements.len(), MAX_REFERENCED_CHUNKS_PER_BLOCK);
+}
+
 /// A shard that stopped executing accumulates uncertified chunks that no node holds anything for.
 /// Those entries must not consume the `MAX_REFERENCED_CHUNKS_PER_BLOCK` budget, or one stuck
 /// shard would stop every other shard from certifying.
