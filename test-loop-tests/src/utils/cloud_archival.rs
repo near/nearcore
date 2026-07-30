@@ -235,10 +235,12 @@ pub(crate) fn apply_writer_settings(
     archive_block_data: bool,
     tracked_shards: &[ShardUId],
     snapshot_every_n_epochs: u64,
+    catch_up_throttle: Duration,
 ) {
     config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
         archive_block_data,
         snapshot_every_n_epochs,
+        catch_up_throttle,
         ..Default::default()
     });
     config.tracked_shards_config = if tracked_shards.is_empty() {
@@ -279,6 +281,7 @@ pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
                 archive_block_data,
                 &tracked_shards,
                 snapshot_every_n_epochs,
+                Duration::ZERO,
             );
         })
         .build();

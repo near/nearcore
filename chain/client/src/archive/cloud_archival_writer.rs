@@ -242,7 +242,7 @@ impl CloudArchivalWriter {
                 }
             } else {
                 match self.try_archive_data().await {
-                    Ok(CloudArchivingOutcome::Old { .. }) => Duration::ZERO,
+                    Ok(CloudArchivingOutcome::Old { .. }) => self.config.catch_up_throttle,
                     _ => self.config.polling_interval,
                 }
             };
