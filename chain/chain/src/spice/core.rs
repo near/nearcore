@@ -311,8 +311,14 @@ impl SpiceCoreReader {
         let uncertified_chunks = self.get_uncertified_chunks(block_hash)?;
 
         let mut core_statements = Vec::new();
+        let mut referenced_chunks = 0;
         for chunk_info in uncertified_chunks {
-            self.push_core_statements_for_chunk(chunk_info, &mut core_statements);
+            if self.push_core_statements_for_chunk(chunk_info, &mut core_statements) {
+                referenced_chunks += 1;
+                if referenced_chunks == MAX_REFERENCED_CHUNKS_PER_BLOCK {
+                    break;
+                }
+            }
         }
         Ok(core_statements)
     }
