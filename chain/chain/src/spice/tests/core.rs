@@ -1065,6 +1065,56 @@ fn test_validate_core_statements_in_block_with_exactly_limit_referenced_chunks()
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_core_statements_in_block_counts_chunks_not_statements() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+    let verified = endorsement_into_verified(test_chunk_endorsement(
+        &test_validators()[0],
+        &block,
+        chunk_header,
+    ));
+
+    // Two statements per chunk: an endorsement, and the execution result for the same chunk.
+    // That is twice the limit in statements but exactly the limit in distinct chunks.
+    let mut block_core_statements = Vec::new();
+    for i in 0..MAX_REFERENCED_CHUNKS_PER_BLOCK {
+        let chunk_id = SpiceChunkId {
+            block_hash: CryptoHash::hash_bytes(&i.to_le_bytes()),
+            shard_id: chunk_header.shard_id(),
+        };
+        block_core_statements.push(SpiceCoreStatement::Endorsement(
+            testonly_create_endorsement_core_statement(
+                verified.account_id().clone(),
+                verified.signature().clone(),
+                SpiceEndorsementSignedData {
+                    execution_result_hash: ChunkExecutionResultHash(CryptoHash::default()),
+                    chunk_id: chunk_id.clone(),
+                },
+            ),
+        ));
+        block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+            chunk_id,
+            execution_result: test_execution_result_for_chunk(chunk_header),
+        });
+    }
+    assert_eq!(block_core_statements.len(), 2 * MAX_REFERENCED_CHUNKS_PER_BLOCK);
+
+    // The limit counts distinct chunks, so it must not fire here.
+    let next_block = build_block(&mut chain, &block, block_core_statements);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
+    assert!(
+        !matches!(result, Err(InvalidSpiceCoreStatementsError::TooManyReferencedChunks { .. })),
+        "limit fired on statement count rather than distinct chunks: {result:?}"
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_child_execution_result_included_before_parent() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
