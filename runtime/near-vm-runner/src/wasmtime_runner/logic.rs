@@ -2098,8 +2098,9 @@ pub fn p256_verify(
 /// # Errors
 ///
 /// * If the signature's size is not 3309 or the public key's size is not 1952,
-///   returns [HostError::MlDsaVerifyInvalidInput]. Well-sized inputs that fail
-///   verification return 0 instead of aborting.
+///   returns [HostError::MlDsaVerifyInvalidInput], whose message is the
+///   underlying error and reports the expected and received sizes. Well-sized
+///   inputs that fail verification return 0 instead of aborting.
 /// * If any of the signature, message or public key arguments are out of
 ///   memory bounds, returns [`HostError::MemoryAccessViolation`]
 ///
@@ -2140,9 +2141,9 @@ pub fn ml_dsa_verify(
         )?;
         match MlDsa65Signature::try_from(&vec[..]) {
             Ok(signature) => Signature::MLDSA65(signature),
-            Err(_) => {
+            Err(err) => {
                 return Err(VMLogicError::HostError(HostError::MlDsaVerifyInvalidInput {
-                    msg: "invalid signature length".to_string(),
+                    msg: err.to_string(),
                 }));
             }
         }
@@ -2167,9 +2168,9 @@ pub fn ml_dsa_verify(
         )?;
         match MlDsa65PublicKey::try_from(&vec[..]) {
             Ok(public_key) => PublicKey::MLDSA65(public_key),
-            Err(_) => {
+            Err(err) => {
                 return Err(VMLogicError::HostError(HostError::MlDsaVerifyInvalidInput {
-                    msg: "invalid public key length".to_string(),
+                    msg: err.to_string(),
                 }));
             }
         }
