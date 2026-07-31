@@ -172,9 +172,9 @@ fn test_ml_dsa_verify_pre_activation_call_fails() {
         return;
     }
 
-    // ml_dsa_verify_host_fn is turned on at protocol version 158 (see 158.yaml),
-    // so 157 is the last version without it.
-    let pre_activation_pv = 157;
+    // ml_dsa_verify_host_fn is turned on at protocol version 87 (see 87.yaml),
+    // so 86 is the last version without it.
+    let pre_activation_pv = 86;
     let user = create_account_id("user");
     let mut env = TestLoopBuilder::new()
         .enable_rpc()

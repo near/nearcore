@@ -218,7 +218,7 @@ snapshot_kind: text
     "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
-    "ml_dsa_verify_host_fn": false,
+    "ml_dsa_verify_host_fn": true,
     "sha3_host_fns": true,
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,
