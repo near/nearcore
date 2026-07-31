@@ -34,7 +34,7 @@ pub fn initialize_sharded_genesis_state(
 ) {
     let shard_layout = genesis_epoch_config
         .static_shard_layout()
-        .expect("genesis config must have static shard layout");
+        .unwrap_or_else(|| genesis.config.shard_layout.clone());
     let state_roots = if let Some(state_roots) = get_genesis_state_roots(&store) {
         // TODO: with 2.6 release, remove storing genesis height
         let mut store_update: crate::StoreUpdate = store.store_update();
