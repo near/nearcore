@@ -448,7 +448,7 @@ impl PeerActor {
                 None => {
                     metrics::MessageDropped::OutgoingQueueLimitExceeded
                         .inc_msg_type(msg.msg_variant());
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "network",
                         msg_type = msg.msg_variant(),
                         bytes_len,

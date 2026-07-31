@@ -1273,7 +1273,7 @@ impl NetworkState {
                 } else {
                     metrics::MessageDropped::OutgoingQueueLimitExceeded
                         .inc_msg_type("EpochSyncResponse");
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "network",
                         %peer_id,
                         "outgoing queue saturated; dropping epoch sync request",
