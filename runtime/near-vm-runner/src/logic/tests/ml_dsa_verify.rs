@@ -171,7 +171,12 @@ fn test_ml_dsa_verify_invalid_signature_length() {
         &message,
         public_key.len() as u64,
         &public_key,
-        Err(HostError::MlDsaVerifyInvalidInput { msg: "invalid signature length".to_string() }),
+        Err(HostError::MlDsaVerifyInvalidInput {
+            msg: format!(
+                "invalid signature length: expected the input of 3309 bytes, but \
+                 {invalid_signature_len} was given"
+            ),
+        }),
         map! {
             ExtCosts::read_memory_base: 1,
             ExtCosts::read_memory_byte: invalid_signature_len,
@@ -191,7 +196,10 @@ fn test_ml_dsa_verify_empty_signature_length() {
         &message,
         public_key.len() as u64,
         &public_key,
-        Err(HostError::MlDsaVerifyInvalidInput { msg: "invalid signature length".to_string() }),
+        Err(HostError::MlDsaVerifyInvalidInput {
+            msg: "invalid signature length: expected the input of 3309 bytes, but 0 was given"
+                .to_string(),
+        }),
         map! {
             ExtCosts::read_memory_base: 1,
             ExtCosts::read_memory_byte: 0,
@@ -213,7 +221,10 @@ fn test_ml_dsa_verify_invalid_public_key_length() {
         &message,
         public_key.len() as u64 - 1,
         &public_key,
-        Err(HostError::MlDsaVerifyInvalidInput { msg: "invalid public key length".to_string() }),
+        Err(HostError::MlDsaVerifyInvalidInput {
+            msg: "invalid key length: expected the input of 1952 bytes, but 1951 was given"
+                .to_string(),
+        }),
         map! {
             ExtCosts::read_memory_byte: (signature.len() + message.len() + public_key.len() - 1)
                 as u64,

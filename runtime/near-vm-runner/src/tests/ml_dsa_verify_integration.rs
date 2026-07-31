@@ -213,14 +213,26 @@ fn test_ml_dsa_verify_integration_invalid_signature_length_aborts() {
     // sig_len != 3309 must raise MlDsaVerifyInvalidInput, aborting the VM.
     let (signature, message, public_key) = kat();
     let wat = verify_wat(&signature, &message, &public_key, 3308, 1952);
-    run_wat(&wat, true, ExpectedOutcome::HostErrorContains("invalid signature length"));
+    run_wat(
+        &wat,
+        true,
+        ExpectedOutcome::HostErrorContains(
+            "invalid signature length: expected the input of 3309 bytes, but 3308 was given",
+        ),
+    );
 }
 
 #[test]
 fn test_ml_dsa_verify_integration_invalid_public_key_length_aborts() {
     let (signature, message, public_key) = kat();
     let wat = verify_wat(&signature, &message, &public_key, 3309, 1951);
-    run_wat(&wat, true, ExpectedOutcome::HostErrorContains("invalid public key length"));
+    run_wat(
+        &wat,
+        true,
+        ExpectedOutcome::HostErrorContains(
+            "invalid key length: expected the input of 1952 bytes, but 1951 was given",
+        ),
+    );
 }
 
 #[test]
