@@ -51,8 +51,14 @@ pub fn verify_approvals_and_threshold_orphan(
     epoch_info: Arc<EpochInfo>,
 ) -> Result<(), Error> {
     let block_approvers = get_heuristic_block_approvers_ordered(&epoch_info);
+    // `prev_block_height` comes from an unvalidated header when the caller has no ancestry to
+    // check it against, so use checked_add to avoid an arithmetic overflow panic (which would
+    // crash the node) when the height is u64::MAX.
+    let Some(prev_block_height_plus_one) = prev_block_height.checked_add(1) else {
+        return Err(Error::InvalidBlockHeight(prev_block_height));
+    };
     let message_to_sign = Approval::get_data_for_sig(
-        &if prev_block_height + 1 == block_height {
+        &if prev_block_height_plus_one == block_height {
             ApprovalInner::Endorsement(*prev_block_hash)
         } else {
             ApprovalInner::Skip(prev_block_height)
