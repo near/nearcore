@@ -18,12 +18,12 @@ use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, Finality, NumBlocks};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Finality, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountContractView, ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView,
 };
-use near_store::StoreConfig;
+use near_store::{DBCol, StoreConfig};
 use std::iter::repeat_with;
 use tokio::sync::mpsc;
 
@@ -438,6 +438,77 @@ fn test_indexer_receipt_execution_outcomes_order() {
     );
 }
 
+/// A block whose receipt is gone from the store cannot be turned into a
+/// `StreamerMessage`, and no amount of retrying brings the receipt back. With
+/// `skip_broken_blocks` the streamer must give up on that height and carry on
+/// with the next one instead of terminating the node.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_skip_broken_block() {
+    init_test_logger();
+
+    let mut env = setup();
+    let broken_height = drop_receipt_of_local_tx(&mut env);
+
+    let mut indexer_receiver =
+        start_indexer_skipping_broken_blocks(&env, SyncModeEnum::BlockHeight(broken_height - 1));
+    // The height before the broken one still streams normally.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, broken_height - 1);
+    // The broken height is dropped and streaming resumes at the next one.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, broken_height + 1);
+}
+
+/// The very same block must instead terminate a regular indexer: silently
+/// dropping it would leave an unnoticed gap in the stream.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[should_panic(expected = "failed to build streamer message at height")]
+fn test_indexer_broken_block_terminates_streamer() {
+    init_test_logger();
+
+    let mut env = setup();
+    let broken_height = drop_receipt_of_local_tx(&mut env);
+
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(broken_height));
+    receive_indexer_message(&mut env, &mut indexer_receiver);
+}
+
+/// Runs a local transaction to completion and then drops the receipt it was
+/// converted into from the store, which is what the indexer pairs with the
+/// receipt's execution outcome. Returns the height of the block that executed
+/// the receipt, i.e. the block that can no longer be built.
+fn drop_receipt_of_local_tx(env: &mut TestLoopEnv) -> BlockHeight {
+    let tx = create_local_tx(env);
+    let tx_hash = tx.get_hash();
+    env.validator().submit_tx(tx);
+    let tx_outcome =
+        env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(5));
+    let ExecutionStatus::SuccessReceiptId(receipt_id) = tx_outcome.outcome_with_id.outcome.status
+    else {
+        panic!("failed to convert transaction to receipt");
+    };
+    let receipt_outcome =
+        env.validator_runner().run_until_outcome_available(receipt_id, Duration::seconds(5));
+    let broken_height = env.validator().block(receipt_outcome.block_hash).header().height();
+    // Get the broken height off the chain head, so that the streamer has a later
+    // height to resume at once it gives up on it.
+    env.validator_runner().run_for_number_of_blocks(3);
+
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+    store_update.decrement_refcount(DBCol::Receipts, receipt_id.as_ref());
+    store_update.commit();
+    assert!(
+        !store.exists(DBCol::Receipts, receipt_id.as_ref()),
+        "receipt should be gone from the store"
+    );
+
+    broken_height
+}
+
 fn user_account() -> AccountId {
     create_account_id("user")
 }
@@ -455,16 +526,23 @@ fn setup() -> TestLoopEnv {
 }
 
 fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<StreamerMessage> {
-    let node_data = &env.node_datas[0];
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    let shard_tracker = client.shard_tracker.clone();
-    start_indexer_with_shard_tracker(env, sync_mode, shard_tracker)
+    let shard_tracker = env.validator().client().shard_tracker.clone();
+    start_indexer_with_shard_tracker(env, sync_mode, shard_tracker, false)
+}
+
+fn start_indexer_skipping_broken_blocks(
+    env: &TestLoopEnv,
+    sync_mode: SyncModeEnum,
+) -> mpsc::Receiver<StreamerMessage> {
+    let shard_tracker = env.validator().client().shard_tracker.clone();
+    start_indexer_with_shard_tracker(env, sync_mode, shard_tracker, true)
 }
 
 fn start_indexer_with_shard_tracker(
     env: &TestLoopEnv,
     sync_mode: SyncModeEnum,
     shard_tracker: ShardTracker,
+    skip_broken_blocks: bool,
 ) -> mpsc::Receiver<StreamerMessage> {
     let node_data = &env.node_datas[0];
     let indexer_config = IndexerConfig {
@@ -473,7 +551,7 @@ fn start_indexer_with_shard_tracker(
         await_for_node_synced: AwaitForNodeSyncedEnum::StreamWhileSyncing,
         finality: Finality::None,
         validate_genesis: false,
-        skip_broken_blocks: false,
+        skip_broken_blocks,
     };
 
     let store_config =
