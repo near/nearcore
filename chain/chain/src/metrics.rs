@@ -84,6 +84,21 @@ pub static BLOCK_HEIGHT_SPICE_EXECUTION_HEAD: LazyLock<IntGauge> = LazyLock::new
     )
     .unwrap()
 });
+pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_block_spice_uncertified_chunks",
+        "Number of chunks awaiting certification",
+    )
+    .unwrap()
+});
+pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS_SKIPPED: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_block_spice_uncertified_chunks_skipped",
+        "Uncertified chunks a block producer left outside the block because it had already \
+         reached the limit on referenced chunks",
+    )
+    .unwrap()
+});
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",

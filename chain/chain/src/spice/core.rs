@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -308,17 +309,33 @@ impl SpiceCoreReader {
         }
         let block_hash = block_header.hash();
 
-        let uncertified_chunks = round_robin_by_shard(self.get_uncertified_chunks(block_hash)?);
+        let uncertified_chunks = self.get_uncertified_chunks(block_hash)?;
+        metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
+        let uncertified_chunks = round_robin_by_shard(uncertified_chunks);
 
         let mut core_statements = Vec::new();
         let mut referenced_chunks = 0;
+        let mut unexamined = uncertified_chunks.len();
+        let mut skipped = 0;
         for chunk_info in uncertified_chunks {
+            unexamined -= 1;
             if self.push_core_statements_for_chunk(chunk_info, &mut core_statements) {
                 referenced_chunks += 1;
                 if referenced_chunks == MAX_REFERENCED_CHUNKS_PER_BLOCK {
+                    skipped = unexamined;
                     break;
                 }
             }
+        }
+        metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS_SKIPPED.set(skipped as i64);
+        if skipped > 0 {
+            tracing::debug!(
+                target: "spice_core",
+                prev_hash = ?block_hash,
+                skipped,
+                limit = MAX_REFERENCED_CHUNKS_PER_BLOCK,
+                "reached the limit on chunks referenced by core statements",
+            );
         }
         Ok(core_statements)
     }
