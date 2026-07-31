@@ -1906,15 +1906,17 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// Each input can either be in memory or in a register. Set the length of
     /// the input to `u64::MAX` to declare that the input is a register number
-    /// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
-    /// depends on whether it is from memory or from a register. It is either
-    /// read_memory_base + num_bytes * read_memory_byte in the former case or
-    /// read_register_base + num_bytes * read_register_byte in the latter. This
-    /// function is labeled as `input_cost` below.
+    /// and not a pointer; the length charged for is then the size of the
+    /// register's contents rather than the `*_len` argument itself. Each input
+    /// has a gas cost input_cost(len) that depends on whether it is from memory
+    /// or from a register. It is either read_memory_base + len *
+    /// read_memory_byte in the former case or read_register_base + len *
+    /// read_register_byte in the latter. This function is labeled as
+    /// `input_cost` below.
     ///
-    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
-    ///  input_cost(num_bytes_public_key) + ed25519_verify_base +
-    ///  ed25519_verify_byte * num_bytes_message`
+    /// `input_cost(signature_len) + input_cost(message_len) +
+    ///  input_cost(public_key_len) + ed25519_verify_base +
+    ///  ed25519_verify_byte * message_len`
     pub fn ed25519_verify(
         &mut self,
         signature_len: u64,
@@ -2013,15 +2015,17 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// Each input can either be in memory or in a register. Set the length of
     /// the input to `u64::MAX` to declare that the input is a register number
-    /// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
-    /// depends on whether it is from memory or from a register. It is either
-    /// read_memory_base + num_bytes * read_memory_byte in the former case or
-    /// read_register_base + num_bytes * read_register_byte in the latter. This
-    /// function is labeled as `input_cost` below.
+    /// and not a pointer; the length charged for is then the size of the
+    /// register's contents rather than the `*_len` argument itself. Each input
+    /// has a gas cost input_cost(len) that depends on whether it is from memory
+    /// or from a register. It is either read_memory_base + len *
+    /// read_memory_byte in the former case or read_register_base + len *
+    /// read_register_byte in the latter. This function is labeled as
+    /// `input_cost` below.
     ///
-    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
-    ///  input_cost(num_bytes_public_key) + p256_verify_base +
-    ///  p256_verify_byte * num_bytes_message`
+    /// `input_cost(signature_len) + input_cost(message_len) +
+    ///  input_cost(public_key_len) + p256_verify_base +
+    ///  p256_verify_byte * message_len`
     pub fn p256_verify(
         &mut self,
         signature_len: u64,
@@ -2094,15 +2098,17 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// Each input can either be in memory or in a register. Set the length of
     /// the input to `u64::MAX` to declare that the input is a register number
-    /// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
-    /// depends on whether it is from memory or from a register. It is either
-    /// read_memory_base + num_bytes * read_memory_byte in the former case or
-    /// read_register_base + num_bytes * read_register_byte in the latter. This
-    /// function is labeled as `input_cost` below.
+    /// and not a pointer; the length charged for is then the size of the
+    /// register's contents rather than the `*_len` argument itself. Each input
+    /// has a gas cost input_cost(len) that depends on whether it is from memory
+    /// or from a register. It is either read_memory_base + len *
+    /// read_memory_byte in the former case or read_register_base + len *
+    /// read_register_byte in the latter. This function is labeled as
+    /// `input_cost` below.
     ///
-    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
-    ///  input_cost(num_bytes_public_key) + ml_dsa_verify_base +
-    ///  ml_dsa_verify_byte * num_bytes_message`
+    /// `input_cost(signature_len) + input_cost(message_len) +
+    ///  input_cost(public_key_len) + ml_dsa_verify_base +
+    ///  ml_dsa_verify_byte * message_len`
     pub fn ml_dsa_verify(
         &mut self,
         signature_len: u64,
