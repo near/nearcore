@@ -1,4 +1,5 @@
 use crate::auto_stop::AutoStopActor;
+use crate::config::DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES;
 use crate::network_protocol::testonly as data;
 use crate::peer::stream::{self, IncomingFrame};
 use crate::peer_manager::network_state::INCOMING_SEMAPHORE_PERMITS;
@@ -57,6 +58,7 @@ impl Actor {
             s,
             Arc::default(),
             Arc::new(Semaphore::new(INCOMING_SEMAPHORE_PERMITS)),
+            DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES,
         );
         let actor = Actor { handle: handle.clone(), stream: framed_stream, queue_send };
         builder.spawn_tokio_actor(actor);

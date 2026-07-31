@@ -91,9 +91,6 @@ pub(crate) const PENDING_TIER3_REQUEST_TIMEOUT: time::Duration = time::Duration:
 /// 1GB of incoming messages at the same time.
 pub(crate) const INCOMING_SEMAPHORE_PERMITS: usize = 1_000_000_000;
 
-/// Size of the semaphore which limits outgoing messages.
-pub(crate) const OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 1024 * 1024 * 1024;
-
 /// Number of bytes reserved for the epoch sync response
 pub(crate) const EPOCH_SYNC_RESPONSE_BYTES: usize = 300 * 1024 * 1024;
 
@@ -349,7 +346,7 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             pending_tier3_requests: DashMap::new(),
             outgoing_queue_limiter: OutgoingQueueLimiter::new(
-                OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
+                config.outgoing_queue_limiter_capacity_bytes,
             ),
             whitelist_nodes,
             set_chain_info_mutex: Mutex::new(()),

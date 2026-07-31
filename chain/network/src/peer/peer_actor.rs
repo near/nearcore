@@ -349,6 +349,7 @@ impl PeerActor {
             stream,
             stats.clone(),
             network_state.incoming_message_semaphore.clone(),
+            network_state.config.max_write_buffer_capacity_bytes,
         );
         let actor = Self {
             closing_reason: None,

@@ -3,7 +3,7 @@ use crate::peer_manager::connection;
 use crate::recv_permit::RecvMessagePermit;
 use crate::stats::metrics;
 use crate::tcp;
-use bytesize::{GIB, MIB};
+use bytesize::MIB;
 use itertools::Itertools;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{AsyncSender, Sender};
@@ -18,8 +18,6 @@ use tokio::sync::Semaphore;
 /// Maximum size of network message in encoded format.
 /// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
 const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
-/// Maximum capacity of write buffer in bytes.
-const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
 /// Timeout for individual write operations (write + flush) to detect if the connection is
 /// stuck due to a half-open TCP connection where the peer stopped ACKing writes.
@@ -116,6 +114,8 @@ pub(crate) struct FramedStream {
     send_buf_size_metric: Arc<metrics::IntGaugeGuard>,
     /// Sender to send the error to the PeerActor.
     error_sender: Sender<Error>,
+    /// Maximum capacity of the write buffer in bytes.
+    max_write_buffer_capacity_bytes: usize,
 }
 
 impl FramedStream {
@@ -126,6 +126,7 @@ impl FramedStream {
         stream: tcp::Stream,
         stats: Arc<connection::Stats>,
         incoming_message_semaphore: Arc<Semaphore>,
+        max_write_buffer_capacity_bytes: usize,
     ) -> Self {
         let (tcp_recv, tcp_send) = tokio::io::split(stream.stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
@@ -163,7 +164,13 @@ impl FramedStream {
                 }
             }
         });
-        Self { queue_send, stats, send_buf_size_metric, error_sender }
+        Self {
+            queue_send,
+            stats,
+            send_buf_size_metric,
+            error_sender,
+            max_write_buffer_capacity_bytes,
+        }
     }
 
     /// Pushes `msg` to the send queue.
@@ -180,11 +187,11 @@ impl FramedStream {
         // Exceeding buffer capacity is a critical error and Actor should call ctx.stop()
         // when receiving one. It is not like we do any extra allocations, so we can afford
         // pushing the message to the queue anyway.
-        if buf_size > MAX_WRITE_BUFFER_CAPACITY_BYTES {
+        if buf_size > self.max_write_buffer_capacity_bytes {
             metrics::MessageDropped::MaxCapacityExceeded.inc_unknown_msg();
             self.error_sender.send(Error::Send(SendError::QueueOverflow {
                 got_bytes: buf_size,
-                want_max_bytes: MAX_WRITE_BUFFER_CAPACITY_BYTES,
+                want_max_bytes: self.max_write_buffer_capacity_bytes,
             }));
         }
         let _ = self.queue_send.send(frame);
