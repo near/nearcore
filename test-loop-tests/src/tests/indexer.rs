@@ -442,6 +442,7 @@ fn test_indexer_receipt_execution_outcomes_order() {
 /// `StreamerMessage`, and no amount of retrying brings the receipt back. With
 /// `skip_broken_blocks` the streamer must give up on that height and carry on
 /// with the next one instead of terminating the node.
+#[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_skip_broken_block() {
