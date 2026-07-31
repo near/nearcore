@@ -469,36 +469,21 @@ fn test_core_statements_for_next_block_past_the_limit_creates_valid_block() {
     assert!(result.is_ok(), "produced block was rejected: {result:?}");
 }
 
-#[test]
-fn test_round_robin_by_shard_does_not_let_one_shard_exhaust_the_budget() {
-    let stalled_shard_id = ShardId::new(0);
-    let healthy_chunk_id =
-        SpiceChunkId { block_hash: CryptoHash::hash_bytes(b"healthy"), shard_id: ShardId::new(2) };
-
-    let mut uncertified_chunks = (0..=MAX_REFERENCED_CHUNKS_PER_BLOCK)
-        .map(|i| uncertified_chunk_info(CryptoHash::hash_bytes(&i.to_le_bytes()), stalled_shard_id))
-        .collect_vec();
-    uncertified_chunks
-        .push(uncertified_chunk_info(healthy_chunk_id.block_hash, healthy_chunk_id.shard_id));
-
-    let ordered = round_robin_by_shard(uncertified_chunks);
-
-    let position = ordered.iter().position(|info| info.chunk_id == healthy_chunk_id).unwrap();
-    assert!(
-        position < MAX_REFERENCED_CHUNKS_PER_BLOCK,
-        "chunk of a shard that is keeping up sits at {position}, beyond the budget"
-    );
-}
-
-/// When several shards are backed up, each has to get a comparable slice of the budget instead of
-/// the lowest shard ids taking all of it.
+/// Each shard has to get a comparable slice of the budget instead of the lowest shard ids taking
+/// all of it, and a shard that is nearly keeping up must not end up buried behind a shard with a
+/// deep backlog.
 #[test]
 fn test_round_robin_by_shard_gives_every_shard_a_share_of_the_budget() {
-    let shard_ids = [ShardId::new(0), ShardId::new(1), ShardId::new(2)];
-    let uncertified_chunks = shard_ids
+    // Uneven backlogs: two shards past the budget on their own, and one that is nearly caught up.
+    let backlogs = [
+        (ShardId::new(0), MAX_REFERENCED_CHUNKS_PER_BLOCK + 1),
+        (ShardId::new(1), MAX_REFERENCED_CHUNKS_PER_BLOCK),
+        (ShardId::new(2), 1),
+    ];
+    let uncertified_chunks = backlogs
         .iter()
-        .flat_map(|shard_id| {
-            (0..MAX_REFERENCED_CHUNKS_PER_BLOCK).map(|i| {
+        .flat_map(|(shard_id, backlog)| {
+            (0..*backlog).map(|i| {
                 uncertified_chunk_info(CryptoHash::hash_bytes(&i.to_le_bytes()), *shard_id)
             })
         })
@@ -506,16 +491,18 @@ fn test_round_robin_by_shard_gives_every_shard_a_share_of_the_budget() {
 
     let ordered = round_robin_by_shard(uncertified_chunks);
 
-    let fair_share = MAX_REFERENCED_CHUNKS_PER_BLOCK / shard_ids.len();
-    for shard_id in shard_ids {
+    let fair_share = MAX_REFERENCED_CHUNKS_PER_BLOCK / backlogs.len();
+    for (shard_id, backlog) in backlogs {
         let within_budget = ordered[..MAX_REFERENCED_CHUNKS_PER_BLOCK]
             .iter()
             .filter(|info| info.chunk_id.shard_id == shard_id)
             .count();
+        // A shard with fewer chunks than a fair share needs all of them inside the budget.
+        let expected = fair_share.min(backlog);
         assert!(
-            within_budget >= fair_share,
+            within_budget >= expected,
             "shard {shard_id} got {within_budget} of the first {MAX_REFERENCED_CHUNKS_PER_BLOCK} \
-             slots, expected at least {fair_share}"
+             slots, expected at least {expected}"
         );
     }
 }
@@ -591,12 +578,13 @@ fn test_core_statements_for_next_block_counts_chunks_endorsed_below_threshold() 
     assert_eq!(core_statements.len(), MAX_REFERENCED_CHUNKS_PER_BLOCK);
 }
 
-/// A shard that stopped executing accumulates uncertified chunks that no node holds anything for.
-/// Those entries must not consume the `MAX_REFERENCED_CHUNKS_PER_BLOCK` budget, or one stuck
-/// shard would stop every other shard from certifying.
+/// A stalled chain accumulates uncertified chunks that no node holds an endorsement or an execution
+/// result for. Those entries contribute no core statements, so they must not consume the
+/// `MAX_REFERENCED_CHUNKS_PER_BLOCK` budget either — otherwise a backlog of chunks nobody can act
+/// on would stop every chunk behind it from ever being certified.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statements_for_next_block_is_not_starved_by_stalled_shard() {
+fn test_core_statements_for_next_block_budget_skips_chunks_without_statements() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let stalled = build_uncertified_chunk_backlog(&mut chain, &core_reader);
