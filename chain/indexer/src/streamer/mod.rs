@@ -41,6 +41,7 @@ pub async fn build_streamer_message(
     client: &IndexerViewClientFetcher,
     block: BlockView,
     shard_tracker: &ShardTracker,
+    tolerate_missing_local_receipts: bool,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
     let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
@@ -124,8 +125,19 @@ pub async fn build_streamer_message(
 
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let Some(receipt) = receipt else {
-                // A receipt-execution outcome must have its receipt. A `None` here is
-                // unexpected; return an error so the streamer handles the error.
+                // A forked chain inherits receipts in its genesis state whose
+                // producing block predates the fork genesis and is absent here.
+                // Skip such outcomes when configured; otherwise a missing receipt
+                // is unexpected and we surface it as an error.
+                if tolerate_missing_local_receipts {
+                    tracing::warn!(
+                        target: INDEXER,
+                        receipt_id = %execution_outcome.id,
+                        block_hash = %block.header.hash,
+                        "receipt not found for execution outcome, skipping it (expected on forked chains)",
+                    );
+                    continue;
+                }
                 return Err(FailedToFetchData::String(format!(
                     "missing receipt for execution outcome {} in block {}",
                     execution_outcome.id, block.header.hash,
@@ -337,8 +349,13 @@ pub async fn start(
                 }
             };
 
-            let streamer_message =
-                Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
+            let streamer_message = Box::pin(build_streamer_message(
+                &view_client,
+                block,
+                &shard_tracker,
+                indexer_config.tolerate_missing_local_receipts,
+            ))
+            .await;
             let streamer_message = match streamer_message {
                 Ok(streamer_message) => {
                     build_streamer_message_attempts = 0;

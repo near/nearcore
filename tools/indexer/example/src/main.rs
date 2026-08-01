@@ -274,6 +274,7 @@ async fn main() -> Result<()> {
                 await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
                 finality: near_primitives::types::Finality::Final,
                 validate_genesis: true,
+                tolerate_missing_local_receipts: false,
             };
             let tokio_runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

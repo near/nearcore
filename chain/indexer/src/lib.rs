@@ -88,6 +88,12 @@ pub struct IndexerConfig {
     pub finality: Finality,
     /// Tells whether to validate the genesis file before starting
     pub validate_genesis: bool,
+    /// Skip a local-receipt execution outcome whose receipt cannot be found,
+    /// instead of failing the streamer. This happens on forked chains: the
+    /// receipt is inherited in the fork genesis state, but the block that
+    /// produced it predates the fork genesis and is not part of this chain.
+    /// Keep false on mainnet, where a missing receipt is a real bug.
+    pub tolerate_missing_local_receipts: bool,
 }
 
 impl IndexerConfig {
