@@ -2722,6 +2722,8 @@ impl Chain {
             }
         }
 
+        self.validate_state_sync_state_root(shard_id, sync_hash, shard_uid)?;
+
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
             let header = self.get_block_header(&sync_hash)?;
@@ -2729,6 +2731,30 @@ impl Chain {
         }
 
         Ok(())
+    }
+
+    /// Checks the state reconstructed through finalization against the root committed by the
+    /// sync block's chunk. A missing chunk repeats an older header and therefore does not commit
+    /// the post-state reconstructed at the sync boundary.
+    fn validate_state_sync_state_root(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        shard_uid: ShardUId,
+    ) -> Result<(), Error> {
+        let sync_block = self.get_block(&sync_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(sync_block.header().epoch_id())?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let chunks = sync_block.chunks();
+        let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
+        if !chunk_header.is_new_chunk(sync_block.header().height()) {
+            return Ok(());
+        }
+
+        let chunk_extra = self.get_chunk_extra(sync_block.header().prev_hash(), &shard_uid)?;
+        let expected = chunk_header.prev_state_root();
+        let actual = *chunk_extra.state_root();
+        ensure_state_sync_state_root(shard_id, sync_hash, expected, actual)
     }
 
     pub fn clear_downloaded_parts(
@@ -3803,6 +3829,52 @@ impl Chain {
             // Not yet processed this block, we can proceed.
             BlockKnowledge::Unknown
         }
+    }
+}
+
+fn ensure_state_sync_state_root(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    expected: CryptoHash,
+    actual: CryptoHash,
+) -> Result<(), Error> {
+    if actual == expected {
+        return Ok(());
+    }
+    Err(Error::StateSyncStateRootMismatch { shard_id, sync_hash, expected, actual })
+}
+
+#[cfg(test)]
+mod state_sync_state_root_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_matching_state_root() {
+        let state_root = CryptoHash::hash_bytes(b"state root");
+        assert!(
+            ensure_state_sync_state_root(
+                ShardId::new(3),
+                CryptoHash::hash_bytes(b"sync hash"),
+                state_root,
+                state_root,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn classifies_mismatching_state_root_as_local_sync_error() {
+        let error = ensure_state_sync_state_root(
+            ShardId::new(3),
+            CryptoHash::hash_bytes(b"sync hash"),
+            CryptoHash::hash_bytes(b"expected"),
+            CryptoHash::hash_bytes(b"actual"),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, Error::StateSyncStateRootMismatch { .. }));
+        assert!(!error.is_bad_data());
+        assert!(error.is_error());
     }
 }
 
