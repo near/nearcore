@@ -97,7 +97,7 @@ pub(crate) const OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 1024 * 1024 * 10
 /// Number of bytes reserved for the epoch sync response
 pub(crate) const EPOCH_SYNC_RESPONSE_BYTES: usize = 300 * 1024 * 1024;
 
-// Number of bytes reserved for the state sync reponse
+// Number of bytes reserved for the state sync response
 pub(crate) const STATE_SYNC_RESPONSE_BYTES: usize = 30 * 1024 * 1024;
 
 impl WhitelistNode {
