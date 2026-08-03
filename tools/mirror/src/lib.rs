@@ -2032,6 +2032,10 @@ impl<T: ChainAccess> TxMirror<T> {
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
             finality: Finality::Final,
             validate_genesis: false,
+            // The mirror only replays traffic onto the target chain, so dropping
+            // the occasional block whose data is not available (e.g. a receipt
+            // missing right after a forknet is started) is preferable to crashing.
+            skip_broken_blocks: true,
         };
         let near_config =
             indexer_config.load_near_config().context("failed to load near config").unwrap();
