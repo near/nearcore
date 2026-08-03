@@ -50,4 +50,8 @@ ignore = [
     # objects from one Engine into a Store belonging to another Engine. Nearcore
     # never mixes Engine-owned objects.
     "RUSTSEC-2026-0222",
+
+    # RUSTSEC-2026-0186: memmap2 unsoundness affects only near-vm, which is not used.
+    # On master near-vm was removed, so there was no need for this ignore statement.
+    "RUSTSEC-2026-0186",
 ]
