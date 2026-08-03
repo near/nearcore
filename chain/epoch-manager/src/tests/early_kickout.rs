@@ -17,6 +17,8 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
+#[cfg(feature = "nightly")]
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 #[cfg(feature = "nightly")]
 use near_primitives::types::EpochId;
@@ -545,6 +547,53 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
     // First epoch-1 anchor: own epoch flips while the aggregator basis lags in epoch 0 — reset.
     let bl_next = handle.get_chunk_producer_blacklist(&h[boundary_idx + 1]).unwrap();
     assert!(bl_next.is_empty(), "first new-epoch anchor must reset blacklist, got {bl_next:?}");
+}
+
+// The first two anchors of a new epoch are the only ones whose aggregator basis (last-final
+// block) sits in the previous epoch, and their rows ARE served on the consensus path (anchor
+// epoch == chunk epoch). Guard that those rows carry the NEW epoch's canonical producer with
+// an empty blacklist. This is what breaks if the aggregator/target epoch guard is dropped:
+// sampling at the final block would bake an old-epoch producer into a new-epoch row, and
+// keeping own-epoch sampling without the guard would match old-epoch stats (epoch-local
+// `ValidatorId`s) against the new epoch's settlement.
+#[cfg(feature = "nightly")]
+#[test]
+fn first_new_epoch_anchors_seed_new_epoch_canonical_producer() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let handle = setup_default_epoch_manager(validators, 1200, 1, 3, 90, 60).into_handle();
+    let h = drive_down_node(&handle, 1300, 0);
+    let boundary_idx = (0..h.len())
+        .rev()
+        .find(|&i| handle.is_next_block_epoch_start(&h[i]).unwrap())
+        .expect("expected an epoch boundary among recorded blocks");
+    assert!(
+        boundary_idx as u64 > EARLY_KICKOUT_EPOCH_GRACE_BLOCKS,
+        "boundary at height {boundary_idx} must be past the grace so the old epoch has a live \
+         blacklist that could leak"
+    );
+    let old_epoch_id = handle.get_epoch_id(&h[boundary_idx]).unwrap();
+    for i in [boundary_idx + 1, boundary_idx + 2] {
+        let anchor = h[i];
+        let epoch_id = handle.get_epoch_id(&anchor).unwrap();
+        assert_ne!(epoch_id, old_epoch_id, "anchor at height {i} must be in the new epoch");
+        let bl = handle.get_chunk_producer_blacklist(&anchor).unwrap();
+        assert!(
+            bl.is_empty(),
+            "first new-epoch anchor at height {i} must have an empty blacklist, got {bl:?}"
+        );
+        let shard_id = handle.get_shard_layout(&epoch_id).unwrap().shard_ids().next().unwrap();
+        let height_created = i as u64 + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let stored = handle
+            .get_chunk_producer_info_anchored(Some(&anchor), &epoch_id, height_created, shard_id)
+            .unwrap();
+        let canonical = handle
+            .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created, shard_id })
+            .unwrap();
+        assert_eq!(
+            stored, canonical,
+            "anchor at height {i}: seeded row must be the new epoch's canonical producer"
+        );
+    }
 }
 
 // Start-of-epoch grace: with the down node already miss-heavy, the accessor stays empty until

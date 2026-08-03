@@ -193,12 +193,21 @@ pub fn compute_chunk_producer_blacklist(
     ChunkProducerBlacklist { blacklist, shard_stats }
 }
 
-/// Per-shard blacklist for `target_epoch_id`, or empty when either the aggregator belongs to
-/// a different epoch (a last-of-epoch anchor whose next epoch has no stats yet) or the anchor
-/// is still within the epoch's start-of-epoch grace window (`blocks_into_epoch` = anchor
-/// height − epoch-start height). Shared by the record-block seeder and the
-/// `get_chunk_producer_blacklist` accessor so the reset and grace checks can't drift between
-/// them.
+/// Per-shard blacklist for `target_epoch_id` (the anchor's own epoch), or empty when either:
+///
+/// - The aggregator belongs to a different epoch: the anchor's last-final block is still in
+///   the previous epoch, which holds for the first two anchors of an epoch at steady
+///   finality and longer while finality lags. The two bases legitimately differ — the stats
+///   must be finality-derived so every node seeds byte-identical rows, while the sample
+///   epoch must be the anchor's own epoch because the protocol ties a chunk's producer to
+///   the chunk's epoch. Cross-epoch stats would also be meaningless: `ValidatorId` is an
+///   epoch-local index, so the previous epoch's stats would blacklist whoever happens to
+///   occupy those indices in the target epoch.
+/// - The basis is still within the start-of-epoch grace window (`blocks_into_epoch` =
+///   last-final height − the aggregator's epoch-start height).
+///
+/// Shared by the record-block seeder and the `get_chunk_producer_blacklist` accessor so the
+/// reset and grace checks can't drift between them.
 pub(crate) fn blacklist_for_epoch(
     aggregator: &EpochInfoAggregator,
     target_epoch_id: &EpochId,
@@ -2210,6 +2219,40 @@ impl EpochManager {
         }
     }
 
+    /// The kickout blacklist as of a given last-final basis (`final_hash`,
+    /// `final_height`), for sampling in `epoch` (the anchor's own epoch). Single
+    /// implementation of the basis shared by the seeder and the
+    /// `get_chunk_producer_blacklist` accessor, so the two can't drift and the
+    /// live read always agrees with the stored row. Empty at genesis (no
+    /// last-final block yet).
+    fn chunk_producer_blacklist_at_anchor(
+        &self,
+        final_hash: &CryptoHash,
+        final_height: BlockHeight,
+        epoch: &SampleEpoch<'_>,
+    ) -> Result<ChunkProducerBlacklist, EpochError> {
+        if *final_hash == CryptoHash::default() {
+            return Ok(ChunkProducerBlacklist::empty());
+        }
+        let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
+        // Grace measured against the last-final height, matching the blacklist basis. A
+        // missing `EpochStart` (genesis) counts as just-started (grace, empty); other
+        // errors propagate rather than mask storage corruption.
+        let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
+            Ok(start) => start,
+            Err(EpochError::EpochOutOfBounds(_)) => final_height,
+            Err(e) => return Err(e),
+        };
+        let blocks_into_epoch = final_height.saturating_sub(epoch_start);
+        Ok(blacklist_for_epoch(
+            &aggregator,
+            epoch.epoch_id,
+            epoch.epoch_info,
+            epoch.shard_layout,
+            blocks_into_epoch,
+        ))
+    }
+
     /// Seed `DBCol::ChunkProducers` for chunks anchored at `anchor.hash` (the
     /// grandparent anchor of chunks at height `anchor.height +
     /// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`). No-op unless EarlyKickout is
@@ -2243,31 +2286,14 @@ impl EpochManager {
             if !ProtocolFeature::EarlyKickout.enabled(epoch.epoch_info.protocol_version()) {
                 return Ok(());
             }
-            // Inlined, not via the `get_chunk_producer_blacklist` adapter: that re-takes
-            // `self.read()` and would deadlock under the seeder's write lock.
-            let ChunkProducerBlacklist { blacklist, shard_stats } = if anchor.final_hash
-                == CryptoHash::default()
-            {
-                ChunkProducerBlacklist::empty()
-            } else {
-                let aggregator = self.get_epoch_info_aggregator_upto_last(&anchor.final_hash)?;
-                // Grace measured against the last-final height, matching the blacklist basis. A
-                // missing `EpochStart` (genesis) counts as just-started (grace, empty); other
-                // errors propagate rather than mask storage corruption.
-                let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
-                    Ok(start) => start,
-                    Err(EpochError::EpochOutOfBounds(_)) => anchor.final_height,
-                    Err(e) => return Err(e),
-                };
-                let blocks_into_epoch = anchor.final_height.saturating_sub(epoch_start);
-                blacklist_for_epoch(
-                    &aggregator,
-                    epoch.epoch_id,
-                    epoch.epoch_info,
-                    epoch.shard_layout,
-                    blocks_into_epoch,
-                )
-            };
+            // Via the shared helper, not the `get_chunk_producer_blacklist` adapter: the
+            // adapter re-takes `self.read()` and would deadlock under the seeder's write lock.
+            let ChunkProducerBlacklist { blacklist, shard_stats } = self
+                .chunk_producer_blacklist_at_anchor(
+                    &anchor.final_hash,
+                    anchor.final_height,
+                    &epoch,
+                )?;
             // emit only here, never in the accessor: the accessor recomputes on every
             // consensus read and would double-count. `shard_stats` only holds shards with
             // candidates, so drive the gauge over the full shard set. a recovered shard, or an

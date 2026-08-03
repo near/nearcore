@@ -1,4 +1,4 @@
-use crate::{EpochManagerHandle, blacklist_for_epoch};
+use crate::{EpochManagerHandle, SampleEpoch};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
@@ -1140,9 +1140,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(HashMap::new());
         }
-        // Must mirror `seed_chunk_producers` (epoch basis and last-final basis), or this live
-        // read disagrees with the stored row. Read-guard methods directly; adapter methods
-        // would re-take `self.read()` and deadlock.
+        // Same basis as `seed_chunk_producers`, via the shared helper, so this live read
+        // agrees with the stored row. Read-guard methods directly; adapter methods would
+        // re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
@@ -1150,25 +1150,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
             return Ok(HashMap::new());
         }
         let final_block_height = anchor_info.last_finalized_height();
-        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(&final_block_hash)?;
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        // Grace measured against the last-final height, matching the blacklist basis. A missing
-        // epoch-start (genesis) counts as just-started (grace, empty); other errors propagate.
-        let epoch_start = match epoch_manager.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
-            Ok(start) => start,
-            Err(EpochError::EpochOutOfBounds(_)) => final_block_height,
-            Err(e) => return Err(e),
+        let epoch = SampleEpoch {
+            epoch_id: &epoch_id,
+            epoch_info: epoch_info.as_ref(),
+            shard_layout: &shard_layout,
         };
-        let blocks_into_epoch = final_block_height.saturating_sub(epoch_start);
-        Ok(blacklist_for_epoch(
-            &aggregator,
-            &epoch_id,
-            epoch_info.as_ref(),
-            &shard_layout,
-            blocks_into_epoch,
-        )
-        .blacklist)
+        Ok(epoch_manager
+            .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
+            .blacklist)
     }
 
     fn get_chunk_validator_assignments(
