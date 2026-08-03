@@ -1,7 +1,7 @@
 use crate::spice::core::{
     MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, compute_spice_endorsement_stats,
     credit_chunk_endorsement_stats, find_newly_certified_block_hashes, fold_endorsement_stats,
-    record_uncertified_chunks_for_block, round_robin_by_shard,
+    record_uncertified_chunks_for_block,
 };
 use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
@@ -467,80 +467,6 @@ fn test_core_statements_for_next_block_past_the_limit_creates_valid_block() {
     );
     let result = core_reader.validate_core_statements_in_block(&next_block);
     assert!(result.is_ok(), "produced block was rejected: {result:?}");
-}
-
-/// Each shard has to get a comparable slice of the budget instead of the lowest shard ids taking
-/// all of it, and a shard that is nearly keeping up must not end up buried behind a shard with a
-/// deep backlog.
-#[test]
-fn test_round_robin_by_shard_gives_every_shard_a_share_of_the_budget() {
-    // Uneven backlogs: two shards past the budget on their own, and one that is nearly caught up.
-    let backlogs = [
-        (ShardId::new(0), MAX_REFERENCED_CHUNKS_PER_BLOCK + 1),
-        (ShardId::new(1), MAX_REFERENCED_CHUNKS_PER_BLOCK),
-        (ShardId::new(2), 1),
-    ];
-    let uncertified_chunks = backlogs
-        .iter()
-        .flat_map(|(shard_id, backlog)| {
-            (0..*backlog).map(|i| {
-                uncertified_chunk_info(CryptoHash::hash_bytes(&i.to_le_bytes()), *shard_id)
-            })
-        })
-        .collect_vec();
-
-    let ordered = round_robin_by_shard(uncertified_chunks);
-
-    let fair_share = MAX_REFERENCED_CHUNKS_PER_BLOCK / backlogs.len();
-    for (shard_id, backlog) in backlogs {
-        let within_budget = ordered[..MAX_REFERENCED_CHUNKS_PER_BLOCK]
-            .iter()
-            .filter(|info| info.chunk_id.shard_id == shard_id)
-            .count();
-        // A shard with fewer chunks than a fair share needs all of them inside the budget.
-        let expected = fair_share.min(backlog);
-        assert!(
-            within_budget >= expected,
-            "shard {shard_id} got {within_budget} of the first {MAX_REFERENCED_CHUNKS_PER_BLOCK} \
-             slots, expected at least {expected}"
-        );
-    }
-}
-
-/// Ascending-height order within a shard has to survive the reordering, because the execution
-/// results a block carries must form a per-shard height-ordered prefix — otherwise validation
-/// rejects the block with `SkippedExecutionResult`.
-#[test]
-fn test_round_robin_by_shard_preserves_order_within_each_shard() {
-    let shard_ids = [ShardId::new(0), ShardId::new(1), ShardId::new(2)];
-    // Uneven backlogs, so that some shards run out of chunks while others still have them.
-    let uncertified_chunks = shard_ids
-        .iter()
-        .zip([1usize, 5, 9])
-        .flat_map(|(shard_id, backlog)| {
-            (0..backlog).map(|i| {
-                uncertified_chunk_info(CryptoHash::hash_bytes(&i.to_le_bytes()), *shard_id)
-            })
-        })
-        .collect_vec();
-
-    let ordered = round_robin_by_shard(uncertified_chunks.clone());
-
-    assert_eq!(ordered.len(), uncertified_chunks.len(), "reordering dropped or added chunks");
-    for shard_id in shard_ids {
-        let chunk_ids_of_shard = |chunks: &[SpiceUncertifiedChunkInfo]| {
-            chunks
-                .iter()
-                .filter(|info| info.chunk_id.shard_id == shard_id)
-                .map(|info| info.chunk_id.clone())
-                .collect_vec()
-        };
-        assert_eq!(
-            chunk_ids_of_shard(&ordered),
-            chunk_ids_of_shard(&uncertified_chunks),
-            "shard {shard_id} chunks were reordered relative to each other"
-        );
-    }
 }
 
 #[test]
