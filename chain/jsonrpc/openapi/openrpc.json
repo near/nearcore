@@ -272,12 +272,18 @@
         "description": "Describes access key permission scope and nonce.",
         "properties": {
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -2091,6 +2097,11 @@
             ],
             "title": "TotalNumberOfDeployActionsExceeded",
             "type": "object"
+          },
+          {
+            "const": "FunctionCallEmptyMethodName",
+            "description": "The method name in a FunctionCall action must not be empty.",
+            "type": "string"
           }
         ],
         "title": "ActionsValidationError"
@@ -4002,6 +4013,22 @@
               }
             ],
             "description": "Cost for logging per byte"
+          },
+          "ml_dsa_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification base"
+          },
+          "ml_dsa_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification per byte"
           },
           "p256_verify_base": {
             "allOf": [
@@ -5958,6 +5985,28 @@
             ],
             "title": "P256VerifyInvalidInput",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Input length mismatch for ML-DSA-65 signature verification (signature is\nnot 3309 bytes or public key is not 1952 bytes). Parse failures of\notherwise well-sized inputs return 0 from the host function instead of\naborting.",
+            "properties": {
+              "MlDsaVerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "MlDsaVerifyInvalidInput"
+            ],
+            "title": "MlDsaVerifyInvalidInput",
+            "type": "object"
           }
         ],
         "title": "HostError"
@@ -6692,6 +6741,15 @@
               }
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
+          },
+          "max_globals_per_contract": {
+            "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "max_instrumented_code_size": {
             "description": "If present, stores max byte size of the wasm code after gas instrumentation.\nThis prevents Cranelift's 24-bit SSA counter from overflowing on\npathologically large contracts.",
@@ -7449,6 +7507,11 @@
           {
             "const": "OperandStackTooLarge",
             "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_bytes_per_function`.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyGlobals",
+            "description": "Contract declares too many entries in the wasm global section.",
             "type": "string"
           }
         ],
@@ -8614,6 +8677,12 @@
               }
             ],
             "description": "Version of the binary."
+          },
+          "view_access_keys_limit": {
+            "description": "Upper bound on the number of access keys returned by a `view_access_key_list`\nquery.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
           },
           "view_client_threads": {
             "description": "Number of threads for ViewClientActor pool.",
@@ -9927,8 +9996,28 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key": {
+                "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PublicKeyHandle"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "block_id": {
                 "$ref": "#/components/schemas/BlockId"
+              },
+              "limit": {
+                "description": "Maximum number of access keys to return in this page.",
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -9943,8 +10032,28 @@
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               },
+              "after_key": {
+                "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PublicKeyHandle"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "finality": {
                 "$ref": "#/components/schemas/Finality"
+              },
+              "limit": {
+                "description": "Maximum number of access keys to return in this page.",
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -9958,6 +10067,26 @@
             "properties": {
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"
+              },
+              "after_key": {
+                "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PublicKeyHandle"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "limit": {
+                "description": "Maximum number of access keys to return in this page.",
+                "format": "uint32",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "sync_checkpoint": {
                 "$ref": "#/components/schemas/SyncCheckpoint"
@@ -9990,6 +10119,17 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -10078,12 +10218,18 @@
             "type": "integer"
           },
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -10153,7 +10299,12 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "block_hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -10164,9 +10315,15 @@
             "type": "integer"
           },
           "code_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
           },
           "global_contract_account_id": {
+            "description": "Set when the account uses a global contract referenced by the deploying account id.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/AccountId"
@@ -10177,6 +10334,7 @@
             ]
           },
           "global_contract_hash": {
+            "description": "Set when the account uses a global contract referenced by code hash.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/CryptoHash"
@@ -10187,16 +10345,22 @@
             ]
           },
           "locked": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Staked balance locked for validation, in yoctoNEAR."
           },
           "storage_paid_at": {
             "default": 0,
-            "description": "TODO(2271): deprecated.",
+            "description": "Deprecated and unused. TODO(2271): remove.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "storage_usage": {
+            "description": "Total storage used by the account, in bytes.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -10303,6 +10467,7 @@
               },
               "after_key_base64": {
                 "default": null,
+                "description": "Resume listing after this key (exclusive); must start with `prefix`.",
                 "oneOf": [
                   {
                     "$ref": "#/components/schemas/StoreKey"
@@ -10321,6 +10486,7 @@
               },
               "limit": {
                 "default": null,
+                "description": "Maximum number of entries to return in this page.",
                 "format": "uint32",
                 "minimum": 1,
                 "type": [
@@ -10347,6 +10513,7 @@
               },
               "after_key_base64": {
                 "default": null,
+                "description": "Resume listing after this key (exclusive); must start with `prefix`.",
                 "oneOf": [
                   {
                     "$ref": "#/components/schemas/StoreKey"
@@ -10365,6 +10532,7 @@
               },
               "limit": {
                 "default": null,
+                "description": "Maximum number of entries to return in this page.",
                 "format": "uint32",
                 "minimum": 1,
                 "type": [
@@ -10391,6 +10559,7 @@
               },
               "after_key_base64": {
                 "default": null,
+                "description": "Resume listing after this key (exclusive); must start with `prefix`.",
                 "oneOf": [
                   {
                     "$ref": "#/components/schemas/StoreKey"
@@ -10406,6 +10575,7 @@
               },
               "limit": {
                 "default": null,
+                "description": "Maximum number of entries to return in this page.",
                 "format": "uint32",
                 "minimum": 1,
                 "type": [
@@ -10444,6 +10614,7 @@
             "type": "integer"
           },
           "last_key": {
+            "description": "Cursor to resume from: present when more entries remain, absent when the listing is complete.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"
@@ -11294,12 +11465,23 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "amount": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
                   "code_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/CryptoHash"
+                      }
+                    ],
+                    "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
                   },
                   "global_contract_account_id": {
+                    "description": "Set when the account uses a global contract referenced by the deploying account id.",
                     "oneOf": [
                       {
                         "$ref": "#/components/schemas/AccountId"
@@ -11310,6 +11492,7 @@
                     ]
                   },
                   "global_contract_hash": {
+                    "description": "Set when the account uses a global contract referenced by code hash.",
                     "oneOf": [
                       {
                         "$ref": "#/components/schemas/CryptoHash"
@@ -11320,16 +11503,22 @@
                     ]
                   },
                   "locked": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Staked balance locked for validation, in yoctoNEAR."
                   },
                   "storage_paid_at": {
                     "default": 0,
-                    "description": "TODO(2271): deprecated.",
+                    "description": "Deprecated and unused. TODO(2271): remove.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
                   },
                   "storage_usage": {
+                    "description": "Total storage used by the account, in bytes.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
@@ -12410,6 +12599,10 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "ml_dsa_verify_host_fn": {
+            "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
+            "type": "boolean"
           },
           "one_yocto_on_promise": {
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
@@ -13999,6 +14192,7 @@
           "required": false,
           "schema": {
             "default": null,
+            "description": "Resume listing after this key (exclusive); must start with `prefix`.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/StoreKey"
@@ -14036,6 +14230,7 @@
           "required": false,
           "schema": {
             "default": null,
+            "description": "Maximum number of entries to return in this page.",
             "format": "uint32",
             "minimum": 1,
             "type": [
@@ -14143,6 +14338,21 @@
           }
         },
         {
+          "name": "after_key",
+          "required": false,
+          "schema": {
+            "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "block_id",
           "required": false,
           "schema": {
@@ -14154,6 +14364,19 @@
           "required": false,
           "schema": {
             "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "description": "Maximum number of access keys to return in this page.",
+            "format": "uint32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         {

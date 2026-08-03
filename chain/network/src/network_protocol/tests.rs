@@ -59,6 +59,37 @@ fn bad_account_data_size() {
 }
 
 #[test]
+fn handshake_tracked_shards_too_many() {
+    use crate::network_protocol::MAX_TRACKED_SHARDS_PER_PEER;
+    use crate::network_protocol::proto;
+    use crate::network_protocol::proto_conv::ParsePeerChainInfoV2Error;
+
+    let mut rng = make_rng(8475629384);
+    let mut clock = time::FakeClock::default();
+    let chain = data::Chain::make(&mut clock, &mut rng, 12);
+    // `get_peer_chain_info` returns a `PeerChainInfoV2` with empty `tracked_shards`,
+    // so converting it to proto does not trip the send-side debug_assert.
+    let base = proto::PeerChainInfo::from(&chain.get_peer_chain_info());
+
+    // len == cap: must succeed.
+    let mut ok_proto = base.clone();
+    ok_proto.tracked_shards = (0..MAX_TRACKED_SHARDS_PER_PEER as u64).collect();
+    let parsed = PeerChainInfoV2::try_from(&ok_proto).expect("at-cap parse should succeed");
+    assert_eq!(parsed.tracked_shards.len(), MAX_TRACKED_SHARDS_PER_PEER);
+
+    // len == cap + 1: must fail with TooManyTrackedShards, before any per-shard allocation.
+    let mut too_many_proto = base;
+    too_many_proto.tracked_shards = (0..=MAX_TRACKED_SHARDS_PER_PEER as u64).collect();
+    match PeerChainInfoV2::try_from(&too_many_proto) {
+        Err(ParsePeerChainInfoV2Error::TooManyTrackedShards { count, max }) => {
+            assert_eq!(count, MAX_TRACKED_SHARDS_PER_PEER + 1);
+            assert_eq!(max, MAX_TRACKED_SHARDS_PER_PEER);
+        }
+        other => panic!("expected TooManyTrackedShards, got: {other:?}"),
+    }
+}
+
+#[test]
 fn serialize_deserialize_protobuf_only() {
     let mut rng = make_rng(39521947542);
     let mut clock = time::FakeClock::default();
@@ -435,5 +466,38 @@ mod versioned_witness_tests {
         ));
         assert_eq!(legacy_fwd.variant(), "PartialEncodedStateWitnessForward");
         assert_eq!(wrapped_fwd_v2.variant(), "VersionedPartialEncodedStateWitnessForward");
+    }
+}
+
+#[test]
+fn snapshot_host_info_too_many_shards() {
+    use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
+    use crate::network_protocol::proto;
+    use crate::network_protocol::proto_conv::ParseSnapshotHostInfoError;
+    use crate::network_protocol::state_sync::SnapshotHostInfo;
+
+    let mut rng = make_rng(2847510394);
+    // A host info with empty shards, so converting it to proto does not trip the
+    // send-side debug_assert. We then set `shards` on the proto directly.
+    let signer = data::make_secret_key(&mut rng);
+    let peer_id = PeerId::new(signer.public_key());
+    let info = SnapshotHostInfo::new(peer_id, CryptoHash::default(), 0, vec![], &signer);
+    let base = proto::SnapshotHostInfo::from(&info);
+
+    // len == cap: must succeed.
+    let mut ok_proto = base.clone();
+    ok_proto.shards = (0..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64).collect();
+    let parsed = SnapshotHostInfo::try_from(&ok_proto).expect("at-cap parse should succeed");
+    assert_eq!(parsed.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+
+    // len == cap + 1: must fail with TooManyShards, before any per-shard allocation.
+    let mut too_many = base;
+    too_many.shards = (0..=MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64).collect();
+    match SnapshotHostInfo::try_from(&too_many) {
+        Err(ParseSnapshotHostInfoError::TooManyShards { count, max }) => {
+            assert_eq!(count, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO + 1);
+            assert_eq!(max, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+        }
+        other => panic!("expected TooManyShards, got: {other:?}"),
     }
 }

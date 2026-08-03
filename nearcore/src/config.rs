@@ -31,7 +31,8 @@ use near_chain_configs::{
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
     default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
+    default_tx_routing_height_horizon, default_view_access_keys_limit, default_view_client_threads,
+    get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -55,7 +56,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::archive::cloud_storage::config::{CloudArchivalConfig, CloudStorageContext};
-use near_store::config::{SplitStorageConfig, StateSnapshotType};
+use near_store::config::SplitStorageConfig;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -340,6 +341,10 @@ pub struct Config {
     /// Number of threads for StateRequestActor pool.
     pub state_request_server_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
+    /// Upper bound on the number of access keys returned by a
+    /// `view_access_key_list` query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_access_keys_limit: Option<u32>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
@@ -507,6 +512,7 @@ impl Default for Config {
             state_requests_per_throttle_period: default_state_requests_per_throttle_period(),
             state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
+            view_access_keys_limit: None,
             max_gas_burnt_view: None,
             store,
             cold_store: None,
@@ -809,6 +815,9 @@ impl NearConfig {
                 state_requests_per_throttle_period: config.state_requests_per_throttle_period,
                 state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
+                view_access_keys_limit: config
+                    .view_access_keys_limit
+                    .unwrap_or_else(default_view_access_keys_limit),
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
@@ -923,21 +932,38 @@ impl NightshadeRuntime {
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
-        let state_snapshot_config =
-            match config.config.store.state_snapshot_config.state_snapshot_type {
-                StateSnapshotType::Enabled => {
-                    let hot_store_path =
-                        home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
-                    match &config.client_config.cloud_archival_writer {
-                        Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
-                            hot_store_path,
-                            writer_config.snapshot_every_n_epochs,
-                        ),
-                        None => StateSnapshotConfig::enabled(hot_store_path),
-                    }
-                }
-                StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
-            };
+        let hot_store_path =
+            home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
+        // State snapshots are always enabled for a running node; they let it serve
+        // state parts to peers and are required by cloud archival. Offline tools that
+        // must run without snapshots use `from_config_with_state_snapshot` instead.
+        let state_snapshot_config = match &config.client_config.cloud_archival_writer {
+            Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
+                hot_store_path,
+                writer_config.snapshot_every_n_epochs,
+            ),
+            None => StateSnapshotConfig::enabled(hot_store_path),
+        };
+        Self::from_config_with_state_snapshot(
+            home_dir,
+            store,
+            config,
+            epoch_manager,
+            state_snapshot_config,
+        )
+    }
+
+    /// Like [`NightshadeRuntimeExt::from_config`] but with an explicitly provided
+    /// state snapshot config. Regular nodes should use `from_config`, which always
+    /// enables snapshots. This entry point exists for offline tools (e.g.
+    /// fork-network) that need to run with `StateSnapshotConfig::Disabled`.
+    pub fn from_config_with_state_snapshot(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        state_snapshot_config: StateSnapshotConfig,
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
         // refactor...
@@ -956,6 +982,7 @@ impl NightshadeRuntime {
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
+            config.client_config.view_access_keys_limit,
             config.client_config.max_gas_burnt_view,
             None,
             config.config.gc.gc_num_epochs_to_keep(),

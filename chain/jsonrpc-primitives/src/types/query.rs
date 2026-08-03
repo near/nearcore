@@ -64,6 +64,15 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error(
+        "Account {requested_account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
+    )]
+    TooManyAccessKeys {
+        requested_account_id: near_primitives::types::AccountId,
+        limit: u32,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Function call returned an error: {vm_error:?}")]
     ContractExecutionError {
         vm_error: String,

@@ -1,0 +1,9 @@
+# Remove gas rewards: stop paying part of the gas burned by a `FunctionCall`
+# back to the contract account as a reward. Set the reward from 30% to 0%.
+burnt_gas_reward:
+  {
+    old: { numerator: 3, denominator: 10 },
+    new: { numerator: 0, denominator: 1 },
+  }
+# Enable the ML-DSA-65 (FIPS 204) signature verification host function.
+ml_dsa_verify_host_fn: { old: false, new: true }

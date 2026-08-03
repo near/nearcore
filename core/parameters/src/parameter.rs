@@ -133,6 +133,8 @@ pub enum Parameter {
     WasmEd25519VerifyByte,
     WasmP256VerifyBase,
     WasmP256VerifyByte,
+    WasmMlDsaVerifyBase,
+    WasmMlDsaVerifyByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
@@ -234,6 +236,7 @@ pub enum Parameter {
     MaxParamsPerFunction,
     MaxParamsPerContract,
     MaxOperandStackBytesPerFunction,
+    MaxGlobalsPerContract,
 
     // Contract runtime features
     FlatStorageReads,
@@ -241,6 +244,7 @@ pub enum Parameter {
     FixContractLoadingError,
     VmKind,
     EthImplicitAccounts,
+    FixMlDsaCostCharging,
     DiscardCustomSections,
     ReftypesBulkMemory,
 
@@ -299,6 +303,9 @@ pub enum Parameter {
 
     // Flag to enable the P-256 verification host function
     P256VerifyHostFn,
+
+    // Flag to enable the ML-DSA-65 verification host function
+    MlDsaVerifyHostFn,
 
     // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
     #[strum(serialize = "sha3_host_fns")]
@@ -404,6 +411,7 @@ impl Parameter {
             Parameter::MaxParamsPerFunction,
             Parameter::MaxParamsPerContract,
             Parameter::MaxOperandStackBytesPerFunction,
+            Parameter::MaxGlobalsPerContract,
         ]
         .iter()
     }

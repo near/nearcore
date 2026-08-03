@@ -1230,6 +1230,57 @@ fn test_epoch_info_aggregator() {
     assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
 }
 
+/// `version_tracker` and `all_proposals` are last-value (not additive): the
+/// highest-height write for a producer must win. Pins that contract so any future
+/// change to the aggregation order can't silently keep a stale (lower-height) value.
+/// Runs on the stable/default protocol version so it guards the production path.
+#[test]
+fn test_epoch_info_aggregator_overwrites_latest_version_and_proposal() {
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    // Single validator -> block producer is id 0 at every height, so both trackers are
+    // written on every block and the latest must win.
+    let validators = vec![("test0".parse().unwrap(), stake_amount)];
+    let mut em = setup_default_epoch_manager(validators, 100, 1, 1, 90, 60);
+
+    let low_version = PROTOCOL_VERSION - 1;
+    let high_version = PROTOCOL_VERSION;
+    let small_stake = Balance::from_yoctonear(1_000);
+    let large_stake = Balance::from_yoctonear(2_000);
+    let account: AccountId = "test0".parse().unwrap();
+
+    let h = hash_range(5);
+    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+    record_block_with_version(
+        &mut em,
+        h[0],
+        h[1],
+        1,
+        vec![stake("test0".parse().unwrap(), small_stake)],
+        low_version,
+    );
+    // Block 3 (height 2 skipped): high version + large proposal. The later block must win.
+    record_block_with_version(
+        &mut em,
+        h[1],
+        h[3],
+        3,
+        vec![stake("test0".parse().unwrap(), large_stake)],
+        high_version,
+    );
+
+    let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
+    assert_eq!(
+        aggregator.version_tracker.get(&0),
+        Some(&high_version),
+        "version_tracker must hold the latest (highest-height) reported version"
+    );
+    assert_eq!(
+        aggregator.all_proposals.get(&account).map(|p| p.stake()),
+        Some(large_stake),
+        "all_proposals must hold the latest (highest-height) proposal"
+    );
+}
+
 /// If the node stops and restarts, the aggregator should be able to recover
 #[test]
 fn test_epoch_info_aggregator_data_loss() {
@@ -1945,6 +1996,11 @@ fn test_finalize_epoch_large_epoch_length() {
             ("test2".parse().unwrap(), stake_amount)
         ]),
     );
+    // EarlyKickout's seed_chunk_producers reads the aggregator once per block, so
+    // the exact per-block walk count only holds with the feature compiled out. The
+    // caching invariant is protocol-independent and stays covered on stable; the
+    // kickout seed path is covered by the early_kickout tests.
+    #[cfg(not(feature = "nightly"))]
     assert_eq!(
         BLOCK_CACHE_SIZE + 2,
         epoch_manager.epoch_info_aggregator_loop_counter.load(std::sync::atomic::Ordering::SeqCst),

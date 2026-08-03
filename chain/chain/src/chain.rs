@@ -1,4 +1,6 @@
-use crate::approval_verification::verify_approval_with_approvers_info;
+use crate::approval_verification::{
+    verify_approval_with_approvers_info, verify_approvals_and_threshold_orphan,
+};
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
     BlocksInProcessing, OptimisticBlockInfo,
@@ -1482,7 +1484,6 @@ impl Chain {
             &mut self.chain_store,
             self.epoch_manager.clone(),
             self.runtime_adapter.clone(),
-            self.doomslug_threshold_mode,
         )
     }
 
@@ -2431,7 +2432,7 @@ impl Chain {
             }
             block.check_validity()?;
             // TODO: enable after #3729 and #3863
-            // self.verify_orphan_header_approvals(&header)?;
+            // self.verify_header_approvals_without_ancestry(&header)?;
             return Err(Error::Orphan);
         }
 
@@ -3086,12 +3087,37 @@ impl Chain {
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
 
-    /// Returns FinalExecutionOutcomeView for the given transaction.
-    /// Does not wait for the end of the execution of all corresponding receipts
+    /// Returns the `FinalExecutionOutcomeView` for the given transaction,
+    /// assembled from whatever execution outcomes exist so far (it does not
+    /// wait for all receipts to finish).
+    ///
+    /// Errors with `DBNotFoundErr` if the transaction is unknown to this node
+    /// *or* has no execution outcome yet. Use
+    /// [`Self::get_partial_transaction_result_option`] when those two cases
+    /// need to be told apart.
     pub fn get_partial_transaction_result(
         &self,
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
+        self.get_partial_transaction_result_option(transaction_hash)?.ok_or_else(|| {
+            Error::DBNotFoundErr(format!(
+                "Transaction {} has no execution outcome",
+                transaction_hash
+            ))
+        })
+    }
+
+    /// Returns the `Ok(Some(FinalExecutionOutcomeView))` for the given
+    /// transaction, assembled from whatever execution outcomes exist so far (it
+    /// does not wait for all receipts to finish).
+    ///
+    /// Returns `Ok(None)` if the transaction is recorded on chain but has no
+    /// execution outcome yet (included, not executed), and `Err(DBNotFoundErr)`
+    /// if the transaction is not in the store at all.
+    pub fn get_partial_transaction_result_option(
+        &self,
+        transaction_hash: &CryptoHash,
+    ) -> Result<Option<FinalExecutionOutcomeView>, Error> {
         let transaction = self.chain_store.get_transaction(transaction_hash).ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
@@ -3100,18 +3126,20 @@ impl Chain {
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, false)?;
         if outcomes.is_empty() {
-            // It can't be, we would fail with tx not found error earlier in this case
-            // But if so, let's return meaningful error instead of panic on split_off
-            return Err(Error::DBNotFoundErr(format!(
-                "Transaction {} is not found",
-                transaction_hash
-            )));
+            // The transaction is in the store (included in a chunk) but its execution outcome has
+            // not been recorded yet, so there is no result to assemble.
+            return Ok(None);
         }
 
         let status = self.get_execution_status(&outcomes, transaction_hash);
         let receipts_outcome = outcomes.split_off(1);
         let transaction_outcome = outcomes.pop().unwrap();
-        Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
+        Ok(Some(FinalExecutionOutcomeView {
+            status,
+            transaction,
+            transaction_outcome,
+            receipts_outcome,
+        }))
     }
 
     /// Returns corresponding receipts for provided outcome
@@ -4007,6 +4035,44 @@ impl Chain {
     #[inline]
     pub fn is_block_invalid(&self, hash: &CryptoHash) -> bool {
         self.invalid_blocks.contains(hash)
+    }
+
+    /// Verifies that a header carries approvals from >2/3 of the stake of a
+    /// validator set we already know (current or next epoch). Errors if the
+    /// header's epoch is unknown (too far ahead to validate), the approvals fall
+    /// short, or the header is too old to carry a `prev_height` (V1/V2).
+    pub fn verify_header_approvals_without_ancestry(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        // Producer signature first: the header hash covers the approvals, so a
+        // header with any tampered approval dies after one signature check
+        // instead of a full pass over ~100 approval signatures.
+        if !self.partial_verify_orphan_header_signature(header)? {
+            return Err(Error::InvalidSignature);
+        }
+        let prev_hash = header.prev_hash();
+        let Some(prev_height) = header.prev_height() else {
+            return Err(Error::Other("header too old to verify approvals without ancestry".into()));
+        };
+        let height = header.height();
+        let epoch_id = header.epoch_id();
+        let approvals = header.approvals();
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+        verify_approvals_and_threshold_orphan(
+            &|approvals, stakes| {
+                Doomslug::can_approved_block_be_produced(
+                    self.doomslug_threshold_mode,
+                    approvals,
+                    stakes,
+                )
+            },
+            prev_hash,
+            prev_height,
+            height,
+            approvals,
+            epoch_info,
+        )
     }
 
     /// Check that sync_hash matches the one we expect for the epoch containing that block.

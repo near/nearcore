@@ -69,7 +69,7 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
     let request = match query_command {
         "account" => QueryRequest::ViewAccount { account_id },
         "access_key" => match maybe_extra_arg {
-            None => QueryRequest::ViewAccessKeyList { account_id },
+            None => QueryRequest::ViewAccessKeyList { account_id, after_key: None, limit: None },
             Some(pk) => QueryRequest::ViewAccessKey {
                 account_id,
                 public_key: pk
@@ -132,6 +132,12 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownGasKey { public_key, block_height, block_hash } => {
                 Self::UnknownGasKey { public_key, block_height, block_hash }
             }
+            QueryError::TooManyAccessKeys {
+                requested_account_id,
+                limit,
+                block_height,
+                block_hash,
+            } => Self::TooManyAccessKeys { requested_account_id, limit, block_height, block_hash },
             QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
                 Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }

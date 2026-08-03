@@ -209,9 +209,9 @@ mod cold_storage_tests {
         let reshard_done_height = env.archival_node().head().height;
         env.archival_runner().run_until_head_height(reshard_done_height + 4);
 
-        // Capture the anchors + their hot ChunkProducers rows now, BEFORE hot GC removes the
-        // block headers (ChunkProducers rows themselves are never GC'd in this PR, but the
-        // block-header lookups used to locate the anchors would fail once GC catches up).
+        // Capture the anchors + their hot ChunkProducers rows now, before hot GC removes them:
+        // the rows are GC'd together with the anchor's block data, so read them before the GC
+        // tail reaches the anchor.
         let (mid_height, expected) = {
             let node = env.archival_node();
             let client = node.client();
@@ -301,6 +301,201 @@ mod cold_storage_tests {
                 Some(&hot),
                 "cold ChunkProducers row must match hot for key {key:?}"
             );
+        }
+    }
+}
+
+/// `DBCol::ChunkProducers` rows are hot-garbage-collected with the anchor block's data: a
+/// below-tail anchor's rows disappear while an in-window anchor's rows survive and still
+/// resolve. A wrongly-evicted in-window row would surface as `ChunkProducerNotInDB` and stall
+/// the chain, so reaching the target height at all is the liveness check.
+#[cfg(feature = "nightly")]
+mod hot_gc_tests {
+    use crate::setup::builder::TestLoopBuilder;
+    use crate::utils::setups::derive_new_epoch_config_from_boundary;
+    use near_async::time::Duration;
+    use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+    use near_o11y::testonly::init_test_logger;
+    use near_primitives::epoch_manager::EpochConfigStore;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::{AccountId, ShardId};
+    use near_primitives::utils::get_block_shard_id;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_store::DBCol;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    const EPOCH_LENGTH: u64 = 5;
+    const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
+
+    #[test]
+    // TODO(spice-test): assess relevance for spice.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
+    fn test_chunk_producers_garbage_collected() {
+        init_test_logger();
+
+        // Rows are only written when EarlyKickout is enabled; fail loud otherwise.
+        assert!(
+            ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION),
+            "test requires EarlyKickout enabled at PROTOCOL_VERSION"
+        );
+
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+        let mut env = TestLoopBuilder::new()
+            .shard_layout(shard_layout)
+            .epoch_length(EPOCH_LENGTH)
+            .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+            .build();
+
+        // Record a low-height anchor's key while its block header still exists.
+        env.validator_runner().run_until_head_height(2 * EPOCH_LENGTH);
+        let old_anchor_height = EPOCH_LENGTH - 1;
+        let old_key = {
+            let node = env.validator();
+            let old_anchor_hash =
+                node.client().chain.get_block_hash_by_height(old_anchor_height).unwrap();
+            let key = get_block_shard_id(&old_anchor_hash, shard_id);
+            let row: Option<ValidatorStake> = node.store().get_ser(DBCol::ChunkProducers, &key);
+            assert!(row.is_some(), "row should exist before GC for the old anchor");
+            key
+        };
+
+        // Advance until the GC tail passes the old anchor. Reaching this height proves no
+        // in-window row was wrongly evicted (an eviction would stall via ChunkProducerNotInDB).
+        let target_height = (GC_NUM_EPOCHS_TO_KEEP + 4) * EPOCH_LENGTH;
+        env.validator_runner().run_until_head_height(target_height);
+
+        let node = env.validator();
+        let chain = &node.client().chain;
+        let epoch_manager = node.client().epoch_manager.clone();
+
+        let old_row: Option<ValidatorStake> = node.store().get_ser(DBCol::ChunkProducers, &old_key);
+        assert!(old_row.is_none(), "below-tail anchor's row must be garbage collected");
+
+        // A chunk built on `child` anchors on its grandparent `anchor` (height anchor+1's
+        // grandparent), so the retained anchor's row must still resolve.
+        let head_height = node.head().height;
+        let anchor_height = head_height - 3;
+        let anchor_hash = chain.get_block_hash_by_height(anchor_height).unwrap();
+        let child_hash = chain.get_block_hash_by_height(anchor_height + 1).unwrap();
+        let in_window: Option<ValidatorStake> = node
+            .store()
+            .get_ser(DBCol::ChunkProducers, &get_block_shard_id(&anchor_hash, shard_id));
+        assert!(in_window.is_some(), "in-window anchor's row must be retained");
+        assert!(
+            epoch_manager.get_chunk_producer_info_from_prev_block(&child_hash, shard_id).is_ok(),
+            "retained in-window anchor must still resolve"
+        );
+    }
+
+    /// Hot GC deletes a reshard-boundary anchor's rows, which are keyed by the NEXT
+    /// (post-reshard) epoch's shard_ids. This is the case a naive own-epoch-layout delete would
+    /// leak: clear_block_data iterates get_shard_uids_to_gc (this-epoch ∪ next-epoch), so every
+    /// next-layout row for the boundary anchor is dropped once it falls below the GC tail.
+    #[test]
+    // TODO(spice-test): assess relevance for spice.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
+    fn test_chunk_producers_garbage_collected_at_reshard_boundary() {
+        init_test_logger();
+
+        // The boundary anchor lives in the pre-reshard (PROTOCOL_VERSION - 1) epoch, so its rows
+        // are only written if EarlyKickout is enabled there.
+        assert!(
+            ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION - 1),
+            "test requires EarlyKickout enabled at PROTOCOL_VERSION - 1 (the pre-reshard epoch)"
+        );
+
+        // Shard layout that grows at the protocol upgrade boundary.
+        let version = 3;
+        let base_shard_layout = ShardLayout::multi_shard(3, version);
+        let boundary_account: AccountId = "boundary".parse().unwrap();
+        let base_epoch_config = TestEpochConfigBuilder::new()
+            .shard_layout(base_shard_layout.clone())
+            .epoch_length(EPOCH_LENGTH)
+            .build();
+        let (new_epoch_config, new_shard_layout) =
+            derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account);
+        assert!(
+            new_shard_layout.shard_ids().count() > base_shard_layout.shard_ids().count(),
+            "reshard should increase the shard count"
+        );
+        let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter([
+            (PROTOCOL_VERSION - 1, Arc::new(base_epoch_config)),
+            (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
+        ]));
+
+        let mut env = TestLoopBuilder::new()
+            .shard_layout(base_shard_layout.clone())
+            .protocol_version(PROTOCOL_VERSION - 1)
+            .epoch_length(EPOCH_LENGTH)
+            .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+            .epoch_config_store(epoch_config_store)
+            .build();
+
+        // Run until resharding completes.
+        env.validator_runner().run_until(
+            |node| {
+                let epoch_id = node.head().epoch_id;
+                node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
+            },
+            Duration::seconds((4 * EPOCH_LENGTH) as i64),
+        );
+        let reshard_done_height = env.validator().head().height;
+        env.validator_runner().run_until_head_height(reshard_done_height + 4);
+
+        // Capture the boundary anchor + its next-layout row keys BEFORE GC removes the block.
+        let (boundary_hash, boundary_keys) = {
+            let node = env.validator();
+            let client = node.client();
+            let chain = &client.chain;
+            let epoch_manager = client.epoch_manager.clone();
+            let store = node.store();
+
+            // Boundary anchor: last block of the pre-reshard epoch.
+            let mut block_hash = chain.head().unwrap().last_block_hash;
+            let boundary_hash = loop {
+                let header = chain.get_block_header(&block_hash).unwrap();
+                let shard_layout = epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
+                if shard_layout == base_shard_layout {
+                    break *header.hash();
+                }
+                block_hash = *header.prev_hash();
+            };
+            assert!(
+                epoch_manager.is_next_block_epoch_start(&boundary_hash).unwrap(),
+                "boundary block should be the last block of the pre-reshard epoch"
+            );
+
+            // Rows keyed by the NEXT (post-reshard) layout's shard_ids.
+            let mut keys = Vec::new();
+            for shard_id in new_shard_layout.shard_ids() {
+                let key = get_block_shard_id(&boundary_hash, shard_id);
+                let row: Option<ValidatorStake> = store.get_ser(DBCol::ChunkProducers, &key);
+                assert!(
+                    row.is_some(),
+                    "boundary next-layout row must exist before GC, shard {shard_id}"
+                );
+                keys.push(key);
+            }
+            (boundary_hash, keys)
+        };
+
+        // Advance well past the boundary so the GC tail deletes its block data.
+        let target_height = reshard_done_height + EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2);
+        env.validator_runner().run_until_head_height(target_height);
+
+        let node = env.validator();
+        // Sanity: the boundary block itself is GC'd, so the row absence below is a real delete
+        // (not a never-existed vacuous pass).
+        assert!(
+            node.client().chain.get_block(&boundary_hash).is_err(),
+            "boundary block should be garbage collected by now"
+        );
+        for key in &boundary_keys {
+            let row: Option<ValidatorStake> = node.store().get_ser(DBCol::ChunkProducers, key);
+            assert!(row.is_none(), "boundary next-layout row must be garbage collected: {key:?}");
         }
     }
 }

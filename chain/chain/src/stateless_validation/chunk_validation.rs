@@ -105,8 +105,9 @@ pub enum ImplicitTransitionParams {
     /// of that chunk and its shard.
     ApplyOldChunk(ApplyChunkBlockContext, ShardUId),
     /// Transition resulted from resharding. Defined by boundary account, mode
-    /// saying which of child shards to retain, and parent shard uid.
-    Resharding(AccountId, RetainMode, ShardUId),
+    /// saying which of child shards to retain, child shard uid, and the
+    /// locally determined boundary block hash.
+    Resharding(AccountId, RetainMode, ShardUId, CryptoHash),
 }
 
 struct StateWitnessBlockRange {
@@ -292,12 +293,14 @@ fn get_resharding_transition(
             params.boundary_account,
             RetainMode::Left,
             shard_uid,
+            *prev_header.hash(),
         )))
     } else if params.right_child_shard == shard_uid {
         Ok(Some(ImplicitTransitionParams::Resharding(
             params.boundary_account,
             RetainMode::Right,
             shard_uid,
+            *prev_header.hash(),
         )))
     } else {
         Ok(None)
@@ -674,6 +677,12 @@ pub fn validate_chunk_state_witness_impl(
         .into_iter()
         .zip(state_witness.implicit_transitions().into_iter())
     {
+        let transition_block_hash = match &implicit_transition_params {
+            ImplicitTransitionParams::ApplyOldChunk(..) => transition.block_hash,
+            ImplicitTransitionParams::Resharding(_, _, _, boundary_block_hash) => {
+                *boundary_block_hash
+            }
+        };
         let (shard_uid, new_state_root, new_congestion_info) = match implicit_transition_params {
             ImplicitTransitionParams::ApplyOldChunk(block, shard_uid) => {
                 let shard_context = ShardContext { shard_uid, should_apply_chunk: false };
@@ -703,6 +712,7 @@ pub fn validate_chunk_state_witness_impl(
                 boundary_account,
                 retain_mode,
                 child_shard_uid,
+                boundary_block_hash,
             ) => {
                 let old_root = *chunk_extra.state_root();
                 let partial_storage = PartialStorage { nodes: transition.base_state.clone() };
@@ -711,11 +721,14 @@ pub fn validate_chunk_state_witness_impl(
                 // Update the congestion info based on the parent shard. It's
                 // important to do this step before the `retain_split_shard`
                 // because only the parent trie has the needed information.
-                let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+                //
+                // The boundary block is the last block of the old epoch. Resolve
+                // both shard layouts from it, matching the producer.
+                let epoch_id = epoch_manager.get_epoch_id(&boundary_block_hash)?;
                 let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
                 let parent_congestion_info = chunk_extra.congestion_info();
 
-                let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
+                let child_epoch_id = epoch_manager.get_next_epoch_id(&boundary_block_hash)?;
                 let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
                 let child_congestion_info = ReshardingManager::get_child_congestion_info(
                     &parent_trie,
@@ -742,7 +755,7 @@ pub fn validate_chunk_state_witness_impl(
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Post state root {:?} for implicit transition at block {:?} to shard {:?}, does not match expected state root {:?}",
                 chunk_extra.state_root(),
-                transition.block_hash,
+                transition_block_hash,
                 shard_uid,
                 transition.post_state_root
             )));
