@@ -300,6 +300,28 @@ impl SpiceCoreReader {
         Ok(())
     }
 
+    /// Whether the uncertified chunks are in ascending block height order within each shard, the
+    /// order [`round_robin_by_shard`] carries over into its output.
+    fn is_height_ordered_per_shard(
+        &self,
+        uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+    ) -> bool {
+        let mut last_height_by_shard: HashMap<ShardId, BlockHeight> = HashMap::new();
+        for chunk_info in uncertified_chunks {
+            let Ok(height) = self.chain_store.get_block_height(&chunk_info.chunk_id.block_hash)
+            else {
+                continue;
+            };
+            if let Some(last_height) =
+                last_height_by_shard.insert(chunk_info.chunk_id.shard_id, height)
+                && last_height >= height
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn core_statements_for_next_block(
         &self,
         block_header: &BlockHeader,
@@ -311,6 +333,10 @@ impl SpiceCoreReader {
 
         let uncertified_chunks = self.get_uncertified_chunks(block_hash)?;
         metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
+        debug_assert!(
+            self.is_height_ordered_per_shard(&uncertified_chunks),
+            "uncertified chunks for {block_hash} are not in ascending height order within a shard"
+        );
         let uncertified_chunks = round_robin_by_shard(uncertified_chunks);
 
         let mut core_statements = Vec::new();
@@ -764,7 +790,8 @@ impl SpiceCoreReader {
 ///
 /// Ascending-height order is preserved *within* each shard: a shard's certification frontier
 /// advances from its oldest uncertified chunk, and `SkippedExecutionResult` requires the execution
-/// results a block carries to form a per-shard height-ordered prefix.
+/// results a block carries to form a per-shard height-ordered prefix. Order is only preserved, not
+/// established, so the input must already have it — see `is_height_ordered_per_shard`.
 pub(crate) fn round_robin_by_shard(
     uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
 ) -> Vec<SpiceUncertifiedChunkInfo> {
