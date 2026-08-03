@@ -435,7 +435,11 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
 fn test_core_statements_for_next_block_past_the_limit_creates_valid_block() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
-    let block = build_uncertified_chunk_backlog(&mut chain, &core_reader);
+    let block = build_uncertified_chunk_backlog(
+        &mut chain,
+        &core_reader,
+        MAX_REFERENCED_CHUNKS_PER_BLOCK + 1,
+    );
 
     let uncertified_chunks = core_reader.get_uncertified_chunks(block.hash()).unwrap();
     assert!(uncertified_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK);
@@ -474,24 +478,20 @@ fn test_core_statements_for_next_block_past_the_limit_creates_valid_block() {
 fn test_core_statements_for_next_block_counts_chunks_endorsed_below_threshold() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
-    let block = build_uncertified_chunk_backlog(&mut chain, &core_reader);
+    let block = build_uncertified_chunk_backlog(
+        &mut chain,
+        &core_reader,
+        MAX_REFERENCED_CHUNKS_PER_BLOCK + 1,
+    );
 
     let uncertified_chunks = core_reader.get_uncertified_chunks(block.hash()).unwrap();
     assert!(uncertified_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK);
 
     // A single endorsement per chunk is below the stake threshold, so no execution result gets
     // stored and every one of these chunks can contribute endorsements only.
+    let validators = test_validators();
     for chunk_info in uncertified_chunks.iter().take(MAX_REFERENCED_CHUNKS_PER_BLOCK + 1) {
-        let endorsed_block =
-            chain.chain_store().get_block(&chunk_info.chunk_id.block_hash).unwrap();
-        let chunks = endorsed_block.chunks();
-        let chunk_header = chunks
-            .iter_raw()
-            .find(|header| header.shard_id() == chunk_info.chunk_id.shard_id)
-            .unwrap();
-        let endorsement =
-            test_chunk_endorsement(&test_validators()[0], &endorsed_block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+        endorse_chunk(&chain, &mut core_writer_actor, &chunk_info.chunk_id, &validators[..1]);
     }
 
     // One endorsement each and no execution results, so the statement count is the number of
@@ -504,16 +504,18 @@ fn test_core_statements_for_next_block_counts_chunks_endorsed_below_threshold() 
     assert_eq!(core_statements.len(), MAX_REFERENCED_CHUNKS_PER_BLOCK);
 }
 
-/// A stalled chain accumulates uncertified chunks that no node holds an endorsement or an execution
-/// result for. Those entries contribute no core statements, so they must not consume the
-/// `MAX_REFERENCED_CHUNKS_PER_BLOCK` budget either — otherwise a backlog of chunks nobody can act
-/// on would stop every chunk behind it from ever being certified.
+/// An uncertified chunk the producer holds nothing for contributes no core statements, so it must
+/// not consume the `MAX_REFERENCED_CHUNKS_PER_BLOCK` budget either.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statements_for_next_block_budget_skips_chunks_without_statements() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
-    let stalled = build_uncertified_chunk_backlog(&mut chain, &core_reader);
+    let stalled = build_uncertified_chunk_backlog(
+        &mut chain,
+        &core_reader,
+        MAX_REFERENCED_CHUNKS_PER_BLOCK + 1,
+    );
 
     // One more block, and an endorsement for its last shard's chunk. Every entry of the backlog
     // precedes that chunk in the uncertified list, and there are more of them than the budget.
@@ -1922,17 +1924,18 @@ fn make_chunk_extra_with_proposals(proposals: Vec<ValidatorStake>) -> ChunkExtra
     )
 }
 
-/// Builds and processes blocks, endorsing nothing, until more than
-/// `MAX_REFERENCED_CHUNKS_PER_BLOCK` uncertified chunks have piled up. Models a chain whose
-/// execution has stalled: no node holds an endorsement or an execution result for any of those
-/// chunks. Returns the last block built.
-fn build_uncertified_chunk_backlog(chain: &mut Chain, core_reader: &SpiceCoreReader) -> Arc<Block> {
+/// Builds and processes blocks, endorsing nothing, until at least `min_backlog` uncertified chunks
+/// have piled up. Models a chain whose execution has stalled: no node holds an endorsement or an
+/// execution result for any of those chunks. Returns the last block built.
+fn build_uncertified_chunk_backlog(
+    chain: &mut Chain,
+    core_reader: &SpiceCoreReader,
+    min_backlog: usize,
+) -> Arc<Block> {
     let genesis = chain.genesis_block();
     let mut block = build_block(chain, &genesis, vec![]);
     process_block(chain, block.clone());
-    while core_reader.get_uncertified_chunks(block.hash()).unwrap().len()
-        <= MAX_REFERENCED_CHUNKS_PER_BLOCK
-    {
+    while core_reader.get_uncertified_chunks(block.hash()).unwrap().len() < min_backlog {
         block = build_block(chain, &block, vec![]);
         process_block(chain, block.clone());
     }
