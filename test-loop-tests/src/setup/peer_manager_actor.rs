@@ -32,9 +32,9 @@ use near_network::state_witness::{
     PartialWitnessSenderForNetwork,
 };
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
-    StateSyncEvent, Tier3Request,
+    BlockInfo, ConnectedPeerInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo, StateSyncEvent, Tier3Request,
 };
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
@@ -129,6 +129,7 @@ pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
 
+    clock: Clock,
     client_sender: ClientSenderForTestLoopNetwork,
     shared_state: TestLoopNetworkSharedState,
     genesis_id: GenesisId,
@@ -176,12 +177,17 @@ impl TestLoopPeerManagerActor {
                 future_spawner,
             ),
             network_message_to_partial_witness_handler(&account_id, shared_state.clone()),
-            network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
+            network_message_to_shards_manager_handler(
+                clock.clone(),
+                &account_id,
+                shared_state.clone(),
+            ),
             network_message_to_state_snapshot_handler(),
             network_message_to_spice_data_distributor_handler(&account_id, shared_state.clone()),
         ];
         Self {
             handlers,
+            clock,
             client_sender,
             shared_state: shared_state.clone(),
             genesis_id,
@@ -203,6 +209,7 @@ impl TestLoopPeerManagerActor {
     ) {
         // Some tests (especially the ones having to do with sync) need NetworkInfo to be up to
         // date to work properly. That's why we're sending it periodically here.
+        let now = self.clock.now();
         let future = self.client_sender.send_async(
             SetNetworkInfo(NetworkInfo {
                 highest_height_peers: self
@@ -215,6 +222,31 @@ impl TestLoopPeerManagerActor {
                         highest_block_height: header.height(),
                         tracked_shards: vec![],
                         peer_info: peer_info.clone(),
+                    })
+                    .collect(),
+                connected_peers: self
+                    .last_block_headers
+                    .iter()
+                    .map(|(peer_info, header)| ConnectedPeerInfo {
+                        full_peer_info: FullPeerInfo {
+                            peer_info: peer_info.clone(),
+                            chain_info: PeerChainInfo {
+                                genesis_id: self.genesis_id.clone(),
+                                last_block: Some(BlockInfo {
+                                    height: header.height(),
+                                    hash: *header.hash(),
+                                }),
+                                tracked_shards: vec![],
+                                archival: self.shared_state.is_peer_archival(&peer_info.id),
+                            },
+                        },
+                        received_bytes_per_sec: 0,
+                        sent_bytes_per_sec: 0,
+                        last_time_peer_requested: now,
+                        last_time_received_message: now,
+                        connection_established_time: now,
+                        peer_type: PeerType::Outbound,
+                        nonce: 0,
                     })
                     .collect(),
                 ..NetworkInfo::default()
