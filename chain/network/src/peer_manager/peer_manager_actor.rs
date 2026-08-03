@@ -1577,7 +1577,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 let (tier2_ack, maybe_tier3_response) = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
                         let (ack, response) = if response_permit.is_none() {
-                            tracing::debug!(target: "network", ?request, "outgoing queue saturated; dropping state header response");
+                            tracing::warn!(target: "network", ?request, "outgoing queue saturated; dropping state header response");
                             metrics::MessageDropped::OutgoingQueueLimitExceeded
                                 .inc_msg_type("VersionedStateResponse");
                             (StateRequestAckBody::Busy, None)
@@ -1609,7 +1609,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }
                     Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
                         let (ack, response) = if response_permit.is_none() {
-                            tracing::debug!(target: "network", ?request, "outgoing queue saturated; dropping state part response");
+                            tracing::warn!(target: "network", ?request, "outgoing queue saturated; dropping state part response");
                             metrics::MessageDropped::OutgoingQueueLimitExceeded
                                 .inc_msg_type("VersionedStateResponse");
                             (StateRequestAckBody::Busy, None)
