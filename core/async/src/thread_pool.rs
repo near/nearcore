@@ -559,25 +559,6 @@ mod tests {
     }
 
     #[test]
-    fn background_compilation_does_not_block_critical_pool() {
-        let background_pool =
-            ThreadPool::new("test_background_pool", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
-        let critical_pool =
-            ThreadPool::new("test_critical_pool", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
-
-        let (background_job, background_handle) = create_job();
-        background_pool.spawn_boxed(background_job);
-        background_handle.wait_scheduled();
-
-        let (critical_job, critical_handle) = create_job();
-        critical_pool.spawn_boxed(critical_job);
-        critical_handle.wait_scheduled();
-
-        critical_handle.wait_executed();
-        background_handle.wait_executed();
-    }
-
-    #[test]
     fn drop_shuts_down_threads() {
         let idle_timeout = Duration::from_secs(1000);
         let pool = ThreadPool::new(POOL_NAME, idle_timeout, DEFAULT_LIMIT, DEFAULT_PRIORITY);

@@ -35,7 +35,7 @@ use std::time::Duration;
 /// and less than 35MB physical memory. Known valid cases use 600 MB virtual and
 /// 170 MB physical memory at the extreme. Using more than 1GiB virtual memory
 /// might be possible but almost certainly would be a maliciously crafted Wasm.
-const MIN_WORKER_MEMORY_LIMIT_BYTES: u64 = 1 * bytesize::GIB;
+const MIN_WORKER_MEMORY_LIMIT_BYTES: u64 = bytesize::GIB;
 
 /// Default number of rayon compilation threads per worker subprocess.
 ///
