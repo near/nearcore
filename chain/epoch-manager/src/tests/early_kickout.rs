@@ -559,9 +559,19 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
 #[cfg(feature = "nightly")]
 #[test]
 fn first_new_epoch_anchors_seed_new_epoch_canonical_producer() {
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    // 3 validators (not the usual 2): enough schedule entropy that the old and new epoch
+    // schedules diverge at a tested height, which the non-vacuity assertion below requires.
+    let validators = vec![
+        ("test0".parse().unwrap(), STAKE),
+        ("test1".parse().unwrap(), STAKE),
+        ("test2".parse().unwrap(), STAKE),
+    ];
     let handle = setup_default_epoch_manager(validators, 1200, 1, 3, 90, 60).into_handle();
-    let h = drive_down_node(&handle, 1300, 0);
+    // Cross TWO boundaries: every recorded block carries a zero VRF seed, so epoch 1 is
+    // schedule-identical to epoch 0 and cross-epoch sampling would be invisible there. Epoch
+    // 2's info is finalized from epoch 0's stats, where the down node fails the standard
+    // epoch kickout, so its settlement genuinely differs from epoch 1's.
+    let h = drive_down_node(&handle, 2500, 0);
     let boundary_idx = (0..h.len())
         .rev()
         .find(|&i| handle.is_next_block_epoch_start(&h[i]).unwrap())
@@ -572,6 +582,9 @@ fn first_new_epoch_anchors_seed_new_epoch_canonical_producer() {
          blacklist that could leak"
     );
     let old_epoch_id = handle.get_epoch_id(&h[boundary_idx]).unwrap();
+    let old_epoch_info = handle.get_epoch_info(&old_epoch_id).unwrap();
+    let old_layout = handle.get_shard_layout(&old_epoch_id).unwrap();
+    let mut schedules_diverge = false;
     for i in [boundary_idx + 1, boundary_idx + 2] {
         let anchor = h[i];
         let epoch_id = handle.get_epoch_id(&anchor).unwrap();
@@ -593,7 +606,19 @@ fn first_new_epoch_anchors_seed_new_epoch_canonical_producer() {
             stored, canonical,
             "anchor at height {i}: seeded row must be the new epoch's canonical producer"
         );
+        let old_pick = old_epoch_info.get_validator(
+            old_epoch_info.sample_chunk_producer(&old_layout, shard_id, height_created).unwrap(),
+        );
+        schedules_diverge |= old_pick != canonical;
     }
+    // Non-vacuous: the stored == canonical assertions can only catch old-epoch sampling if
+    // the two epochs' schedules actually differ at a tested height. The fixture is fully
+    // deterministic, so once this holds it holds forever.
+    assert!(
+        schedules_diverge,
+        "old and new epoch schedules coincide at both tested heights; the canonical-producer \
+         assertions would not catch old-epoch sampling"
+    );
 }
 
 // Start-of-epoch grace: with the down node already miss-heavy, the accessor stays empty until
