@@ -12,9 +12,8 @@ use super::protocol::{CompileRequest, CompileResponse, DaemonStartup, read_frame
 use super::watchdog::ProcessWatchdog;
 use crate::compile_priority::CompilePriority;
 use crate::compiler_daemon::{
-    COMPILATION_REQUEST_TIMEOUT, DAEMON_STARTUP_TIMEOUT, DEFAULT_RAYON_THREADS_PER_WORKER,
-    DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, MAX_POOL_SIZE, MAX_SPAWN_ATTEMPTS,
-    MIN_WORKER_MEMORY_LIMIT_BYTES,
+    DAEMON_STARTUP_TIMEOUT, DEFAULT_RAYON_THREADS_PER_WORKER, DEFAULT_TOTAL_MEMORY_BUDGET_BYTES,
+    MAX_POOL_SIZE, MAX_SPAWN_ATTEMPTS, MIN_WORKER_MEMORY_LIMIT_BYTES,
 };
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use near_parameters::vm::LimitConfig;
@@ -143,8 +142,13 @@ impl DaemonProcess {
     fn compile_raw(&mut self, request: &CompileRequest) -> Result<CompileResult, String> {
         let request_bytes =
             borsh::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
+        // The test-only request below exercises watchdog recovery from an
+        // unresponsive worker.
+        // For now, production requests have no deadline. We prefer a hanging
+        // node over the alternatives. (crashing or committing a potentially
+        // nondeterministic error)
         let timeout = compilation_request_timeout(request);
-        let generation = self.watchdog.arm(timeout)?;
+        let generation = timeout.map(|timeout| self.watchdog.arm(timeout)).transpose()?;
         let result = write_frame(&mut self.stdin, &request_bytes)
             .map_err(|e| format!("failed to send to compiler daemon: {e}"))
             .and_then(|()| {
@@ -159,7 +163,11 @@ impl DaemonProcess {
                     CompileResponse::Err(msg) => Ok(Err(msg)),
                 }
             });
-        self.watchdog.finish(generation, timeout, "compilation request", result)
+        if let (Some(generation), Some(timeout)) = (generation, timeout) {
+            self.watchdog.finish(generation, timeout, "compilation request", result)
+        } else {
+            result
+        }
     }
 
     fn is_alive(&self) -> bool {
@@ -174,12 +182,12 @@ impl DaemonProcess {
     }
 }
 
-fn compilation_request_timeout(request: &CompileRequest) -> Duration {
+fn compilation_request_timeout(_request: &CompileRequest) -> Option<Duration> {
     #[cfg(feature = "test_features")]
-    if request.prepared_code == super::protocol::TEST_TIMEOUT_REQUEST {
-        return Duration::from_millis(100);
+    if _request.prepared_code == super::protocol::TEST_TIMEOUT_REQUEST {
+        return Some(Duration::from_millis(100));
     }
-    COMPILATION_REQUEST_TIMEOUT
+    None
 }
 
 impl Drop for DaemonProcess {

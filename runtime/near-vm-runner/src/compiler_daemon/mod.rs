@@ -64,11 +64,5 @@ const DEFAULT_TOTAL_MEMORY_BUDGET_BYTES: u64 = 16 * bytesize::GIB;
 /// Maximum time allowed for a worker to report that it is ready.
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Maximum time allowed to send one compilation request and receive its response.
-///
-/// For now, timeouts result in skipping chunk endorsement. Async compilation
-/// could help to handle it better.
-const COMPILATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Per-request retry budget on IPC failure (worker crash or timeout).
+/// Per-request retry budget on IPC failure (for example, a worker crash).
 const MAX_SPAWN_ATTEMPTS: u32 = 2;
