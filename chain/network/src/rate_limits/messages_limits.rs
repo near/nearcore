@@ -175,10 +175,12 @@ impl Config {
         config.rate_limits.insert(SpicePartialData, spice_partial_data_config.clone());
         config.rate_limits.insert(SpicePartialDataRequest, spice_partial_data_config);
 
+        // Note: `SyncRoutingTable` is deliberately absent here; it keeps the
+        // stricter `sync_routing_table_config` set above, which refills 10x slower
+        // than `net_config` would.
         let net_config = basic_config(10);
         config.rate_limits.insert(PeersRequest, net_config.clone());
         config.rate_limits.insert(PeersResponse, net_config.clone());
-        config.rate_limits.insert(SyncRoutingTable, net_config.clone());
         config.rate_limits.insert(SyncAccountsData, net_config.clone());
         config.rate_limits.insert(SyncSnapshotHosts, net_config);
 

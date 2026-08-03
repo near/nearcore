@@ -8181,7 +8181,7 @@
             "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
-            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
+            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is given by default_chunks_cache_height_horizon().",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
