@@ -370,9 +370,6 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
-                RuntimeError::WasmCompilationUnknownError(debug_message) => Error::Other(format!(
-                    "wasm compilation failed with an unknown error: {debug_message}"
-                )),
             })?;
         let elapsed = instant.elapsed();
 

@@ -282,10 +282,10 @@ pub(crate) fn execute_function_call(
 
     // Most VM runner errors translate to a `RuntimeError` and are propagated
     // up. Unknown execution errors are soft-failed into the outcome instead of
-    // panicking. Unknown compilation errors abort chunk application so that a
-    // validator does not endorse or commit a potentially nondeterministic state
-    // transition (OOM or timeout). User-code errors are reported via
-    // `outcome.aborted` and never reach these arms.
+    // panicking. Unknown compilation errors panic so that a validator does not
+    // endorse or commit a potentially nondeterministic state transition (OOM or
+    // timeout). User-code errors are reported via `outcome.aborted` and never
+    // reach these arms.
     //
     // TODO: Compilation must become asynchronous before this can
     // work with SPICE, where validators endorse before execution.
@@ -324,9 +324,7 @@ pub(crate) fn execute_function_call(
             }));
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
-            metrics::FUNCTION_CALL_PROCESSED_WASM_COMPILATION_UNKNOWN_ERRORS.inc();
-            tracing::error!(target: "runtime", "wasm compilation unknown error: {}", debug_message);
-            return Err(RuntimeError::WasmCompilationUnknownError(debug_message));
+            panic!("wasm compilation unknown error: {debug_message}");
         }
         Ok(r) => r,
     };
