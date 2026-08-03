@@ -17,7 +17,13 @@ fn test_debug_block_status_clamps_starting_height_to_header_head() {
     let client_actor = env.test_loop.data.get_mut(&handle);
 
     // Boundary values of the u64 range, not just a height one past the head.
-    for starting_height in [header_head + 1, 1 << 63, u64::MAX] {
+    // Genesis height reports nothing, since the range below it is empty.
+    for (starting_height, expected_heights) in [
+        (header_head + 1, vec![header_head]),
+        (1 << 63, vec![header_head]),
+        (u64::MAX, vec![header_head]),
+        (0, vec![]),
+    ] {
         let query = DebugBlockStatusQuery {
             starting_height: Some(starting_height),
             mode: DebugBlocksStartingMode::All,
@@ -34,6 +40,6 @@ fn test_debug_block_status_clamps_starting_height_to_header_head() {
             .map(|block| block.block_height)
             .chain(data.missed_heights.iter().map(|missed| missed.block_height))
             .collect::<Vec<_>>();
-        assert_eq!(heights, vec![header_head], "starting_height {starting_height}");
+        assert_eq!(heights, expected_heights, "starting_height {starting_height}");
     }
 }
