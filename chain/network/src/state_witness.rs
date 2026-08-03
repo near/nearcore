@@ -1,3 +1,4 @@
+use crate::recv_permit::RecvMessagePermit;
 use near_async::messaging::Sender;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_primitives::stateless_validation::contract_distribution::{
@@ -5,8 +6,6 @@ use near_primitives::stateless_validation::contract_distribution::{
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
-
-use crate::recv_permit::RecvMessagePermit;
 
 #[derive(Debug)]
 pub struct ChunkStateWitnessAckMessage(pub ChunkStateWitnessAck, pub RecvMessagePermit);

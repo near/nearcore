@@ -1,3 +1,4 @@
+use super::stream::IncomingFrame;
 use crate::accounts_data::AccountDataError;
 use crate::client::AnnounceAccountRequest;
 use crate::concurrency::atomic_cell::AtomicCell;
@@ -51,8 +52,6 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
-
-use super::stream::IncomingFrame;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);

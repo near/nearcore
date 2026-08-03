@@ -94,7 +94,7 @@ pub(crate) const INCOMING_SEMAPHORE_PERMITS: usize = 1_000_000_000;
 /// Number of bytes reserved for the epoch sync response
 pub(crate) const EPOCH_SYNC_RESPONSE_BYTES: usize = 300 * 1024 * 1024;
 
-// Number of bytes reserved for the state sync reponse
+// Number of bytes reserved for the state sync response
 pub(crate) const STATE_SYNC_RESPONSE_BYTES: usize = 30 * 1024 * 1024;
 
 impl WhitelistNode {

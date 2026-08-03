@@ -419,7 +419,7 @@ winapi = { version = "0.3", features = [
     "winnt",
     "impl-default",
 ] }
-wiremock = "0.5.19"
+wiremock = "0.6.5"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
