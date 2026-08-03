@@ -314,20 +314,18 @@ impl SpiceCoreReader {
 
         let mut core_statements = Vec::new();
         let mut referenced_chunks = 0;
-        let mut unexamined = uncertified_chunks.len();
-        let mut skipped = 0;
-        for chunk_info in uncertified_chunks {
-            unexamined -= 1;
+        let mut uncertified_chunks = uncertified_chunks.into_iter();
+        for chunk_info in uncertified_chunks.by_ref() {
             if self.push_core_statements_for_chunk(chunk_info, &mut core_statements) {
                 referenced_chunks += 1;
-                if referenced_chunks == MAX_REFERENCED_CHUNKS_PER_BLOCK {
-                    skipped = unexamined;
+                if referenced_chunks >= MAX_REFERENCED_CHUNKS_PER_BLOCK {
                     break;
                 }
             }
         }
-        metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS_SKIPPED.set(skipped as i64);
+        let skipped = uncertified_chunks.len();
         if skipped > 0 {
+            metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS_SKIPPED.inc_by(skipped as u64);
             tracing::debug!(
                 target: "spice_core",
                 prev_hash = ?block_hash,

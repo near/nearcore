@@ -37,9 +37,18 @@ fn slow_test_spice_core_statement_limit_binds_and_chain_catches_up() {
     env.delay_endorsements_propagation(100_000);
     let mut env = env.warmup();
 
-    let stalled_heights = MAX_REFERENCED_CHUNKS_PER_BLOCK as BlockHeight;
-    env.node_runner(0)
-        .run_until(|node| node.head().height >= stalled_heights, Duration::seconds(600));
+    let target_backlog = MAX_REFERENCED_CHUNKS_PER_BLOCK * 2;
+    env.node_runner(0).run_until(
+        |node| {
+            let head = node.head();
+            node.client()
+                .chain
+                .spice_core_reader
+                .get_uncertified_chunks(&head.last_block_hash)
+                .is_ok_and(|chunks| chunks.len() >= target_backlog)
+        },
+        Duration::seconds(600),
+    );
 
     let stalled_head = env.node(0).head();
     let backlog = env
@@ -72,7 +81,13 @@ fn slow_test_spice_core_statement_limit_binds_and_chain_catches_up() {
     let head = env.node(0).head();
     let mut max_referenced = 0;
     let mut block_hash = head.last_block_hash;
-    while let Ok(block) = env.node(0).client().chain.get_block(&block_hash) {
+    loop {
+        let block = env
+            .node(0)
+            .client()
+            .chain
+            .get_block(&block_hash)
+            .expect("every block from the stall onwards should still be in store");
         let referenced: HashSet<_> =
             block.spice_core_statements().iter().map(|statement| statement.chunk_id()).collect();
         max_referenced = max_referenced.max(referenced.len());
