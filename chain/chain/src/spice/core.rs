@@ -29,8 +29,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Upper bound on the number of distinct chunks a single block's core statements may reference.
-/// Bounds block body size, signature verification cost, and how far one block can advance the
-/// certification frontier.
 pub const MAX_REFERENCED_CHUNKS_PER_BLOCK: usize = 100;
 
 #[derive(Clone)]
@@ -337,7 +335,9 @@ impl SpiceCoreReader {
 
     /// Emits every core statement this node can contribute for a single uncertified chunk: the
     /// endorsements it holds that are not on chain yet, and the chunk's execution result if the
-    /// chunk is certified locally. Returns whether anything was emitted.
+    /// chunk is certified locally.
+    ///
+    /// Returns whether anything was emitted.
     fn push_core_statements_for_chunk(
         &self,
         chunk_info: SpiceUncertifiedChunkInfo,
@@ -463,7 +463,6 @@ impl SpiceCoreReader {
             })
     }
 
-    /// Upper bound on the number of core statements a block may carry.
     pub(crate) fn max_core_statements_per_block(
         &self,
         block_header: &BlockHeader,
@@ -482,10 +481,11 @@ impl SpiceCoreReader {
                 InvalidSpiceCoreStatementsError::UnknownEpochConfig { epoch_id: *epoch_id }
             })?;
 
-        // Blocks can carry statements for the current and the previous epoch
+        // Blocks can carry statements for the current and the previous epoch.
+        // Each validator may contribute one endorsement for every chunk.
         let max_endorsements_per_chunk =
             self.validators_len(epoch_id)?.max(self.validators_len(&prev_epoch_id)?);
-        // Each chunk can carry one endorsement per validator, plus an execution result statement
+        // Besides endorsements, there may be one execution result included.
         let max_statements_per_chunk = max_endorsements_per_chunk.saturating_add(1);
         Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(max_statements_per_chunk))
     }

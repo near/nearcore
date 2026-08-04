@@ -444,10 +444,6 @@ fn test_core_statements_for_next_block_past_the_limit_creates_valid_block() {
     let uncertified_chunks = core_reader.get_uncertified_chunks(block.hash()).unwrap();
     assert!(uncertified_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK);
 
-    // Every chunk of the oldest block is endorsed by all validators, so the produced block carries
-    // their execution results; every other chunk gets a single endorsement, which is below the
-    // stake threshold. Certifying an oldest-first prefix of each shard is what
-    // `SkippedExecutionResult` demands, so this is the shape a producer is allowed to build.
     let oldest_block_hash = uncertified_chunks[0].chunk_id.block_hash;
     for chunk_info in &uncertified_chunks {
         let validators = test_validators();
@@ -487,15 +483,11 @@ fn test_core_statements_for_next_block_counts_chunks_endorsed_below_threshold() 
     let uncertified_chunks = core_reader.get_uncertified_chunks(block.hash()).unwrap();
     assert!(uncertified_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK);
 
-    // A single endorsement per chunk is below the stake threshold, so no execution result gets
-    // stored and every one of these chunks can contribute endorsements only.
     let validators = test_validators();
     for chunk_info in uncertified_chunks.iter().take(MAX_REFERENCED_CHUNKS_PER_BLOCK + 1) {
         endorse_chunk(&chain, &mut core_writer_actor, &chunk_info.chunk_id, &validators[..1]);
     }
 
-    // One endorsement each and no execution results, so the statement count is the number of
-    // chunks referenced: the limit, not the limit plus one.
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert!(
         core_statements.iter().all(|s| matches!(s, SpiceCoreStatement::Endorsement(_))),
@@ -517,8 +509,6 @@ fn test_core_statements_for_next_block_budget_skips_chunks_without_statements() 
         MAX_REFERENCED_CHUNKS_PER_BLOCK + 1,
     );
 
-    // One more block, and an endorsement for its last shard's chunk. Every entry of the backlog
-    // precedes that chunk in the uncertified list, and there are more of them than the budget.
     let block = build_block(&mut chain, &stalled, vec![]);
     process_block(&mut chain, block.clone());
     let chunks = block.chunks();
