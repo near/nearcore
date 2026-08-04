@@ -455,6 +455,21 @@ impl SpiceCoreReader {
         Ok(())
     }
 
+    /// Upper bound on the number of core statements a block in this epoch may carry.
+    pub(crate) fn max_core_statements_per_block(
+        &self,
+        block_header: &BlockHeader,
+    ) -> Result<usize, InvalidSpiceCoreStatementsError> {
+        let epoch_id = block_header.epoch_id();
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id).map_err(|err| {
+            tracing::debug!(target: "spice_core", ?epoch_id, ?err, "failed getting epoch info");
+            InvalidSpiceCoreStatementsError::UnknownEpochConfig { epoch_id: *epoch_id }
+        })?;
+        // Each chunk can carry one endorsement per validator, plus an execution result statement
+        let per_chunk = epoch_info.validators_len().saturating_add(1);
+        Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(per_chunk))
+    }
+
     pub fn validate_core_statements_in_block(
         &self,
         block: &Block,
@@ -470,11 +485,14 @@ impl SpiceCoreReader {
                 .ok_or(UnknownBlock { block_hash: *block_hash })
         }
 
-        // Bounds the work everything below can be made to do. Runs before any store read or
-        // signature verification, and stops accumulating as soon as the limit is passed, so an
-        // oversized block costs neither the lookups nor a set proportional to its body.
+        let core_statements = block.spice_core_statements();
+        let max_core_statements = self.max_core_statements_per_block(block.header())?;
+        if core_statements.len() > max_core_statements {
+            return Err(TooManyCoreStatements { limit: max_core_statements });
+        }
+
         let mut referenced_chunks: HashSet<&SpiceChunkId> = HashSet::new();
-        for core_statement in block.spice_core_statements() {
+        for core_statement in core_statements {
             referenced_chunks.insert(core_statement.chunk_id());
             if referenced_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK {
                 return Err(TooManyReferencedChunks { limit: MAX_REFERENCED_CHUNKS_PER_BLOCK });
