@@ -17,6 +17,8 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
+#[cfg(feature = "nightly")]
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 #[cfg(feature = "nightly")]
 use near_primitives::types::EpochId;
@@ -293,6 +295,9 @@ fn record_block_with_mask(
 ) {
     let epoch_id = em.get_epoch_id(&prev).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    // ~2-block finality: last-final = grandparent (height - 2), consistent with the
+    // `last_finalized_height` below. The seeder bases the blacklist on this hash.
+    let last_final = *em.get_block_info(&prev).unwrap().prev_hash();
     // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that
     // shard; only produced chunks include endorsements.
     let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
@@ -314,7 +319,7 @@ fn record_block_with_mask(
             cur,
             height,
             height.saturating_sub(2),
-            prev,
+            last_final,
             prev,
             vec![],
             chunk_mask,
@@ -336,8 +341,8 @@ fn record_block_with_mask(
 /// `target` accumulates 0 produced / many expected (blacklist candidate) while the
 /// other producer stays at 100%. Returns the recorded block hashes (index = height).
 ///
-/// Uses the *plain* height sampler: with the early-kickout feature off there is no
-/// blacklist-aware seeding, so a target's missed heights stay attributed to the target.
+/// Stable-only: the plain height sampler keeps missing heights on `target`. On nightly the
+/// seeder excludes the target once the grace lifts, so those tests use `drive_down_node`.
 #[cfg(not(feature = "nightly"))]
 fn drive_targeted_misses(
     handle: &EpochManagerHandle,
@@ -505,13 +510,17 @@ fn early_kickout_attribution_does_not_flap() {
     );
 }
 
-// 11. v152+ epoch-boundary reset: at an epoch boundary the aggregator still belongs to the
-//     previous epoch, so the accessor returns empty even though epoch 0 stats are miss-heavy.
+// 11. v152+ epoch-boundary reset: the accessor samples the anchor's own epoch (mirroring the
+//     seeder), so the boundary anchor (last block of epoch 0) still carries epoch 0's
+//     miss-heavy blacklist. The reset lands on the first epoch-1 anchor: its own epoch flips
+//     while its last-final block (the aggregator basis) still sits in epoch 0, so the
+//     aggregator/target epoch mismatch empties the blacklist; the start-of-epoch grace keeps
+//     it empty for the anchors after that.
 //     Setup: epoch length 1200 exceeds the 1000-block grace (otherwise the whole epoch sits in
 //     the grace and the reset check is vacuous), and the drive length 1300 crosses into epoch 1
 //     so a boundary exists. `boundary_idx` is the last block whose next block starts a new epoch;
-//     `h[i] == height` because `drive_down_node` stores hashes by height, so `boundary_idx - 1`
-//     is the mid-epoch anchor and `boundary_idx` is the boundary anchor.
+//     `h[i] == height` because `drive_down_node` stores hashes by height, so `boundary_idx`
+//     is the boundary anchor and `boundary_idx + 1` the first epoch-1 anchor.
 #[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
@@ -531,16 +540,89 @@ fn get_chunk_producer_blacklist_resets_on_epoch_boundary() {
         !bl_pre.is_empty(),
         "pre-boundary anchor past the grace must be non-empty, got {bl_pre:?}"
     );
+    // The boundary anchor samples its own epoch (epoch 0), matching the seeder: still
+    // blacklisted.
     let bl_boundary = handle.get_chunk_producer_blacklist(&h[boundary_idx]).unwrap();
-    assert!(bl_boundary.is_empty(), "epoch boundary must reset blacklist, got {bl_boundary:?}");
+    assert!(!bl_boundary.is_empty(), "boundary anchor keeps its own epoch's blacklist, got empty");
+    // First epoch-1 anchor: own epoch flips while the aggregator basis lags in epoch 0 — reset.
+    let bl_next = handle.get_chunk_producer_blacklist(&h[boundary_idx + 1]).unwrap();
+    assert!(bl_next.is_empty(), "first new-epoch anchor must reset blacklist, got {bl_next:?}");
+}
+
+// The first two anchors of a new epoch are the only ones whose aggregator basis (last-final
+// block) sits in the previous epoch, and their rows ARE served on the consensus path (anchor
+// epoch == chunk epoch). Guard that those rows carry the NEW epoch's canonical producer with
+// an empty blacklist. This is what breaks if the aggregator/target epoch guard is dropped:
+// sampling at the final block would bake an old-epoch producer into a new-epoch row, and
+// keeping own-epoch sampling without the guard would match old-epoch stats (epoch-local
+// `ValidatorId`s) against the new epoch's settlement.
+#[cfg(feature = "nightly")]
+#[test]
+fn first_new_epoch_anchors_seed_new_epoch_canonical_producer() {
+    // 3 validators (not the usual 2): enough schedule entropy that the old and new epoch
+    // schedules diverge at a tested height, which the non-vacuity assertion below requires.
+    let validators = vec![
+        ("test0".parse().unwrap(), STAKE),
+        ("test1".parse().unwrap(), STAKE),
+        ("test2".parse().unwrap(), STAKE),
+    ];
+    let handle = setup_default_epoch_manager(validators, 1200, 1, 3, 90, 60).into_handle();
+    // Cross TWO boundaries: every recorded block carries a zero VRF seed, so epoch 1 is
+    // schedule-identical to epoch 0 and cross-epoch sampling would be invisible there. Epoch
+    // 2's info is finalized from epoch 0's stats, where the down node fails the standard
+    // epoch kickout, so its settlement genuinely differs from epoch 1's.
+    let h = drive_down_node(&handle, 2500, 0);
+    let boundary_idx = (0..h.len())
+        .rev()
+        .find(|&i| handle.is_next_block_epoch_start(&h[i]).unwrap())
+        .expect("expected an epoch boundary among recorded blocks");
+    assert!(
+        boundary_idx as u64 > EARLY_KICKOUT_EPOCH_GRACE_BLOCKS,
+        "boundary at height {boundary_idx} must be past the grace so the old epoch has a live \
+         blacklist that could leak"
+    );
+    let old_epoch_id = handle.get_epoch_id(&h[boundary_idx]).unwrap();
+    let old_epoch_info = handle.get_epoch_info(&old_epoch_id).unwrap();
+    let old_layout = handle.get_shard_layout(&old_epoch_id).unwrap();
+    let mut schedules_diverge = false;
+    for i in [boundary_idx + 1, boundary_idx + 2] {
+        let anchor = h[i];
+        let epoch_id = handle.get_epoch_id(&anchor).unwrap();
+        assert_ne!(epoch_id, old_epoch_id, "anchor at height {i} must be in the new epoch");
+        let bl = handle.get_chunk_producer_blacklist(&anchor).unwrap();
+        assert!(
+            bl.is_empty(),
+            "first new-epoch anchor at height {i} must have an empty blacklist, got {bl:?}"
+        );
+        let shard_id = handle.get_shard_layout(&epoch_id).unwrap().shard_ids().next().unwrap();
+        let height_created = i as u64 + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let stored = handle
+            .get_chunk_producer_info_anchored(Some(&anchor), &epoch_id, height_created, shard_id)
+            .unwrap();
+        let canonical = handle
+            .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created, shard_id })
+            .unwrap();
+        assert_eq!(
+            stored, canonical,
+            "anchor at height {i}: seeded row must be the new epoch's canonical producer"
+        );
+        let old_pick = old_epoch_info.get_validator(
+            old_epoch_info.sample_chunk_producer(&old_layout, shard_id, height_created).unwrap(),
+        );
+        schedules_diverge |= old_pick != canonical;
+    }
+    // Non-vacuous: the stored == canonical assertions can only catch old-epoch sampling if
+    // the two epochs' schedules actually differ at a tested height. The fixture is fully
+    // deterministic, so once this holds it holds forever.
+    assert!(
+        schedules_diverge,
+        "old and new epoch schedules coincide at both tested heights; the canonical-producer \
+         assertions would not catch old-epoch sampling"
+    );
 }
 
 // Start-of-epoch grace: with the down node already miss-heavy, the accessor stays empty until
 // the anchor is at least EARLY_KICKOUT_EPOCH_GRACE_BLOCKS into the epoch, then blacklists it.
-// `blocks_into_epoch` is measured from the epoch start height (not 0), so the grace boundary is
-// pinned against the actual start. Also checks the seeder and accessor agree at the exact
-// threshold: inside the grace the seeded row is the plain pick, and at the first active anchor it
-// is the blacklist-aware pick (never the down node).
 #[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_respects_epoch_grace() {
@@ -551,12 +633,15 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    // Grace is measured against the last-final block (grandparent, anchor height - 2), so the
+    // boundary in anchor height is the raw grace count + 2.
     let epoch_start = handle.get_epoch_start_from_epoch_id(&epoch_id).unwrap();
 
-    // Last anchor inside the grace (blocks_into_epoch == GRACE - 1).
-    let in_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS - 1) as usize;
+    // Down node is already miss-heavy, so an empty result here is the grace, not a lack of misses.
+    let in_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 1) as usize;
     let bl_grace = handle.get_chunk_producer_blacklist(&h[in_grace]).unwrap();
     assert!(bl_grace.is_empty(), "anchor inside the grace window must be empty, got {bl_grace:?}");
+    // Inside the grace the seeded row is the plain pick (exclusion suppressed for both paths).
     let in_grace_ch = in_grace as u64 + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
     let plain_in_grace = epoch_info
         .get_validator(epoch_info.sample_chunk_producer(&layout, shard_id, in_grace_ch).unwrap());
@@ -565,8 +650,7 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
         .unwrap();
     assert_eq!(stored_in_grace, plain_in_grace, "in-grace seeded row must be the plain pick");
 
-    // First anchor at the grace boundary (blocks_into_epoch == GRACE): blacklist active.
-    let past_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS) as usize;
+    let past_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 2) as usize;
     let bl_past = handle.get_chunk_producer_blacklist(&h[past_grace]).unwrap();
     assert_eq!(
         bl_past,
@@ -602,9 +686,9 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     );
 }
 
-// the seeded `DBCol::ChunkProducers` row equals the plain height
-// sampler while the blacklist is empty, and equals the blacklist-aware sampler (never the
-// down node) once it is non-empty. The strict consensus reader returns that same row.
+// The seeded `DBCol::ChunkProducers` row equals the plain height sampler while the blacklist
+// is empty, and the blacklist-aware sampler (never the down node) once it is non-empty. The
+// strict consensus reader returns that same row.
 #[cfg(feature = "nightly")]
 #[test]
 fn seeded_rows_match_blacklist_aware_sampler() {
@@ -665,8 +749,8 @@ fn seeded_rows_match_blacklist_aware_sampler() {
     );
 }
 
-// Missing-row invariant: wherever the blacklist as of an anchor is
-// non-empty, that anchor's `DBCol::ChunkProducers` rows are present for every shard. So the
+// Missing-row invariant: wherever the blacklist as of an anchor is non-empty, that anchor's
+// `DBCol::ChunkProducers` rows are present for every shard. So the
 // aggregator's lenient reader never height-samples (which would re-credit the down node)
 // while a blacklist is active -- the missing-row region and the non-empty-blacklist region
 // are disjoint.
@@ -859,41 +943,56 @@ fn record_block_frozen_final(
     .commit();
 }
 
-// Regression guard for the per-block aggregator walk in `seed_chunk_producers`: with finality
-// frozen, the incremental aggregator update is skipped while the seed re-scans the growing
-// not-yet-finalized suffix every block. Pins the current per-block O(stall-depth) walk as a guard (a future cache
-// tightens it) and catches a worse-than-quadratic regression. Distinct from the walk-count
-// invariant in `test_finalize_epoch_large_epoch_length`, which is gated off nightly.
+// Regression guard: with finality frozen the seeder walks only to the pinned last-final block,
+// so per-block cost is O(1) and total is linear, not the old O(stall-depth) suffix re-walk. Two
+// stall depths check the per-block walk does not grow with depth.
 #[cfg(feature = "nightly")]
 #[test]
 fn seed_walk_bounded_under_finality_stall() {
     use std::sync::atomic::Ordering;
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
-    let count = 40u64;
-    let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
-    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
-    // Every block reports finality frozen at genesis, so `largest_final_height` never advances.
-    for height in 1..=count {
-        record_block_frozen_final(
-            &mut em,
-            h[(height - 1) as usize],
-            h[height as usize],
-            height,
-            h[0],
-            0,
-        );
+
+    // Total per-block seeding walk iterations over a `count`-block stall frozen at genesis.
+    fn stall_walk(count: u64) -> usize {
+        let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+        let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
+        let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
+        record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+        let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+        for height in 1..=count {
+            record_block_frozen_final(
+                &mut em,
+                h[(height - 1) as usize],
+                h[height as usize],
+                height,
+                h[0],
+                0,
+            );
+        }
+        em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before
     }
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    // The seed re-scans the not-yet-finalized suffix each block: total ~ sum_{k=1..count} k. Pin a
-    // generous O(depth^2) upper bound; a future cache drops it toward O(count).
-    let upper = (count * (count + 1)) as usize;
-    let count = count as usize;
-    assert!(walked >= count, "seed walk should touch >= 1 block per recorded block, got {walked}");
+
+    let short = 40u64;
+    let long = 120u64;
+    let walked_short = stall_walk(short);
+    let walked_long = stall_walk(long);
+    let per_block_cap = 4;
     assert!(
-        walked <= upper,
-        "seed walk cost {walked} exceeds O(depth^2) bound {upper} — regression?"
+        walked_short >= short as usize,
+        "seed walk should touch >= 1 block per recorded block, got {walked_short}"
+    );
+    assert!(
+        walked_short <= per_block_cap * short as usize,
+        "short stall walk {walked_short} exceeds {per_block_cap}/block — suffix re-walk regression?"
+    );
+    assert!(
+        walked_long <= per_block_cap * long as usize,
+        "long stall walk {walked_long} exceeds {per_block_cap}/block — suffix re-walk regression?"
+    );
+    // Linearity: 3x the depth must not more than 3x the walk (a quadratic re-walk would ~9x).
+    assert!(
+        walked_long * short as usize <= 2 * walked_short * long as usize,
+        "per-block walk grew with stall depth ({walked_short} over {short} vs {walked_long} over \
+         {long}) — finality-stall suffix re-walk regression?"
     );
 }
 
