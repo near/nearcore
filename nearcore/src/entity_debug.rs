@@ -44,7 +44,7 @@ use near_store::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,
     HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NibbleSlice,
     RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, ShardUId, Store,
-    TAIL_KEY,
+    TAIL_KEY, Trie, TrieDBStorage,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -416,10 +416,14 @@ impl EntityDebugHandlerImpl {
             EntityQuery::TrieNode { trie_path } => {
                 let trie_path =
                     TriePath::parse(trie_path).ok_or_else(|| anyhow!("Invalid path"))?;
-                let trie = self
-                    .runtime
-                    .get_tries()
-                    .get_trie_for_shard(trie_path.shard_uid, trie_path.state_root);
+                // The shard uid and state root come from the request, so read straight from the
+                // state column rather than through `get_tries().get_trie_for_shard`, which would
+                // register a trie cache and prefetch threads per shard uid it is handed.
+                let storage = Arc::new(TrieDBStorage::new(
+                    self.runtime.get_tries().store(),
+                    trie_path.shard_uid,
+                ));
+                let trie = Trie::new(storage, trie_path.state_root, None);
                 let node = trie
                     .debug_get_node(&trie_path.path)?
                     .ok_or_else(|| anyhow!("Node not found"))?;
