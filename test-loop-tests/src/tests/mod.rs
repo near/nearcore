@@ -22,6 +22,7 @@ mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
+mod debug_block_status;
 mod debug_epoch_info;
 mod deploy_compute_cost;
 mod deterministic_account_id;
