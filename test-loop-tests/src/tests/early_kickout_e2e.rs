@@ -10,9 +10,9 @@
 //! * `test_early_kickout_reassignment` — induce a real production miss with the
 //!   adversarial chunk-skip message and assert the offending slot is reassigned
 //!   while the shard keeps producing chunks (liveness).
-//! * `test_early_kickout_epoch_sync_bootstrap` — a fresh node epoch-syncs into a
-//!   network that ALREADY has an active reassignment and must resolve chunk
-//!   producers consistently with the full validators, with no
+//! * `slow_test_early_kickout_epoch_sync_bootstrap` — a fresh node epoch-syncs
+//!   into a network that ALREADY has an active reassignment and must resolve
+//!   chunk producers consistently with the full validators, with no
 //!   `ChunkProducerNotInDB` errors.
 //!
 //! Both require `nightly` (feature gate) and `test_features` (adversarial
@@ -31,6 +31,7 @@ use crate::tests::sync::util::{TEST_EPOCH_SYNC_HORIZON, far_horizon_height};
 use crate::utils::account::{
     create_account_id, create_validator_id, create_validators_spec, validators_spec_clients,
 };
+use borsh::BorshDeserialize;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -38,13 +39,15 @@ use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_epoch_manager::set_early_kickout_thresholds_for_testing;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountInfo, Balance, ValidatorInfoIdentifier};
+use near_primitives::types::{AccountInfo, Balance, BlockHeight, EpochId, ValidatorInfoIdentifier};
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
+use std::collections::HashSet;
 
 /// Grace window used by both tests, in blocks into the epoch. Small enough that a
 /// test-loop chain clears it in seconds, large enough that the first blocks of an
@@ -269,20 +272,24 @@ fn test_early_kickout_reassignment() {
 /// removed at an epoch boundary; the early-kickout math keeps it blacklisted
 /// mid-epoch, so the reassignment recurs every epoch.
 ///
-/// The bootstrap property is checked two ways: (1) across the synced epoch — from
-/// the epoch-sync-seeded first block to the catch-up head — the node's
-/// `ChunkProducers` rows and aggregator-derived validator stats match the source,
-/// which pins the blacklist-activation height and the reassigned producer per
-/// shard; and (2) after the node catches up, across a post-sync window with the
-/// reassignment active it resolves every shard with no `ChunkProducerNotInDB`,
-/// agrees with the source, and reproduces >= 1 real reassignment.
+/// The bootstrap property is checked three ways: (0) immediately after the
+/// epoch-sync proof applies, the `EpochStart` row it writes for the synced epoch
+/// exists and matches the source — without the fix the test dies here, in
+/// seconds, instead of timing out on catch-up; (1) after catch-up, walking the
+/// canonical chain from the head back to the epoch-sync-seeded first block,
+/// every `ChunkProducers` row matches the source — across the synced epoch this
+/// pins the blacklist-activation height and the reassigned producer per shard —
+/// and the synced epoch's validator stats (which feed `next_bp_hash`) match the
+/// source; and (2) across a post-sync window with the reassignment active the
+/// node resolves every shard with no `ChunkProducerNotInDB`, agrees with the
+/// source, and reproduces >= 1 real reassignment.
 ///
 /// The 151->152 activation edge is intentionally not exercised here (see Test A
 /// rationale); it is covered by the epoch-manager unit tests and the cold-storage
 /// boundary test.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_early_kickout_epoch_sync_bootstrap() {
+fn slow_test_early_kickout_epoch_sync_bootstrap() {
     init_test_logger();
 
     assert!(
@@ -385,6 +392,47 @@ fn test_early_kickout_epoch_sync_bootstrap() {
     let new_node_idx = env.node_datas.len() - 1;
     let synced_em = env.node(new_node_idx).client().epoch_manager.clone();
 
+    // Wait for the epoch-sync proof to apply: the follower's header head jumps from
+    // genesis into the synced epoch (or past it — header sync applies whole batches
+    // per event) in the same event that commits the proof's store update.
+    {
+        let synced_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+        env.test_loop.run_until(
+            |data| {
+                data.get(&synced_handle).client.chain.header_head().unwrap().height > epoch_length
+            },
+            Duration::seconds(200),
+        );
+    }
+
+    // Assertion 0: the synced epoch's `EpochStart` row. It is the min-height row on
+    // the follower: a fresh node has none before epoch sync (genesis writes none),
+    // `apply_validated_proof` writes exactly one, and header sync only adds rows for
+    // later epochs. The `height > 0` filter keeps the derivation correct even if a
+    // genesis row ever appears. Without the fix there is no row at all and the test
+    // fails HERE, in seconds, instead of timing out on catch-up.
+    let (synced_epoch_id, synced_epoch_start) = {
+        let synced_store = env.node(new_node_idx).store();
+        let (epoch_id, height) = synced_store
+            .iter(DBCol::EpochStart)
+            .map(|(key, value)| {
+                let epoch_id = EpochId(CryptoHash::try_from(&key[..]).unwrap());
+                let height = BlockHeight::try_from_slice(&value).unwrap();
+                (epoch_id, height)
+            })
+            .filter(|(_, height)| *height > 0)
+            .min_by_key(|(_, height)| *height)
+            .expect("epoch sync wrote no EpochStart row for the synced epoch");
+        let source_height: Option<BlockHeight> =
+            env.node(0).store().get_ser(DBCol::EpochStart, epoch_id.as_ref());
+        assert_eq!(
+            source_height,
+            Some(height),
+            "seeded EpochStart height disagrees with the source for epoch {epoch_id:?}"
+        );
+        (epoch_id, height)
+    };
+
     // Bring the fresh node to the network tip (epoch sync -> header -> state ->
     // block). The network keeps advancing (and the target keeps missing) while it
     // bootstraps, so the node syncs into a live, kicking network.
@@ -408,59 +456,138 @@ fn test_early_kickout_epoch_sync_bootstrap() {
         "synced node tail {synced_tail} should be past the first epoch (epoch sync skips blocks)"
     );
 
-    // Assertion 1: across the synced epoch — from the epoch-sync-seeded first block
-    // up to the catch-up head — the fresh node's `ChunkProducers` rows and its
-    // aggregator-derived per-validator stats match the source. "Node joined" alone
-    // is too weak: attribution can diverge (crediting the kicked-out producer for
-    // chunks its replacement made) well before a wrong `next_bp_hash` surfaces, so
-    // compare the raw rows and the stats built from them directly. This window
-    // contains the blacklist activation, so row equality also pins the activation
-    // height and the reassigned producer per shard.
+    // Assertion 1: walk the canonical chain from the catch-up head back to the
+    // epoch-sync-seeded first block, comparing every `ChunkProducers` row against
+    // the source. "Node joined" alone is too weak: attribution can diverge
+    // (crediting the kicked-out producer for chunks its replacement made) well
+    // before a wrong `next_bp_hash` surfaces. Across the synced epoch, row parity
+    // pins the blacklist-activation height and the reassigned producer per shard;
+    // later epochs cover each re-activation up to the head. The walk uses headers
+    // (not the height index): header-synced heights have no canonical-index entry.
+    // This must stay the FIRST assertion after catch-up — retention GC deletes
+    // header-only hashes' rows once their heights leave the GC window, and the
+    // synced epoch has about one epoch of margin here.
     {
         let synced = env.node(new_node_idx);
         let source = env.node(0);
-        let synced_head = synced.head();
-        let epoch_start = synced_em.get_epoch_start_height(&synced_head.last_block_hash).unwrap();
-        let shard_layout = synced_em.get_shard_layout(&synced_head.epoch_id).unwrap();
-        for height in epoch_start..=synced_head.height {
-            // Skipped heights have no canonical block on either node.
-            let Ok(block_hash) = synced.client().chain.get_block_hash_by_height(height) else {
-                continue;
-            };
+        let final_head = synced.final_head();
+        let synced_chain = &synced.client().chain;
+        let synced_epoch_info = synced_em.get_epoch_info(&synced_epoch_id).unwrap();
+
+        // Heights walked inside the synced epoch, for the offset check below.
+        let mut synced_epoch_heights = HashSet::new();
+        let mut reassigned_rows = 0u32;
+        let mut hash = final_head.last_block_hash;
+        loop {
+            let header = synced_chain.get_block_header(&hash).unwrap_or_else(|e| {
+                panic!("header walk broke at {hash} before the synced epoch start: {e:?}")
+            });
+            let height = header.height();
+            assert!(
+                height >= synced_epoch_start,
+                "walk stepped below the synced epoch start {synced_epoch_start} without \
+                 landing on it (reached {height}); wrong fork or missing seeded block"
+            );
+            let in_synced_epoch = header.epoch_id() == &synced_epoch_id;
+            let shard_layout = synced_em.get_shard_layout(header.epoch_id()).unwrap();
             for shard_id in shard_layout.shard_ids() {
-                let key = get_block_shard_id(&block_hash, shard_id);
+                let key = get_block_shard_id(&hash, shard_id);
                 let synced_row: Option<ValidatorStake> =
                     synced.store().get_ser(DBCol::ChunkProducers, &key);
                 let source_row: Option<ValidatorStake> =
                     source.store().get_ser(DBCol::ChunkProducers, &key);
                 assert!(
                     synced_row.is_some(),
-                    "ChunkProducers row missing on synced node at height {height} shard {shard_id}"
+                    "ChunkProducers row missing on the synced node at height {height} shard \
+                     {shard_id} (a GC'd range means this assertion ran too late in the test)"
                 );
                 assert_eq!(
                     synced_row, source_row,
-                    "ChunkProducers row diverged from source at height {height} shard {shard_id}"
+                    "ChunkProducers row diverged from the source at height {height} shard \
+                     {shard_id}"
                 );
+                // Reassignment pin: a row differing from the PLAIN schedule proves the
+                // blacklist was active for that anchor. Rows sample the producer at
+                // anchor height + 2, so only anchors whose sample height stays inside
+                // the synced epoch count (the walk visits height + 2 before height).
+                if in_synced_epoch && synced_epoch_heights.contains(&(height + 2)) {
+                    let planned = synced_epoch_info
+                        .sample_chunk_producer(&shard_layout, shard_id, height + 2)
+                        .map(|id| synced_epoch_info.get_validator(id).account_id().clone());
+                    if synced_row.as_ref().map(|stake| stake.account_id()) != planned.as_ref() {
+                        reassigned_rows += 1;
+                    }
+                }
             }
+            if in_synced_epoch {
+                synced_epoch_heights.insert(height);
+            }
+            if height == synced_epoch_start {
+                assert!(
+                    in_synced_epoch,
+                    "block at the synced epoch start height belongs to {:?}, expected {:?}",
+                    header.epoch_id(),
+                    synced_epoch_id
+                );
+                break;
+            }
+            hash = *header.prev_hash();
         }
-        // Aggregator parity at the synced node's final head: the per-validator
-        // produced/expected stats are what feed `next_bp_hash`, and on the synced
-        // node this read also exercises the `EpochStart` row that only exists
-        // because epoch sync now writes it.
-        let final_head = synced.final_head();
-        assert_eq!(
-            final_head.epoch_id, synced_head.epoch_id,
-            "parity probe expects the final head inside the synced epoch"
+        assert!(
+            synced_epoch_heights.len() as u64 >= epoch_length / 2,
+            "synced-epoch coverage too thin: {} headers walked",
+            synced_epoch_heights.len()
         );
-        let synced_info = synced_em
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(final_head.last_block_hash))
-            .expect("synced node must compute validator info for the synced epoch");
+        assert!(
+            reassigned_rows >= 1,
+            "no blacklist-driven reassignment found in the synced epoch's rows \
+             ({} headers walked)",
+            synced_epoch_heights.len()
+        );
+
+        // Aggregator-derived validator stats for the SYNCED epoch: the
+        // produced/expected stats feed rewards and thus `next_bp_hash`. On the
+        // follower, `get_validator_info(EpochId)` resolves the epoch start through
+        // the `EpochStart` row that only exists because epoch sync now writes it.
+        let synced_info =
+            synced_em.get_validator_info(ValidatorInfoIdentifier::EpochId(synced_epoch_id)).expect(
+                "synced node must compute validator info for the synced epoch \
+                 (EpochOutOfBounds means the seeded EpochStart row is missing)",
+            );
         let source_info = source_em
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(final_head.last_block_hash))
+            .get_validator_info(ValidatorInfoIdentifier::EpochId(synced_epoch_id))
             .unwrap();
         assert_eq!(
             synced_info.current_validators, source_info.current_validators,
-            "aggregator-derived validator stats diverged between synced node and source"
+            "synced-epoch validator stats diverged between synced node and source"
+        );
+        // Raw epoch-summary parity: `current_validators` flattens the summary; the
+        // raw row also covers kickouts, proposals and stats wholesale.
+        let synced_summary = synced
+            .store()
+            .get(DBCol::EpochValidatorInfo, synced_epoch_id.as_ref())
+            .map(|slice| slice.to_vec());
+        let source_summary = source
+            .store()
+            .get(DBCol::EpochValidatorInfo, synced_epoch_id.as_ref())
+            .map(|slice| slice.to_vec());
+        assert!(synced_summary.is_some(), "synced node has no epoch summary for the synced epoch");
+        assert_eq!(
+            synced_summary, source_summary,
+            "EpochValidatorInfo summary diverged for the synced epoch"
+        );
+        // Live-aggregator parity at the catch-up head. The head epoch's `EpochStart`
+        // row comes from normal header processing, not the fix; this complements the
+        // synced-epoch summary check above.
+        let head_info = synced_em
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(final_head.last_block_hash))
+            .unwrap();
+        let source_head_info = source_em
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(final_head.last_block_hash))
+            .unwrap();
+        assert_eq!(
+            head_info.current_validators, source_head_info.current_validators,
+            "aggregator-derived validator stats diverged at the catch-up head"
         );
     }
 
