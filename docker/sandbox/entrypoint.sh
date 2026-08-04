@@ -31,12 +31,22 @@ if [ -f /config/config.json ]; then
     cp /config/config.json /data/config.json
 fi
 
-# The sandbox produces a block every 120ms, which needs a higher gc_blocks_limit than the old
-# default of 2 - config validation now rejects a gc that cannot keep up with block production.
-# `init` above writes a suitable value, but a /data volume or a /config override created before
-# that was enforced still carries the stale default, so repair exactly that value here.
-if [ -f /data/config.json ] && grep -q '"gc_blocks_limit": 2,' /data/config.json; then
-    sed -i 's/"gc_blocks_limit": 2,/"gc_blocks_limit": 9,/' /data/config.json
+# The sandbox produces a block every 120ms, which needs a higher gc_blocks_limit than the
+# default of 2 - config validation rejects a gc that cannot keep up with block production.
+# `init` writes a suitable value, but a /data volume or a /config override created before that
+# was enforced does not. Repair only a config that is already rejected, so a healthy one is
+# never rewritten. 9 is ceil(2 * 500ms gc_step_period / 120ms block time).
+# `--unsafe-fast-startup` skips the genesis consistency checks that `run` repeats below; only
+# config validation is relevant here, and it runs regardless of that flag.
+if [ -f /data/config.json ] &&
+    ! near-sandbox --home /data --unsafe-fast-startup validate-config >/dev/null 2>&1; then
+    # Same filesystem as the target, so the replacement is an atomic rename.
+    repaired=$(mktemp /data/config.json.XXXXXX)
+    if jq '.gc_blocks_limit = 9' /data/config.json >"$repaired" 2>/dev/null; then
+        mv "$repaired" /data/config.json
+    else
+        rm -f "$repaired"
+    fi
 fi
 
 exec near-sandbox --home /data run --rpc-addr 0.0.0.0:3030 --network-addr 0.0.0.0:3031
