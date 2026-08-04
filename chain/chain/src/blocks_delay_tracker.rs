@@ -18,6 +18,15 @@ use time::ext::InstantExt as _;
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
+/// How far ahead of the head a block may be and still be tracked.
+///
+/// Mirrors `BLOCK_HORIZON` in the client, which is the point past which a block
+/// is dropped without processing. The client records a block in the tracker
+/// *before* applying that check, and `update_head` only reclaims entries below
+/// the head, so without this bound a node that is far behind the tip tracks
+/// every gossiped block at the tip forever.
+const BLOCK_DELAY_TRACKING_AHEAD: u64 = 500;
+
 /// A centralized place that records monitoring information about the important timestamps throughout
 /// the lifetime of blocks and chunks. It keeps information of recent blocks and chunks
 /// (blocks with height > head height - BLOCK_DELAY_TRACKING_HORIZON).
@@ -186,12 +195,23 @@ impl BlocksDelayTracker {
 
     pub fn mark_block_received(&mut self, block: &Block) {
         let block_hash = block.header().hash();
+        let height = block.header().height();
+
+        // During catch-up sync the node keeps receiving gossiped blocks from the
+        // tip, which the client drops without processing. They sit above the head
+        // and are therefore never reclaimed by `update_head`, so refuse to track
+        // them at all. `head_height` is zero until the first block finishes
+        // processing; don't apply the bound before we know where the head is.
+        if self.head_height != 0
+            && height > self.head_height.saturating_add(BLOCK_DELAY_TRACKING_AHEAD)
+        {
+            return;
+        }
 
         let Entry::Vacant(entry) = self.blocks.entry(*block_hash) else {
             return;
         };
 
-        let height = block.header().height();
         let chunks = block
             .chunks()
             .iter()
