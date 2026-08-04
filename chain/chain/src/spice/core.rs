@@ -455,19 +455,41 @@ impl SpiceCoreReader {
         Ok(())
     }
 
-    /// Upper bound on the number of core statements a block in this epoch may carry.
+    fn validators_len(&self, epoch_id: &EpochId) -> Result<usize, InvalidSpiceCoreStatementsError> {
+        self.epoch_manager
+            .get_epoch_info(epoch_id)
+            .map(|epoch_info| epoch_info.validators_len())
+            .map_err(|err| {
+                tracing::debug!(target: "spice_core", ?epoch_id, ?err, "failed getting epoch info");
+                InvalidSpiceCoreStatementsError::UnknownEpochConfig { epoch_id: *epoch_id }
+            })
+    }
+
+    /// Upper bound on the number of core statements a block may carry.
     pub(crate) fn max_core_statements_per_block(
         &self,
         block_header: &BlockHeader,
     ) -> Result<usize, InvalidSpiceCoreStatementsError> {
         let epoch_id = block_header.epoch_id();
-        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id).map_err(|err| {
-            tracing::debug!(target: "spice_core", ?epoch_id, ?err, "failed getting epoch info");
-            InvalidSpiceCoreStatementsError::UnknownEpochConfig { epoch_id: *epoch_id }
-        })?;
+        let prev_epoch_id = self
+            .epoch_manager
+            .get_prev_epoch_id_from_prev_block(block_header.prev_hash())
+            .map_err(|err| {
+                tracing::debug!(
+                    target: "spice_core",
+                    prev_hash = ?block_header.prev_hash(),
+                    ?err,
+                    "failed getting prev epoch id",
+                );
+                InvalidSpiceCoreStatementsError::UnknownEpochConfig { epoch_id: *epoch_id }
+            })?;
+
+        // Blocks can carry statements for the current and the previous epoch
+        let max_endorsements_per_chunk =
+            self.validators_len(epoch_id)?.max(self.validators_len(&prev_epoch_id)?);
         // Each chunk can carry one endorsement per validator, plus an execution result statement
-        let per_chunk = epoch_info.validators_len().saturating_add(1);
-        Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(per_chunk))
+        let max_statements_per_chunk = max_endorsements_per_chunk.saturating_add(1);
+        Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(max_statements_per_chunk))
     }
 
     pub fn validate_core_statements_in_block(
@@ -485,6 +507,13 @@ impl SpiceCoreReader {
                 .ok_or(UnknownBlock { block_hash: *block_hash })
         }
 
+        let prev_uncertified_chunks = self
+            .get_uncertified_chunks(block.header().prev_hash())
+            .map_err(|err| {
+                tracing::debug!(target: "spice_core", prev_hash=?block.header().prev_hash(), ?err, "failed getting uncertified_chunks");
+                NoPrevUncertifiedChunks
+            })?;
+
         let core_statements = block.spice_core_statements();
         let max_core_statements = self.max_core_statements_per_block(block.header())?;
         if core_statements.len() > max_core_statements {
@@ -499,12 +528,6 @@ impl SpiceCoreReader {
             }
         }
 
-        let prev_uncertified_chunks = self
-            .get_uncertified_chunks(block.header().prev_hash())
-            .map_err(|err| {
-                tracing::debug!(target: "spice_core", prev_hash=?block.header().prev_hash(), ?err, "failed getting uncertified_chunks");
-                NoPrevUncertifiedChunks
-            })?;
         let waiting_on_endorsements: HashSet<_> = prev_uncertified_chunks
             .iter()
             .flat_map(|info| {
