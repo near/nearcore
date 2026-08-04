@@ -1,4 +1,4 @@
-use crate::EpochManagerHandle;
+use crate::{EpochManagerHandle, SampleEpoch};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
@@ -619,10 +619,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns the per-shard set of chunk producers whose cumulative epoch stats are past the
-    /// early-kickout thresholds, computed from the aggregator's stats up to `anchor_hash`.
-    /// The epoch is derived from `anchor_hash` via `get_epoch_id_from_prev_block`. Gated by
-    /// `ProtocolFeature::EarlyKickout`: empty when the feature is off, and empty at an epoch
-    /// boundary (the aggregator's stats belong to the anchor's epoch).
+    /// early-kickout thresholds, computed from the aggregator's stats up to the anchor's
+    /// last-final block. The epoch is the anchor's own (via `get_epoch_id`), mirroring
+    /// `seed_chunk_producers`. Gated by `ProtocolFeature::EarlyKickout`: empty when the
+    /// feature is off, and empty for early-epoch anchors (the aggregator basis still sits in
+    /// the previous epoch, then the start-of-epoch grace applies).
     fn get_chunk_producer_blacklist(
         &self,
         anchor_hash: &CryptoHash,
@@ -1133,14 +1134,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         anchor_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(anchor_hash)?;
+        // The anchor's own epoch, matching the seeder's gate and sample epoch.
+        let epoch_id = self.get_epoch_id(anchor_hash)?;
         let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(HashMap::new());
         }
-        // Must mirror `seed_chunk_producers`'s last-final basis, or this live read disagrees
-        // with the stored row. Read-guard methods directly; adapter methods would re-take
-        // `self.read()` and deadlock.
+        // Same basis as `seed_chunk_producers`, via the shared helper, so this live read
+        // agrees with the stored row. Read-guard methods directly; adapter methods would
+        // re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
         let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
         let final_block_hash = *anchor_info.last_final_block_hash();
@@ -1148,26 +1150,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
             return Ok(HashMap::new());
         }
         let final_block_height = anchor_info.last_finalized_height();
-        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(&final_block_hash)?;
-        if aggregator.epoch_id != epoch_id {
-            // Cross-epoch anchor: empty either way; checked before the walk for the same
-            // post-epoch-sync reason as in `seed_chunk_producers`.
-            return Ok(HashMap::new());
-        }
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        // Same epoch-start basis as `seed_chunk_producers`. Inherent method on the
-        // guard: the trait default would re-take `self.read()` and deadlock.
-        let epoch_start = epoch_manager.get_epoch_start_height(&final_block_hash)?;
-        let blocks_into_epoch = final_block_height.saturating_sub(epoch_start);
-        Ok(crate::blacklist_for_epoch(
-            &aggregator,
-            &epoch_id,
-            epoch_info.as_ref(),
-            &shard_layout,
-            blocks_into_epoch,
-        )
-        .blacklist)
+        let epoch = SampleEpoch {
+            epoch_id: &epoch_id,
+            epoch_info: epoch_info.as_ref(),
+            shard_layout: &shard_layout,
+        };
+        Ok(epoch_manager
+            .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
+            .blacklist)
     }
 
     fn get_chunk_validator_assignments(
