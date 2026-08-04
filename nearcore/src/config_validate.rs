@@ -1,9 +1,14 @@
 use crate::config::Config;
-use near_chain_configs::{DumpConfig, ExternalStorageLocation};
+use near_async::time::Duration;
+use near_chain_configs::{DumpConfig, ExternalStorageLocation, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::Path;
+
+/// Recommended ratio of gc throughput to block production, giving the tail headroom to catch
+/// up rather than merely break even. See the rule of thumb on `GCConfig::default()`.
+pub(crate) const RECOMMENDED_GC_RATE_MULTIPLIER: i128 = 2;
 
 /// Validate Config extracted from config.json.
 /// This function does not panic. It returns the error if any validation fails.
@@ -64,18 +69,7 @@ impl<'a> ConfigValidator<'a> {
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
-        if self.config.gc.gc_blocks_limit == 0
-            || self.config.gc.gc_fork_clean_step == 0
-            || self.config.gc.gc_num_epochs_to_keep == 0
-        {
-            let error_message = format!(
-                "gc config values should all be greater than 0, but gc_blocks_limit is {:?}, gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}.",
-                self.config.gc.gc_blocks_limit,
-                self.config.gc.gc_fork_clean_step,
-                self.config.gc.gc_num_epochs_to_keep
-            );
-            self.validation_errors.push_config_semantics_error(error_message);
-        }
+        self.validate_gc_config();
 
         let tx_routing_height_horizon = self.config.tx_routing_height_horizon;
         if tx_routing_height_horizon < 2 {
@@ -89,6 +83,88 @@ impl<'a> ConfigValidator<'a> {
                 "'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}."
             );
             self.validation_errors.push_config_semantics_error(error_message);
+        }
+    }
+
+    /// Gc reclaims at most `gc_blocks_limit` blocks per `gc_step_period` tick and never catches
+    /// up, so it has to outpace block production or storage grows without bound.
+    fn validate_gc_config(&mut self) {
+        let gc_values_positive = self.config.gc.gc_blocks_limit != 0
+            && self.config.gc.gc_fork_clean_step != 0
+            && self.config.gc.gc_num_epochs_to_keep != 0
+            && self.config.gc.gc_step_period > Duration::ZERO;
+        if !gc_values_positive {
+            let error_message = format!(
+                "gc config values should all be greater than 0, but gc_blocks_limit is {:?}, \
+                 gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}, gc_step_period is {:?}.",
+                self.config.gc.gc_blocks_limit,
+                self.config.gc.gc_fork_clean_step,
+                self.config.gc.gc_num_epochs_to_keep,
+                self.config.gc.gc_step_period
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+
+        // Values below the minimum are silently clamped, so warn about what the node really does.
+        let gc_num_epochs_to_keep = self.config.gc.gc_num_epochs_to_keep();
+        if self.config.gc.gc_num_epochs_to_keep < gc_num_epochs_to_keep {
+            tracing::warn!(
+                target: "config",
+                "gc_num_epochs_to_keep is {}, below the supported minimum of \
+                 {MIN_GC_NUM_EPOCHS_TO_KEEP}; it is silently clamped and the node retains \
+                 {gc_num_epochs_to_keep} epochs of data.",
+                self.config.gc.gc_num_epochs_to_keep,
+            );
+        }
+
+        let min_block_production_delay = self.config.consensus.min_block_production_delay;
+        // Nanoseconds, so sub-millisecond block times are not truncated to zero.
+        let block_delay = min_block_production_delay.whole_nanoseconds();
+        if block_delay <= 0 {
+            // An unbounded block rate that no gc config can keep up with.
+            let error_message = format!(
+                "consensus.min_block_production_delay is {min_block_production_delay}, so blocks \
+                 are produced at an unbounded rate and no gc config can keep up with them."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+            return;
+        }
+        if !gc_values_positive {
+            // The rate below is only meaningful once the values above are sane.
+            return;
+        }
+        let gc_step_period = self.config.gc.gc_step_period;
+        let produced = gc_step_period.whole_nanoseconds();
+        let gc_blocks_limit = self.config.gc.gc_blocks_limit;
+
+        let reclaimed = (gc_blocks_limit as i128).saturating_mul(block_delay);
+        let recommended_reclaim = produced.saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER);
+        if reclaimed >= recommended_reclaim {
+            return;
+        }
+        let recommended_gc_blocks_limit =
+            (recommended_reclaim as u128).div_ceil(block_delay as u128);
+
+        if reclaimed < produced {
+            let error_message = format!(
+                "garbage collection cannot keep up with block production: gc_blocks_limit is \
+                 {gc_blocks_limit} per gc_step_period of {gc_step_period}, but a block can be \
+                 produced every min_block_production_delay = {min_block_production_delay}. The \
+                 gc tail would fall permanently behind the chain head and storage would grow \
+                 without bound. Raise gc_blocks_limit to at least \
+                 {recommended_gc_blocks_limit}, or lower gc_step_period."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        } else {
+            tracing::warn!(
+                target: "config",
+                "gc_blocks_limit of {gc_blocks_limit} per gc_step_period of {gc_step_period} \
+                 leaves no headroom over min_block_production_delay = \
+                 {min_block_production_delay}. Garbage collection should run about \
+                 {RECOMMENDED_GC_RATE_MULTIPLIER}x faster than block production so the gc tail \
+                 can catch up after forks and restarts; consider raising gc_blocks_limit to \
+                 {recommended_gc_blocks_limit}."
+            );
         }
     }
 
@@ -295,7 +371,13 @@ impl<'a> ConfigValidator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_chain_configs::{CloudArchivalWriterConfig, StateSyncConfig, TrackedShardsConfig};
+    use crate::config::{
+        MAINNET_MIN_BLOCK_PRODUCTION_DELAY, TESTNET_MIN_BLOCK_PRODUCTION_DELAY,
+        gc_blocks_limit_for_block_delay, set_block_production_delay,
+    };
+    use near_chain_configs::{
+        CloudArchivalWriterConfig, MIN_BLOCK_PRODUCTION_DELAY, StateSyncConfig, TrackedShardsConfig,
+    };
     use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 
     #[test]
@@ -313,6 +395,117 @@ mod tests {
         let mut config = Config::default();
         config.gc.gc_blocks_limit = 0;
         validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "gc config values should all be greater than 0")]
+    fn test_gc_step_period_nonzero() {
+        let mut config = Config::default();
+        config.gc.gc_step_period = Duration::ZERO;
+        validate_config(&config).unwrap();
+    }
+
+    /// 5 bps against the default gc: 2 blocks per 500ms reclaims 4/s, 5/s are produced.
+    #[test]
+    #[should_panic(expected = "garbage collection cannot keep up with block production")]
+    fn test_gc_too_slow_for_block_production() {
+        let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::milliseconds(200);
+        validate_config(&config).unwrap();
+    }
+
+    /// Sub-millisecond block times must not be truncated away before the comparison.
+    #[test]
+    #[should_panic(expected = "garbage collection cannot keep up with block production")]
+    fn test_gc_too_slow_for_sub_millisecond_block_production() {
+        let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::microseconds(500);
+        validate_config(&config).unwrap();
+    }
+
+    /// A zero delay is an unbounded block rate that no gc config can match.
+    #[test]
+    #[should_panic(expected = "blocks are produced at an unbounded rate")]
+    fn test_zero_block_production_delay_is_rejected() {
+        let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::ZERO;
+        validate_config(&config).unwrap();
+    }
+
+    /// The delays we ship, exact break-even at 250ms, `--fast`, an archival node, a below-minimum
+    /// retention window, and the limit derived for any block delay.
+    #[test]
+    fn test_gc_at_or_above_block_production_is_accepted() {
+        let mut configs: Vec<_> = [
+            MIN_BLOCK_PRODUCTION_DELAY,
+            MAINNET_MIN_BLOCK_PRODUCTION_DELAY,
+            TESTNET_MIN_BLOCK_PRODUCTION_DELAY,
+            250,
+        ]
+        .into_iter()
+        .map(|delay_ms| {
+            let mut config = Config::default();
+            config.consensus.min_block_production_delay = Duration::milliseconds(delay_ms);
+            config
+        })
+        .collect();
+
+        let mut fast = Config::default();
+        set_block_production_delay("localnet", true, &mut fast);
+        configs.push(fast);
+
+        let mut archival = Config::default();
+        archival.archive = true;
+        archival.gc.gc_num_epochs_to_keep = 1000;
+        configs.push(archival);
+
+        let mut clamped = Config::default();
+        clamped.gc.gc_num_epochs_to_keep = 1;
+        configs.push(clamped);
+
+        for min_block_production_delay in
+            [Duration::nanoseconds(1), Duration::microseconds(500), Duration::seconds(10)]
+        {
+            let mut config = Config::default();
+            config.consensus.min_block_production_delay = min_block_production_delay;
+            config.consensus.max_block_production_delay = Duration::MAX;
+            config.consensus.max_block_wait_delay = Duration::MAX;
+            config.gc.gc_blocks_limit = gc_blocks_limit_for_block_delay(
+                config.gc.gc_step_period,
+                min_block_production_delay,
+            );
+            configs.push(config);
+        }
+
+        for config in configs {
+            validate_config(&config).unwrap_or_else(|err| {
+                panic!(
+                    "rejected a config that meets the gc rate ({}): {err}",
+                    config.consensus.min_block_production_delay
+                )
+            });
+        }
+    }
+
+    /// Operator supplied extremes must saturate; debug builds panic on overflow, so reaching the
+    /// end is the assertion.
+    #[test]
+    fn test_gc_rate_arithmetic_saturates_on_extreme_values() {
+        let extremes = [
+            (u64::MAX, Duration::MAX, Duration::MAX),
+            (u64::MAX, Duration::MAX, Duration::nanoseconds(1)),
+            (u64::MAX, Duration::nanoseconds(1), Duration::MAX),
+            (1, Duration::MAX, Duration::nanoseconds(1)),
+            (1, Duration::nanoseconds(1), Duration::MAX),
+            (0, Duration::MAX, Duration::MAX),
+        ];
+        for (gc_blocks_limit, gc_step_period, min_block_production_delay) in extremes {
+            let mut config = Config::default();
+            config.gc.gc_blocks_limit = gc_blocks_limit;
+            config.gc.gc_step_period = gc_step_period;
+            config.consensus.min_block_production_delay = min_block_production_delay;
+            let _ = validate_config(&config);
+        }
     }
 
     #[test]
