@@ -8,6 +8,7 @@ use crate::network_protocol::{
     SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::stream;
+use crate::peer::stream::IncomingFrame;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{
@@ -51,8 +52,6 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
-
-use super::stream::IncomingFrame;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);

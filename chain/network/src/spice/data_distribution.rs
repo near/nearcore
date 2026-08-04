@@ -1,3 +1,4 @@
+use crate::recv_permit::RecvMessagePermit;
 use near_async::messaging::Sender;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_primitives::spice::partial_data::{SpiceDataIdentifier, SpicePartialData};
@@ -5,8 +6,6 @@ use near_primitives::stateless_validation::contract_distribution::{
     SpiceChunkContractAccesses, SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
 use near_primitives::types::AccountId;
-
-use crate::recv_permit::RecvMessagePermit;
 
 #[derive(Debug)]
 pub struct SpiceIncomingPartialData {
