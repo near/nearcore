@@ -91,14 +91,6 @@ pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(||
     )
     .unwrap()
 });
-pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS_SKIPPED: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_block_spice_uncertified_chunks_skipped_total",
-        "Total uncertified chunks block producers left outside a block because they had \
-         already reached the limit on referenced chunks",
-    )
-    .unwrap()
-});
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",

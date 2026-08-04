@@ -310,7 +310,6 @@ impl SpiceCoreReader {
         let block_hash = block_header.hash();
 
         let uncertified_chunks = self.get_uncertified_chunks(block_hash)?;
-        metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
 
         let mut core_statements = Vec::new();
         let mut referenced_chunks = 0;
@@ -325,7 +324,6 @@ impl SpiceCoreReader {
         }
         let skipped = uncertified_chunks.len();
         if skipped > 0 {
-            metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS_SKIPPED.inc_by(skipped as u64);
             tracing::debug!(
                 target: "spice_core",
                 prev_hash = ?block_hash,
@@ -896,6 +894,8 @@ pub fn record_uncertified_chunks_for_block(
             present_endorsements: Vec::new(),
         });
     }
+
+    metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
 
     let mut store_update = chain_store_update.chain_store().store_ref().store_update();
     store_update.insert_ser(
