@@ -31,12 +31,4 @@ if [ -f /config/config.json ]; then
     cp /config/config.json /data/config.json
 fi
 
-# Blocks every 120ms need gc_blocks_limit >= ceil(2 * 500ms gc_step_period / 120ms) to pass
-# config validation. Raise an older /data or /config value, never lower a higher one.
-if [ -f /data/config.json ] &&
-    [ "$(jq '.gc_blocks_limit // 0' /data/config.json 2>/dev/null || echo 9)" -lt 9 ]; then
-    jq '.gc_blocks_limit = 9' /data/config.json >/data/config.json.new
-    mv /data/config.json.new /data/config.json
-fi
-
 exec near-sandbox --home /data run --rpc-addr 0.0.0.0:3030 --network-addr 0.0.0.0:3031

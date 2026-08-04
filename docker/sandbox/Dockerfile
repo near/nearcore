@@ -17,7 +17,7 @@ ARG TARGETARCH
 FROM download-${TARGETARCH} AS final
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl jq && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

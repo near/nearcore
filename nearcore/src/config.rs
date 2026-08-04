@@ -1083,7 +1083,7 @@ pub(crate) fn set_block_production_delay(chain_id: &str, fast: bool, config: &mu
                 config.consensus.max_block_production_delay =
                     Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
                 // Garbage collection has to outpace block production.
-                config.gc.gc_blocks_limit = gc_blocks_limit_for_block_delay(
+                config.gc.gc_blocks_limit = recommended_gc_blocks_limit_for_block_delay(
                     config.gc.gc_step_period,
                     config.consensus.min_block_production_delay,
                 );
@@ -1092,9 +1092,10 @@ pub(crate) fn set_block_production_delay(chain_id: &str, fast: bool, config: &mu
     }
 }
 
-/// The smallest `gc_blocks_limit` that keeps garbage collection comfortably ahead of block
-/// production, i.e. reclaiming heights about twice as fast as they are produced.
-pub(crate) fn gc_blocks_limit_for_block_delay(
+/// The `gc_blocks_limit` that keeps garbage collection comfortably ahead of block production,
+/// i.e. reclaiming blocks about twice as fast as they are produced. This is the recommended
+/// value, not the minimum one that passes validation.
+pub(crate) fn recommended_gc_blocks_limit_for_block_delay(
     gc_step_period: Duration,
     min_block_production_delay: Duration,
 ) -> NumBlocks {
@@ -1102,10 +1103,10 @@ pub(crate) fn gc_blocks_limit_for_block_delay(
     if block_delay <= 0 {
         return GCConfig::default().gc_blocks_limit;
     }
-    let reclaim =
-        gc_step_period.whole_nanoseconds().max(0).saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER)
-            as u128;
-    let limit = reclaim.div_ceil(block_delay as u128);
+    let chain_time_per_step = gc_step_period.whole_nanoseconds().max(0) as u128;
+    let limit = chain_time_per_step
+        .saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER)
+        .div_ceil(block_delay as u128);
     NumBlocks::try_from(limit).unwrap_or(NumBlocks::MAX).max(GCConfig::default().gc_blocks_limit)
 }
 

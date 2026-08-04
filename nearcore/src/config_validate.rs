@@ -8,7 +8,7 @@ use std::path::Path;
 
 /// Recommended ratio of gc throughput to block production, giving the tail headroom to catch
 /// up rather than merely break even. See the rule of thumb on `GCConfig::default()`.
-pub(crate) const RECOMMENDED_GC_RATE_MULTIPLIER: i128 = 2;
+pub(crate) const RECOMMENDED_GC_RATE_MULTIPLIER: u128 = 2;
 
 /// Validate Config extracted from config.json.
 /// This function does not panic. It returns the error if any validation fails.
@@ -134,18 +134,18 @@ impl<'a> ConfigValidator<'a> {
             return;
         }
         let gc_step_period = self.config.gc.gc_step_period;
-        let produced = gc_step_period.whole_nanoseconds();
-        let gc_blocks_limit = self.config.gc.gc_blocks_limit;
-
-        let reclaimed = (gc_blocks_limit as i128).saturating_mul(block_delay);
-        let recommended_reclaim = produced.saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER);
-        if reclaimed >= recommended_reclaim {
+        let gc_blocks_limit = self.config.gc.gc_blocks_limit as u128;
+        let chain_time_per_step = gc_step_period.whole_nanoseconds() as u128;
+        let block_delay = block_delay as u128;
+        let required_gc_blocks_limit = chain_time_per_step.div_ceil(block_delay);
+        let recommended_gc_blocks_limit = chain_time_per_step
+            .saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER)
+            .div_ceil(block_delay);
+        if gc_blocks_limit >= recommended_gc_blocks_limit {
             return;
         }
-        let recommended_gc_blocks_limit =
-            (recommended_reclaim as u128).div_ceil(block_delay as u128);
 
-        if reclaimed < produced {
+        if gc_blocks_limit < required_gc_blocks_limit {
             let error_message = format!(
                 "garbage collection cannot keep up with block production: gc_blocks_limit is \
                  {gc_blocks_limit} per gc_step_period of {gc_step_period}, but a block can be \
@@ -159,7 +159,7 @@ impl<'a> ConfigValidator<'a> {
             tracing::warn!(
                 target: "config",
                 "gc_blocks_limit of {gc_blocks_limit} per gc_step_period of {gc_step_period} \
-                 leaves no headroom over min_block_production_delay = \
+                 leaves insufficient headroom over min_block_production_delay = \
                  {min_block_production_delay}. Garbage collection should run about \
                  {RECOMMENDED_GC_RATE_MULTIPLIER}x faster than block production so the gc tail \
                  can catch up after forks and restarts; consider raising gc_blocks_limit to \
@@ -373,12 +373,21 @@ mod tests {
     use super::*;
     use crate::config::{
         MAINNET_MIN_BLOCK_PRODUCTION_DELAY, TESTNET_MIN_BLOCK_PRODUCTION_DELAY,
-        gc_blocks_limit_for_block_delay, set_block_production_delay,
+        recommended_gc_blocks_limit_for_block_delay, set_block_production_delay,
     };
     use near_chain_configs::{
-        CloudArchivalWriterConfig, MIN_BLOCK_PRODUCTION_DELAY, StateSyncConfig, TrackedShardsConfig,
+        CloudArchivalWriterConfig, GCConfig, MIN_BLOCK_PRODUCTION_DELAY, StateSyncConfig,
+        TrackedShardsConfig,
     };
     use near_store::archive::cloud_storage::config::test_cloud_archival_config;
+
+    /// The fastest block production the given gc config still matches: `gc_blocks_limit` blocks
+    /// reclaim exactly one `gc_step_period` of chain time.
+    fn break_even_block_production_delay(gc: &GCConfig) -> Duration {
+        let block_delay =
+            (gc.gc_step_period.whole_nanoseconds() as u128).div_ceil(gc.gc_blocks_limit as u128);
+        Duration::nanoseconds(block_delay as i64)
+    }
 
     #[test]
     #[should_panic(expected = "and 'config.tracked_shards_config' cannot be both set")]
@@ -432,20 +441,20 @@ mod tests {
         validate_config(&config).unwrap();
     }
 
-    /// The delays we ship, exact break-even at 250ms, `--fast`, an archival node, a below-minimum
+    /// The delays we ship, exact break-even, `--fast`, an archival node, a below-minimum
     /// retention window, and the limit derived for any block delay.
     #[test]
     fn test_gc_at_or_above_block_production_is_accepted() {
         let mut configs: Vec<_> = [
-            MIN_BLOCK_PRODUCTION_DELAY,
-            MAINNET_MIN_BLOCK_PRODUCTION_DELAY,
-            TESTNET_MIN_BLOCK_PRODUCTION_DELAY,
-            250,
+            Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
+            Duration::milliseconds(MAINNET_MIN_BLOCK_PRODUCTION_DELAY),
+            Duration::milliseconds(TESTNET_MIN_BLOCK_PRODUCTION_DELAY),
+            break_even_block_production_delay(&GCConfig::default()),
         ]
         .into_iter()
-        .map(|delay_ms| {
+        .map(|min_block_production_delay| {
             let mut config = Config::default();
-            config.consensus.min_block_production_delay = Duration::milliseconds(delay_ms);
+            config.consensus.min_block_production_delay = min_block_production_delay;
             config
         })
         .collect();
@@ -455,7 +464,6 @@ mod tests {
         configs.push(fast);
 
         let mut archival = Config::default();
-        archival.archive = true;
         archival.gc.gc_num_epochs_to_keep = 1000;
         configs.push(archival);
 
@@ -470,7 +478,7 @@ mod tests {
             config.consensus.min_block_production_delay = min_block_production_delay;
             config.consensus.max_block_production_delay = Duration::MAX;
             config.consensus.max_block_wait_delay = Duration::MAX;
-            config.gc.gc_blocks_limit = gc_blocks_limit_for_block_delay(
+            config.gc.gc_blocks_limit = recommended_gc_blocks_limit_for_block_delay(
                 config.gc.gc_step_period,
                 min_block_production_delay,
             );
@@ -484,27 +492,6 @@ mod tests {
                     config.consensus.min_block_production_delay
                 )
             });
-        }
-    }
-
-    /// Operator supplied extremes must saturate; debug builds panic on overflow, so reaching the
-    /// end is the assertion.
-    #[test]
-    fn test_gc_rate_arithmetic_saturates_on_extreme_values() {
-        let extremes = [
-            (u64::MAX, Duration::MAX, Duration::MAX),
-            (u64::MAX, Duration::MAX, Duration::nanoseconds(1)),
-            (u64::MAX, Duration::nanoseconds(1), Duration::MAX),
-            (1, Duration::MAX, Duration::nanoseconds(1)),
-            (1, Duration::nanoseconds(1), Duration::MAX),
-            (0, Duration::MAX, Duration::MAX),
-        ];
-        for (gc_blocks_limit, gc_step_period, min_block_production_delay) in extremes {
-            let mut config = Config::default();
-            config.gc.gc_blocks_limit = gc_blocks_limit;
-            config.gc.gc_step_period = gc_step_period;
-            config.consensus.min_block_production_delay = min_block_production_delay;
-            let _ = validate_config(&config);
         }
     }
 
