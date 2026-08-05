@@ -1245,8 +1245,11 @@ impl Chain {
         );
 
         if matches!(res, Err(Error::TooManyProcessingBlocks)) {
-            self.blocks_delay_tracker
-                .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
+            self.blocks_delay_tracker.mark_block_dropped(
+                &hash,
+                block_height,
+                DroppedReason::TooManyProcessingBlocks,
+            );
         }
         // Save the block as processed even if it failed. This is used to filter out the
         // incoming blocks that are not requested but already processed.

@@ -193,18 +193,27 @@ impl BlocksDelayTracker {
         }
     }
 
+    /// Whether a block at this height is far enough ahead of the head that the
+    /// tracker deliberately ignores it.
+    ///
+    /// During catch-up the node keeps receiving blocks gossiped from the tip.
+    /// The client discards them without processing, and `update_head` only
+    /// reclaims entries *below* the head, so tracking them would grow the maps
+    /// without bound. The threshold matches the client's `BLOCK_HORIZON`, which
+    /// also rejects at `>= head + 500`.
+    ///
+    /// `head_height` is zero until the first block finishes processing; until
+    /// then nothing is skipped, and `update_head` drops whatever accumulated.
+    fn is_too_far_ahead(&self, height: BlockHeight) -> bool {
+        self.head_height != 0
+            && height >= self.head_height.saturating_add(BLOCK_DELAY_TRACKING_AHEAD)
+    }
+
     pub fn mark_block_received(&mut self, block: &Block) {
         let block_hash = block.header().hash();
         let height = block.header().height();
 
-        // During catch-up sync the node keeps receiving gossiped blocks from the
-        // tip, which the client drops without processing. They sit above the head
-        // and are therefore never reclaimed by `update_head`, so refuse to track
-        // them at all. `head_height` is zero until the first block finishes
-        // processing; don't apply the bound before we know where the head is.
-        if self.head_height != 0
-            && height > self.head_height.saturating_add(BLOCK_DELAY_TRACKING_AHEAD)
-        {
+        if self.is_too_far_ahead(height) {
             return;
         }
 
@@ -250,10 +259,17 @@ impl BlocksDelayTracker {
         entry.observe_metrics();
     }
 
-    pub fn mark_block_dropped(&mut self, block_hash: &CryptoHash, reason: DroppedReason) {
+    pub fn mark_block_dropped(
+        &mut self,
+        block_hash: &CryptoHash,
+        height: BlockHeight,
+        reason: DroppedReason,
+    ) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.dropped = Some(reason);
-        } else {
+        } else if !self.is_too_far_ahead(height) {
+            // Blocks past the tracking window are never marked received, so a
+            // missing entry is expected for them rather than an inconsistency.
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was dropped but was not marked received");
         }
     }
@@ -361,7 +377,14 @@ impl BlocksDelayTracker {
             let mut blocks_to_remove = self.blocks_height_map.split_off(&cutoff_height);
             mem::swap(&mut self.blocks_height_map, &mut blocks_to_remove);
 
-            for block_hash in blocks_to_remove.values().flatten() {
+            // Entries above the window are refused by `mark_block_received`, but only
+            // once the head is known; drop whatever accumulated before that.
+            let ahead_cutoff = head_height.saturating_add(BLOCK_DELAY_TRACKING_AHEAD);
+            let blocks_ahead = self.blocks_height_map.split_off(&ahead_cutoff);
+
+            for block_hash in
+                blocks_to_remove.values().flatten().chain(blocks_ahead.values().flatten())
+            {
                 if let Some(block) = self.blocks.remove(&block_hash) {
                     for chunk_hash in block.chunks {
                         if let Some(chunk_hash) = chunk_hash {
@@ -589,5 +612,32 @@ impl Chain {
             blocks_info,
             floating_chunks_info,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BLOCK_DELAY_TRACKING_AHEAD, BlocksDelayTracker};
+    use near_async::time::Clock;
+
+    #[test]
+    fn tracking_window_is_bounded_above_the_head() {
+        let mut tracker = BlocksDelayTracker::new(Clock::real());
+        let head = 1_000_000;
+        tracker.update_head(head);
+
+        assert!(!tracker.is_too_far_ahead(head));
+        assert!(!tracker.is_too_far_ahead(head + BLOCK_DELAY_TRACKING_AHEAD - 1));
+        // The client drops at `>= head + BLOCK_HORIZON`; match it exactly so the
+        // tracker never holds a block the client refuses to process.
+        assert!(tracker.is_too_far_ahead(head + BLOCK_DELAY_TRACKING_AHEAD));
+        // A node far behind the tip keeps receiving gossip from there.
+        assert!(tracker.is_too_far_ahead(head + 1_200_000));
+    }
+
+    #[test]
+    fn nothing_is_skipped_before_the_head_is_known() {
+        let tracker = BlocksDelayTracker::new(Clock::real());
+        assert!(!tracker.is_too_far_ahead(1_000_000));
     }
 }

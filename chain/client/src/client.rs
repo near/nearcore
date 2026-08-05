@@ -1273,9 +1273,11 @@ impl Client {
         // To protect ourselves from spamming, we do a pre-check before doing
         // any real processing.
         if !self.should_process_block(&block, was_requested)? {
-            self.chain
-                .blocks_delay_tracker
-                .mark_block_dropped(block.hash(), DroppedReason::HeightProcessed);
+            self.chain.blocks_delay_tracker.mark_block_dropped(
+                block.hash(),
+                block.header().height(),
+                DroppedReason::HeightProcessed,
+            );
             return Ok(());
         }
 
