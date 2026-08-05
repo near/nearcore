@@ -237,16 +237,24 @@ impl Block {
             chunk_mask.len(),
             "Chunk endorsements size is different from number of shards."
         );
-        // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
-        // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
-        let chunk_endorsements_bitmap = Some(ChunkEndorsementsBitmap::from_endorsements(
-            chunk_endorsements
-                .iter()
-                .map(|endorsements_for_shard| {
-                    endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
-                })
-                .collect_vec(),
-        ));
+        let chunk_endorsements_bitmap = if spice_info.is_some() {
+            // With spice chunk endorsements are not included in blocks, so the header contains
+            // an empty bitmap for each shard.
+            // TODO(spice): Remove the chunk_endorsements field from the header after spice is
+            // released.
+            Some(ChunkEndorsementsBitmap::new(chunk_mask.len()))
+        } else {
+            // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
+            // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
+            Some(ChunkEndorsementsBitmap::from_endorsements(
+                chunk_endorsements
+                    .iter()
+                    .map(|endorsements_for_shard| {
+                        endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
+                    })
+                    .collect_vec(),
+            ))
+        };
 
         let chunks_wrapper = Chunks::from_chunk_headers(&chunks, height);
         let prev_state_root = if spice_info.is_some() {
