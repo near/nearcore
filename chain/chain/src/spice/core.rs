@@ -40,7 +40,7 @@ pub const MAX_REFERENCED_CHUNKS_PER_BLOCK: usize = 100;
 
 /// Blocks a chunk must stay certifiable-but-uncertified before the all-stake fallback opens for it.
 /// Well below epoch length (to rescue liveness before the one-epoch lag guard stalls consensus).
-pub const SPICE_FALLBACK_CERTIFICATION_DELAY: BlockHeight = 5;
+pub const SPICE_FALLBACK_CERTIFICATION_DELAY: BlockHeight = 20;
 
 #[derive(Clone)]
 pub struct SpiceCoreReader {
