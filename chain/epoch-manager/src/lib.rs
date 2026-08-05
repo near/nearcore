@@ -40,6 +40,8 @@ use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
 pub use shard_assignment::AssignmentStrategy;
 use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(feature = "test_features")]
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 pub use validator_selection::proposals_to_epoch_info;
@@ -71,14 +73,14 @@ const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
 const EARLY_KICKOUT_EPOCH_GRACE_BLOCKS: u64 = 1000;
 
 /// Miss floor for the blacklist. Always the production constant unless this is a
-/// `test_features` build; see [`early_kickout_min_misses`] below.
+/// `test_features` build; see the `early_kickout_test_thresholds` module below.
 #[cfg(not(feature = "test_features"))]
 fn early_kickout_min_misses() -> u64 {
     EARLY_KICKOUT_MIN_MISSES
 }
 
 /// Start-of-epoch grace. Always the production constant unless this is a `test_features`
-/// build; see [`early_kickout_epoch_grace_blocks`] below.
+/// build; see the `early_kickout_test_thresholds` module below.
 #[cfg(not(feature = "test_features"))]
 fn early_kickout_epoch_grace_blocks() -> u64 {
     EARLY_KICKOUT_EPOCH_GRACE_BLOCKS
@@ -88,8 +90,9 @@ fn early_kickout_epoch_grace_blocks() -> u64 {
 ///
 /// Reaching the production gate (100 misses past a 1000-block grace) takes ~1100 blocks,
 /// which a test-loop chain cannot afford. These knobs let a test shrink both so the gate
-/// trips in tens of blocks. The exact production values stay proven by the epoch-manager
-/// unit tests, which build without `test_features` and therefore read the plain consts.
+/// trips in tens of blocks. The thread-local defaults are the production constants, so
+/// any build carrying `test_features` (the CI test runs enable it workspace-wide)
+/// behaves identically until a test explicitly installs an override.
 ///
 /// Thread-local, not process-global, on purpose: `cargo test` runs test functions on
 /// parallel threads within one process, while a test-loop chain executes entirely on the
@@ -97,16 +100,14 @@ fn early_kickout_epoch_grace_blocks() -> u64 {
 /// exactly, where a global would leak a lowered grace into every concurrently running
 /// test-loop test and silently start reassigning producers there.
 #[cfg(feature = "test_features")]
-use std::marker::PhantomData;
-
-#[cfg(feature = "test_features")]
 mod early_kickout_test_thresholds {
+    use super::{EARLY_KICKOUT_EPOCH_GRACE_BLOCKS, EARLY_KICKOUT_MIN_MISSES};
     use std::cell::Cell;
 
     thread_local! {
-        static MIN_MISSES: Cell<u64> = const { Cell::new(super::EARLY_KICKOUT_MIN_MISSES) };
+        static MIN_MISSES: Cell<u64> = const { Cell::new(EARLY_KICKOUT_MIN_MISSES) };
         static EPOCH_GRACE_BLOCKS: Cell<u64> =
-            const { Cell::new(super::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS) };
+            const { Cell::new(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS) };
     }
 
     pub(super) fn min_misses() -> u64 {
@@ -158,6 +159,9 @@ impl Drop for EarlyKickoutThresholdGuard {
 /// Overrides the early-kickout thresholds for the CALLING THREAD, which for a test-loop
 /// test is the thread the whole chain runs on. `None` keeps the production constant. Call
 /// before the chain starts producing blocks and hold the returned guard for the whole test.
+///
+/// Never expose this through a runtime control (e.g. an adversarial RPC): overriding on a
+/// live node would give each thread its own consensus math.
 #[cfg(feature = "test_features")]
 pub fn set_early_kickout_thresholds_for_testing(
     min_misses: Option<u64>,
@@ -168,6 +172,62 @@ pub fn set_early_kickout_thresholds_for_testing(
         epoch_grace_blocks.unwrap_or(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS),
     );
     EarlyKickoutThresholdGuard { prev_min_misses, prev_epoch_grace_blocks, _not_send: PhantomData }
+}
+
+/// The guard's restore-on-drop is itself a safety mechanism (it is what keeps a panicking
+/// test from leaking lowered thresholds into the next test on the same thread), so it gets
+/// direct coverage here rather than relying on the e2e tests' happy path.
+#[cfg(all(test, feature = "test_features"))]
+mod early_kickout_threshold_override_tests {
+    use super::{
+        EARLY_KICKOUT_EPOCH_GRACE_BLOCKS, EARLY_KICKOUT_MIN_MISSES,
+        early_kickout_epoch_grace_blocks, early_kickout_min_misses,
+        set_early_kickout_thresholds_for_testing,
+    };
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn test_override_and_restore() {
+        assert_eq!(early_kickout_min_misses(), EARLY_KICKOUT_MIN_MISSES);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+        {
+            let _guard = set_early_kickout_thresholds_for_testing(Some(5), Some(20));
+            assert_eq!(early_kickout_min_misses(), 5);
+            assert_eq!(early_kickout_epoch_grace_blocks(), 20);
+        }
+        assert_eq!(early_kickout_min_misses(), EARLY_KICKOUT_MIN_MISSES);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+    }
+
+    #[test]
+    fn test_none_keeps_production_constant() {
+        let _guard = set_early_kickout_thresholds_for_testing(Some(7), None);
+        assert_eq!(early_kickout_min_misses(), 7);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+    }
+
+    #[test]
+    fn test_nested_overrides_restore_lifo() {
+        let _outer = set_early_kickout_thresholds_for_testing(Some(5), Some(20));
+        {
+            let _inner = set_early_kickout_thresholds_for_testing(Some(3), Some(10));
+            assert_eq!(early_kickout_min_misses(), 3);
+            assert_eq!(early_kickout_epoch_grace_blocks(), 10);
+        }
+        assert_eq!(early_kickout_min_misses(), 5);
+        assert_eq!(early_kickout_epoch_grace_blocks(), 20);
+    }
+
+    #[test]
+    fn test_panic_unwind_restores_thresholds() {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = set_early_kickout_thresholds_for_testing(Some(5), Some(20));
+            panic!("panic with a live guard");
+        }));
+        assert!(result.is_err());
+        assert_eq!(early_kickout_min_misses(), EARLY_KICKOUT_MIN_MISSES);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+    }
 }
 
 /// Per-shard observability for the blacklist computation. Emitted once at the
