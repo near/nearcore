@@ -7,12 +7,15 @@
 //! integration-tests already produces this shape (two children of genesis at heights 1 and
 //! 3); this file reproduces it at the epoch-manager level and follows it downstream.
 //!
-//! Three layers, each asserting the *safe* behaviour so a failure is the reproduction:
+//! Three layers, each asserting the *safe* behaviour. Layers 2 and 3 are the reproduction:
+//! they fail before the fix and pass after it. Layer 1 pins the basis the fix switches to,
+//! which was already fork-order independent, so it passed before the fix as well.
 //!
 //! 1. `epoch_start_does_not_depend_on_fork_processing_order` — the consensus basis
 //!    (`get_epoch_start_height`, the per-hash `BlockInfo` walk) must match across both
-//!    processing orders. The `EpochStart` column itself stays order-dependent by design and
-//!    is deliberately not on the consensus path.
+//!    processing orders. Pre-existing property, pinned here so a future change away from the
+//!    walk shows up. The `EpochStart` column itself stays order-dependent by design and is
+//!    deliberately not on the consensus path.
 //! 2. `grace_expiry_does_not_depend_on_fork_processing_order` — both nodes extend the same
 //!    canonical chain past `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` and must agree on whether the
 //!    blacklist is active at every anchor.
@@ -23,20 +26,20 @@
 //! Control: `same_processing_order_nodes_agree_everywhere` runs the identical fixture with
 //! the same order on both nodes, ruling out fixture nondeterminism.
 
-use crate::reward_calculator::NUM_NS_IN_SECOND;
-use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager};
+use crate::test_utils::{
+    record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
+};
 #[cfg(feature = "nightly")]
 use crate::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EARLY_KICKOUT_EPOCH_GRACE_BLOCKS};
 use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorId};
 #[cfg(feature = "nightly")]
 use near_primitives::types::{ShardId, ValidatorInfoIdentifier};
-use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "nightly")]
 use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(feature = "nightly")]
+use std::ops::RangeInclusive;
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
 
@@ -74,57 +77,6 @@ fn canonical_hash(height: BlockHeight) -> CryptoHash {
     CryptoHash::hash_bytes(format!("epoch-start-fork/canonical-{height}").as_bytes())
 }
 
-/// Records one block with explicit last-final fields. Not `record_block_with_mask`: deriving
-/// last-final from the grandparent is wrong for a genesis-parented sibling at a skipped
-/// height, which has no grandparent and nothing final yet.
-fn record(
-    em: &mut EpochManager,
-    prev: CryptoHash,
-    cur: CryptoHash,
-    height: BlockHeight,
-    last_final_hash: CryptoHash,
-    last_final_height: BlockHeight,
-    chunk_mask: Vec<bool>,
-) {
-    let epoch_id = em.get_epoch_id(&prev).unwrap();
-    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-    // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that shard.
-    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
-        shard_layout
-            .shard_ids()
-            .enumerate()
-            .map(|(shard_index, shard_id)| {
-                if !chunk_mask[shard_index] {
-                    return vec![];
-                }
-                let assignments =
-                    em.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
-                vec![true; assignments.assignments().iter().len()]
-            })
-            .collect(),
-    );
-    em.record_block_info(
-        BlockInfo::new(
-            cur,
-            height,
-            last_final_height,
-            last_final_hash,
-            prev,
-            vec![],
-            chunk_mask,
-            DEFAULT_TOTAL_SUPPLY,
-            PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
-            height * NUM_NS_IN_SECOND,
-            chunk_endorsements,
-            None,
-        ),
-        [0; 32],
-    )
-    .unwrap()
-    .commit();
-}
-
 /// Builds one node: genesis, the two boundary siblings in the requested order, then the
 /// canonical chain extending the LOW sibling. The orphaned high sibling never feeds the
 /// epoch-info aggregator, so the only state it can leave behind is `EpochStart`. The chunk
@@ -147,12 +99,13 @@ fn build_node(high_first: bool, down: ValidatorId, head_height: BlockHeight) -> 
         order.reverse();
     }
     for height in order {
-        record(
+        // Explicit finals rather than the grandparent-derived ones: a genesis-parented
+        // sibling has no grandparent and nothing final yet.
+        record_block_with_final_and_mask(
             &mut em,
             genesis,
             sibling_hash(height),
             height,
-            // No grandparent, so nothing is final yet on either sibling.
             CryptoHash::default(),
             0,
             mask(height),
@@ -163,7 +116,15 @@ fn build_node(high_first: bool, down: ValidatorId, head_height: BlockHeight) -> 
     let mut prev = sibling_hash(SIBLING_LOW);
     for height in (SIBLING_LOW + 1)..=head_height {
         let cur = canonical_hash(height);
-        record(&mut em, prev, cur, height, grandparent, height - 2, mask(height));
+        record_block_with_final_and_mask(
+            &mut em,
+            prev,
+            cur,
+            height,
+            grandparent,
+            height - 2,
+            mask(height),
+        );
         grandparent = prev;
         prev = cur;
     }
@@ -175,8 +136,9 @@ fn epoch_start(handle: &EpochManagerHandle) -> BlockHeight {
 }
 
 /// LAYER 1. The epoch-start basis the grace checks consume (`get_epoch_start_height`) must
-/// not depend on fork processing order. The `EpochStart` column itself remains
-/// order-dependent by design; it is deliberately not on the consensus path.
+/// not depend on fork processing order. This held before the fix too — the walk is what the
+/// fix moves the grace check onto, and this layer pins it. The `EpochStart` column itself
+/// remains order-dependent by design; it is deliberately not on the consensus path.
 #[test]
 fn epoch_start_does_not_depend_on_fork_processing_order() {
     let low_first = build_node(false, 0, SIBLING_LOW);
@@ -204,11 +166,36 @@ fn epoch_start_does_not_depend_on_fork_processing_order() {
     }
 }
 
+/// The genesis end of the walk: `get_epoch_start_height` resolves genesis to height 0 through
+/// the dummy `BlockInfo` stored as its parent (`genesis.rs`), so an anchor whose last-final
+/// block is genesis stays in the grace window instead of erroring. This is the case the
+/// removed `EpochOutOfBounds -> grace` mapping used to cover.
+#[test]
+fn genesis_final_basis_resolves_through_dummy_and_stays_in_grace() {
+    // Head just past the siblings: the anchor at height 2 is the first canonical block, and
+    // `build_node` gives it genesis as its last-final block.
+    let handle = build_node(false, 0, SIBLING_HIGH + 1);
+    assert_eq!(
+        handle.get_epoch_start_height(&genesis_hash()).unwrap(),
+        0,
+        "genesis must resolve to height 0 through the stored dummy BlockInfo",
+    );
+    #[cfg(feature = "nightly")]
+    {
+        let blacklist = handle.get_chunk_producer_blacklist(&canonical_hash(2)).unwrap();
+        assert!(
+            blacklist.is_empty(),
+            "a genesis-final anchor is 0 blocks into the epoch, so the grace must hold, got \
+             {blacklist:?}",
+        );
+    }
+}
+
 /// Anchor heights where the two nodes' `EpochStart` values straddle the grace threshold:
 /// last-final is the anchor's grandparent, so a node holding `EpochStart = s` activates the
 /// blacklist from `anchor_height = GRACE + s + 2` onward.
 #[cfg(feature = "nightly")]
-fn disagreement_anchors() -> std::ops::RangeInclusive<BlockHeight> {
+fn disagreement_anchors() -> RangeInclusive<BlockHeight> {
     (EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_LOW + 2)
         ..=(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_HIGH + 1)
 }
@@ -216,7 +203,7 @@ fn disagreement_anchors() -> std::ops::RangeInclusive<BlockHeight> {
 /// Anchors inspected by layers 2 and 3: the disagreement window plus margin on both sides,
 /// so the output shows agreement before it, disagreement inside it, agreement after it.
 #[cfg(feature = "nightly")]
-fn scan_anchors() -> std::ops::RangeInclusive<BlockHeight> {
+fn scan_anchors() -> RangeInclusive<BlockHeight> {
     (EARLY_KICKOUT_EPOCH_GRACE_BLOCKS - 2)..=(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_HIGH + 4)
 }
 
@@ -305,23 +292,7 @@ fn assert_fixture_is_live(handle: &EpochManagerHandle, down: ValidatorId, label:
     let last = *scan_anchors().end();
     let shard_id = shard_id_of(handle);
     let blacklist = handle.get_chunk_producer_blacklist(&canonical_hash(last)).unwrap();
-    let info = handle
-        .get_validator_info(ValidatorInfoIdentifier::BlockHash(canonical_hash(last)))
-        .unwrap();
-    let stats: Vec<String> = info
-        .current_validators
-        .iter()
-        .flat_map(|v| {
-            v.shards_produced.iter().enumerate().map(move |(i, shard)| {
-                format!(
-                    "{} shard {shard}: {}/{}",
-                    v.account_id,
-                    v.num_produced_chunks_per_shard[i],
-                    v.num_expected_chunks_per_shard[i],
-                )
-            })
-        })
-        .collect();
+    let stats = chunk_counters(handle, canonical_hash(last));
     println!("{label} at anchor {last}: blacklist={blacklist:?}; produced/expected {stats:?}");
     assert_eq!(
         blacklist.get(&shard_id),
@@ -331,17 +302,27 @@ fn assert_fixture_is_live(handle: &EpochManagerHandle, down: ValidatorId, label:
     );
 }
 
-/// Renders the per-anchor comparison so a failure shows exactly where the two nodes split.
+/// Reads both nodes' beliefs at every scanned anchor, once. Layers 2 and 3 filter these rows
+/// rather than sweeping the accessors again, so the table and the assertions can't disagree.
 #[cfg(feature = "nightly")]
-fn render(a: &EpochManagerHandle, b: &EpochManagerHandle) -> (String, Vec<BlockHeight>) {
-    let (start_a, start_b) = (epoch_start(a), epoch_start(b));
+fn scan(a: &EpochManagerHandle, b: &EpochManagerHandle) -> Vec<(BlockHeight, Belief, Belief)> {
+    scan_anchors().map(|anchor| (anchor, belief_at(a, anchor), belief_at(b, anchor))).collect()
+}
+
+/// Renders the per-anchor comparison so a failure shows exactly where the two nodes split.
+/// Returns the table and the anchors where the two beliefs differ in any field.
+#[cfg(feature = "nightly")]
+fn render_table(
+    rows: &[(BlockHeight, Belief, Belief)],
+    start_a: BlockHeight,
+    start_b: BlockHeight,
+) -> (String, Vec<BlockHeight>) {
     let mut lines = Vec::new();
     let mut split = Vec::new();
-    for anchor in scan_anchors() {
-        let (belief_a, belief_b) = (belief_at(a, anchor), belief_at(b, anchor));
+    for (anchor, belief_a, belief_b) in rows {
         let differs = belief_a != belief_b;
         if differs {
-            split.push(anchor);
+            split.push(*anchor);
         }
         lines.push(format!(
             "  anchor {anchor} (final height {}): A[start={start_a} into_epoch={} \
@@ -378,7 +359,8 @@ fn build_pair(high_first_b: bool) -> (EpochManagerHandle, EpochManagerHandle, Va
 #[test]
 fn grace_expiry_does_not_depend_on_fork_processing_order() {
     let (a, b, down) = build_pair(true);
-    let (table, _) = render(&a, &b);
+    let rows = scan(&a, &b);
+    let (table, _) = render_table(&rows, epoch_start(&a), epoch_start(&b));
     println!(
         "grace window (GRACE={EARLY_KICKOUT_EPOCH_GRACE_BLOCKS}, down validator {down}):\n{table}",
     );
@@ -408,14 +390,13 @@ fn grace_expiry_does_not_depend_on_fork_processing_order() {
         chunk_counters(&b, canonical_hash(head_height() - 2)),
     );
 
-    let mut disagreements = Vec::new();
-    for anchor in scan_anchors() {
-        let bl_a = a.get_chunk_producer_blacklist(&canonical_hash(anchor)).unwrap();
-        let bl_b = b.get_chunk_producer_blacklist(&canonical_hash(anchor)).unwrap();
-        if bl_a.is_empty() != bl_b.is_empty() || bl_a != bl_b {
-            disagreements.push(format!("anchor {anchor}: A={bl_a:?} B={bl_b:?}"));
-        }
-    }
+    let disagreements: Vec<String> = rows
+        .iter()
+        .filter(|(_, belief_a, belief_b)| belief_a.blacklist != belief_b.blacklist)
+        .map(|(anchor, belief_a, belief_b)| {
+            format!("anchor {anchor}: A={:?} B={:?}", belief_a.blacklist, belief_b.blacklist)
+        })
+        .collect();
     assert!(
         disagreements.is_empty(),
         "two honest nodes with identical blocks, and identical epoch-info aggregators at the \
@@ -440,22 +421,25 @@ fn grace_expiry_does_not_depend_on_fork_processing_order() {
 #[test]
 fn anchored_chunk_producer_does_not_depend_on_fork_processing_order() {
     let (a, b, down) = build_pair(true);
-    let (table, _) = render(&a, &b);
+    let rows = scan(&a, &b);
+    let (table, _) = render_table(&rows, epoch_start(&a), epoch_start(&b));
     println!("anchored producers (down validator {down}):\n{table}");
 
     let shard_id = shard_id_of(&a);
-    let mut disagreements = Vec::new();
-    for anchor in scan_anchors() {
-        let height = anchor + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-        let producer_a = belief_at(&a, anchor).grandchild_producer;
-        let producer_b = belief_at(&b, anchor).grandchild_producer;
-        if producer_a != producer_b {
-            disagreements.push(format!(
+    let disagreements: Vec<String> = rows
+        .iter()
+        .filter(|(_, belief_a, belief_b)| {
+            belief_a.grandchild_producer != belief_b.grandchild_producer
+        })
+        .map(|(anchor, belief_a, belief_b)| {
+            let height = anchor + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+            format!(
                 "chunk (height {height}, shard {shard_id}) anchored at {anchor}: \
-                 A expects {producer_a}, B expects {producer_b}"
-            ));
-        }
-    }
+                 A expects {}, B expects {}",
+                belief_a.grandchild_producer, belief_b.grandchild_producer,
+            )
+        })
+        .collect();
     assert!(
         disagreements.is_empty(),
         "two honest nodes disagree about who is allowed to produce a chunk. Both hold the \
@@ -482,7 +466,8 @@ fn same_processing_order_nodes_agree_everywhere() {
         epoch_start(&b),
         "control: identical processing order must give identical EpochStart",
     );
-    let (table, split) = render(&a, &b);
+    let rows = scan(&a, &b);
+    let (table, split) = render_table(&rows, epoch_start(&a), epoch_start(&b));
     assert!(
         split.is_empty(),
         "control: identical processing order must give identical beliefs, split at \

@@ -2112,6 +2112,9 @@ impl EpochManager {
         Ok(())
     }
 
+    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
+    /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.epoch_id_to_start
             .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
