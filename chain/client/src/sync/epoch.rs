@@ -300,6 +300,13 @@ impl EpochSync {
             &mut store_update.epoch_store_update(),
             &first_block_info_in_epoch,
         )?;
+        // `record_block_info`, which epoch sync bypasses, is otherwise the only
+        // block-processing writer of `EpochStart`. Without this row the early-kickout grace
+        // check sees the synced epoch as permanently just-started, never forms the
+        // blacklist, and mis-attributes chunk production for the whole epoch.
+        store_update
+            .epoch_store_update()
+            .set_epoch_start(last_header.epoch_id(), last_header.height());
         store_update.chain_store_update().set_block_ordinal(
             proof.current_epoch.partial_merkle_tree_for_first_block.size(),
             last_header.hash(),
