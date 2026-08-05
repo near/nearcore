@@ -29,6 +29,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Upper bound on the number of distinct chunks a single block's core statements may reference.
+/// This bounds the maximum size of core statements in a block. It also limits how much
+/// each block can advance the execution frontier on average: at most MAX_REFERENCED_CHUNKS_PER_BLOCK / num_shards
+/// heights per block.
 pub const MAX_REFERENCED_CHUNKS_PER_BLOCK: usize = 100;
 
 #[derive(Clone)]
@@ -313,7 +316,9 @@ impl SpiceCoreReader {
         let mut referenced_chunks = 0;
         let mut uncertified_chunks = uncertified_chunks.into_iter();
         for chunk_info in uncertified_chunks.by_ref() {
-            if self.push_core_statements_for_chunk(chunk_info, &mut core_statements) {
+            let statements = self.core_statements_for_chunk(chunk_info);
+            if !statements.is_empty() {
+                core_statements.extend(statements);
                 referenced_chunks += 1;
                 if referenced_chunks >= MAX_REFERENCED_CHUNKS_PER_BLOCK {
                     break;
@@ -333,17 +338,15 @@ impl SpiceCoreReader {
         Ok(core_statements)
     }
 
-    /// Emits every core statement this node can contribute for a single uncertified chunk: the
+    /// Returns core statements this node can contribute for a single uncertified chunk: the
     /// endorsements it holds that are not on chain yet, and the chunk's execution result if the
     /// chunk is certified locally.
-    ///
-    /// Returns whether anything was emitted.
-    fn push_core_statements_for_chunk(
+    fn core_statements_for_chunk(
         &self,
         chunk_info: SpiceUncertifiedChunkInfo,
-        core_statements: &mut Vec<SpiceCoreStatement>,
-    ) -> bool {
-        let statements_before = core_statements.len();
+    ) -> Vec<SpiceCoreStatement> {
+        // +1 for the execution result
+        let mut statements = Vec::with_capacity(chunk_info.missing_endorsements.len() + 1);
 
         for account_id in chunk_info.missing_endorsements {
             if let Some(endorsement) = self.get_endorsement(
@@ -351,7 +354,7 @@ impl SpiceCoreReader {
                 chunk_info.chunk_id.shard_id,
                 &account_id,
             ) {
-                core_statements
+                statements
                     .push(endorsement.into_core_statement(chunk_info.chunk_id.clone(), account_id));
             }
         }
@@ -362,13 +365,13 @@ impl SpiceCoreReader {
             chunk_info.chunk_id.shard_id,
         ) {
             // Execution results are stored only for endorsed chunks.
-            core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+            statements.push(SpiceCoreStatement::ChunkExecutionResult {
                 chunk_id: chunk_info.chunk_id,
                 execution_result: Arc::unwrap_or_clone(execution_result),
             });
         }
 
-        core_statements.len() > statements_before
+        statements
     }
 
     /// Epoch id of the last fully certified block as of `prev_hash`.
@@ -485,10 +488,10 @@ impl SpiceCoreReader {
 
         // Blocks can carry statements for the current and the previous epoch.
         // Each validator may contribute one endorsement for every chunk.
-        let max_endorsements_per_chunk =
+        let validators_len =
             self.validators_len(epoch_id)?.max(self.validators_len(&prev_epoch_id)?);
         // Besides endorsements, there may be one execution result included.
-        let max_statements_per_chunk = max_endorsements_per_chunk.saturating_add(1);
+        let max_statements_per_chunk = validators_len.saturating_add(1);
         Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(max_statements_per_chunk))
     }
 
