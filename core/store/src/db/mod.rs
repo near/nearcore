@@ -4,6 +4,7 @@ use near_primitives::types::ShardId;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+mod cold_column_checked;
 mod colddb;
 mod database_tests;
 pub mod metadata;
@@ -15,6 +16,7 @@ mod slice;
 mod splitdb;
 mod testdb;
 
+pub use self::cold_column_checked::ColumnCheckedColdDB;
 pub use self::colddb::ColdDB;
 pub use self::mixeddb::{MixedDB, ReadOrder};
 pub use self::recoverydb::RecoveryDB;

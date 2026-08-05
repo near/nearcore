@@ -361,14 +361,22 @@ pub async fn start(
                         tracing::warn!(target: INDEXER, ?block_height, ?err, "failed to build streamer message while the node is syncing, retrying the same height");
                     } else {
                         build_streamer_message_attempts += 1;
-                        tracing::error!(target: INDEXER, ?block_height, ?err, attempts = build_streamer_message_attempts, "failed to build streamer message, retrying the same height");
-                        assert!(
-                            build_streamer_message_attempts < MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS,
-                            "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
-                        );
+                        if build_streamer_message_attempts >= MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS {
+                            // Failed to build the block
+                            if indexer_config.skip_broken_blocks {
+                                build_streamer_message_attempts = 0;
+                                tracing::error!(target: INDEXER, ?block_height, ?err, "skip height - failed to build streamer message");
+                                continue;
+                            }
+                            panic!(
+                                "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
+                            )
+                        }
                     }
+
                     // Retry the same height on the next outer iteration instead of
                     // advancing `last_synced_block_height`.
+                    tracing::error!(target: INDEXER, ?block_height, ?err, attempts = build_streamer_message_attempts, "failed to build streamer message, retrying the same height");
                     break;
                 }
             };

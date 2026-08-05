@@ -10,6 +10,7 @@ pub use crate::network_protocol::{
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
+use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::spice::data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
@@ -563,13 +564,14 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to
     pub peer_info: PeerInfo,
     /// Contents of the request
     pub body: Tier3RequestBody,
+    pub recv_permit: RecvMessagePermit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, strum::IntoStaticStr)]

@@ -468,6 +468,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
                 p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
+                ml_dsa_verify_host_fn: params.get(Parameter::MlDsaVerifyHostFn)?,
                 sha3_host_fns: params.get(Parameter::Sha3HostFns)?,
                 yield_with_id_host_fns: params.get(Parameter::YieldWithIdHostFns)?,
                 chain_id_host_fn: params.get(Parameter::ChainIdHostFn)?,

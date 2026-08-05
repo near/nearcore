@@ -386,6 +386,64 @@ fn create_with_id_duplicate_in_same_call_returns_sentinel() {
 }
 
 #[test]
+fn create_with_id_reuses_yield_id_after_resume() {
+    let node = setup_test_contract(near_test_contracts::rs_contract());
+    let alice_id: AccountId = "alice.near".parse().unwrap();
+    let contract_id: AccountId = "test_contract.alice.near".parse().unwrap();
+
+    let yield_payload = vec![6u8; 16];
+    let yield_id = [11u8; 32];
+
+    // TX1: create the yield, storing the yield_id <-> data_id mappings.
+    let create_args = serde_json::to_vec(&serde_json::json!([yield_create_with_id_op(
+        &yield_id,
+        &yield_payload,
+        0
+    )]))
+    .unwrap();
+    let res = node
+        .user()
+        .function_call(
+            alice_id.clone(),
+            contract_id.clone(),
+            "call_promise",
+            create_args.clone(),
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
+
+    // TX2: resume it. Applying the PromiseResume receipt removes the mappings.
+    let resume_args = serde_json::to_vec(&serde_json::json!([yield_resume_with_yield_id_op(
+        &yield_id,
+        &yield_payload,
+        1
+    )]))
+    .unwrap();
+    let res = node
+        .user()
+        .function_call(
+            alice_id.clone(),
+            contract_id.clone(),
+            "call_promise",
+            resume_args,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
+
+    // TX3: the yield_id is free again, so the create returns promise index 0
+    // instead of the u64::MAX sentinel.
+    let res = node
+        .user()
+        .function_call(alice_id, contract_id, "call_promise", create_args, MAX_GAS, Balance::ZERO)
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result");
+}
+
+#[test]
 fn create_with_id_then_resume_with_yield_id_fails() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
 

@@ -14,3 +14,6 @@ burnt_gas_reward:
 # split across data receipts (in particular, a single maximum-size return is
 # always accepted).
 max_receipt_total_input_size: {old: 4_294_967_295, new: 4_194_944}
+
+# Enable the ML-DSA-65 (FIPS 204) signature verification host function.
+ml_dsa_verify_host_fn: { old: false, new: true }
