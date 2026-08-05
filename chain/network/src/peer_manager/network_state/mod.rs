@@ -23,13 +23,14 @@ use crate::peer_manager::network_transport::NetworkTransport;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
+use crate::recv_permit::RecvMessagePermit;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage, SpiceDataDistributorSenderForNetwork,
-    SpiceIncomingPartialData,
+    SpiceIncomingPartialData, SpicePartialDataRequestMessage,
 };
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -61,6 +62,7 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use tokio::sync::Semaphore;
 
 mod routing;
 mod tier1;
@@ -83,6 +85,10 @@ pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::se
 /// Tier2, we expect the peer to open an inbound Tier3 connection within this window. Entries
 /// older than this are cleaned up periodically.
 pub(crate) const PENDING_TIER3_REQUEST_TIMEOUT: time::Duration = time::Duration::seconds(60);
+
+/// Number of permits in the incoming semaphore - set to 1GB, meaning that neard will handle at most
+/// 1GB of incoming messages at the same time.
+pub(crate) const INCOMING_SEMAPHORE_PERMITS: usize = 1_000_000_000;
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -171,6 +177,11 @@ pub(crate) struct NetworkState {
     /// sync request over Tier2. Maps peer_id to the time the request was sent. Entries are
     /// cleaned up after PENDING_TIER3_REQUEST_TIMEOUT.
     pub pending_tier3_requests: DashMap<PeerId, time::Instant>,
+
+    // Semaphore which limits the total size of incoming messages being handled at the same time.
+    // Before reading a message into memory, we acquire a number of permits that's equal to the
+    // message size. Limits total memory usage.
+    pub incoming_message_semaphore: Arc<Semaphore>,
 
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
@@ -329,6 +340,7 @@ impl NetworkState {
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
             spice_data_distributor_adapter,
             spice_core_writer_adapter,
+            incoming_message_semaphore: Arc::new(Semaphore::new(INCOMING_SEMAPHORE_PERMITS)),
         }
     }
 
@@ -793,6 +805,7 @@ impl NetworkState {
                     my_peer_id,
                     hash,
                     msg.body_owned(),
+                    RecvMessagePermit::none(),
                 )
                 .await;
             });
@@ -870,6 +883,7 @@ impl NetworkState {
         prev_hop: PeerId,
         msg_hash: CryptoHash,
         body: TieredMessageBody,
+        recv_permit: RecvMessagePermit,
     ) -> Option<TieredMessageBody> {
         match body {
             TieredMessageBody::T1(body) => match *body {
@@ -881,33 +895,43 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
-                    self.shards_manager_adapter
-                        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                            *chunk,
+                            recv_permit,
+                        ),
+                    );
                     None
                 }
                 T1MessageBody::PartialEncodedChunkForward(msg) => {
                     self.shards_manager_adapter.send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                            msg,
+                            recv_permit,
+                        ),
                     );
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitness(witness) => {
                     self.partial_witness_adapter
-                        .send(PartialEncodedStateWitnessMessage(witness.into()));
+                        .send(PartialEncodedStateWitnessMessage(witness.into(), recv_permit));
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
-                    self.partial_witness_adapter
-                        .send(PartialEncodedStateWitnessForwardMessage(witness.into()));
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessForwardMessage(
+                        witness.into(),
+                        recv_permit,
+                    ));
                     None
                 }
                 T1MessageBody::VersionedPartialEncodedStateWitness(witness) => {
-                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessMessage(witness, recv_permit));
                     None
                 }
                 T1MessageBody::VersionedPartialEncodedStateWitnessForward(witness) => {
                     self.partial_witness_adapter
-                        .send(PartialEncodedStateWitnessForwardMessage(witness));
+                        .send(PartialEncodedStateWitnessForwardMessage(witness, recv_permit));
                     None
                 }
                 T1MessageBody::VersionedChunkEndorsement(endorsement) => {
@@ -915,43 +939,48 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::ChunkContractAccesses(accesses) => {
-                    self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                    self.partial_witness_adapter
+                        .send(ChunkContractAccessesMessage(accesses, recv_permit));
                     None
                 }
                 T1MessageBody::ContractCodeRequest(request) => {
-                    self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                    self.partial_witness_adapter
+                        .send(ContractCodeRequestMessage(request, recv_permit));
                     None
                 }
                 T1MessageBody::ContractCodeResponse(response) => {
-                    self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+                    self.partial_witness_adapter
+                        .send(ContractCodeResponseMessage(response, recv_permit));
                     None
                 }
                 T1MessageBody::SpicePartialData(spice_partial_data) => {
                     self.spice_data_distributor_adapter
-                        .send(SpiceIncomingPartialData { data: spice_partial_data });
+                        .send(SpiceIncomingPartialData { data: spice_partial_data, recv_permit });
                     None
                 }
                 T1MessageBody::SpiceChunkEndorsement(endorsement) => {
-                    self.spice_core_writer_adapter.send(SpiceChunkEndorsementMessage(endorsement));
+                    self.spice_core_writer_adapter
+                        .send(SpiceChunkEndorsementMessage(endorsement, recv_permit));
                     None
                 }
                 T1MessageBody::SpicePartialDataRequest(request) => {
-                    self.spice_data_distributor_adapter.send(request);
+                    self.spice_data_distributor_adapter
+                        .send(SpicePartialDataRequestMessage { request, recv_permit });
                     None
                 }
                 T1MessageBody::SpiceChunkContractAccesses(accesses) => {
                     self.spice_data_distributor_adapter
-                        .send(SpiceChunkContractAccessesMessage(accesses));
+                        .send(SpiceChunkContractAccessesMessage(accesses, recv_permit));
                     None
                 }
                 T1MessageBody::SpiceContractCodeRequest(request) => {
                     self.spice_data_distributor_adapter
-                        .send(SpiceContractCodeRequestMessage(request));
+                        .send(SpiceContractCodeRequestMessage(request, recv_permit));
                     None
                 }
                 T1MessageBody::SpiceContractCodeResponse(response) => {
                     self.spice_data_distributor_adapter
-                        .send(SpiceContractCodeResponseMessage(response));
+                        .send(SpiceContractCodeResponseMessage(response, recv_permit));
                     None
                 }
             },
@@ -985,6 +1014,7 @@ impl NetworkState {
                         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                             partial_encoded_chunk_request: request,
                             route_back: msg_hash,
+                            recv_permit,
                         },
                     );
                     None
@@ -994,12 +1024,14 @@ impl NetworkState {
                         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                             partial_encoded_chunk_response: response,
                             received_time: clock.now().into(),
+                            recv_permit,
                         },
                     );
                     None
                 }
                 T2MessageBody::ChunkStateWitnessAck(ack) => {
-                    self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+                    self.partial_witness_adapter
+                        .send(ChunkStateWitnessAckMessage(ack, recv_permit));
                     None
                 }
                 T2MessageBody::StateHeaderRequest(request) => {
@@ -1013,6 +1045,7 @@ impl NetworkState {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
                         }),
+                        recv_permit,
                     });
                     None
                 }
@@ -1028,12 +1061,13 @@ impl NetworkState {
                             sync_hash: request.sync_hash,
                             part_id: request.part_id,
                         }),
+                        recv_permit,
                     });
                     None
                 }
                 T2MessageBody::PartialEncodedContractDeploys(deploys) => {
                     self.partial_witness_adapter
-                        .send(PartialEncodedContractDeploysMessage(deploys));
+                        .send(PartialEncodedContractDeploysMessage(deploys, recv_permit));
                     None
                 }
                 T2MessageBody::StateRequestAck(ack) => {
@@ -1119,6 +1153,7 @@ impl NetworkState {
         peer_id: PeerId,
         msg: PeerMessage,
         was_requested: bool,
+        recv_permit: RecvMessagePermit,
     ) -> Result<Option<PeerMessage>, ReasonForBan> {
         Ok(match msg {
             PeerMessage::Routed(msg) => {
@@ -1129,6 +1164,7 @@ impl NetworkState {
                     peer_id.clone(),
                     msg_hash,
                     msg.body_owned(),
+                    recv_permit,
                 )
                 .await
                 .map(|body| {
@@ -1209,16 +1245,25 @@ impl NetworkState {
                 None
             }
             PeerMessage::EpochSyncRequest => {
-                self.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                self.client.send(EpochSyncRequestMessage { from_peer: peer_id, recv_permit });
                 None
             }
             PeerMessage::EpochSyncResponse(proof) => {
-                self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+                self.client.send(EpochSyncResponseMessage {
+                    from_peer: peer_id,
+                    proof,
+                    recv_permit,
+                });
                 None
             }
             PeerMessage::OptimisticBlock(ob) => {
                 self.client.send(
-                    OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob }.span_wrap(),
+                    OptimisticBlockMessage {
+                        from_peer: peer_id,
+                        optimistic_block: ob,
+                        recv_permit,
+                    }
+                    .span_wrap(),
                 );
                 None
             }

@@ -2342,12 +2342,12 @@ impl ShardsManagerActor {
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
         let me = me.as_ref();
         match request {
-            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk, recv_permit) => {
                 match self.process_partial_encoded_chunk(partial_encoded_chunk.into(), me) {
                     Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(chunk)) => {
                         const RETRY_CHUNK_PROCESSING_DELAY: Duration = Duration::milliseconds(10);
                         return HandleNetworkRequestResult::RetryProcessing(
-                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk)),
+                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk, recv_permit)),
                             RETRY_CHUNK_PROCESSING_DELAY);
                     },
                     Ok(ProcessPartialEncodedChunkResult::Known) |
@@ -2364,6 +2364,7 @@ impl ShardsManagerActor {
             }
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                 partial_encoded_chunk_forward,
+                _recv_permit,
             ) => {
                 self.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward, me)
                     .map_or_else(
@@ -2377,6 +2378,7 @@ impl ShardsManagerActor {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                 partial_encoded_chunk_response,
                 received_time,
+                recv_permit: _recv_permit,
             } => {
                 metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(
                     (self.clock.now().signed_duration_since(received_time)).as_seconds_f64(),
@@ -2393,6 +2395,7 @@ impl ShardsManagerActor {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                 partial_encoded_chunk_request,
                 route_back,
+                recv_permit: _recv_permit,
             } => {
                 self.process_partial_encoded_chunk_request(
                     partial_encoded_chunk_request,
