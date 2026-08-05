@@ -459,7 +459,7 @@ impl SpiceCoreReader {
             .map(|epoch_info| epoch_info.validators_len())
             .map_err(|err| {
                 tracing::debug!(target: "spice_core", ?epoch_id, ?err, "failed getting epoch info");
-                InvalidSpiceCoreStatementsError::UnknownEpochConfig { epoch_id: *epoch_id }
+                InvalidSpiceCoreStatementsError::UnknownEpoch { epoch_id: *epoch_id }
             })
     }
 
@@ -478,7 +478,9 @@ impl SpiceCoreReader {
                     ?err,
                     "failed getting prev epoch id",
                 );
-                InvalidSpiceCoreStatementsError::UnknownEpochConfig { epoch_id: *epoch_id }
+                InvalidSpiceCoreStatementsError::UnknownPrevEpoch {
+                    prev_hash: *block_header.prev_hash(),
+                }
             })?;
 
         // Blocks can carry statements for the current and the previous epoch.

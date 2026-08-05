@@ -1620,8 +1620,10 @@ pub enum InvalidSpiceCoreStatementsError {
     TooManyReferencedChunks { limit: usize },
     /// A block carries more spice core statements than a single block is allowed to.
     TooManyCoreStatements { limit: usize },
-    /// Could not resolve the epoch config.
-    UnknownEpochConfig { epoch_id: EpochId },
+    /// Could not resolve the epoch.
+    UnknownEpoch { epoch_id: EpochId },
+    /// Could not resolve the epoch preceding the block's epoch.
+    UnknownPrevEpoch { prev_hash: CryptoHash },
     /// Could not find validator assignment for chunk.
     NoValidatorAssignments {
         shard_id: ShardId,

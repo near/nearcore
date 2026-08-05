@@ -445,12 +445,14 @@ fn test_core_statements_for_next_block_past_the_limit_creates_valid_block() {
     assert!(uncertified_chunks.len() > MAX_REFERENCED_CHUNKS_PER_BLOCK);
 
     let oldest_block_hash = uncertified_chunks[0].chunk_id.block_hash;
+    let validators = test_validators();
+    let enough_to_certify = &validators[..];
+    let below_threshold = &validators[..1];
     for chunk_info in &uncertified_chunks {
-        let validators = test_validators();
         let endorsers = if chunk_info.chunk_id.block_hash == oldest_block_hash {
-            &validators[..]
+            enough_to_certify
         } else {
-            &validators[..1]
+            below_threshold
         };
         endorse_chunk(&chain, &mut core_writer_actor, &chunk_info.chunk_id, endorsers);
     }
