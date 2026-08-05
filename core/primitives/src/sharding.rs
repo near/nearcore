@@ -1443,9 +1443,7 @@ impl EncodedShardChunk {
         part_ords: Vec<u64>,
         prev_outgoing_receipts: Vec<Arc<ReceiptProof>>,
         merkle_paths: &[MerklePath],
-        prev_prev_block_hash: CryptoHash,
-        epoch_id: EpochId,
-        protocol_version: ProtocolVersion,
+        anchor: Option<(CryptoHash, EpochId)>,
     ) -> PartialEncodedChunkWithArcReceipts {
         let parts = self.part_ords_to_parts(part_ords, merkle_paths);
         let header = match self {
@@ -1453,16 +1451,8 @@ impl EncodedShardChunk {
             Self::V2(chunk) => chunk.header.clone(),
         };
         // The grandparent anchor and epoch id are carried only by V3, which is produced under
-        // EarlyKickout for non-spice chunks; otherwise the message is V2 and the extra fields
-        // are dropped.
-        let (prev_prev_block_hash, epoch_id) = if ProtocolFeature::EarlyKickout
-            .enabled(protocol_version)
-            && !header.is_spice_chunk()
-        {
-            (Some(prev_prev_block_hash), Some(epoch_id))
-        } else {
-            (None, None)
-        };
+        // EarlyKickout for non-spice chunks; without an anchor the message is V2.
+        let (prev_prev_block_hash, epoch_id) = anchor.unzip();
         PartialEncodedChunkWithArcReceipts {
             header,
             parts,

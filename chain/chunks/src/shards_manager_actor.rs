@@ -83,7 +83,8 @@ use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 use crate::client::{DecodedChunk, ShardsManagerResponse, ShardsManagerResponseSender};
 use crate::logic::{
     chunk_needs_to_be_fetched_from_archival, create_partial_chunk, make_outgoing_receipts_proofs,
-    make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
+    make_partial_encoded_chunk, make_partial_encoded_chunk_from_owned_parts_and_needed_receipts,
+    need_part, need_receipt,
 };
 use crate::metrics;
 use ::time::ext::InstantExt as _;
@@ -1403,6 +1404,7 @@ impl ShardsManagerActor {
             }
             Err(err) => Err(err),
         }?;
+        // A V2 envelope is fine here even under EarlyKickout: it  is destructured right after validation, never persisted or sent.
         let partial_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header,
             parts: forward.parts,
@@ -1830,6 +1832,7 @@ impl ShardsManagerActor {
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
         let header = self.get_partial_encoded_chunk_header(&response.chunk_hash)?;
+        // A V2 envelope is fine here even under EarlyKickout: it  is destructured right after validation, never persisted or sent.
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
         // shard manager.
@@ -1964,7 +1967,7 @@ impl ShardsManagerActor {
                 me,
                 self.epoch_manager.as_ref(),
                 &self.shard_tracker,
-            );
+            )?;
 
             self.complete_chunk(partial_chunk, None);
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
@@ -2019,11 +2022,12 @@ impl ShardsManagerActor {
                         .encoded_chunks
                         .get(&chunk_hash)
                         .expect("cache entry must exist; we just decoded from it");
-                    let partial_chunk = PartialEncodedChunk::new(
+                    let partial_chunk = make_partial_encoded_chunk(
                         header.clone(),
                         entry.parts.values().cloned().collect(),
                         entry.receipts.values().cloned().collect(),
-                    );
+                        self.epoch_manager.as_ref(),
+                    )?;
                     self.encoded_chunks.mark_decode_failed(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
                     self.client_adapter.send(
@@ -2244,9 +2248,8 @@ impl ShardsManagerActor {
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let prev_prev_block_hash =
-            self.epoch_manager.grandparent_anchor(&prev_block_hash)?.unwrap_or_default();
+        let anchor =
+            partial_chunk.prev_prev_block_hash().copied().zip(partial_chunk.epoch_id().copied());
 
         for part_ord in 0..self.epoch_manager.num_total_parts() {
             let part_ord = part_ord as u64;
@@ -2294,9 +2297,7 @@ impl ShardsManagerActor {
                     part_ords,
                     part_receipt_proofs,
                     &merkle_paths,
-                    prev_prev_block_hash,
-                    epoch_id,
-                    protocol_version,
+                    anchor,
                 );
 
             if Some(&to_whom) != me {

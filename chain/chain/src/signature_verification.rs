@@ -124,16 +124,11 @@ fn verify_anchored_chunk_key(
                 let expected_height = anchor_height
                     .checked_add(CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET)
                     .expect("block height overflow");
-                if height_created < expected_height {
-                    return Err(Error::InvalidPartialChunkStateWitness(format!(
-                        "V2 {msg_label} height {height_created} below \
-                         anchor-implied height {expected_height}"
-                    )));
-                }
-                if height_created > expected_height {
+                if height_created != expected_height {
                     return Err(Error::DBNotFoundErr(format!(
-                        "{msg_label} height {height_created} above anchor-implied height \
-                         {expected_height}; deferring until parent {prev_block_hash:?} is known"
+                        "{msg_label} height {height_created} does not match anchor-implied \
+                         height {expected_height}; deferring until parent {prev_block_hash:?} \
+                         is known"
                     )));
                 }
             } else {
@@ -274,12 +269,11 @@ mod tests {
 
         // Exactly the anchor-implied height is the only accepted value.
         assert_matches!(check(expected_height), Ok(()));
-        // Above it (a skipped slot, or a forged height we cannot disprove yet) is deferred via
-        // `DBNotFoundErr`, never treated as the sender's fault. The chunk is validated against
-        // the parent once that block is processed.
+        // Any other height (a skipped slot, or a forged height we cannot disprove yet) is
+        // deferred via `DBNotFoundErr`, never treated as the sender's fault. The chunk is
+        // validated against the parent once that block is processed.
         assert_matches!(check(expected_height + 1), Err(Error::DBNotFoundErr(_)));
         assert_matches!(check(expected_height + 600), Err(Error::DBNotFoundErr(_)));
-        // Below the offset is impossible for any chunk, so it is a hard rejection.
-        assert_matches!(check(expected_height - 1), Err(Error::InvalidPartialChunkStateWitness(_)));
+        assert_matches!(check(expected_height - 1), Err(Error::DBNotFoundErr(_)));
     }
 }
