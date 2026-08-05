@@ -1,3 +1,4 @@
+mod adversarial_height;
 mod continuous_epoch_sync;
 mod epoch_sync;
 mod far_horizon;

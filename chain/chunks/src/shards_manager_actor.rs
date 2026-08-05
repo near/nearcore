@@ -1684,7 +1684,12 @@ impl ShardsManagerActor {
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
             // because prev_block_hash may not be ready
-            if !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root()) {
+            //
+            // from_shard_id is not covered by the receipts merkle root, so it must be checked
+            // explicitly.
+            if proof.1.from_shard_id != header.shard_id()
+                || !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root())
+            {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
@@ -2337,12 +2342,12 @@ impl ShardsManagerActor {
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
         let me = me.as_ref();
         match request {
-            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk, recv_permit) => {
                 match self.process_partial_encoded_chunk(partial_encoded_chunk.into(), me) {
                     Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(chunk)) => {
                         const RETRY_CHUNK_PROCESSING_DELAY: Duration = Duration::milliseconds(10);
                         return HandleNetworkRequestResult::RetryProcessing(
-                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk)),
+                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk, recv_permit)),
                             RETRY_CHUNK_PROCESSING_DELAY);
                     },
                     Ok(ProcessPartialEncodedChunkResult::Known) |
@@ -2359,6 +2364,7 @@ impl ShardsManagerActor {
             }
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                 partial_encoded_chunk_forward,
+                _recv_permit,
             ) => {
                 self.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward, me)
                     .map_or_else(
@@ -2372,6 +2378,7 @@ impl ShardsManagerActor {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                 partial_encoded_chunk_response,
                 received_time,
+                recv_permit: _recv_permit,
             } => {
                 metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(
                     (self.clock.now().signed_duration_since(received_time)).as_seconds_f64(),
@@ -2388,6 +2395,7 @@ impl ShardsManagerActor {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                 partial_encoded_chunk_request,
                 route_back,
+                recv_permit: _recv_permit,
             } => {
                 self.process_partial_encoded_chunk_request(
                     partial_encoded_chunk_request,
@@ -2430,7 +2438,7 @@ impl PartialEncodedChunkResponseSource {
 mod test {
     use super::*;
     use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
-    use crate::logic::persist_chunk;
+    use crate::logic::{make_outgoing_receipts_proofs, persist_chunk};
     use crate::test_utils::*;
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
@@ -3665,6 +3673,42 @@ mod test {
         assert_matches!(
             messages[0],
             ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
+    }
+
+    #[test]
+    fn test_receipt_proof_with_mismatched_from_shard_id_rejected() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let header = &fixture.mock_chunk_header;
+        let mut proof = make_outgoing_receipts_proofs(header, vec![], &fixture.epoch_manager)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(proof.1.from_shard_id, header.shard_id());
+        proof.1.from_shard_id = fixture
+            .epoch_manager
+            .get_shard_layout(&EpochId::default())
+            .unwrap()
+            .shard_ids()
+            .find(|shard_id| *shard_id != header.shard_id())
+            .unwrap();
+
+        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: fixture.mock_chunk_header.clone(),
+            parts: vec![],
+            prev_outgoing_receipts: vec![proof],
+        });
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial_encoded_chunk),
+            Some(&fixture.mock_shard_tracker),
+        );
+        assert_matches!(result, Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof)));
+
+        assert!(
+            shards_manager.encoded_chunks.get(fixture.mock_chunk_header.chunk_hash()).is_none()
         );
     }
 

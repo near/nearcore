@@ -91,9 +91,15 @@ def doit(seq=[]):
 
     config = None
     nodes = start_cluster(
-        2, 1, 1, config, [["epoch_length", EPOCH_LENGTH],
-                          ["block_producer_kickout_threshold", 40],
-                          ["chunk_producer_kickout_threshold", 40]],
+        2,
+        1,
+        1,
+        config,
+        [
+            ["epoch_length", EPOCH_LENGTH],
+            ["block_producer_kickout_threshold", 40],
+            ["chunk_producer_kickout_threshold", 40],
+        ],
         {
             0: {
                 "tracked_shards_config": "AllShards",
@@ -145,9 +151,9 @@ def doit(seq=[]):
                         "nanos": 0
                     },
                 },
-                "store.state_snapshot_config.state_snapshot_type": "Enabled",
             }
-        })
+        },
+    )
 
     started = time.time()
     last_iter = started

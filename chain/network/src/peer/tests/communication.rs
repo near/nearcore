@@ -1,3 +1,4 @@
+use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest, PeersResponse,
@@ -201,6 +202,58 @@ async fn test_request_update_nonce_rejects_invalid_nonce() -> anyhow::Result<()>
         })
         .await;
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_oversized_peers_response_bans_without_adding_to_peer_store() -> anyhow::Result<()> {
+    init_test_logger();
+    let mut rng = make_rng(89028037453);
+    let mut clock = time::FakeClock::default();
+
+    let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
+    let inbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
+    let outbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
+    let (outbound_stream, inbound_stream) =
+        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
+    let actor_system = ActorSystem::new();
+    let mut inbound = PeerHandle::start_endpoint(
+        clock.clock(),
+        actor_system.clone(),
+        inbound_cfg,
+        inbound_stream,
+    );
+    let mut outbound =
+        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream);
+
+    outbound.complete_handshake().await;
+    inbound.complete_handshake().await;
+
+    let store_size_before = inbound.network_state.peer_store.len();
+
+    let fake_peers: Vec<_> =
+        (0..PEERS_RESPONSE_MAX_PEERS + 1).map(|_| data::make_peer_info(&mut rng)).collect();
+    let msg = PeerMessage::PeersResponse(PeersResponse { peers: fake_peers, direct_peers: vec![] });
+
+    let mut events = inbound.events.from_now();
+    outbound.send(msg).await;
+
+    events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev)
+                if ev.reason == ClosingReason::Ban(ReasonForBan::Abusive) =>
+            {
+                Some(())
+            }
+            _ => None,
+        })
+        .await;
+
+    assert_eq!(
+        inbound.network_state.peer_store.len(),
+        store_size_before,
+        "peer store should not be modified by an oversized PeersResponse"
+    );
     Ok(())
 }
 

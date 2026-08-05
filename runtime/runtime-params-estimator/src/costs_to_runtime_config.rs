@@ -156,6 +156,8 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::ed25519_verify_byte => Cost::Ed25519VerifyByte,
         ExtCosts::p256_verify_base => Cost::P256VerifyBase,
         ExtCosts::p256_verify_byte => Cost::P256VerifyByte,
+        ExtCosts::ml_dsa_verify_base => Cost::MlDsaVerifyBase,
+        ExtCosts::ml_dsa_verify_byte => Cost::MlDsaVerifyByte,
         ExtCosts::log_base => Cost::LogBase,
         ExtCosts::log_byte => Cost::LogByte,
         ExtCosts::storage_write_base => Cost::StorageWriteBase,

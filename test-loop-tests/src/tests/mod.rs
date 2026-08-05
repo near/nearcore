@@ -22,17 +22,21 @@ mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
+mod debug_block_status;
 mod debug_epoch_info;
 mod deploy_compute_cost;
 mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
 mod earliest_available;
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+mod early_kickout_e2e;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod gas_keys;
+mod genesis_chunk_request;
 mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
@@ -46,6 +50,7 @@ mod max_receipt_size;
 mod meta_tx;
 mod ml_dsa_access_key;
 mod ml_dsa_verification_cost;
+mod ml_dsa_verify;
 mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;

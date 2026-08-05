@@ -12,6 +12,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::ProcessTxRequest;
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockApproval, BlockResponse};
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
@@ -104,6 +105,7 @@ fn slow_test_repro_1183() {
                                 node_datas[i].shards_manager_sender.send(
                                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                                         partial_encoded_chunk.clone().into(),
+                                        RecvMessagePermit::none(),
                                     ),
                                 );
                             }

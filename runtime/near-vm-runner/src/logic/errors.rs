@@ -210,6 +210,8 @@ pub enum PrepareError {
     /// A function's max operand-stack size (in bytes) exceeds
     /// `max_operand_stack_bytes_per_function`.
     OperandStackTooLarge = 18,
+    /// Contract declares too many entries in the wasm global section.
+    TooManyGlobals = 19,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -339,6 +341,13 @@ pub enum HostError {
     P256VerifyInvalidInput {
         msg: String,
     },
+    /// Input length mismatch for ML-DSA-65 signature verification (signature is
+    /// not 3309 bytes or public key is not 1952 bytes). Parse failures of
+    /// otherwise well-sized inputs return 0 from the host function instead of
+    /// aborting.
+    MlDsaVerifyInvalidInput {
+        msg: String,
+    },
     // Invalid input to bls12381 family of functions
     BLS12381InvalidInput {
         msg: String,
@@ -451,6 +460,7 @@ impl fmt::Display for PrepareError {
             TooManyParamsPerContract => "Too many function parameters in the contract",
             TooManyParamsPerFunction => "Too many parameters in a single function",
             OperandStackTooLarge => "A function uses too much operand stack.",
+            TooManyGlobals => "Too many globals declared in the contract.",
         })
     }
 }
@@ -618,6 +628,9 @@ impl std::fmt::Display for HostError {
             }
             P256VerifyInvalidInput { msg } => {
                 write!(f, "P256 signature verification error: {}", msg)
+            }
+            MlDsaVerifyInvalidInput { msg } => {
+                write!(f, "ML-DSA-65 signature verification error: {}", msg)
             }
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(

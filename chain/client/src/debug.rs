@@ -236,9 +236,9 @@ fn find_first_height_to_fetch(
     }
 
     let min_height_to_search = max(
-        height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64,
-        chain_store.get_genesis_height() as i64,
-    ) as u64;
+        height_to_fetch.saturating_sub(DEBUG_MAX_BLOCKS_TO_SEARCH),
+        chain_store.get_genesis_height(),
+    );
     while height_to_fetch > min_height_to_search {
         let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
         if block_hashes.is_empty() {
@@ -560,13 +560,12 @@ impl ClientActor {
         let initial_gas_price = self.client.chain.genesis_block().header().next_gas_price();
 
         let chain_store = self.client.chain.chain_store();
-        let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
+        let mut height_to_fetch =
+            min(starting_height.unwrap_or(header_head.height), header_head.height);
         height_to_fetch =
             find_first_height_to_fetch(chain_store, height_to_fetch, mode, final_head.height)?;
-        let min_height_to_fetch = max(
-            height_to_fetch as i64 - num_blocks as i64,
-            chain_store.get_genesis_height() as i64,
-        ) as u64;
+        let min_height_to_fetch =
+            max(height_to_fetch.saturating_sub(num_blocks), chain_store.get_genesis_height());
 
         let mut block_hashes_to_force_fetch = HashSet::new();
         while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {

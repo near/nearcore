@@ -338,6 +338,8 @@ pub struct NetworkConfigOverrides {
     pub routing_graph_max_peers: Option<usize>,
     /// Maximum total number of edges stored in the routing graph.
     pub routing_graph_max_edges: Option<usize>,
+    /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
+    pub routing_graph_max_accounts_per_message: Option<usize>,
 }
 
 impl Default for Config {
