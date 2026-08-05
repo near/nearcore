@@ -25,10 +25,6 @@ use time::ext::InstantExt;
 //    will only include chunks in the block for which it has received the part it owns.
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
-/// Default height horizon for chunk cache. A chunk is out of rear horizon if its
-/// height + DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON < largest_seen_height.
-pub const DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON: BlockHeightDelta = 128;
-
 /// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
@@ -369,9 +365,10 @@ impl EncodedChunksCache {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON, MAX_HEIGHTS_AHEAD};
+    use super::MAX_HEIGHTS_AHEAD;
     use crate::chunk_cache::EncodedChunksCache;
     use crate::shards_manager_actor::ChunkRequestInfo;
+    use near_chain_configs::default_chunks_cache_height_horizon;
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV2};
@@ -403,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_incomplete_chunks() {
-        let mut cache = EncodedChunksCache::new(DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON);
+        let mut cache = EncodedChunksCache::new(default_chunks_cache_height_horizon());
         let header0 = create_chunk_header(1, ShardId::new(0));
         let header1 = create_chunk_header(1, ShardId::new(1));
         cache.get_or_insert_from_header(&header0);
@@ -427,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_height_within_horizon_no_overflow() {
-        let horizon = DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
+        let horizon = default_chunks_cache_height_horizon();
         let mut cache = EncodedChunksCache::new(horizon);
 
         // Normal range: largest_seen_height well above the rear horizon.
@@ -460,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_cache_removal() {
-        let mut cache = EncodedChunksCache::new(DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON);
+        let mut cache = EncodedChunksCache::new(default_chunks_cache_height_horizon());
         let header = create_chunk_header(1, ShardId::new(0));
         cache.merge_in_partial_encoded_chunk(
             &header,
