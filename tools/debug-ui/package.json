@@ -6,7 +6,7 @@
   "dependencies": {
     "@patternfly/react-log-viewer": "^4.87.101",
     "@tanstack/react-query": "^4.0.0",
-    "@types/node": "^24.10.1",
+    "@types/node": "^22.20.1",
     "@types/react": "^18.2.46",
     "@types/react-dom": "^18.2.18",
     "date-fns": "^3.6.0",
