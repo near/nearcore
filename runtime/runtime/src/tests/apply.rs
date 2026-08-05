@@ -1687,6 +1687,98 @@ fn test_per_receipt_storage_proof_size_limit() {
     assert!(error_message.contains("storage proof"), "unexpected error message: {error_message}");
 }
 
+#[test]
+fn test_storage_proof_limit_applies_to_non_function_call_actions() {
+    const NUM_KEYS: usize = 2;
+
+    assert!(ProtocolFeature::EnforceStorageProofLimitForAllActions.enabled(PROTOCOL_VERSION));
+    let feature_version = ProtocolFeature::EnforceStorageProofLimitForAllActions.protocol_version();
+
+    let shard_uid = ShardUId::single_shard();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1_000),
+    );
+
+    // A one-byte limit means any recorded node trips the check, so the test does
+    // not depend on the size an `AddKey` action happens to record.
+    let mut config = RuntimeConfig::clone(&apply_state.config);
+    Arc::make_mut(&mut config.wasm_config).limit_config.per_receipt_storage_proof_size_limit = 1;
+    apply_state.config = Arc::new(config);
+
+    let added_keys: Vec<PublicKey> = (0..NUM_KEYS)
+        .map(|i| {
+            InMemorySigner::from_seed(alice_account(), KeyType::ED25519, &format!("key{i}"))
+                .public_key()
+        })
+        .collect();
+    let receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        added_keys
+            .iter()
+            .map(|public_key| {
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: public_key.clone(),
+                    access_key: AccessKey::full_access(),
+                }))
+            })
+            .collect(),
+    );
+    let receipt_id = *receipt.receipt_id();
+
+    let mut apply_receipt = |protocol_version: ProtocolVersion| {
+        apply_state.current_protocol_version = protocol_version;
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder(),
+                &None,
+                &apply_state,
+                std::slice::from_ref(&receipt),
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        let status = apply_result
+            .outcomes
+            .iter()
+            .find(|outcome| outcome.id == receipt_id)
+            .expect("receipt outcome should be present")
+            .outcome
+            .status
+            .clone();
+        (apply_result, status)
+    };
+
+    // Before the feature version, the in-VM counter doesn't run for `AddKey`, so the limit is not enforced.
+    let (_, status_before) = apply_receipt(feature_version - 1);
+    assert_matches!(status_before, ExecutionStatus::SuccessValue(_));
+
+    // The first action already crosses the limit, so the receipt fails there and
+    // the remaining actions never run.
+    let (apply_result, status_after) = apply_receipt(PROTOCOL_VERSION);
+    let action_error = assert_matches!(
+        status_after,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => action_error
+    );
+    assert_eq!(
+        action_error,
+        ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::ReceiptStorageProofSizeExceeded { limit: 1 },
+        }
+    );
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    for public_key in &added_keys {
+        assert_eq!(get_access_key(&state, &alice_account(), public_key).unwrap(), None);
+    }
+}
+
 /// Deploys a contract, records a witness for a call to it (which excludes the
 /// contract body), then applies that call over the recorded storage.
 fn apply_call_to_contract_missing_from_witness(

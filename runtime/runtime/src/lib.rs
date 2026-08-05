@@ -840,6 +840,13 @@ impl Runtime {
             } else {
                 None
             };
+        // The in-VM `RecordedStorageCounter` only bounds `FunctionCall` actions.
+        let storage_proof_limit_for_all_actions =
+            ProtocolFeature::EnforceStorageProofLimitForAllActions
+                .enabled(apply_state.current_protocol_version)
+                .then(|| {
+                    apply_state.config.wasm_config.limit_config.per_receipt_storage_proof_size_limit
+                });
 
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions().iter().enumerate() {
@@ -877,6 +884,22 @@ impl Runtime {
                 }
             }
             result.merge(new_result)?;
+            if let (true, Some(size_before), Some(limit)) = (
+                result.result.is_ok(),
+                storage_proof_size_before_receipt,
+                storage_proof_limit_for_all_actions,
+            ) {
+                let recorded_by_receipt = state_update
+                    .trie
+                    .recorded_storage_size_upper_bound()
+                    .saturating_sub(size_before);
+                if recorded_by_receipt > limit {
+                    result.set_error(
+                        ActionErrorKind::ReceiptStorageProofSizeExceeded { limit: limit as u64 }
+                            .into(),
+                    );
+                }
+            }
             // TODO storage error
             if let Err(ref mut res) = result.result {
                 res.index = Some(action_index as u64);
