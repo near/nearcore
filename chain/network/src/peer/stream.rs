@@ -44,7 +44,7 @@ pub(crate) enum RecvError {
     IO(#[source] io::Error),
     #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
     MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
-    #[error("The incoming_semaphore has been closed. Can't acquire recv_permit")]
+    #[error("incoming_semaphore has been closed; cannot acquire recv_permit")]
     IncomingSemaphoreClosed,
 }
 
