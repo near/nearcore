@@ -1621,6 +1621,14 @@ pub enum InvalidSpiceCoreStatementsError {
     InvalidCoreStatement { index: usize, reason: &'static str },
     /// Spice core statements skipped over execution result for chunk.
     SkippedExecutionResult { chunk_id: SpiceChunkId },
+    /// Spice core statements reference more distinct chunks than a single block is allowed to.
+    TooManyReferencedChunks { limit: usize },
+    /// A block carries more spice core statements than a single block is allowed to.
+    TooManyCoreStatements { limit: usize },
+    /// Could not resolve the epoch.
+    UnknownEpoch { epoch_id: EpochId },
+    /// Could not resolve the epoch preceding the block's epoch.
+    UnknownPrevEpoch { prev_hash: CryptoHash },
     /// Could not find validator assignment for chunk.
     NoValidatorAssignments {
         shard_id: ShardId,
