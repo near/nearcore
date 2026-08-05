@@ -171,7 +171,8 @@ pub fn validate_spice_chunk_endorsements_in_header(header: &BlockHeader) -> Resu
         )));
     }
     for shard_index in 0..num_shards {
-        let len = chunk_endorsements.len(shard_index).unwrap();
+        let len =
+            chunk_endorsements.len(shard_index).expect("shard_index < num_shards checked above");
         if len != 0 {
             return Err(Error::InvalidChunkEndorsementBitmap(format!(
                 "bitmap must be empty for every shard with spice, but has length {} for shard index {}",
