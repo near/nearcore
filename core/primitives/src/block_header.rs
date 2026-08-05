@@ -46,6 +46,39 @@ pub struct BlockHeaderInnerLite {
     pub block_merkle_root: CryptoHash,
 }
 
+/// Light-client-readable inner-lite for spice headers.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
+)]
+pub struct BlockHeaderInnerLiteV2 {
+    /// Height of this block.
+    pub height: BlockHeight,
+    /// Epoch start hash of this block's epoch.
+    /// Used for retrieving validator information
+    pub epoch_id: EpochId,
+    pub next_epoch_id: EpochId,
+    /// Root hash of the state at the previous block.
+    pub prev_state_root: MerkleHash,
+    /// Root of the outcomes of transactions and receipts from the previous chunks.
+    pub prev_outcome_root: MerkleHash,
+    /// Timestamp at which the block was built (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub timestamp: u64,
+    /// Hash of the next epoch block producers set
+    pub next_bp_hash: CryptoHash,
+    /// Merkle root of block hashes up to the current block.
+    pub block_merkle_root: CryptoHash,
+    /// Merkle root over the block's certified chunk execution results.
+    pub chunk_execution_root: CryptoHash,
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
 )]
@@ -680,7 +713,7 @@ pub struct BlockHeaderV7 {
     /// Inner part of the block header that gets hashed.
     /// It's split into two parts: one that is sent to light clients,
     /// and the other which contains the rest of information.
-    pub inner_lite: BlockHeaderInnerLite,
+    pub inner_lite: BlockHeaderInnerLiteV2,
     pub inner_rest: BlockHeaderInnerRestV7,
 
     /// Signature of the block producer.
@@ -823,6 +856,7 @@ impl BlockHeader {
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
         spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        chunk_execution_root: Option<CryptoHash>,
     ) -> Self {
         Self::new_impl(
             current_protocol_version,
@@ -856,6 +890,7 @@ impl BlockHeader {
             shard_split,
             prev_last_certified_block_epoch_id,
             spice_chunk_endorsement_stats,
+            chunk_execution_root,
         )
     }
 
@@ -892,6 +927,7 @@ impl BlockHeader {
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
         spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        chunk_execution_root: Option<CryptoHash>,
     ) -> Self {
         let header = Self::new_impl(
             epoch_protocol_version,
@@ -925,6 +961,7 @@ impl BlockHeader {
             shard_split,
             prev_last_certified_block_epoch_id,
             spice_chunk_endorsement_stats,
+            chunk_execution_root,
         );
         // Note: We do not panic but only log if the hash of the created header does not match the expected hash (From the view)
         // because there are tests that check if we can downgrade a BlockHeader's view a previous version, in which case the hash
@@ -968,6 +1005,7 @@ impl BlockHeader {
         shard_split: Option<(ShardId, AccountId)>,
         prev_last_certified_block_epoch_id: Option<EpochId>,
         spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        chunk_execution_root: Option<CryptoHash>,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -993,6 +1031,19 @@ impl BlockHeader {
             let spice_chunk_endorsement_stats = spice_chunk_endorsement_stats.expect(
                 "BlockHeaderV7 requires spice_chunk_endorsement_stats when Spice is enabled",
             );
+            let chunk_execution_root = chunk_execution_root
+                .expect("BlockHeaderV7 requires chunk_execution_root when Spice is enabled");
+            let inner_lite = BlockHeaderInnerLiteV2 {
+                height,
+                epoch_id,
+                next_epoch_id,
+                prev_state_root,
+                prev_outcome_root: outcome_root,
+                timestamp,
+                next_bp_hash,
+                block_merkle_root,
+                chunk_execution_root,
+            };
             let inner_rest = BlockHeaderInnerRestV7 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -1093,13 +1144,14 @@ impl BlockHeader {
     /// Exactly one of the `signer` and `signature` must be provided.
     /// If `signer` is given signs the header with given `prev_hash`, `inner_lite`, and `inner_rest` and returns the hash and signature of the header.
     /// If `signature` is given, uses the signature as is and only computes the hash.
-    fn compute_hash_and_sign<T>(
+    fn compute_hash_and_sign<L, T>(
         signature_source: SignatureSource,
         prev_hash: CryptoHash,
-        inner_lite: &BlockHeaderInnerLite,
+        inner_lite: &L,
         inner_rest: &T,
     ) -> (CryptoHash, Signature)
     where
+        L: BorshSerialize + ?Sized,
         T: BorshSerialize + ?Sized,
     {
         let hash = BlockHeader::compute_hash(
@@ -1140,6 +1192,12 @@ impl BlockHeader {
             } else {
                 None
             };
+        let genesis_chunk_execution_root =
+            if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+                Some(CryptoHash::default())
+            } else {
+                None
+            };
         Self::new_impl(
             genesis_protocol_version,
             genesis_protocol_version,
@@ -1172,6 +1230,7 @@ impl BlockHeader {
             None, // shard_split
             genesis_prev_last_certified_block_epoch_id,
             genesis_spice_chunk_endorsement_stats,
+            genesis_chunk_execution_root,
         )
     }
 
@@ -1676,16 +1735,18 @@ impl BlockHeader {
         }
     }
 
+    /// Merkle root over the block's certified chunk execution results.
+    /// `None` for non-spice headers.
     #[inline]
-    pub fn inner_lite(&self) -> &BlockHeaderInnerLite {
+    pub fn chunk_execution_root(&self) -> Option<CryptoHash> {
         match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV6(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV7(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => None,
+            BlockHeader::BlockHeaderV7(header) => Some(header.inner_lite.chunk_execution_root),
         }
     }
 
