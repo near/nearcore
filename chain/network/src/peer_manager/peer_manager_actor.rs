@@ -2,6 +2,7 @@ use crate::client::{
     ClientSenderForNetwork, GetCurrentEpochHeight, SetNetworkInfo, SpiceChunkEndorsementMessage,
     StateRequestHeader, StateRequestPart,
 };
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{self, T2MessageBody};
@@ -837,7 +838,7 @@ impl PeerManagerActor {
     fn handle_msg_network_requests(
         &self,
         msg: NetworkRequests,
-        permit: Option<crate::concurrency::outgoing_queue_limiter::OutgoingPermit>,
+        permit: Option<OutgoingPermit>,
     ) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
         let _span =

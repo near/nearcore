@@ -1,6 +1,7 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::AnnounceAccountRequest;
 use crate::concurrency::atomic_cell::AtomicCell;
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
@@ -399,11 +400,7 @@ impl PeerActor {
         self.send_message_inner(msg, None);
     }
 
-    fn send_message_inner(
-        &self,
-        msg: &PeerMessage,
-        reserved_permit: Option<crate::concurrency::outgoing_queue_limiter::OutgoingPermit>,
-    ) {
+    fn send_message_inner(&self, msg: &PeerMessage, reserved_permit: Option<OutgoingPermit>) {
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
