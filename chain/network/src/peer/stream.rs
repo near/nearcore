@@ -55,10 +55,6 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self { bytes, _permit: None }
-    }
-
     pub fn with_permit(bytes: Vec<u8>, permit: OutgoingPermit) -> Self {
         Self { bytes, _permit: Some(permit) }
     }
@@ -354,7 +350,8 @@ mod tests {
 
         // Enqueue enough large messages to fill the TCP send buffer.
         for _ in 0..64 {
-            let _ = queue_send.send(Frame::new(vec![0u8; 1024 * 1024]));
+            let _ = queue_send
+                .send(Frame::with_permit(vec![0u8; 1024 * 1024], OutgoingPermit::fake_for_test()));
         }
         // Close the sender so run_send_loop will drain the queue and exit.
         drop(queue_send);

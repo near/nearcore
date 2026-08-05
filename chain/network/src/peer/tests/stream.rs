@@ -1,4 +1,5 @@
 use crate::auto_stop::AutoStopActor;
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::testonly as data;
 use crate::peer::stream::{self, IncomingFrame};
 use crate::peer_manager::network_state::INCOMING_SEMAPHORE_PERMITS;
@@ -24,7 +25,7 @@ struct SendFrame(Vec<u8>);
 
 impl messaging::Handler<SendFrame> for Actor {
     fn handle(&mut self, SendFrame(bytes): SendFrame) {
-        self.stream.send(stream::Frame::new(bytes));
+        self.stream.send(stream::Frame::with_permit(bytes, OutgoingPermit::fake_for_test()));
     }
 }
 
