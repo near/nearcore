@@ -2,24 +2,24 @@
   "name": "debug-ui",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "dependencies": {
     "@patternfly/react-log-viewer": "^4.87.101",
     "@tanstack/react-query": "^4.0.0",
-    "@types/node": "^16.18.77",
+    "@types/node": "^24.10.1",
     "@types/react": "^18.2.46",
     "@types/react-dom": "^18.2.18",
     "date-fns": "^3.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.16.0",
-    "react-scripts": "^5.0.1",
     "react-tooltip": "^5.22.0",
     "react-xarrows": "^2.0.2"
   },
   "scripts": {
-    "start": "DISABLE_ESLINT_PLUGIN=true react-scripts start",
-    "build": "react-scripts build",
-    "eject": "react-scripts eject",
+    "start": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
     "lint": "eslint . && prettier --check src",
     "fix": "eslint . --fix && prettier --write src"
   },
@@ -39,6 +39,8 @@
     "@types/lodash": "^4.17.16",
     "@typescript-eslint/eslint-plugin": "^5.52.0",
     "@typescript-eslint/parser": "^5.52.0",
+    "@vitejs/plugin-react": "^6.0.5",
+    "autoprefixer": "^10.4.21",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^8.6.0",
     "eslint-import-resolver-typescript": "^3.5.3",
@@ -47,7 +49,8 @@
     "eslint-plugin-promise": "^6.1.1",
     "eslint-plugin-react": "^7.32.2",
     "prettier": "2.8.4",
-    "typescript": "^4.9.5",
-    "typescript-plugin-css-modules": "^4.2.2"
+    "sass": "^1.102.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.0"
   }
 }
