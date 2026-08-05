@@ -30,7 +30,6 @@ use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::sync::Arc;
 
 /// Upper bound on the number of distinct chunks a single block's core statements may reference.
@@ -156,6 +155,21 @@ impl SpiceCoreReader {
         block_hash: &CryptoHash,
     ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
         get_uncertified_chunks(&self.chain_store, block_hash)
+    }
+
+    /// Whether `chunk_id` may certify via the all-stake fallback in a block at `carrying_height`
+    /// built on `carrying_prev_hash`. False once the chunk is certified there.
+    pub fn fallback_eligible_in_carrying_block(
+        &self,
+        carrying_height: BlockHeight,
+        carrying_prev_hash: &CryptoHash,
+        chunk_id: &SpiceChunkId,
+    ) -> Result<bool, Error> {
+        let uncertified_chunks = self.get_uncertified_chunks(carrying_prev_hash)?;
+        Ok(uncertified_chunks
+            .iter()
+            .find(|chunk_info| &chunk_info.chunk_id == chunk_id)
+            .is_some_and(|chunk_info| fallback_eligible(carrying_height, chunk_info)))
     }
 
     /// Returns ChunkExtra for a given chunk, trying the ChunkExtra column first
@@ -443,12 +457,7 @@ impl SpiceCoreReader {
         // Once uncertified past the fallback window, also include the non-designated endorsements.
         // height() + 1 underestimates the next block's height, but eligibility is monotone in it
         // so anything eligible here stays eligible at the height validation checks against.
-        if fallback_eligible(
-            &self.chain_store,
-            block_header.height() + 1,
-            block_header.hash(),
-            &chunk_info.chunk_id,
-        )? {
+        if fallback_eligible(block_header.height() + 1, &chunk_info) {
             statements.extend(self.fallback_endorsements(&chunk_info)?);
         }
 
@@ -588,28 +597,6 @@ impl SpiceCoreReader {
         Ok(MAX_REFERENCED_CHUNKS_PER_BLOCK.saturating_mul(max_statements_per_chunk))
     }
 
-    /// `fallback_eligible` for `chunk_id` as of `block`, mapping the `near_chain` error into the
-    /// validation error type (the block's ancestry is present, so an error is internal).
-    // TODO(spice-perf): called per non-designated endorsement in the admission loop and again per
-    // chunk in the certification loop, but the verdict only depends on (block, chunk_id). Memoize
-    // it per chunk_id for the duration of validate_core_statements_in_block, and hoist the
-    // chunk-independent ancestor walk + certified-frontier lookup out of the per-chunk path.
-    fn fallback_eligible_in_block(
-        &self,
-        block: &Block,
-        chunk_id: &SpiceChunkId,
-    ) -> Result<bool, InvalidSpiceCoreStatementsError> {
-        fallback_eligible(
-            &self.chain_store,
-            block.header().height(),
-            block.header().prev_hash(),
-            chunk_id,
-        )
-        .map_err(|error| InvalidSpiceCoreStatementsError::IoError {
-            error: io::Error::other(error.to_string()),
-        })
-    }
-
     /// Verifies `endorsement`'s signature against its signer's key in `epoch_id`, returning the
     /// signed data and signature. The error is a reason string for `InvalidCoreStatement`.
     fn verify_endorsement_signature<'e>(
@@ -685,9 +672,9 @@ impl SpiceCoreReader {
                     // Non-designated endorsements are admissible only once the chunk is
                     // fallback-eligible and still uncertified.
                     if !ancestry_endorsements.is_pending_designated(chunk_id, account_id) {
-                        let eligible_fallback = ancestry_endorsements.is_uncertified(chunk_id)
-                            && self.fallback_eligible_in_block(block, chunk_id)?;
-                        if !eligible_fallback {
+                        if !ancestry_endorsements
+                            .is_fallback_eligible(chunk_id, block.header().height())
+                        {
                             return Err(InvalidCoreStatement {
                                 index,
                                 reason: "endorsement is irrelevant",
@@ -781,8 +768,9 @@ impl SpiceCoreReader {
                     .insert(account_id, endorsement.signature.clone());
             }
             // Once fallback-eligible, the chunk may also certify via 2/3 of total epoch stake.
-            let fallback_assignment =
-                self.fallback_eligible_in_block(block, chunk_id)?.then(|| {
+            let fallback_assignment = ancestry_endorsements
+                .is_fallback_eligible(chunk_id, block.header().height())
+                .then(|| {
                     all_stake_fallback_assignment(
                         self.epoch_manager.as_ref(),
                         chunk_block.header().epoch_id(),
@@ -845,7 +833,7 @@ impl SpiceCoreReader {
         uncertified_chunks
             .retain(|chunk_info| !newly_certified_chunks.contains(&chunk_info.chunk_id));
         let oldest_uncertified_block_header =
-            find_oldest_uncertified_block_header(&self.chain_store, uncertified_chunks)?;
+            find_oldest_uncertified_block_header(&self.chain_store, &uncertified_chunks)?;
         let new_last_certified =
             if let Some(oldest_uncertified_block_header) = oldest_uncertified_block_header {
                 self.chain_store.get_block_header(oldest_uncertified_block_header.prev_hash())?
@@ -1024,6 +1012,16 @@ pub fn record_uncertified_chunks_for_block(
         }
     }
 
+    // A chunk's parent is certified exactly when the chunk's block is the oldest still-uncertified
+    // one, so its designated validators can act from this block on. Computed before this block's
+    // own chunks are added: they are the oldest only when nothing carries over, and this block's
+    // header is not in the store yet.
+    let oldest_uncertified_block_hash = find_oldest_uncertified_block_header(
+        chain_store_update.chain_store(),
+        &uncertified_chunks,
+    )?
+    .map_or_else(|| *block.hash(), |header| *header.hash());
+
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
     uncertified_chunks.reserve_exact(shard_layout.num_shards() as usize);
     for shard_id in shard_layout.shard_ids() {
@@ -1044,7 +1042,16 @@ pub fn record_uncertified_chunks_for_block(
             missing_endorsements,
             present_endorsements: Vec::new(),
             present_fallback_endorsements: Vec::new(),
+            certifiable_since_height: None,
         });
+    }
+
+    for chunk_info in &mut uncertified_chunks {
+        if chunk_info.certifiable_since_height.is_none()
+            && chunk_info.chunk_id.block_hash == oldest_uncertified_block_hash
+        {
+            chunk_info.certifiable_since_height = Some(block.header().height());
+        }
     }
 
     metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
@@ -1253,10 +1260,10 @@ pub fn record_spice_endorsement_stats_for_block(
 
 fn find_oldest_uncertified_block_header(
     chain_store: &ChainStoreAdapter,
-    uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
+    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
 ) -> Result<Option<Arc<BlockHeader>>, Error> {
     let uncertified_block_hashes: HashSet<_> =
-        uncertified_chunks.into_iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
+        uncertified_chunks.iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
     let uncertified_block_headers: Vec<_> = uncertified_block_hashes
         .iter()
         // If this needs to be optimized SpiceUncertifiedChunkInfo can contain block height.
@@ -1292,7 +1299,8 @@ pub fn get_last_certified_block_header(
     block_hash: &CryptoHash,
 ) -> Result<Arc<BlockHeader>, Error> {
     let uncertified_chunks = get_uncertified_chunks(chain_store, block_hash)?;
-    let oldest_uncertified = find_oldest_uncertified_block_header(chain_store, uncertified_chunks)?;
+    let oldest_uncertified =
+        find_oldest_uncertified_block_header(chain_store, &uncertified_chunks)?;
     if let Some(header) = oldest_uncertified {
         Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
@@ -1308,33 +1316,16 @@ pub fn get_last_certified_block_header(
     }
 }
 
-/// Whether `chunk_id` may certify via the all-stake fallback as of a carrying block at
-/// `carrying_height`/`carrying_prev_hash`: true once its parent certified at least
-/// `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks ago.
+/// Whether the chunk may certify via the all-stake fallback in a block at `carrying_height`: true
+/// once its designated validators have had `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks to act.
 pub fn fallback_eligible(
-    chain_store: &ChainStoreAdapter,
     carrying_height: BlockHeight,
-    carrying_prev_hash: &CryptoHash,
-    chunk_id: &SpiceChunkId,
-) -> Result<bool, Error> {
-    if carrying_height < SPICE_FALLBACK_CERTIFICATION_DELAY {
-        return Ok(false);
-    }
-    let target_height = carrying_height - SPICE_FALLBACK_CERTIFICATION_DELAY;
-
-    // Youngest ancestor of the carrying block with height <= target_height, reached by walking
-    // back over any skipped heights.
-    let mut ancestor = chain_store.get_block_header(carrying_prev_hash)?;
-    while ancestor.height() > target_height && !ancestor.is_genesis() {
-        ancestor = chain_store.get_block_header(ancestor.prev_hash())?;
-    }
-
-    // prev(chunk block) is certified as of the ancestor iff the ancestor's certified frontier reaches
-    // its height. `>=` also rejects prev(chunk block) in the ancestor's future, so no extra guard.
-    let chunk_block = chain_store.get_block_header(&chunk_id.block_hash)?;
-    let prev_chunk_block = chain_store.get_block_header(chunk_block.prev_hash())?;
-    let frontier = get_last_certified_block_header(chain_store, ancestor.hash())?;
-    Ok(frontier.height() >= prev_chunk_block.height())
+    chunk_info: &SpiceUncertifiedChunkInfo,
+) -> bool {
+    let Some(certifiable_since) = chunk_info.certifiable_since_height else {
+        return false;
+    };
+    carrying_height.saturating_sub(certifiable_since) >= SPICE_FALLBACK_CERTIFICATION_DELAY
 }
 
 /// The epoch's full validator set as a shard-independent assignment weighted by real stake. The

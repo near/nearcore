@@ -1,4 +1,4 @@
-use crate::spice::core::{SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_eligible};
+use crate::spice::core::SPICE_FALLBACK_CERTIFICATION_DELAY;
 use crate::spice::tests::core::{
     block_certification_core_statements, build_block, endorsement_into_core_statement,
     process_block, setup, setup_with_validators, test_chunk_endorsement,
@@ -10,13 +10,7 @@ use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId};
-use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::sync::Arc;
-
-fn store_adapter(chain: &Chain) -> ChainStoreAdapter {
-    chain.chain_store().chain_store()
-}
 
 fn first_shard_chunk_id(block: &Block) -> SpiceChunkId {
     let shard_id = block.chunks().iter_raw().next().unwrap().shard_id();
@@ -83,27 +77,23 @@ fn endorsements_and_execution_result(
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_fallback_eligible_false_when_parent_not_certified() {
-    let (mut chain, _core_reader) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block1 = append_block(&mut chain, &genesis, vec![]);
     let block2 = append_block(&mut chain, &block1, vec![]); // prev(block2) = block1 is uncertified
 
     // Even arbitrarily far in the future, block2 is not eligible while its parent block1 is
     // uncertified.
-    let eligible = fallback_eligible(
-        &store_adapter(&chain),
-        100,
-        block2.hash(),
-        &first_shard_chunk_id(&block2),
-    )
-    .unwrap();
+    let eligible = core_reader
+        .fallback_eligible_in_carrying_block(100, block2.hash(), &first_shard_chunk_id(&block2))
+        .unwrap();
     assert!(!eligible);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_fallback_eligible_respects_delay_after_parent_certified() {
-    let (mut chain, _core_reader) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block1 = append_block(&mut chain, &genesis, vec![]);
     let block2 = append_block(&mut chain, &block1, vec![]);
@@ -111,38 +101,37 @@ fn test_fallback_eligible_respects_delay_after_parent_certified() {
     // block3.height().
     let block3 = append_block(&mut chain, &block2, block_certification_core_statements(&block1));
 
-    let store = store_adapter(&chain);
     let chunk = first_shard_chunk_id(&block2);
     let delay = SPICE_FALLBACK_CERTIFICATION_DELAY;
     let cert_height = block3.header().height();
+    let eligible_at = |height| {
+        core_reader.fallback_eligible_in_carrying_block(height, block3.hash(), &chunk).unwrap()
+    };
 
-    // Below the window: not eligible.
-    assert!(!fallback_eligible(&store, cert_height + delay - 1, block3.hash(), &chunk).unwrap());
-    // At the window: eligible.
-    assert!(fallback_eligible(&store, cert_height + delay, block3.hash(), &chunk).unwrap());
-    // Monotone: stays eligible far past the window (also exercises a large height gap in the
-    // look-back walk).
-    assert!(fallback_eligible(&store, cert_height + delay + 50, block3.hash(), &chunk).unwrap());
+    assert!(!eligible_at(cert_height + delay - 1));
+    assert!(eligible_at(cert_height + delay));
+    // Monotone: stays eligible far past the window.
+    assert!(eligible_at(cert_height + delay + 50));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_fallback_eligible_false_when_height_below_delay() {
-    let (mut chain, _core_reader) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block1 = append_block(&mut chain, &genesis, vec![]);
     let block2 = append_block(&mut chain, &block1, vec![]);
 
-    // carrying_height < delay short-circuits to false (covers genesis / spice activation).
+    // carrying_height < delay is false (covers genesis / spice activation).
     let below_delay = SPICE_FALLBACK_CERTIFICATION_DELAY - 1;
     assert!(
-        !fallback_eligible(
-            &store_adapter(&chain),
-            below_delay,
-            block2.hash(),
-            &first_shard_chunk_id(&block2)
-        )
-        .unwrap()
+        !core_reader
+            .fallback_eligible_in_carrying_block(
+                below_delay,
+                block2.hash(),
+                &first_shard_chunk_id(&block2)
+            )
+            .unwrap()
     );
 }
 
@@ -391,4 +380,44 @@ fn test_validate_rejects_reincluded_designated_endorsement_when_eligible() {
             ..
         })
     );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_fallback_eligible_when_one_block_certifies_several_blocks() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block1 = append_block(&mut chain, &genesis, vec![]);
+    let block2 = append_block(&mut chain, &block1, vec![]);
+    let block3 = append_block(&mut chain, &block2, vec![]);
+
+    // block4 certifies block1 and block2 at once, so the oldest uncertified block jumps from
+    // block1 straight to block3 without block2 ever having been the oldest.
+    let mut statements = block_certification_core_statements(&block1);
+    statements.extend(block_certification_core_statements(&block2));
+    let block4 = append_block(&mut chain, &block3, statements);
+
+    let uncertified = core_reader.get_uncertified_chunks(block4.hash()).unwrap();
+    assert!(uncertified.iter().all(|info| info.chunk_id.block_hash != *block1.hash()));
+    assert!(uncertified.iter().all(|info| info.chunk_id.block_hash != *block2.hash()));
+    let block3_chunks: Vec<_> =
+        uncertified.iter().filter(|info| info.chunk_id.block_hash == *block3.hash()).collect();
+    assert!(!block3_chunks.is_empty());
+    for chunk_info in block3_chunks {
+        assert_eq!(chunk_info.certifiable_since_height, Some(block4.header().height()));
+    }
+    // block4's own chunks are not certifiable yet: block3 is still uncertified.
+    for chunk_info in &uncertified {
+        if chunk_info.chunk_id.block_hash == *block4.hash() {
+            assert_eq!(chunk_info.certifiable_since_height, None);
+        }
+    }
+
+    let chunk = first_shard_chunk_id(&block3);
+    let stamped = block4.header().height();
+    let eligible_at = |height| {
+        core_reader.fallback_eligible_in_carrying_block(height, block4.hash(), &chunk).unwrap()
+    };
+    assert!(!eligible_at(stamped + SPICE_FALLBACK_CERTIFICATION_DELAY - 1));
+    assert!(eligible_at(stamped + SPICE_FALLBACK_CERTIFICATION_DELAY));
 }

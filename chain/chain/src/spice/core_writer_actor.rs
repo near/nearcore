@@ -1,4 +1,4 @@
-use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment, fallback_eligible};
+use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment};
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
@@ -165,7 +165,11 @@ impl SpiceCoreWriterActor {
         ) {
             return Ok(true);
         }
-        if !fallback_eligible(&self.chain_store, carrying_height, carrying_prev_hash, chunk_id)? {
+        if !self.core_reader.fallback_eligible_in_carrying_block(
+            carrying_height,
+            carrying_prev_hash,
+            chunk_id,
+        )? {
             return Ok(false);
         }
         let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;
@@ -277,13 +281,14 @@ impl SpiceCoreWriterActor {
         // All-stake fallback: past the fallback window any epoch validator's endorsement is relevant.
         // Gate ingest on eligibility as of head so only overdue chunks accept the wider set.
         let head = self.chain_store.head().map_err(InvalidSpiceEndorsementError::NearChainError)?;
-        let eligible = fallback_eligible(
-            &self.chain_store,
-            head.height + 1,
-            &head.last_block_hash,
-            endorsement.chunk_id(),
-        )
-        .map_err(InvalidSpiceEndorsementError::NearChainError)?;
+        let eligible = self
+            .core_reader
+            .fallback_eligible_in_carrying_block(
+                head.height + 1,
+                &head.last_block_hash,
+                endorsement.chunk_id(),
+            )
+            .map_err(InvalidSpiceEndorsementError::NearChainError)?;
         if !eligible {
             return Err(InvalidSpiceEndorsementError::EndorsementIsNotRelevant);
         }

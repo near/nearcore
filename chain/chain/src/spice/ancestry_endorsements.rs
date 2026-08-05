@@ -1,12 +1,13 @@
+use crate::spice::core::fallback_eligible;
 use near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
-use near_primitives::types::{AccountId, SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use std::collections::{HashMap, HashSet};
 
 /// Endorsement state derived from the uncertified chunks as of the previous block: the context
 /// against which a block's core statements are validated. Borrows `prev_uncertified_chunks`.
 pub(crate) struct AncestryEndorsements<'a> {
     pending_designated: HashSet<(&'a SpiceChunkId, &'a AccountId)>,
-    uncertified_chunks: HashSet<&'a SpiceChunkId>,
+    uncertified_chunks: HashMap<&'a SpiceChunkId, &'a SpiceUncertifiedChunkInfo>,
     on_chain: HashMap<&'a SpiceChunkId, HashMap<&'a AccountId, &'a SpiceStoredVerifiedEndorsement>>,
 }
 
@@ -25,7 +26,10 @@ impl<'a> AncestryEndorsements<'a> {
                     info.missing_endorsements.iter().map(|account_id| (&info.chunk_id, account_id))
                 })
                 .collect(),
-            uncertified_chunks: prev_uncertified_chunks.iter().map(|info| &info.chunk_id).collect(),
+            uncertified_chunks: prev_uncertified_chunks
+                .iter()
+                .map(|info| (&info.chunk_id, info))
+                .collect(),
             on_chain,
         }
     }
@@ -39,9 +43,16 @@ impl<'a> AncestryEndorsements<'a> {
         self.pending_designated.contains(&(chunk_id, account_id))
     }
 
-    /// Whether `chunk_id` is still uncertified as of the previous block.
-    pub(crate) fn is_uncertified(&self, chunk_id: &SpiceChunkId) -> bool {
-        self.uncertified_chunks.contains(chunk_id)
+    /// Whether `chunk_id` is still uncertified and may now certify via the all-stake fallback in a
+    /// block at `carrying_height`.
+    pub(crate) fn is_fallback_eligible(
+        &self,
+        chunk_id: &SpiceChunkId,
+        carrying_height: BlockHeight,
+    ) -> bool {
+        self.uncertified_chunks
+            .get(chunk_id)
+            .is_some_and(|info| fallback_eligible(carrying_height, info))
     }
 
     /// Whether `(chunk_id, account_id)`'s endorsement is already on chain in the ancestry.
