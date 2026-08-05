@@ -2369,6 +2369,29 @@
               "DelegateActionInvalidNonceIndex"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The receipt recorded more storage proof than\n`per_receipt_storage_proof_size_limit` allows.",
+            "properties": {
+              "ReceiptStorageProofSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReceiptStorageProofSizeExceeded"
+            ],
+            "type": "object"
           }
         ]
       },
