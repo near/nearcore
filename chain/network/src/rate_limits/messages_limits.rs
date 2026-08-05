@@ -118,6 +118,14 @@ impl Config {
             RateLimitedPeerMessageKey::EpochSyncResponse,
             SingleMessageConfig::new(1, 1.0 / 30.0, None),
         );
+        // SyncRoutingTable carries forged-edge OOM potential. The sender side already throttles
+        // via routing_table_update_rate_limit (qps=1, burst=1) per peer, so 1 msg/s sustained
+        // with burst 10 accommodates legitimate sync (including reconnection bursts) while
+        // blocking sustained floods.
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::SyncRoutingTable,
+            SingleMessageConfig::new(10, 1.0, None),
+        );
         config
     }
 
@@ -284,7 +292,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network_protocol::{Disconnect, PeerMessage};
+    use crate::network_protocol::{Disconnect, PeerMessage, RoutingTableUpdate};
     use near_async::time::{Duration, FakeClock};
     use near_primitives::hash::CryptoHash;
 
@@ -584,5 +592,22 @@ mod tests {
             get_key_and_token_cost(&versioned_forward),
             "forward legacy/versioned wire must share the same rate-limit bucket",
         );
+    }
+
+    #[test]
+    fn test_sync_routing_table_rate_limit() {
+        let config = Config::standard_preset();
+        let clock = FakeClock::default();
+        let mut rate_limits = RateLimits::from_config(&config, clock.now());
+        let msg = PeerMessage::SyncRoutingTable(RoutingTableUpdate::default());
+        // Burst of 10 allowed, then refusal until next refill.
+        for _ in 0..10 {
+            assert!(rate_limits.is_allowed(&msg, clock.now()));
+        }
+        assert!(!rate_limits.is_allowed(&msg, clock.now()));
+        // After 1 second one token is refilled.
+        clock.advance(Duration::seconds(1));
+        assert!(rate_limits.is_allowed(&msg, clock.now()));
+        assert!(!rate_limits.is_allowed(&msg, clock.now()));
     }
 }

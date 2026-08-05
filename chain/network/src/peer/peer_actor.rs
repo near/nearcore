@@ -1087,10 +1087,12 @@ impl PeerActor {
                 // Check for abusive behavior (sending too many peers)
                 if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
                     self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
+                    return;
                 }
                 // Check for abusive behavior (sending too many direct peers)
                 if direct_peers.len() > MAX_TIER2_PEERS {
                     self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
+                    return;
                 }
 
                 let node_id = self.network_state.config.node_id();
@@ -1399,6 +1401,21 @@ impl PeerActor {
             .await
         {
             conn.stop(Some(ban_reason));
+        }
+
+        // Ingress cap for AnnounceAccount entries: each one is signature-verified downstream,
+        // so an unbounded `accounts` field is a parallel DoS vector to the edges field above.
+        let max_accounts = network_state.config.routing_graph_max_accounts_per_message;
+        if rtu.accounts.len() > max_accounts {
+            tracing::warn!(
+                target: "network",
+                peer_id = %conn.peer_info.id,
+                accounts_count = rtu.accounts.len(),
+                limit = max_accounts,
+                "too many AnnounceAccount entries in SyncRoutingTable message, dropping accounts"
+            );
+            metrics::ACCOUNT_ANNOUNCEMENT_DROPPED.inc_by(rtu.accounts.len() as u64);
+            return;
         }
 
         // For every announce we received, we fetch the last announce with the same account_id

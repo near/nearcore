@@ -1,6 +1,7 @@
 ---
 source: core/primitives/src/views.rs
 expression: view
+snapshot_kind: text
 ---
 {
   "version": 4,
@@ -309,6 +310,16 @@ expression: view
       "cost_category": "WASM_HOST_COST",
       "cost": "LOG_BYTE",
       "gas_used": "25"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ML_DSA_VERIFY_BASE",
+      "gas_used": "94"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ML_DSA_VERIFY_BYTE",
+      "gas_used": "95"
     },
     {
       "cost_category": "WASM_HOST_COST",

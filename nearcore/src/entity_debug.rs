@@ -36,7 +36,7 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::encode_flat_state_db_key;
-use near_store::db::GENESIS_CONGESTION_INFO_KEY;
+use near_store::db::{ColumnCheckedColdDB, GENESIS_CONGESTION_INFO_KEY};
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::trie::AccessOptions;
@@ -44,7 +44,7 @@ use near_store::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,
     HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NibbleSlice,
     RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, ShardUId, Store,
-    TAIL_KEY,
+    TAIL_KEY, Trie, TrieDBStorage,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -416,10 +416,14 @@ impl EntityDebugHandlerImpl {
             EntityQuery::TrieNode { trie_path } => {
                 let trie_path =
                     TriePath::parse(trie_path).ok_or_else(|| anyhow!("Invalid path"))?;
-                let trie = self
-                    .runtime
-                    .get_tries()
-                    .get_trie_for_shard(trie_path.shard_uid, trie_path.state_root);
+                // The shard uid and state root come from the request, so read straight from the
+                // state column rather than through `get_tries().get_trie_for_shard`, which would
+                // register a trie cache and prefetch threads per shard uid it is handed.
+                let storage = Arc::new(TrieDBStorage::new(
+                    self.runtime.get_tries().store(),
+                    trie_path.shard_uid,
+                ));
+                let trie = Trie::new(storage, trie_path.state_root, None);
                 let node = trie
                     .debug_get_node(&trie_path.path)?
                     .ok_or_else(|| anyhow!("Node not found"))?;
@@ -617,15 +621,69 @@ fn serialize_raw_trie_node(node: RawTrieNodeWithSize) -> EntityDataValue {
 
 impl EntityDebugHandler for EntityDebugHandlerImpl {
     fn query(&self, query: EntityQueryWithParams) -> Result<EntityDataValue, RpcError> {
-        let store = if query.use_cold_storage {
-            self.cold_store.clone().ok_or_else(|| {
-                RpcError::new_internal_error(None, "Cold storage is not available".to_string())
-            })?
-        } else {
-            self.hot_store.clone()
+        if !query.use_cold_storage {
+            return self
+                .query_impl(self.hot_store.clone(), query.query)
+                .map_err(|err| RpcError::new_internal_error(None, format!("{:?}", err)));
+        }
+        let cold_store = self.cold_store.clone().ok_or_else(|| {
+            RpcError::new_internal_error(None, "Cold storage is not available".to_string())
+        })?;
+        let checked_cold_db = ColumnCheckedColdDB::new(cold_store);
+        let result = self.query_impl(Store::new(checked_cold_db.clone()), query.query);
+        if let Some(column) = checked_cold_db.rejected_column() {
+            return Err(RpcError::new_internal_error(
+                None,
+                format!("{column} is not stored in cold storage"),
+            ));
+        }
+        result.map_err(|err| RpcError::new_internal_error(None, format!("{:?}", err)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EntityDebugHandlerImpl;
+    use near_chain::runtime::NightshadeRuntime;
+    use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+    use near_epoch_manager::EpochManager;
+    use near_jsonrpc_primitives::types::entity_debug::{
+        EntityDebugHandler, EntityQuery, EntityQueryWithParams,
+    };
+    use near_store::db::metadata::{DB_VERSION, DbKind};
+    use near_store::test_utils::create_test_node_storage_with_cold;
+
+    #[test]
+    fn test_cold_storage_query_names_the_column_absent_from_cold_storage() {
+        let genesis = TestGenesisBuilder::new()
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+            .build();
+        let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+        let hot_store = storage.get_hot_store();
+        let epoch_manager = EpochManager::new_arc_handle(hot_store.clone(), &genesis.config, None);
+        let home_dir = tempfile::tempdir().unwrap();
+        let handler = EntityDebugHandlerImpl {
+            runtime: NightshadeRuntime::test(
+                home_dir.path(),
+                hot_store.clone(),
+                &genesis.config,
+                epoch_manager.clone(),
+            ),
+            epoch_manager,
+            hot_store,
+            cold_store: storage.get_cold_store(),
         };
-        self.query_impl(store, query.query)
-            .map_err(|err| RpcError::new_internal_error(None, format!("{:?}", err)))
+
+        let error = handler
+            .query(EntityQueryWithParams {
+                query: EntityQuery::BlockHashByHeight { block_height: 0 },
+                use_cold_storage: true,
+            })
+            .unwrap_err();
+        assert!(
+            format!("{error:?}").contains("BlockHeight is not stored in cold storage"),
+            "{error:?}"
+        );
     }
 }
 

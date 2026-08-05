@@ -263,6 +263,14 @@ pub(crate) static EDGE_DROPPED: LazyLock<IntCounter> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub(crate) static ACCOUNT_ANNOUNCEMENT_DROPPED: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_account_announcement_dropped",
+        "Number of AnnounceAccount entries rejected due to per-message limits",
+    )
+    .unwrap()
+});
+
 pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_edge_tombstone_sending_skip",

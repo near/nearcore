@@ -4,21 +4,34 @@ use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
-    Disconnect, PeerMessage, PeersRequest, PeersResponse, RoutedMessageV3, RoutingTableUpdate,
-    SyncAccountsData, TieredMessageBody,
+    Disconnect, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, PeerMessage, PeersRequest, PeersResponse,
+    RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
 };
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
 use borsh::BorshDeserialize as _;
+use bytesize::MIB;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
 use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
+
+/// Upper bound on the Borsh-encoded size of a peer-supplied transaction body,
+/// enforced before the body is deserialized to mitigate maliciously inflated
+/// transactions exhausting node memory at decode time. Set comfortably above
+/// the largest valid transaction (`max_transaction_size`, historically 4 MiB)
+/// and far below the 512 MiB peer-frame cap.
+const MAX_TRANSACTION_SIZE_BYTES: usize = 16 * MIB as usize;
+
+/// Upper bound on the Borsh-encoded size of a peer-supplied routed-message body,
+/// enforced before it is deserialized so a maliciously inflated payload (e.g. a
+/// `ForwardTx` carrying an oversized delegate action) cannot exhaust node memory
+/// at decode time.
+const MAX_ROUTED_MESSAGE_SIZE_BYTES: usize = 64 * MIB as usize;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRoutingTableUpdateError {
@@ -109,6 +122,8 @@ pub enum ParseSnapshotHostInfoError {
     SyncHash(ParseRequiredError<ParseCryptoHashError>),
     #[error("signature {0}")]
     Signature(ParseRequiredError<ParseSignatureError>),
+    #[error("shards: {count} > {max} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)")]
+    TooManyShards { count: usize, max: usize },
 }
 
 impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
@@ -127,6 +142,16 @@ impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
 impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
     type Error = ParseSnapshotHostInfoError;
     fn try_from(x: &proto::SnapshotHostInfo) -> Result<Self, Self::Error> {
+        // Reject before the per-shard `Vec<ShardId>` allocation. This message is decoded
+        // pre-authentication, so an unbounded `shards` list would let any peer force
+        // multi-GB allocations from a single message. `verify()` also checks this cap, but
+        // only after decoding, which is too late. Mirrors the tracked_shards handshake cap.
+        if x.shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
+            return Err(Self::Error::TooManyShards {
+                count: x.shards.len(),
+                max: MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
+            });
+        }
         Ok(Self {
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
             sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
@@ -447,10 +472,15 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 PeerMessage::OptimisticBlock(ob.try_into().map_err(Self::Error::OptimisticBlock)?)
             }
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
-                SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
+                // Bound the decode-time allocation: see `MAX_TRANSACTION_SIZE_BYTES`.
+                try_from_slice_with_limit(&t.borsh, MAX_TRANSACTION_SIZE_BYTES)
+                    .map_err(Self::Error::Transaction)?,
             ),
             ProtoMT::Routed(r) => {
-                let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
+                // Bound the decode-time allocation: see `MAX_ROUTED_MESSAGE_SIZE_BYTES`.
+                let msg: RoutedMessageV1 =
+                    try_from_slice_with_limit(&r.borsh, MAX_ROUTED_MESSAGE_SIZE_BYTES)
+                        .map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body);
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
@@ -558,11 +588,78 @@ impl TryFrom<&proto::RoutedMessageV3> for RoutedMessageV3 {
             target: try_from_required(&x.target).map_err(Self::Error::Target)?,
             author: try_from_required(&x.author).map_err(Self::Error::Author)?,
             ttl: x.ttl as u8,
-            body: TieredMessageBody::try_from_slice(&x.borsh_body).map_err(Self::Error::Body)?,
+            // Bound the decode-time allocation: see `MAX_ROUTED_MESSAGE_SIZE_BYTES`.
+            body: try_from_slice_with_limit(&x.borsh_body, MAX_ROUTED_MESSAGE_SIZE_BYTES)
+                .map_err(Self::Error::Body)?,
             signature: try_from_optional(&x.signature)
                 .map_err(|e| Self::Error::Signature(ParseRequiredError::Other(e)))?,
             created_at: x.created_at,
             num_hops: x.num_hops,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network_protocol::testonly as data;
+    use crate::testonly::make_rng;
+
+    /// A normally-sized transaction passes the network size gate and round-trips
+    /// through the proto conversion; an oversized body is rejected before it is
+    /// Borsh-decoded, so the inflated nested-action `Vec` is never materialized
+    /// at decode time.
+    #[test]
+    fn transaction_size_gate() {
+        let mut rng = make_rng(89028037453);
+        let msg = PeerMessage::Transaction(data::make_signed_transaction(&mut rng));
+        let proto: proto::PeerMessage = (&msg).into();
+        assert_eq!(PeerMessage::try_from(&proto).unwrap(), msg);
+
+        let proto = proto::PeerMessage {
+            message_type: Some(ProtoMT::Transaction(proto::SignedTransaction {
+                borsh: vec![0u8; MAX_TRANSACTION_SIZE_BYTES + 1],
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let err =
+            PeerMessage::try_from(&proto).expect_err("oversized transaction must be rejected");
+        assert!(
+            matches!(err, ParsePeerMessageError::Transaction(_)),
+            "unexpected error variant: {err:?}"
+        );
+        assert!(err.to_string().contains("exceeds"), "unexpected error: {err}");
+    }
+
+    /// A normally-sized routed message decodes, while an oversized borsh body is
+    /// rejected before it is Borsh-decoded, so a `ForwardTx` (or any routed
+    /// payload) carrying an inflated delegate action is never materialized at
+    /// decode time.
+    #[test]
+    fn routed_message_size_gate() {
+        use crate::network_protocol::T2MessageBody;
+
+        let mut rng = make_rng(89028037453);
+        let tx = data::make_signed_transaction(&mut rng);
+        let body = TieredMessageBody::T2(Box::new(T2MessageBody::ForwardTx(tx)));
+        let msg = PeerMessage::Routed(Box::new(data::make_routed_message(&mut rng, body)));
+        let proto: proto::PeerMessage = (&msg).into();
+        PeerMessage::try_from(&proto).expect("normally-sized routed message must decode");
+
+        let proto = proto::PeerMessage {
+            message_type: Some(ProtoMT::Routed(proto::RoutedMessage {
+                borsh: vec![0u8; MAX_ROUTED_MESSAGE_SIZE_BYTES + 1],
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let err =
+            PeerMessage::try_from(&proto).expect_err("oversized routed message must be rejected");
+        assert!(
+            matches!(err, ParsePeerMessageError::Routed(_)),
+            "unexpected error variant: {err:?}"
+        );
+        assert!(err.to_string().contains("exceeds"), "unexpected error: {err}");
     }
 }
