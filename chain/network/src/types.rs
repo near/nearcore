@@ -445,7 +445,7 @@ pub enum NetworkResponses {
 }
 
 /// `NetworkRequests` plus a pre-acquired outgoing-queue permit. Used when the sender has already
-/// reserved bytes in the the `OutgoingQueueLimiter`.
+/// reserved bytes in the `OutgoingQueueLimiter`.
 #[derive(Debug)]
 pub struct NetworkRequestWithPermit {
     pub request: NetworkRequests,
