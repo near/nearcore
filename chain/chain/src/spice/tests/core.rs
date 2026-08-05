@@ -527,7 +527,8 @@ fn test_core_statements_for_next_block_budget_skips_chunks_without_statements() 
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().last().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+    core_writer_actor
+        .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![endorsement_into_core_statement(endorsement)]);
@@ -1871,7 +1872,8 @@ fn endorse_chunk(
         chunks.iter_raw().find(|header| header.shard_id() == chunk_id.shard_id).unwrap();
     for validator in validators {
         let endorsement = test_chunk_endorsement(validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 }
 
