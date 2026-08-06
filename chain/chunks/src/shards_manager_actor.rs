@@ -3875,11 +3875,8 @@ mod test {
             .find(|shard_id| *shard_id != header.shard_id())
             .unwrap();
 
-        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: fixture.mock_chunk_header.clone(),
-            parts: vec![],
-            prev_outgoing_receipts: vec![proof],
-        });
+        let partial_encoded_chunk =
+            fixture.wrap_partial_encoded_chunk(header.clone(), vec![], vec![proof]);
         let result = shards_manager.process_partial_encoded_chunk(
             MaybeValidated::from(partial_encoded_chunk),
             Some(&fixture.mock_shard_tracker),
