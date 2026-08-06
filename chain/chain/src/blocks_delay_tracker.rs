@@ -24,8 +24,9 @@ const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 pub const BLOCK_HORIZON: BlockHeightDelta = 500;
 
 /// How many deliberately-skipped block hashes to remember, so the `mark_block_*`
-/// helpers can tell an expected missing entry from a bookkeeping bug.
-const SKIPPED_BLOCKS_CACHE_SIZE: usize = 512;
+/// helpers can tell an expected missing entry from a bookkeeping bug. Sized to the
+/// tracking window, which bounds how many blocks can be in flight around the head.
+const SKIPPED_BLOCKS_CACHE_SIZE: usize = (BLOCK_DELAY_TRACKING_COUNT + BLOCK_HORIZON) as usize;
 
 /// A centralized place that records monitoring information about the important timestamps throughout
 /// the lifetime of blocks and chunks. It keeps information of recent blocks and chunks, tracking
@@ -46,7 +47,7 @@ pub struct BlocksDelayTracker {
     chunks: HashMap<ChunkHash, ChunkTrackingStats>,
     // Chunks that we don't know which block it belongs to yet
     floating_chunks: HashMap<ChunkHash, BlockHeight>,
-    // Blocks refused by `is_too_far_ahead`, so a missing entry can be recognised as expected.
+    // Blocks refused by `is_too_far_ahead`, so a missing entry can be recognized as expected.
     skipped_blocks: LruCache<CryptoHash, ()>,
     head_height: BlockHeight,
 }
@@ -360,31 +361,32 @@ impl BlocksDelayTracker {
     }
 
     fn update_head(&mut self, head_height: BlockHeight) {
-        if head_height != self.head_height {
-            let cutoff_height = head_height.saturating_sub(BLOCK_DELAY_TRACKING_COUNT);
-            self.head_height = head_height;
-            let mut blocks_to_remove = self.blocks_height_map.split_off(&cutoff_height);
-            mem::swap(&mut self.blocks_height_map, &mut blocks_to_remove);
-
-            for block_hash in blocks_to_remove.values().flatten() {
-                if let Some(block) = self.blocks.remove(&block_hash) {
-                    for chunk_hash in block.chunks {
-                        if let Some(chunk_hash) = chunk_hash {
-                            self.chunks.remove(&chunk_hash);
-                        }
-                    }
-                } else {
-                    debug_assert!(false);
-                    tracing::error!(target: "block_delay_tracker", ?block_hash, "block in height map but not in blocks");
-                }
-            }
-
-            self.floating_chunks
-                .extract_if(|_, chunk_height| *chunk_height < cutoff_height)
-                .for_each(|(chunk_hash, _)| {
-                    self.chunks.remove(&chunk_hash);
-                });
+        if head_height <= self.head_height {
+            return;
         }
+        let cutoff_height = head_height.saturating_sub(BLOCK_DELAY_TRACKING_COUNT);
+        self.head_height = head_height;
+        let mut blocks_to_remove = self.blocks_height_map.split_off(&cutoff_height);
+        mem::swap(&mut self.blocks_height_map, &mut blocks_to_remove);
+
+        for block_hash in blocks_to_remove.values().flatten() {
+            if let Some(block) = self.blocks.remove(&block_hash) {
+                for chunk_hash in block.chunks {
+                    if let Some(chunk_hash) = chunk_hash {
+                        self.chunks.remove(&chunk_hash);
+                    }
+                }
+            } else {
+                debug_assert!(false);
+                tracing::error!(target: "block_delay_tracker", ?block_hash, "block in height map but not in blocks");
+            }
+        }
+
+        self.floating_chunks.extract_if(|_, chunk_height| *chunk_height < cutoff_height).for_each(
+            |(chunk_hash, _)| {
+                self.chunks.remove(&chunk_hash);
+            },
+        );
     }
 
     pub fn finish_block_processing(
@@ -603,15 +605,25 @@ mod tests {
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Block;
     use near_primitives::genesis::genesis_block;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::sharding::ShardChunkHeader;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-    use near_primitives::types::Balance;
+    use near_primitives::types::{Balance, ShardId};
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
 
+    /// A chunk the block treats as new, i.e. one included at the block's own height.
+    fn new_chunk_at(height: u64, prev_block_hash: CryptoHash) -> ShardChunkHeader {
+        let mut chunk = ShardChunkHeader::new_dummy(height, ShardId::new(0), prev_block_hash);
+        *chunk.height_included_mut() = height;
+        chunk
+    }
+
+    /// A block carrying one new chunk, so the tracker's chunk bookkeeping is exercised.
     fn block_at(height: u64) -> Arc<Block> {
         let genesis = Arc::new(genesis_block(
             PROTOCOL_VERSION,
-            vec![],
+            vec![ShardChunkHeader::new_dummy(0, ShardId::new(0), CryptoHash::default())],
             Utc::now_utc(),
             0,
             Balance::ZERO,
@@ -624,6 +636,7 @@ mod tests {
             Arc::new(create_test_signer("test")),
         )
         .height(height)
+        .chunks(vec![new_chunk_at(height, *genesis.hash())])
         .build()
     }
 
@@ -646,7 +659,9 @@ mod tests {
         assert_eq!(tracker.blocks.len(), 1);
         assert!(tracker.blocks.contains_key(within.hash()));
         assert_eq!(tracker.blocks_height_map.len(), 1);
-        assert_eq!(tracker.chunks.len(), within.chunks().len());
+        // Only the tracked block's chunk is recorded; the skipped blocks carry
+        // chunks of their own and must not leave anything behind.
+        assert_eq!(tracker.chunks.len(), 1);
 
         // The client still runs its own checks against skipped blocks, so the
         // mark_block_* helpers must treat their missing entries as expected.
