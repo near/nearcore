@@ -60,13 +60,6 @@ impl Frame {
     }
 }
 
-#[cfg(test)]
-impl Frame {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self { bytes, _permit: None }
-    }
-}
-
 impl std::fmt::Debug for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Frame").field("bytes_len", &self.bytes.len()).finish()
