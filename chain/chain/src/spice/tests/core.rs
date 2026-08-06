@@ -19,6 +19,7 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -38,6 +39,7 @@ use near_primitives::types::{
     ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::get_execution_results_key;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use std::collections::{HashMap, HashSet};
@@ -428,6 +430,28 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
+}
+
+/// Every height produces one chunk per shard, and all of them need to be certified, so a block
+/// whose core statements may reference at most `MAX_REFERENCED_CHUNKS_PER_BLOCK` distinct chunks
+/// advances the certification frontier by at most `MAX_REFERENCED_CHUNKS_PER_BLOCK / num_shards`
+/// heights. If this test fires, either raise `MAX_REFERENCED_CHUNKS_PER_BLOCK` or lower the shard
+/// limit in the epoch config that grew.
+#[test]
+fn test_max_referenced_chunks_leaves_headroom_for_max_num_shards() {
+    const MIN_HEIGHTS_REFERENCEABLE_PER_BLOCK: u64 = 5;
+    for chain_id in ["mainnet", "testnet"] {
+        let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
+        let max_num_shards = epoch_configs.get_config(PROTOCOL_VERSION).max_num_shards();
+        let required = MIN_HEIGHTS_REFERENCEABLE_PER_BLOCK * max_num_shards;
+        assert!(
+            required <= MAX_REFERENCED_CHUNKS_PER_BLOCK as u64,
+            "{chain_id} epoch config for protocol version {PROTOCOL_VERSION} allows up to \
+             {max_num_shards} shards, which needs {MIN_HEIGHTS_REFERENCEABLE_PER_BLOCK} * \
+             {max_num_shards} = {required} referenced chunks per block, exceeding \
+             MAX_REFERENCED_CHUNKS_PER_BLOCK ({MAX_REFERENCED_CHUNKS_PER_BLOCK})",
+        );
+    }
 }
 
 #[test]
