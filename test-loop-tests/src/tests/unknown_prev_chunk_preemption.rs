@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::messaging::{IntoSender, Sender};
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
@@ -82,6 +83,7 @@ fn test_unknown_prev_chunk_does_not_skip_chunk() {
                     if let Some(sender) = shards_manager_senders.get(to) {
                         sender.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                             preempting,
+                            RecvMessagePermit::none(),
                         ));
                     }
                 }
