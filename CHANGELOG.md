@@ -4,6 +4,7 @@
 
 ### Protocol Changes
 * Remove gas rewards: executing a `FunctionCall` no longer pays part of the burned gas back to the contract account as a reward. The `burnt_gas_reward` parameter is changed from 30% (3/10) to 0%. See [HSP-027](https://gov.near.org/t/hsp-027-remove-the-near-developer-gas-rebate/42213)
+* Bounded the combined size of a receipt's resolved promise inputs with a new `max_receipt_total_input_size` limit of 4_194_944 bytes. Receipts which exceed the limit fail with the new `TotalPromiseInputSizeExceeded` error without executing their actions. Previously this data was effectively unbounded, as it is read into the state witness before the per-receipt storage proof limit starts counting.
 * Added an `ml_dsa_verify` host function so contracts can verify FIPS 204 ML-DSA-65 signatures on-chain. It takes the signature (3309 bytes), an arbitrary-length message, and the raw 1952-byte public key, each passed either from memory or from a register, and returns 1 for a valid signature or 0 for an invalid one; a wrongly-sized signature or public key aborts the call with `MlDsaVerifyInvalidInput`. The message is verified as-is with an empty context string, so callers must not pre-hash it. It costs a fixed base cost of 540 Ggas and a dynamic per-byte cost of 11 Mgas per byte.
 
 ### Non-protocol Changes

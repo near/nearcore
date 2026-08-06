@@ -3,7 +3,9 @@ pub mod test_utils;
 
 use crate::db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
 use crate::trie::AccessOptions;
-use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
+use crate::{
+    DBCol, GENESIS_STATE_ROOTS_KEY, KeyLookupMode, Store, StoreUpdate, TrieAccess, TrieUpdate,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives::account::{AccessKey, Account};
@@ -86,6 +88,22 @@ pub fn get_received_data(
     data_id: CryptoHash,
 ) -> Result<Option<ReceivedData>, StorageError> {
     get(trie, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
+}
+
+/// Returns the size (in bytes) of the trie value holding the `ReceivedData`
+/// for `data_id`, without loading — and therefore without recording into the
+/// state witness — the value itself. Returns `None` if there is no such entry.
+pub fn get_received_data_size(
+    state_update: &TrieUpdate,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<Option<u32>, StorageError> {
+    let value_ptr = state_update.get_ref(
+        &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id },
+        KeyLookupMode::MemOrFlatOrTrie,
+        AccessOptions::DEFAULT,
+    )?;
+    Ok(value_ptr.map(|ptr| ptr.len()))
 }
 
 pub fn has_received_data(

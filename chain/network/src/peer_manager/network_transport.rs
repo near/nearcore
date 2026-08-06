@@ -1,3 +1,4 @@
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::PeerInfo;
 use crate::tcp;
 use crate::types::{PeerMessage, ReasonForBan};
@@ -21,6 +22,24 @@ pub trait NetworkTransport: Send + Sync + 'static {
     /// Deliver a message to a specific peer over the given tier.
     /// Returns true if the message was enqueued; false if not connected.
     fn send_message(&self, tier: tcp::Tier, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool;
+
+    /// Like `send_message`, but the caller has already reserved bytes
+    /// against the global outgoing-queue limiter (e.g. before producing a
+    /// state-sync or epoch-sync response). The permit is shrunk to the
+    /// actual serialized size and released when the frame drains. Returns
+    /// false if the peer isn't connected; the permit is dropped in that case.
+    fn send_message_with_permit(
+        &self,
+        tier: tcp::Tier,
+        peer_id: PeerId,
+        msg: Arc<PeerMessage>,
+        permit: OutgoingPermit,
+    ) -> bool {
+        // Default impl ignores the permit and falls back to plain send_message.
+        // TestLoopTransport overrides this if it needs to track permits.
+        let _ = permit;
+        self.send_message(tier, peer_id, msg)
+    }
 
     /// Broadcast a message to all connected TIER2 peers. T1 and T3 do
     /// not have broadcast semantics. Must be synchronous (enqueue-only)

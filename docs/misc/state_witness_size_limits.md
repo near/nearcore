@@ -1,7 +1,7 @@
 ## State witness size limits
 
 Some limits were introduced to keep the size of `ChunkStateWitness` reasonable.
-`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under 17MiB.
+`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under 21MiB.
 
 There are two types of size limits:
 
@@ -16,6 +16,10 @@ The limits are:
 * `max_receipt_size - 4 MiB`:
   * All receipts must be below 4 MiB, otherwise they'll be considered invalid and rejected.
   * Previously there was no limit on receipt size. Set to 4MiB, might be reduced to 1.5MiB in the future to match the transaction limit.
+* `max_receipt_total_input_size - 4 MiB + 640 B`
+  * Hard limit on the combined size of a receipt's resolved promise inputs (the `ReceivedData` referenced by its `input_data_ids`). Receipts which exceed it fail with `TotalPromiseInputSizeExceeded` without executing their actions.
+  * These inputs are read before `per_receipt_storage_proof_size_limit` starts counting, so without this limit a single receipt could pull `max_number_input_data_dependencies * max_receipt_size` (128 * 4 MiB) into the witness.
+  * The limit is `max_length_returned_data` (4 MiB) plus the worst-case per-input framing overhead (128 * 5 bytes), so 4 MiB of input data always fits no matter how it's split across data receipts.
 * `combined_transactions_size_limit - 4 MiB`
   * Hard limit on total size of transactions from this and previous chunk. `ChunkStateWitness` contains transactions from two chunks, this limit applies to the sum of their sizes.
 * `new_transactions_validation_state_size_soft_limit - 500 KiB`
@@ -33,7 +37,7 @@ The limits are:
   * On every block height there's one special "allowed shard" which is allowed to send larger receipts, up to 4.5 MiB in total.
   * A receiving shard will receive receipts from `num_shards - 1` shards using the usual limit and one shard using the big limit.
 
-In total that gives 4 MiB + 500 KiB + 8MB + 5*100 KiB + 4.5 MiB ~= 17 MiB of maximum witness size. Possibly a little more on missing chunks.
+In total that gives 4 MiB + 500 KiB + 8MB + 4 MiB + 5*100 KiB + 4.5 MiB ~= 21 MiB of maximum witness size. Possibly a little more on missing chunks.
 
 ### Validating the limits
 
