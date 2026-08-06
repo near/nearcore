@@ -104,6 +104,9 @@ pub(super) async fn run_state_sync_for_shard(
     let mut attempt_count = 0;
     while !parts_to_download.is_empty() {
         return_if_cancelled!(cancel);
+        // `buffer_unordered`, not `buffered`: the latter holds completed futures in their slots
+        // until all earlier ones yield, so one part stuck until the p2p timeout would block new
+        // requests and drop this shard's parallelism to one. Download order carries no meaning.
         let results = tokio_stream::iter(parts_to_download.clone())
             .map(|part_id| {
                 let future = downloader.ensure_shard_part_downloaded_single_attempt(
@@ -115,27 +118,28 @@ pub(super) async fn run_state_sync_for_shard(
                     attempt_count,
                     cancel.clone(),
                 );
-                respawn_for_parallelism(&*future_spawner, "state sync download part", future)
+                let future =
+                    respawn_for_parallelism(&*future_spawner, "state sync download part", future);
+                // Results arrive in completion order, so the part id can't be recovered from the
+                // position in the output and must be carried along.
+                async move { (part_id, future.await) }
             })
-            .buffered(concurrency_limit.into())
-            .inspect_ok(|_| {
-                parts_downloaded += 1;
-                *status.lock() = ShardSyncStatus::StateDownloadParts {
-                    done: parts_downloaded,
-                    total: num_parts,
-                };
+            .buffer_unordered(concurrency_limit.into())
+            .inspect(|(_, res)| {
+                if res.is_ok() {
+                    parts_downloaded += 1;
+                    *status.lock() = ShardSyncStatus::StateDownloadParts {
+                        done: parts_downloaded,
+                        total: num_parts,
+                    };
+                }
             })
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
         // Update the list of parts_to_download retaining only the ones that failed
-        parts_to_download = results
-            .iter()
-            .enumerate()
-            .filter_map(|(task_index, res)| {
-                res.as_ref().err().map(|_| parts_to_download[task_index])
-            })
-            .collect();
+        parts_to_download =
+            results.into_iter().filter_map(|(part_id, res)| res.err().map(|_| part_id)).collect();
         // Wait before retrying the failed parts
         if !parts_to_download.is_empty() {
             tracing::debug!(
