@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.15"
+    "version": "1.3.16"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -166,6 +166,34 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcLightClientProofError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_light_client_chunk_execution_proof": {
+      "post": {
+        "description": "Returns a proof that a chunk's certified execution roots are committed by the chain, verifiable against a trusted light client head.",
+        "operationId": "EXPERIMENTAL_light_client_chunk_execution_proof",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_light_client_chunk_execution_proof"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientChunkExecutionProofResponse_and_RpcLightClientProofError"
                 }
               }
             }
@@ -3892,6 +3920,76 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ChunkExecutionProofView": {
+        "description": "Proof that a chunk's certified execution roots are committed by a spice block\nthat a light client can trust via its `light_client_head`.\n\n`roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;\n`certifying_block_proof` places the certifying block into the head's block merkle tree.",
+        "properties": {
+          "certifying_block_header_lite": {
+            "$ref": "#/components/schemas/LightClientBlockLiteView"
+          },
+          "certifying_block_proof": {
+            "items": {
+              "$ref": "#/components/schemas/MerklePathItem"
+            },
+            "type": "array"
+          },
+          "roots": {
+            "$ref": "#/components/schemas/ChunkExecutionRoots"
+          },
+          "roots_proof": {
+            "items": {
+              "$ref": "#/components/schemas/MerklePathItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "roots",
+          "roots_proof",
+          "certifying_block_header_lite",
+          "certifying_block_proof"
+        ],
+        "type": "object"
+      },
+      "ChunkExecutionRoots": {
+        "description": "Merkle leaf committing to a single chunk's certified execution roots.\nThe `chunk_execution_root` in a spice block header is the merkle root over\nthese leaves, sorted by `chunk_id`.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V1": {
+                "$ref": "#/components/schemas/ChunkExecutionRootsV1"
+              }
+            },
+            "required": [
+              "V1"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ChunkExecutionRootsV1": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "outcome_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "outgoing_receipts_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "state_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "state_root",
+          "outcome_root",
+          "outgoing_receipts_root"
+        ],
         "type": "object"
       },
       "ChunkHash": {
@@ -9371,6 +9469,33 @@
         "title": "JsonRpcRequest_for_EXPERIMENTAL_light_client_block_proof",
         "type": "object"
       },
+      "JsonRpcRequest_for_EXPERIMENTAL_light_client_chunk_execution_proof": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_light_client_chunk_execution_proof"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcLightClientChunkExecutionProofRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_light_client_chunk_execution_proof",
+        "type": "object"
+      },
       "JsonRpcRequest_for_EXPERIMENTAL_light_client_proof": {
         "properties": {
           "id": {
@@ -10729,6 +10854,46 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcLightClientProofError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcLightClientChunkExecutionProofResponse_and_RpcLightClientProofError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcLightClientChunkExecutionProofResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcLightClientProofError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcLightClientChunkExecutionProofResponse_and_RpcLightClientProofError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcLightClientProofError": {
@@ -14105,6 +14270,33 @@
         ],
         "type": "object"
       },
+      "RpcLightClientChunkExecutionProofRequest": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "light_client_head": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "light_client_head"
+        ],
+        "title": "RpcLightClientChunkExecutionProofRequest",
+        "type": "object"
+      },
+      "RpcLightClientChunkExecutionProofResponse": {
+        "properties": {
+          "chunk_execution_proof": {
+            "$ref": "#/components/schemas/ChunkExecutionProofView"
+          }
+        },
+        "required": [
+          "chunk_execution_proof"
+        ],
+        "type": "object"
+      },
       "RpcLightClientExecutionProofRequest": {
         "oneOf": [
           {
@@ -14448,6 +14640,70 @@
               "name": {
                 "enum": [
                   "UNAVAILABLE_SHARD"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "chunk_id": {
+                    "$ref": "#/components/schemas/SpiceChunkId"
+                  }
+                },
+                "required": [
+                  "chunk_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "CHUNK_NOT_CERTIFIED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "certifying_block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "chunk_id": {
+                    "$ref": "#/components/schemas/SpiceChunkId"
+                  },
+                  "head_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "chunk_id",
+                  "certifying_block_height",
+                  "head_height"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "LIGHT_CLIENT_HEAD_TOO_OLD"
                 ],
                 "type": "string"
               }
@@ -20240,6 +20496,22 @@
         "required": [
           "produced",
           "expected"
+        ],
+        "type": "object"
+      },
+      "SpiceChunkId": {
+        "description": "In spice missing chunks and equivalent to empty chunks so block hash and shard id always\nuniquely identifies chunks.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
+          }
+        },
+        "required": [
+          "block_hash",
+          "shard_id"
         ],
         "type": "object"
       },

@@ -23,6 +23,7 @@ use near_jsonrpc_primitives::types::{
     gas_price::{RpcGasPriceError, RpcGasPriceRequest, RpcGasPriceResponse},
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
+        RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
         RpcLightClientExecutionProofResponse, RpcLightClientNextBlockError,
         RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
     },
@@ -700,7 +701,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.3.15".to_string(),
+            version: "1.3.16".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -894,6 +895,16 @@ fn main() {
         &mut all_paths,
         "EXPERIMENTAL_light_client_block_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
+    );
+    add_spec_for_path::<
+        RpcLightClientChunkExecutionProofRequest,
+        RpcLightClientChunkExecutionProofResponse,
+        RpcLightClientProofError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_light_client_chunk_execution_proof".to_string(),
+        "Returns a proof that a chunk's certified execution roots are committed by the chain, verifiable against a trusted light client head.".to_string(),
     );
     add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError>(
         &mut all_schemas,
