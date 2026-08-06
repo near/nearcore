@@ -476,6 +476,7 @@ pub(crate) enum MessageDropped {
     MaxCapacityExceeded,
     TransactionsPerBlockExceeded,
     Duplicate,
+    OutgoingQueueLimitExceeded,
 }
 
 impl MessageDropped {
@@ -487,7 +488,7 @@ impl MessageDropped {
         self.inc_msg_type("unknown")
     }
 
-    fn inc_msg_type(self, msg_type: &str) {
+    pub(crate) fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
         DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
     }

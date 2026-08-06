@@ -25,7 +25,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::spice::data_distribution::SpiceChunkContractAccessesMessage;
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfigStore};
@@ -350,8 +352,15 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
         set_chain_info_sender: noop().into_sender(),
         state_sync_event_sender: noop().into_sender(),
         request_sender: Sender::from_fn({
+            let network_sc = network_sc.clone();
             move |event: PeerManagerMessageRequest| {
                 network_sc.send(event).unwrap();
+            }
+        }),
+        request_with_permit_sender: Sender::from_fn({
+            move |event: NetworkRequestWithPermit| {
+                // ignore the permit in tests
+                network_sc.send(PeerManagerMessageRequest::NetworkRequests(event.request)).unwrap();
             }
         }),
     };

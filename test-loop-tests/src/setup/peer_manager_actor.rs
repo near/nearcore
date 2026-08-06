@@ -16,6 +16,7 @@ use near_network::client::{
     ProcessTxResponse, SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart,
     StateResponse, StateResponseReceived,
 };
+use near_network::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::spice::data_distribution::{
@@ -558,6 +559,20 @@ impl Handler<Tier3Request> for TestLoopPeerManagerActor {
     fn handle(&mut self, _msg: Tier3Request) {}
 }
 
+impl Handler<near_network::types::NetworkRequestWithPermit> for TestLoopPeerManagerActor {
+    fn handle(&mut self, msg: near_network::types::NetworkRequestWithPermit) {
+        // Test-loop has no real outgoing-queue limiter; the permit is
+        // discarded. Forward the inner request through the existing
+        // PeerManagerMessageRequest dispatch so request-handler hooks
+        // (NetworkRequests) see it.
+        let near_network::types::NetworkRequestWithPermit { request, permit: _ } = msg;
+        Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(
+            self,
+            PeerManagerMessageRequest::NetworkRequests(request),
+        );
+    }
+}
+
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) {
         Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(self, msg);
@@ -689,6 +704,7 @@ fn network_message_to_client_handler(
                 EpochSyncRequestMessage {
                     from_peer: my_peer_id,
                     recv_permit: RecvMessagePermit::none(),
+                    response_permit: OutgoingPermit::fake_for_test(),
                 },
             );
             HandlerResult::Handled(NetworkResponses::NoResponse)

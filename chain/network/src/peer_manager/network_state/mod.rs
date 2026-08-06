@@ -8,6 +8,7 @@ use crate::client::{
     StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
+use crate::concurrency::outgoing_queue_limiter::OutgoingQueueLimiter;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
@@ -89,6 +90,15 @@ pub(crate) const PENDING_TIER3_REQUEST_TIMEOUT: time::Duration = time::Duration:
 /// Number of permits in the incoming semaphore - set to 1GB, meaning that neard will handle at most
 /// 1GB of incoming messages at the same time.
 pub(crate) const INCOMING_SEMAPHORE_PERMITS: usize = 1_000_000_000;
+
+/// Size of the semaphore which limits outgoing messages.
+pub(crate) const OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 1024 * 1024 * 1024;
+
+/// Number of bytes reserved for the epoch sync response
+pub(crate) const EPOCH_SYNC_RESPONSE_BYTES: usize = 300 * 1024 * 1024;
+
+// Number of bytes reserved for the state sync response
+pub(crate) const STATE_SYNC_RESPONSE_BYTES: usize = 30 * 1024 * 1024;
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -182,6 +192,11 @@ pub(crate) struct NetworkState {
     // Before reading a message into memory, we acquire a number of permits that's equal to the
     // message size. Limits total memory usage.
     pub incoming_message_semaphore: Arc<Semaphore>,
+
+    /// Caps total bytes sitting in outgoing queues across all connections.
+    /// Permits are acquired when frames are enqueued and released as frames
+    /// drain to the socket.
+    pub(crate) outgoing_queue_limiter: OutgoingQueueLimiter,
 
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
@@ -333,6 +348,9 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             pending_tier3_requests: DashMap::new(),
+            outgoing_queue_limiter: OutgoingQueueLimiter::new(
+                OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
+            ),
             whitelist_nodes,
             set_chain_info_mutex: Mutex::new(()),
             config,
@@ -1245,7 +1263,25 @@ impl NetworkState {
                 None
             }
             PeerMessage::EpochSyncRequest => {
-                self.client.send(EpochSyncRequestMessage { from_peer: peer_id, recv_permit });
+                // Get a memory permit for the response before handling the request.
+                // We use an estimated size, later the permit will be reduced to the actual size.
+                if let Some(response_permit) =
+                    self.outgoing_queue_limiter.try_acquire(EPOCH_SYNC_RESPONSE_BYTES)
+                {
+                    self.client.send(EpochSyncRequestMessage {
+                        from_peer: peer_id,
+                        recv_permit,
+                        response_permit,
+                    });
+                } else {
+                    metrics::MessageDropped::OutgoingQueueLimitExceeded
+                        .inc_msg_type("EpochSyncResponse");
+                    tracing::debug!(
+                        target: "network",
+                        %peer_id,
+                        "outgoing queue saturated; dropping epoch sync request",
+                    );
+                }
                 None
             }
             PeerMessage::EpochSyncResponse(proof) => {
