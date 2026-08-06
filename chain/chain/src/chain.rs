@@ -1,4 +1,6 @@
-use crate::approval_verification::verify_approval_with_approvers_info;
+use crate::approval_verification::{
+    verify_approval_with_approvers_info, verify_approvals_and_threshold_orphan,
+};
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
     BlocksInProcessing, OptimisticBlockInfo,
@@ -36,7 +38,10 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::{validate_chunk_with_chunk_extra, validate_optimistic_block_relevant};
+use crate::validate::{
+    validate_chunk_with_chunk_extra, validate_optimistic_block_relevant,
+    validate_spice_chunk_execution_root,
+};
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -1482,7 +1487,6 @@ impl Chain {
             &mut self.chain_store,
             self.epoch_manager.clone(),
             self.runtime_adapter.clone(),
-            self.doomslug_threshold_mode,
         )
     }
 
@@ -2431,7 +2435,7 @@ impl Chain {
             }
             block.check_validity()?;
             // TODO: enable after #3729 and #3863
-            // self.verify_orphan_header_approvals(&header)?;
+            // self.verify_header_approvals_without_ancestry(&header)?;
             return Err(Error::Orphan);
         }
 
@@ -2556,6 +2560,15 @@ impl Chain {
         self.check_if_finalizable(header)?;
 
         if ProtocolFeature::Spice.enabled(protocol_version) {
+            if !block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered non-spice block with spice feature enabled".to_string(),
+                ));
+            }
+            validate_spice_chunk_execution_root(
+                block.header().chunk_execution_root(),
+                block.spice_core_statements(),
+            )?;
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
@@ -4034,6 +4047,44 @@ impl Chain {
     #[inline]
     pub fn is_block_invalid(&self, hash: &CryptoHash) -> bool {
         self.invalid_blocks.contains(hash)
+    }
+
+    /// Verifies that a header carries approvals from >2/3 of the stake of a
+    /// validator set we already know (current or next epoch). Errors if the
+    /// header's epoch is unknown (too far ahead to validate), the approvals fall
+    /// short, or the header is too old to carry a `prev_height` (V1/V2).
+    pub fn verify_header_approvals_without_ancestry(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
+        // Producer signature first: the header hash covers the approvals, so a
+        // header with any tampered approval dies after one signature check
+        // instead of a full pass over ~100 approval signatures.
+        if !self.partial_verify_orphan_header_signature(header)? {
+            return Err(Error::InvalidSignature);
+        }
+        let prev_hash = header.prev_hash();
+        let Some(prev_height) = header.prev_height() else {
+            return Err(Error::Other("header too old to verify approvals without ancestry".into()));
+        };
+        let height = header.height();
+        let epoch_id = header.epoch_id();
+        let approvals = header.approvals();
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+        verify_approvals_and_threshold_orphan(
+            &|approvals, stakes| {
+                Doomslug::can_approved_block_be_produced(
+                    self.doomslug_threshold_mode,
+                    approvals,
+                    stakes,
+                )
+            },
+            prev_hash,
+            prev_height,
+            height,
+            approvals,
+            epoch_info,
+        )
     }
 
     /// Check that sync_hash matches the one we expect for the epoch containing that block.

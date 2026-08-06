@@ -1556,9 +1556,9 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
 /// Across a resharding boundary, the cloud `BlockData` captures every
 /// `DBCol::ChunkProducers` row for a block, and `save_block_data` reconstructs
 /// them byte-for-byte into a fresh store. The boundary block is the last block
-/// of the pre-split epoch, so its rows are keyed by the NEXT (post-split)
-/// layout's shard_ids - the case that proves BlockData placement captures rows
-/// the own-epoch ShardData would miss.
+/// of the pre-split epoch; the capture is a block-hash prefix scan, so it is
+/// layout-agnostic and round-trips the rows the seeder wrote (the anchor's own
+/// pre-split layout) without consulting any layout.
 #[test]
 #[cfg(feature = "nightly")]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -1581,14 +1581,15 @@ fn test_cloud_archival_reader_reconstructs_chunk_producers() {
         "EarlyKickout must be active so the boundary block has seeded ChunkProducers rows"
     );
 
-    // The captured shard_ids must be the post-split layout's, proving BlockData
-    // placement captures next-epoch-layout rows the own-epoch ShardData would miss.
+    // The captured shard_ids must be the boundary block's OWN (pre-split) layout's, matching
+    // what the own-epoch seeder wrote; pinning inequality with the post-split set proves the
+    // reshard actually changed the layout, so the round-trip below is not vacuous.
     let captured_shards: HashSet<ShardId> =
         writer_rows.keys().map(|k| get_block_shard_id_rev(k).unwrap().1).collect();
     let new_shards: HashSet<ShardId> = h.new_shard_layout().shard_ids().collect();
     let base_shards: HashSet<ShardId> = CloudArchiveHarness::all_shard_ids().into_iter().collect();
-    assert_eq!(captured_shards, new_shards, "boundary rows must use the post-split layout");
-    assert_ne!(captured_shards, base_shards, "post-split layout must differ from the base layout");
+    assert_eq!(captured_shards, base_shards, "boundary rows must use the pre-split layout");
+    assert_ne!(captured_shards, new_shards, "post-split layout must differ from the base layout");
 
     // TODO(cloud_archival): once an unignored test bootstraps a reader across a resharding
     // boundary and runs assert_reader_writer_parity over the boundary block, that covers

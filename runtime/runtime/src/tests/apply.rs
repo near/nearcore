@@ -27,7 +27,7 @@ use near_primitives::congestion_info::{
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
-    InvalidTxError, MissingTrieValue, TxExecutionError,
+    InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -1685,6 +1685,101 @@ fn test_per_receipt_storage_proof_size_limit() {
         ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(msg)) => msg
     );
     assert!(error_message.contains("storage proof"), "unexpected error message: {error_message}");
+}
+
+/// Deploys a contract, records a witness for a call to it (which excludes the
+/// contract body), then applies that call over the recorded storage.
+fn apply_call_to_contract_missing_from_witness(
+    apply_reason: ApplyChunkReason,
+) -> Result<ApplyResult, RuntimeError> {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() })],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[deploy_receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "log_something".to_string(),
+            args: Vec::new(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            std::slice::from_ref(&call_receipt),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+    let partial_storage = apply_result.proof.unwrap();
+
+    // A validator with an empty compiled-contract cache has no source for the
+    // body other than the witness, which excludes it.
+    apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
+    apply_state.apply_reason = apply_reason;
+    runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        std::slice::from_ref(&call_receipt),
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    )
+}
+
+#[test]
+fn test_validation_rejects_missing_contract_code() {
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    assert_matches!(
+        apply_call_to_contract_missing_from_witness(ApplyChunkReason::ValidateChunkStateWitness),
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) if hash == *contract_code.hash()
+    );
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "contract code is missing from the trie")]
+fn test_tracked_shard_apply_asserts_on_missing_contract_code() {
+    let _ = apply_call_to_contract_missing_from_witness(ApplyChunkReason::UpdateTrackedShard);
 }
 
 // Tests excluding contract code from state witness and recording of contract deployments and function calls.

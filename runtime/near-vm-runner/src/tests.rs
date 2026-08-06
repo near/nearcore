@@ -3,6 +3,7 @@ mod chain_id_integration;
 mod compile_errors;
 #[cfg(feature = "prepare")]
 mod fuzzers;
+mod ml_dsa_verify_integration;
 mod p256_verify_integration;
 mod regression_tests;
 mod rs_contract;

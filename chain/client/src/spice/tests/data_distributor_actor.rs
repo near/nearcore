@@ -27,8 +27,10 @@ use near_crypto::{KeyType, Signature};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::spice::data_distribution::{
     SpiceContractCodeRequestMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
+    SpicePartialDataRequestMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
@@ -509,7 +511,10 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
             continue;
         };
         assert!(recipients.contains(validator));
-        receiver.handle(SpiceIncomingPartialData { data: partial_data.clone() });
+        receiver.handle(SpiceIncomingPartialData {
+            data: partial_data.clone(),
+            recv_permit: RecvMessagePermit::none(),
+        });
     }
     let message = receiver_messages_rc.try_recv().unwrap();
     assert_matches!(receiver_messages_rc.try_recv(), Err(TryRecvError::Empty));
@@ -652,7 +657,10 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
             panic!()
         };
         assert!(recipients.contains(receiver_account));
-        receiver.handle(SpiceIncomingPartialData { data: partial_data.clone() });
+        receiver.handle(SpiceIncomingPartialData {
+            data: partial_data.clone(),
+            recv_permit: RecvMessagePermit::none(),
+        });
     }
     let message = receiver_messages_rc.try_recv().unwrap();
     assert_matches!(receiver_messages_rc.try_recv(), Err(TryRecvError::Empty));
@@ -781,7 +789,10 @@ where
     actor.handle(message);
     let (partial_data, recipients) = drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
     let recipient = recipients.into_iter().next();
-    (SpiceIncomingPartialData { data: partial_data }, recipient)
+    (
+        SpiceIncomingPartialData { data: partial_data, recv_permit: RecvMessagePermit::none() },
+        recipient,
+    )
 }
 
 fn receipt_proof_incoming_data(
@@ -954,9 +965,9 @@ fn test_incoming_partial_data_is_already_decoded() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    actor.handle(incoming_data.clone());
+    let data = incoming_data.data.clone();
+    actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
-    let SpiceIncomingPartialData { data } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
@@ -979,7 +990,7 @@ fn test_incoming_partial_data_for_already_known_receipts() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    let SpiceIncomingPartialData { data } = incoming_data;
+    let SpiceIncomingPartialData { data, .. } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
@@ -1001,11 +1012,10 @@ fn record_endorsement(chain: &Chain, chunk_id: SpiceChunkId, validator: &Account
         noop().into_sender(),
         noop().into_sender(),
     );
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(SpiceChunkEndorsement::new(
-        chunk_id,
-        execution_result,
-        &signer,
-    )));
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(
+        SpiceChunkEndorsement::new(chunk_id, execution_result, &signer),
+        RecvMessagePermit::none(),
+    ));
 }
 
 #[test]
@@ -1021,7 +1031,7 @@ fn test_incoming_partial_data_for_already_endorsed_witness() {
     let witness = new_test_witness(&block);
     record_endorsement(&chain, witness.chunk_id().clone(), &recipient);
 
-    let SpiceIncomingPartialData { data } = incoming_data;
+    let SpiceIncomingPartialData { data, .. } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
@@ -2012,13 +2022,19 @@ fn test_handling_partial_data_request_with_receipts_in_store() {
         from_shard_id: receipt_proof.1.from_shard_id,
         to_shard_id: receipt_proof.1.to_shard_id,
     };
-    actor.handle(SpicePartialDataRequest { data_id, requester: recipient.clone() });
+    actor.handle(SpicePartialDataRequestMessage {
+        request: SpicePartialDataRequest { data_id, requester: recipient.clone() },
+        recv_permit: RecvMessagePermit::none(),
+    });
     let (partial_data, recipients) = drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
     assert_eq!(recipients, HashSet::from([recipient.clone()]));
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &recipient_chain, &recipient);
-    actor.handle(SpiceIncomingPartialData { data: partial_data });
+    actor.handle(SpiceIncomingPartialData {
+        data: partial_data,
+        recv_permit: RecvMessagePermit::none(),
+    });
 
     let message = outgoing_rc.try_recv().unwrap();
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -2057,13 +2073,19 @@ fn test_handling_partial_data_request_with_witness_in_store() {
         block_hash: *block.hash(),
         shard_id: state_witness.chunk_id().shard_id,
     };
-    actor.handle(SpicePartialDataRequest { data_id, requester: recipient.clone() });
+    actor.handle(SpicePartialDataRequestMessage {
+        request: SpicePartialDataRequest { data_id, requester: recipient.clone() },
+        recv_permit: RecvMessagePermit::none(),
+    });
     let (partial_data, recipients) = drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
     assert_eq!(recipients, HashSet::from([recipient.clone()]));
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &recipient_chain, &recipient);
-    actor.handle(SpiceIncomingPartialData { data: partial_data });
+    actor.handle(SpiceIncomingPartialData {
+        data: partial_data,
+        recv_permit: RecvMessagePermit::none(),
+    });
 
     let message = outgoing_rc.try_recv().unwrap();
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -2099,7 +2121,10 @@ fn test_handling_partial_data_request_when_not_producer() {
         block_hash: state_witness.chunk_id().block_hash,
         shard_id: state_witness.chunk_id().shard_id,
     };
-    actor.handle(SpicePartialDataRequest { data_id, requester: recipient });
+    actor.handle(SpicePartialDataRequestMessage {
+        request: SpicePartialDataRequest { data_id, requester: recipient },
+        recv_permit: RecvMessagePermit::none(),
+    });
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
@@ -2127,7 +2152,10 @@ fn test_requesting_receipts_when_not_validator() {
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
 
     let requester = AccountId::from_str("not-validator").unwrap();
-    actor.handle(SpicePartialDataRequest { data_id, requester: requester.clone() });
+    actor.handle(SpicePartialDataRequestMessage {
+        request: SpicePartialDataRequest { data_id, requester: requester.clone() },
+        recv_permit: RecvMessagePermit::none(),
+    });
     let (partial_data, recipients) = drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
     assert_eq!(recipients, HashSet::from([requester.clone()]));
 
@@ -2140,7 +2168,10 @@ fn test_requesting_receipts_when_not_validator() {
     let mut actor = ActorBuilder::new(Some(requester))
         .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
         .build(outgoing_sc, &requester_chain);
-    actor.handle(SpiceIncomingPartialData { data: partial_data });
+    actor.handle(SpiceIncomingPartialData {
+        data: partial_data,
+        recv_permit: RecvMessagePermit::none(),
+    });
 
     let message = outgoing_rc.try_recv().unwrap();
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -2188,7 +2219,10 @@ fn test_contract_accesses_served_from_store_on_catchup() {
         block_hash: *block.hash(),
         shard_id: state_witness.chunk_id().shard_id,
     };
-    actor.handle(SpicePartialDataRequest { data_id, requester: recipient.clone() });
+    actor.handle(SpicePartialDataRequestMessage {
+        request: SpicePartialDataRequest { data_id, requester: recipient.clone() },
+        recv_permit: RecvMessagePermit::none(),
+    });
 
     // Collect all outgoing messages and find the contract accesses message.
     let mut found_accesses = false;
@@ -2237,7 +2271,7 @@ fn test_duplicate_contract_code_request_is_dropped() {
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
 
     // First request should produce a response.
-    actor.handle(SpiceContractCodeRequestMessage(request.clone()));
+    actor.handle(SpiceContractCodeRequestMessage(request.clone(), RecvMessagePermit::none()));
     assert_matches!(
         outgoing_rc.try_recv(),
         Ok(OutgoingMessage::NetworkRequests {
@@ -2247,7 +2281,7 @@ fn test_duplicate_contract_code_request_is_dropped() {
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 
     // Second identical request should be deduplicated — no response.
-    actor.handle(SpiceContractCodeRequestMessage(request));
+    actor.handle(SpiceContractCodeRequestMessage(request, RecvMessagePermit::none()));
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
@@ -2282,7 +2316,7 @@ fn test_contract_code_request_invalid_signature_rejected() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
 
-    actor.handle(SpiceContractCodeRequestMessage(tampered_request));
+    actor.handle(SpiceContractCodeRequestMessage(tampered_request, RecvMessagePermit::none()));
     // Invalid signature — no response should be sent.
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
@@ -2323,7 +2357,7 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
 
-    actor.handle(SpiceContractCodeRequestMessage(request));
+    actor.handle(SpiceContractCodeRequestMessage(request, RecvMessagePermit::none()));
     // Contract not in valid accesses — no response should be sent.
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 
@@ -2333,7 +2367,7 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
         SpiceContractCodeRequest::new(chunk_id, HashSet::from([hash_a, hash_b]), &validator_signer);
     let (outgoing_sc2, mut outgoing_rc2) = unbounded_channel();
     let mut actor2 = new_actor_for_account(outgoing_sc2, &chain, &producer);
-    actor2.handle(SpiceContractCodeRequestMessage(request));
+    actor2.handle(SpiceContractCodeRequestMessage(request, RecvMessagePermit::none()));
     assert_matches!(outgoing_rc2.try_recv(), Err(TryRecvError::Empty));
 }
 
@@ -2389,7 +2423,7 @@ fn test_contract_code_request_happy_path() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
 
-    actor.handle(SpiceContractCodeRequestMessage(request));
+    actor.handle(SpiceContractCodeRequestMessage(request, RecvMessagePermit::none()));
 
     let message = outgoing_rc.try_recv().unwrap();
     let OutgoingMessage::NetworkRequests {

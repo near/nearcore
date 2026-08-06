@@ -34,7 +34,7 @@ const router = createBrowserRouter([
         children: [
             {
                 index: true,
-                element: <Navigate to="cluster" />,
+                element: <Navigate to="epoch_info" />,
             },
             {
                 path: '*',

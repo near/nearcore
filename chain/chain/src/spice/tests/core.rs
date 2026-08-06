@@ -14,6 +14,7 @@ use near_async::messaging::{Handler as _, IntoSender as _, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
@@ -69,7 +70,8 @@ fn test_get_execution_by_shard_id_with_some_execution_results() {
     let mut core_writer_actor = core_writer_actor(&chain);
     for validator in test_validators() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
     let execution_results = core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert_eq!(execution_results.len(), 1);
@@ -89,7 +91,8 @@ fn test_get_execution_by_shard_id_with_all_execution_results() {
     for chunk_header in chunks.iter_raw() {
         for validator in test_validators() {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+            core_writer_actor
+                .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
         }
     }
     let execution_results = core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
@@ -133,7 +136,8 @@ fn test_get_block_execution_results_with_some_execution_results_missing() {
     let mut core_writer_actor = core_writer_actor(&chain);
     for validator in test_validators() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
     let execution_results = core_reader.get_block_execution_results(block.header()).unwrap();
     assert!(execution_results.is_none())
@@ -152,7 +156,8 @@ fn test_get_block_execution_results_with_all_execution_results_present() {
     for chunk_header in chunks.iter_raw() {
         for validator in test_validators() {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+            core_writer_actor
+                .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
         }
     }
     let execution_results = core_reader.get_block_execution_results(block.header()).unwrap();
@@ -250,7 +255,8 @@ fn test_all_execution_results_exist_when_all_exist() {
     for chunk_header in chunks.iter_raw() {
         for validator in test_validators() {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+            core_writer_actor
+                .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
         }
     }
     assert!(core_reader.all_execution_results_exist(block.header()).unwrap());
@@ -269,7 +275,8 @@ fn test_all_execution_results_exist_when_some_are_missing() {
     let mut core_writer_actor = core_writer_actor(&chain);
     for validator in test_validators() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
     assert!(!core_reader.all_execution_results_exist(block.header()).unwrap());
 }
@@ -314,7 +321,8 @@ fn test_core_statements_for_next_block_contains_new_endorsements() {
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+    core_writer_actor
+        .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 1);
@@ -341,7 +349,7 @@ fn test_core_statements_for_next_block_contains_no_endorsements_for_fork_block()
     let fork_chunk_header = fork_chunks.iter_raw().next().unwrap();
     let mut core_writer_actor = core_writer_actor(&chain);
     let endorsement = test_chunk_endorsement(&test_validators()[0], &fork_block, fork_chunk_header);
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 0);
@@ -359,7 +367,8 @@ fn test_core_statements_for_next_block_contains_new_endorsement() {
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+    core_writer_actor
+        .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 1);
@@ -380,7 +389,8 @@ fn test_core_statements_for_next_block_contains_new_execution_results() {
     let validators = test_validators();
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
     }
 
     let execution_result = test_execution_result_for_chunk(&chunk_header);
@@ -403,7 +413,7 @@ fn test_core_statements_for_next_block_with_endorsements_creates_valid_block() {
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
@@ -424,7 +434,8 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
     let validators = test_validators();
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
     }
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
@@ -560,7 +571,8 @@ fn test_core_statements_for_next_block_contains_no_already_included_execution_re
     let validators = test_validators();
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
     }
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
@@ -582,7 +594,7 @@ fn test_core_statements_for_next_block_contains_no_already_included_endorsement(
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
@@ -606,7 +618,8 @@ fn test_core_statements_for_next_block_contains_no_endorsements_for_included_exe
     let (last_validator, validators) = all_validators.split_last().unwrap();
     for validator in validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
     }
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
@@ -614,7 +627,7 @@ fn test_core_statements_for_next_block_contains_no_endorsements_for_included_exe
     process_block(&mut chain, next_block.clone());
 
     let endorsement = test_chunk_endorsement(&last_validator, &block, chunk_header);
-    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
 
     assert_eq!(core_reader.core_statements_for_next_block(next_block.header()).unwrap(), vec![]);
 }
@@ -634,7 +647,8 @@ fn test_core_statements_for_next_block_contains_all_endorsements() {
     let mut all_endorsements = Vec::new();
     for validator in all_validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
         all_endorsements.push(endorsement_into_core_statement(endorsement));
     }
 
@@ -1454,7 +1468,8 @@ fn test_validate_core_statements_in_block_valid_with_not_enough_on_chain_endorse
 
     for validator in in_core_validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
+        core_writer_actor
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
     let next_block = build_block(&mut chain, &block, block_core_statements);
     assert_matches!(core_reader.validate_core_statements_in_block(&next_block), Ok(()));
