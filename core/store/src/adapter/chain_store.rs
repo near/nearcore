@@ -14,7 +14,7 @@ use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithProof, SignedTransaction,
 };
-use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId, SpiceChunkId};
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
     get_receipt_proof_target_shard_prefix, index_to_bytes,
@@ -363,6 +363,15 @@ impl ChainStoreAdapter {
             .unwrap_or_default()
     }
 
+    /// For spice, the block that certified `chunk_id`'s execution result, or
+    /// `None` when the chunk is not yet certified (as of the final head).
+    pub fn get_chunk_certifying_block(&self, chunk_id: &SpiceChunkId) -> Option<CryptoHash> {
+        self.store.get_ser(
+            DBCol::chunk_certifying_block(),
+            &get_block_shard_id(&chunk_id.block_hash, chunk_id.shard_id),
+        )
+    }
+
     /// Returns a vector of all known processed next block hashes.
     pub fn get_all_next_block_hashes(&self, block_hash: &CryptoHash) -> Vec<CryptoHash> {
         self.store.get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref()).unwrap_or_default()
@@ -615,6 +624,19 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         let ShardProof { from_shard_id, to_shard_id, .. } = receipt_proof.1;
         let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
         self.store_update.set_ser(DBCol::receipt_proofs(), &key, receipt_proof);
+    }
+
+    /// For spice, records a chunk's certifying block; written once, at finality.
+    pub fn set_chunk_certifying_block(
+        &mut self,
+        chunk_id: &SpiceChunkId,
+        certifying_block_hash: &CryptoHash,
+    ) {
+        self.store_update.insert_ser(
+            DBCol::chunk_certifying_block(),
+            &get_block_shard_id(&chunk_id.block_hash, chunk_id.shard_id),
+            certifying_block_hash,
+        );
     }
 }
 
