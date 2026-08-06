@@ -605,39 +605,42 @@ mod tests {
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Block;
     use near_primitives::genesis::genesis_block;
-    use near_primitives::hash::CryptoHash;
+    use near_primitives::hash::hash;
     use near_primitives::sharding::ShardChunkHeader;
-    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-    use near_primitives::types::{Balance, ShardId};
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer, test_chunk_header};
+    use near_primitives::types::Balance;
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
 
     /// A chunk the block treats as new, i.e. one included at the block's own height.
-    fn new_chunk_at(height: u64, prev_block_hash: CryptoHash) -> ShardChunkHeader {
-        let mut chunk = ShardChunkHeader::new_dummy(height, ShardId::new(0), prev_block_hash);
+    ///
+    /// Built via `test_chunk_header` rather than `ShardChunkHeader::new_dummy`: the
+    /// latter picks a Spice transaction-only header inner once that feature is on,
+    /// which carries no `prev_state_root` and panics in `genesis_block`.
+    fn new_chunk_at(height: u64, signer: &ValidatorSigner) -> ShardChunkHeader {
+        // Vary the chunk's prev hash so each block contributes a distinct chunk.
+        let mut chunk = test_chunk_header(hash(&height.to_le_bytes()), signer, PROTOCOL_VERSION);
         *chunk.height_included_mut() = height;
         chunk
     }
 
     /// A block carrying one new chunk, so the tracker's chunk bookkeeping is exercised.
     fn block_at(height: u64) -> Arc<Block> {
+        let signer = Arc::new(create_test_signer("test"));
         let genesis = Arc::new(genesis_block(
             PROTOCOL_VERSION,
-            vec![ShardChunkHeader::new_dummy(0, ShardId::new(0), CryptoHash::default())],
+            vec![new_chunk_at(0, &signer)],
             Utc::now_utc(),
             0,
             Balance::ZERO,
             Balance::ZERO,
             &vec![],
         ));
-        TestBlockBuilder::from_prev_block(
-            Clock::real(),
-            &genesis,
-            Arc::new(create_test_signer("test")),
-        )
-        .height(height)
-        .chunks(vec![new_chunk_at(height, *genesis.hash())])
-        .build()
+        TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+            .height(height)
+            .chunks(vec![new_chunk_at(height, &signer)])
+            .build()
     }
 
     /// A node far behind the tip keeps receiving blocks gossiped from there. They
