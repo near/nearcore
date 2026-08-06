@@ -64,6 +64,19 @@ impl SpiceCoreReader {
             .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
     }
 
+    /// Highest height whose chunk for `shard_id` is certified as of `block_hash`.
+    /// Derivable from the uncertified-chunks tracking — the height just below the oldest
+    /// uncertified chunk for the shard, or the head's height when the shard has none
+    /// uncertified. `None` when nothing is certified for the shard yet.
+    pub fn highest_certified_height(
+        &self,
+        _block_hash: &CryptoHash,
+        _shard_id: ShardId,
+    ) -> Result<Option<BlockHeight>, Error> {
+        // sketch
+        Ok(None)
+    }
+
     fn get_endorsement(
         &self,
         block_hash: &CryptoHash,
