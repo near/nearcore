@@ -141,8 +141,10 @@ fn epoch_start(handle: &EpochManagerHandle) -> BlockHeight {
 /// remains order-dependent by design; it is deliberately not on the consensus path.
 #[test]
 fn epoch_start_does_not_depend_on_fork_processing_order() {
-    let low_first = build_node(false, 0, SIBLING_LOW);
-    let high_first = build_node(true, 0, SIBLING_LOW);
+    // Head past the siblings, so the canonical anchors below exercise a real multi-block
+    // walk back to the epoch-first sibling, not just the siblings' self-resolution.
+    let low_first = build_node(false, 0, SIBLING_HIGH + 2);
+    let high_first = build_node(true, 0, SIBLING_HIGH + 2);
 
     println!(
         "EpochStart[EpochId::default()] after two same-parent boundary siblings at heights \
@@ -153,7 +155,14 @@ fn epoch_start_does_not_depend_on_fork_processing_order() {
         epoch_start(&low_first),
         epoch_start(&high_first),
     );
+    // The fixture must keep producing the column collision, or everything below is vacuous.
+    assert_ne!(
+        epoch_start(&low_first),
+        epoch_start(&high_first),
+        "fixture no longer produces the EpochStart collision",
+    );
 
+    // The boundary siblings are epoch-first blocks: the walk resolves to the anchor itself.
     for anchor in [sibling_hash(SIBLING_LOW), sibling_hash(SIBLING_HIGH)] {
         let start_low_first = low_first.get_epoch_start_height(&anchor).unwrap();
         let start_high_first = high_first.get_epoch_start_height(&anchor).unwrap();
@@ -164,14 +173,27 @@ fn epoch_start_does_not_depend_on_fork_processing_order() {
              forks in different orders: {start_low_first} vs {start_high_first}",
         );
     }
+
+    // Canonical anchors walk across blocks back to the LOW sibling (the epoch-first block on
+    // the canonical chain), so the expected value is pinned, not just cross-node equality.
+    for height in (SIBLING_LOW + 1)..=(SIBLING_HIGH + 2) {
+        let anchor = canonical_hash(height);
+        for (label, node) in [("low-first", &low_first), ("high-first", &high_first)] {
+            assert_eq!(
+                node.get_epoch_start_height(&anchor).unwrap(),
+                SIBLING_LOW,
+                "{label}: the walk from canonical anchor at height {height} must reach the \
+                 epoch-first sibling at height {SIBLING_LOW}",
+            );
+        }
+    }
 }
 
 /// The genesis end of the walk: `get_epoch_start_height` resolves genesis to height 0 through
-/// the dummy `BlockInfo` stored as its parent (`genesis.rs`), so an anchor whose last-final
-/// block is genesis stays in the grace window instead of erroring. This is the case the
-/// removed `EpochOutOfBounds -> grace` mapping used to cover.
+/// the dummy `BlockInfo` stored as its parent (`genesis.rs`) instead of erroring. This is the
+/// case the removed `EpochOutOfBounds -> grace` mapping used to cover.
 #[test]
-fn genesis_final_basis_resolves_through_dummy_and_stays_in_grace() {
+fn genesis_final_basis_resolves_through_dummy_instead_of_erroring() {
     // Head just past the siblings: the anchor at height 2 is the first canonical block, and
     // `build_node` gives it genesis as its last-final block.
     let handle = build_node(false, 0, SIBLING_HIGH + 1);
@@ -185,8 +207,8 @@ fn genesis_final_basis_resolves_through_dummy_and_stays_in_grace() {
         let blacklist = handle.get_chunk_producer_blacklist(&canonical_hash(2)).unwrap();
         assert!(
             blacklist.is_empty(),
-            "a genesis-final anchor is 0 blocks into the epoch, so the grace must hold, got \
-             {blacklist:?}",
+            "this fixture's genesis is at height 0, so a genesis-final anchor is 0 blocks \
+             into the epoch and the grace must hold, got {blacklist:?}",
         );
     }
 }
@@ -240,12 +262,19 @@ struct Belief {
     /// `get_chunk_producer_info_anchored` reads the seeded `DBCol::ChunkProducers` row
     /// verbatim; this is the value chunk validation compares the chunk's signer against.
     grandchild_producer: AccountId,
+    /// The walk-based epoch start of the anchor's stored last-final block — the value the
+    /// grace checks consume. Part of `Belief` equality, so a DISAGREE covers the walk basis
+    /// as well as the consensus outputs.
+    walk_epoch_start: BlockHeight,
 }
 
 #[cfg(feature = "nightly")]
 fn belief_at(handle: &EpochManagerHandle, anchor_height: BlockHeight) -> Belief {
     let anchor = canonical_hash(anchor_height);
     let shard_id = shard_id_of(handle);
+    // The anchor's stored last-final basis, not fixture math, so this stays exactly what
+    // the grace sites consume even if the fixture's finality shape changes.
+    let final_hash = *handle.read().get_block_info(&anchor).unwrap().last_final_block_hash();
     Belief {
         blacklist: handle.get_chunk_producer_blacklist(&anchor).unwrap(),
         grandchild_producer: handle
@@ -257,6 +286,7 @@ fn belief_at(handle: &EpochManagerHandle, anchor_height: BlockHeight) -> Belief 
             )
             .unwrap()
             .take_account_id(),
+        walk_epoch_start: handle.get_epoch_start_height(&final_hash).unwrap(),
     }
 }
 
@@ -324,15 +354,19 @@ fn render_table(
         if differs {
             split.push(*anchor);
         }
+        // `col_start` is the stale `EpochStart` column (the repro's subject); `walk_start`
+        // is what the grace checks consume, so `into_epoch` derives from the walk.
         lines.push(format!(
-            "  anchor {anchor} (final height {}): A[start={start_a} into_epoch={} \
-             blacklist_active={} producer={}] B[start={start_b} into_epoch={} \
-             blacklist_active={} producer={}]{}",
+            "  anchor {anchor} (final height {}): A[col_start={start_a} walk_start={} \
+             into_epoch={} blacklist_active={} producer={}] B[col_start={start_b} \
+             walk_start={} into_epoch={} blacklist_active={} producer={}]{}",
             anchor - 2,
-            (anchor - 2).saturating_sub(start_a),
+            belief_a.walk_epoch_start,
+            (anchor - 2).saturating_sub(belief_a.walk_epoch_start),
             !belief_a.blacklist.is_empty(),
             belief_a.grandchild_producer,
-            (anchor - 2).saturating_sub(start_b),
+            belief_b.walk_epoch_start,
+            (anchor - 2).saturating_sub(belief_b.walk_epoch_start),
             !belief_b.blacklist.is_empty(),
             belief_b.grandchild_producer,
             if differs { "   <-- DISAGREE" } else { "" },
