@@ -5,7 +5,7 @@ use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
-    MaybeBlockId, ShardId, TransactionOrReceiptId,
+    MaybeBlockId, ShardId, SpiceChunkId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
@@ -912,6 +912,48 @@ impl From<near_chain_primitives::error::Error> for GetBlockProofError {
                 Self::InternalError { error_message }
             }
             err => Self::Unreachable { error_message: err.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GetLightClientChunkExecutionProof {
+    pub chunk_id: SpiceChunkId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetLightClientProofError {
+    #[error("Chunk {chunk_id:?} is not yet certified")]
+    ChunkNotCertified { chunk_id: SpiceChunkId },
+    #[error(
+        "Light client head height {head_height} must be greater than height \
+         {certifying_block_height} of the block certifying chunk {chunk_id:?}"
+    )]
+    LightClientHeadTooOld {
+        chunk_id: SpiceChunkId,
+        certifying_block_height: BlockHeight,
+        head_height: BlockHeight,
+    },
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: \
+         {error_message}"
+    )]
+    UnknownBlock { error_message: String },
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetLightClientProofError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::error::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            near_chain_primitives::error::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
+            }
+            err => Self::InternalError { error_message: err.to_string() },
         }
     }
 }
