@@ -117,6 +117,9 @@ pub struct LimitConfig {
     pub max_promises_per_function_call_action: u64,
     /// Max number of input data dependencies
     pub max_number_input_data_dependencies: u64,
+    /// Max combined size (in bytes) of the resolved promise inputs a single
+    /// receipt may consume.
+    pub max_receipt_total_input_size: u64,
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
