@@ -25,6 +25,7 @@ use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
+    validate_spice_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
@@ -38,7 +39,10 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::{validate_chunk_with_chunk_extra, validate_optimistic_block_relevant};
+use crate::validate::{
+    validate_chunk_with_chunk_extra, validate_optimistic_block_relevant,
+    validate_spice_chunk_execution_root,
+};
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -1017,7 +1021,9 @@ impl Chain {
                 }
             }
 
-            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+            if ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+                validate_spice_chunk_endorsements_in_header(header)?;
+            } else {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }
@@ -2557,6 +2563,15 @@ impl Chain {
         self.check_if_finalizable(header)?;
 
         if ProtocolFeature::Spice.enabled(protocol_version) {
+            if !block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered non-spice block with spice feature enabled".to_string(),
+                ));
+            }
+            validate_spice_chunk_execution_root(
+                block.header().chunk_execution_root(),
+                block.spice_core_statements(),
+            )?;
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;

@@ -29,6 +29,8 @@ mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
 mod earliest_available;
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+mod early_kickout_e2e;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
@@ -57,6 +59,7 @@ mod p256_verify;
 mod pending_transaction_queue;
 mod process_blocks;
 mod processed_receipts_gc;
+mod promise_input_size_limit;
 mod protocol_upgrade;
 mod receipt_to_tx;
 mod reject_empty_method_name;

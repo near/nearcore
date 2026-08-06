@@ -805,6 +805,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 DBCol::execution_results(),
                 &get_execution_results_key(block_hash, shard_id),
             );
+            self.gc_col(DBCol::chunk_certifying_block(), &get_block_shard_id(block_hash, shard_id));
         }
         self.gc_col(DBCol::uncertified_chunks(), block_hash.as_ref());
         self.gc_col(DBCol::spice_endorsement_stats(), block_hash.as_ref());
@@ -896,6 +897,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::witnesses(), &block_shard_id);
             #[cfg(feature = "protocol_feature_spice")]
             self.gc_col(DBCol::contract_accesses(), &block_shard_id);
+            #[cfg(feature = "protocol_feature_spice")]
+            self.gc_col(
+                DBCol::chunk_certifying_block(),
+                &get_block_shard_id(&block_hash, shard_id),
+            );
 
             // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
             self.gc_col(DBCol::ChunkExtra, &block_shard_id);

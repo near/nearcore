@@ -181,6 +181,7 @@ fn build_test_actor(
     let network_adapter = PeerManagerAdapter {
         async_request_sender: noop().into_async_sender(),
         request_sender: noop().into_sender(),
+        request_with_permit_sender: noop().into_sender(),
         set_chain_info_sender: noop().into_sender(),
         state_sync_event_sender: noop().into_sender(),
     };

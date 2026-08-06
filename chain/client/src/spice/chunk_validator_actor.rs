@@ -13,6 +13,7 @@ use near_chain::{ApplyChunksSpawner, Block, ChainGenesis, ChainStore, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeResponseMessage,
 };
@@ -207,7 +208,7 @@ impl Handler<ExecutionResultEndorsed> for SpiceChunkValidatorActor {
 impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
     fn handle(
         &mut self,
-        SpiceChunkContractAccessesMessage(accesses): SpiceChunkContractAccessesMessage,
+        SpiceChunkContractAccessesMessage(accesses, _recv_permit): SpiceChunkContractAccessesMessage,
     ) {
         if let Err(err) = self.handle_spice_contract_accesses(accesses) {
             tracing::error!(target: "spice_chunk_validator", ?err, "error handling contract accesses");
@@ -218,7 +219,7 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
 impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
     fn handle(
         &mut self,
-        SpiceContractCodeResponseMessage(response): SpiceContractCodeResponseMessage,
+        SpiceContractCodeResponseMessage(response, _recv_permit): SpiceContractCodeResponseMessage,
     ) {
         if let Err(err) = self.handle_spice_contract_code_response(response) {
             tracing::error!(target: "spice_chunk_validator", ?err, "error handling contract code response");
@@ -478,7 +479,7 @@ impl SpiceChunkValidatorActor {
                 &network_sender,
                 &signer,
             );
-            core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
+            core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
         });
         Ok(())
     }

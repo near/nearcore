@@ -8,11 +8,13 @@ use crate::utils::account::{
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
+use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
+use near_chain::{Error, Provenance};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
@@ -23,7 +25,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId,
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId, SpiceChunkId,
 };
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::QueryRequest;
@@ -1080,4 +1082,86 @@ fn test_spice_total_supply_decreases_with_gas_burn() {
         block.header().total_supply(),
         initial_total_supply,
     );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_block_rejected_on_chunk_execution_root_mismatch() {
+    init_test_logger();
+
+    let validators_spec = create_validators_spec(1, 0);
+    let producer = validators_spec_clients(&validators_spec)[0].clone();
+    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).build();
+
+    let handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &mut env.test_loop.data.get_mut(&handle).client;
+
+    // Use an already-produced block: it carries valid doomslug approvals, so
+    // processing the tampered copy reaches the chunk_execution_root check instead
+    // of failing the earlier approvals check. Tampering keeps height and prev, so
+    // its approvals stay valid; only the header hash changes.
+    let head = client.chain.head().unwrap();
+    let mut block = client.chain.get_block(&head.last_block_hash).unwrap();
+
+    // Tamper the committed root, then resign so the block is otherwise valid and
+    // reaches the chunk_execution_root check rather than failing signature first.
+    let tampered_root = CryptoHash::hash_bytes(b"tampered chunk execution root");
+    let signer = create_test_signer(producer.as_str());
+    {
+        let block = Arc::make_mut(&mut block);
+        block.mut_header().set_chunk_execution_root(tampered_root);
+        block.mut_header().resign(&signer);
+    }
+
+    let result = client.process_block_test(block.into(), Provenance::NONE);
+    assert_matches!(result, Err(Error::InvalidChunkExecutionRoot(_)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chunk_certifying_block_index() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(2, 0).delay_warmup().build();
+    // Certification lags consensus, so at the final head older chunks are
+    // certified by final blocks while recent ones are not certified yet.
+    env.delay_endorsements_propagation(4);
+    let mut env = env.warmup();
+
+    let genesis_height = env.node(0).client().chain.genesis().height();
+    env.node_runner(0).run_until_certified(genesis_height + 10);
+
+    let chain_store = &env.node(0).client().chain.chain_store;
+    let final_head = chain_store.final_head().unwrap();
+    let head = chain_store.head().unwrap();
+    assert!(head.height > final_head.height, "expected a non-final block above the final head");
+
+    // Ground truth over the whole canonical chain: a chunk is indexed iff a final
+    // block certified it. Collect every chunk and, from final blocks only, the
+    // block that certified it.
+    let mut certified_by_final: HashMap<SpiceChunkId, CryptoHash> = HashMap::new();
+    let mut chunks: Vec<SpiceChunkId> = Vec::new();
+    let mut hash = head.last_block_hash;
+    loop {
+        let block = chain_store.get_block(&hash).unwrap();
+        for chunk in block.chunks().iter() {
+            chunks.push(SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() });
+        }
+        if block.header().height() <= final_head.height {
+            for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+                certified_by_final.insert(chunk_id.clone(), *block.hash());
+            }
+        }
+        let prev_hash = *block.header().prev_hash();
+        if prev_hash == CryptoHash::default() {
+            break;
+        }
+        hash = prev_hash;
+    }
+    assert!(!certified_by_final.is_empty(), "expected some chunks certified by a final block");
+
+    for chunk_id in &chunks {
+        let expected = certified_by_final.get(chunk_id).copied();
+        assert_eq!(chain_store.get_chunk_certifying_block(chunk_id), expected);
+    }
 }

@@ -29,7 +29,9 @@ use near_network::spice::data_distribution::SpiceChunkContractAccessesMessage;
 use near_network::spice::data_distribution::SpiceContractCodeRequestMessage;
 use near_network::spice::data_distribution::SpiceContractCodeResponseMessage;
 use near_network::spice::data_distribution::SpiceIncomingPartialData;
-use near_network::spice::data_distribution::SpicePartialDataRequest;
+use near_network::spice::data_distribution::{
+    SpicePartialDataRequest, SpicePartialDataRequestMessage,
+};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
@@ -277,7 +279,10 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
 }
 
 impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
-    fn handle(&mut self, SpiceIncomingPartialData { data }: SpiceIncomingPartialData) {
+    fn handle(
+        &mut self,
+        SpiceIncomingPartialData { data, recv_permit: _recv_permit }: SpiceIncomingPartialData,
+    ) {
         let block_hash = *data.block_hash();
         let sender = data.sender().clone();
         if let Err(err) = self.receive_data(data) {
@@ -294,9 +299,9 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
     }
 }
 
-impl Handler<SpicePartialDataRequest> for SpiceDataDistributorActor {
-    fn handle(&mut self, msg: SpicePartialDataRequest) -> () {
-        if let Err(err) = self.handle_partial_data_request(msg) {
+impl Handler<SpicePartialDataRequestMessage> for SpiceDataDistributorActor {
+    fn handle(&mut self, msg: SpicePartialDataRequestMessage) -> () {
+        if let Err(err) = self.handle_partial_data_request(msg.request) {
             tracing::error!(target: "spice_data_distribution", ?err, "failure when handling partial data request");
         }
     }
@@ -305,7 +310,7 @@ impl Handler<SpicePartialDataRequest> for SpiceDataDistributorActor {
 impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
     fn handle(
         &mut self,
-        SpiceContractCodeRequestMessage(request): SpiceContractCodeRequestMessage,
+        SpiceContractCodeRequestMessage(request, _recv_permit): SpiceContractCodeRequestMessage,
     ) {
         if let Err(err) = self.handle_spice_contract_code_request(request) {
             tracing::error!(target: "spice_data_distribution", ?err, "failure when handling contract code request");

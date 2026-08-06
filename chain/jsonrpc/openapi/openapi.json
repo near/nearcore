@@ -2372,6 +2372,35 @@
           },
           {
             "additionalProperties": false,
+            "description": "The combined size of the resolved promise inputs (the `DataReceipt`s\nreferenced by the receipt's `input_data_ids`) exceeded the limit.",
+            "properties": {
+              "TotalPromiseInputSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "size": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "size",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalPromiseInputSizeExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "The receipt recorded more storage proof than\n`per_receipt_storage_proof_size_limit` allows.",
             "properties": {
               "ReceiptStorageProofSizeExceeded": {
@@ -3363,6 +3392,20 @@
             ],
             "description": "The merkle root of all the block hashes"
           },
+          "chunk_execution_root": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Merkle root over the block's certified chunk execution results.\n`None` for pre-spice headers."
+          },
           "epoch_id": {
             "allOf": [
               {
@@ -3483,6 +3526,19 @@
             },
             "nullable": true,
             "type": "array"
+          },
+          "chunk_execution_root": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
           },
           "chunk_headers_root": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -11616,6 +11672,12 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_receipt_total_input_size": {
+            "description": "Max combined size (in bytes) of the resolved promise inputs a single\nreceipt may consume.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "max_register_size": {
             "description": "Maximum number of bytes that can be stored in a single register.",
             "format": "uint64",
@@ -13403,7 +13465,7 @@
             "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
-            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
+            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is given by default_chunks_cache_height_horizon().",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
