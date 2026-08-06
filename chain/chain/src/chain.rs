@@ -25,6 +25,7 @@ use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
+    validate_spice_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
@@ -1020,7 +1021,9 @@ impl Chain {
                 }
             }
 
-            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+            if ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+                validate_spice_chunk_endorsements_in_header(header)?;
+            } else {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }
