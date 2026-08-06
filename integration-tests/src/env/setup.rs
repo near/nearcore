@@ -14,13 +14,13 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain_configs::default_chunks_cache_height_horizon;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
     TrackedShardsConfig,
 };
-use near_chunks::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
@@ -594,7 +594,7 @@ pub fn setup_synchronous_shards_manager(
         <_>::clone(&chain_head),
         <_>::clone(&chain_header_head),
         Duration::hours(1),
-        DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+        default_chunks_cache_height_horizon(),
     );
     SynchronousShardsManagerAdapter::new(shards_manager)
 }

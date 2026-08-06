@@ -1,7 +1,9 @@
 use crate::peer_manager::connection;
+use crate::recv_permit::RecvMessagePermit;
 use crate::stats::metrics;
 use crate::tcp;
 use bytesize::{GIB, MIB};
+use itertools::Itertools;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{AsyncSender, Sender};
 use std::io;
@@ -10,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
+use tokio::sync::Semaphore;
 
 /// Maximum size of network message in encoded format.
 /// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
@@ -20,6 +23,9 @@ const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 /// Timeout for individual write operations (write + flush) to detect if the connection is
 /// stuck due to a half-open TCP connection where the peer stopped ACKing writes.
 const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
+
+/// Timeout for receiving a network message. Same as the write timeout.
+const READ_TIMEOUT: std::time::Duration = WRITE_TIMEOUT;
 
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -38,10 +44,26 @@ pub(crate) enum RecvError {
     IO(#[source] io::Error),
     #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
     MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
+    #[error("incoming_semaphore has been closed; cannot acquire recv_permit")]
+    IncomingSemaphoreClosed,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Frame(pub Vec<u8>);
+
+pub(crate) struct IncomingFrame {
+    pub data: Vec<u8>,
+    pub recv_permit: RecvMessagePermit,
+}
+
+impl std::fmt::Debug for IncomingFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IncomingFrame")
+            .field("data_prefix", &&self.data.iter().take(32).collect_vec())
+            .field("data_len", &self.data.len())
+            .finish()
+    }
+}
 
 /// Stream critical error.
 /// Actor is responsible for calling ctx.stop() after receiving stream::Error.
@@ -69,10 +91,11 @@ pub(crate) struct FramedStream {
 impl FramedStream {
     pub fn spawn(
         error_sender: Sender<Error>,
-        frame_sender: AsyncSender<Frame, ()>,
+        frame_sender: AsyncSender<IncomingFrame, ()>,
         future_spawner: &dyn FutureSpawner,
         stream: tcp::Stream,
         stats: Arc<connection::Stats>,
+        incoming_message_semaphore: Arc<Semaphore>,
     ) -> Self {
         let (tcp_recv, tcp_send) = tokio::io::split(stream.stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
@@ -96,8 +119,15 @@ impl FramedStream {
             let error_sender = error_sender.clone();
             let stats = stats.clone();
             async move {
-                if let Err(err) =
-                    Self::run_recv_loop(stream.peer_addr, tcp_recv, frame_sender, stats).await
+                if let Err(err) = Self::run_recv_loop(
+                    stream.peer_addr,
+                    tcp_recv,
+                    frame_sender,
+                    stats,
+                    incoming_message_semaphore,
+                    READ_TIMEOUT,
+                )
+                .await
                 {
                     error_sender.send(Error::Recv(err));
                 }
@@ -141,8 +171,10 @@ impl FramedStream {
     async fn run_recv_loop(
         peer_addr: SocketAddr,
         read: ReadHalf,
-        frame_sender: AsyncSender<Frame, ()>,
+        frame_sender: AsyncSender<IncomingFrame, ()>,
         stats: Arc<connection::Stats>,
+        incoming_message_semaphore: Arc<Semaphore>,
+        read_timeout: std::time::Duration,
     ) -> Result<(), RecvError> {
         const READ_BUFFER_CAPACITY: usize = 8 * 1024;
         let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
@@ -154,23 +186,50 @@ impl FramedStream {
             vec![peer_addr.to_string()],
         );
         loop {
-            let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
+            let n_u32: u32 = read.read_u32_le().await.map_err(RecvError::IO)?;
+
+            // convert `n` to usize
+            let n: usize = n_u32.try_into().expect("u32 must fit into usize");
+
             if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                 return Err(RecvError::MessageTooLarge {
                     got_bytes: n,
                     want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
                 });
             }
-            msg_size_metric.observe(n as f64);
-            buf_size_metric.set(n as i64);
-            let mut buf = vec![0; n];
-            let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
-            read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
-            t.observe_duration();
-            buf_size_metric.set(0);
+
+            let (buf, recv_permit) = tokio::time::timeout(read_timeout, async {
+                // Acquire a permit for the incoming message before reading it into memory
+                let incoming_semaphore_permit = incoming_message_semaphore
+                    .clone()
+                    .acquire_many_owned(n_u32)
+                    .await
+                    .map_err(|_| RecvError::IncomingSemaphoreClosed)?;
+                let recv_permit = RecvMessagePermit::new(incoming_semaphore_permit);
+
+                // Read the message from the socket
+                msg_size_metric.observe(n as f64);
+                buf_size_metric.set(n as i64);
+                let mut buf = vec![0; n];
+                let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
+                read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
+                t.observe_duration();
+                buf_size_metric.set(0);
+                Ok((buf, recv_permit))
+            })
+                .await
+                .map_err(|_| {
+                    tracing::debug!(target: "network", timeout_secs = read_timeout.as_secs(), "read timed out");
+                    RecvError::IO(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "read timed out",
+                    ))
+                })??;
+
             stats.received_messages.fetch_add(1, Ordering::Relaxed);
             stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
-            if let Err(_) = frame_sender.send_async(Frame(buf)).await {
+            if let Err(_) = frame_sender.send_async(IncomingFrame { data: buf, recv_permit }).await
+            {
                 // We got mailbox error, which means that Actor has stopped,
                 // so we should just close the stream.
                 return Ok(());

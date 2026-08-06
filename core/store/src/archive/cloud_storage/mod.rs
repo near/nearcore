@@ -15,6 +15,7 @@ pub mod opener;
 
 pub mod archive;
 pub mod bucket_config;
+pub mod metrics;
 pub mod retrieve;
 
 pub(super) mod batch;

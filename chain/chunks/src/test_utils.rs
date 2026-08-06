@@ -219,7 +219,7 @@ impl ChunkTestFixture {
             mock_chunk_header: encoded_chunk.cloned_header(),
             mock_chunk_parts: encoded_chunk.parts().to_vec(),
             mock_chain_head: Tip {
-                height: 0,
+                height: mock_height,
                 last_block_hash: CryptoHash::default(),
                 prev_block_hash: CryptoHash::default(),
                 epoch_id: EpochId::default(),

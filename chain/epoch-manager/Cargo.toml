@@ -41,6 +41,9 @@ default = ["near-primitives/rand"]
 protocol_feature_spice = [
     "near-store/protocol_feature_spice"
 ]
+# Exposes `set_early_kickout_thresholds_for_testing`. Strictly additive: without it the
+# early-kickout gates read the plain production constants.
+test_features = []
 nightly = [
     "near-chain-configs/nightly",
     "near-o11y/nightly",

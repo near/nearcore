@@ -1,4 +1,5 @@
 use near_chain::ChainStoreAccess;
+use near_chain::near_chain_primitives::Error as ChainError;
 use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -78,7 +79,7 @@ pub fn make_outgoing_receipts_proofs(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts: Vec<Receipt>,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<Vec<ReceiptProof>, EpochError> {
+) -> Result<Vec<ReceiptProof>, ChainError> {
     let shard_id = chunk_header.shard_id();
     let shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
@@ -87,7 +88,12 @@ pub fn make_outgoing_receipts_proofs(
         shard_id,
         outgoing_receipts,
     )?;
-    assert_eq!(chunk_header.prev_outgoing_receipts_root(), &root);
+    if chunk_header.prev_outgoing_receipts_root() != &root {
+        // Genesis chunks store CryptoHash::default() here while a recomputed root is
+        // always non-default, so this fires for any peer asking for a genesis chunk
+        // by hash. Must return Err rather than panic since this path is unauthenticated.
+        return Err(ChainError::InvalidChunkReceiptsRoot);
+    }
     Ok(receipt_proofs)
 }
 
@@ -229,4 +235,30 @@ pub fn persist_chunk(
         }
     }
     update.commit().map_err(Error::from)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::ChunkTestFixture;
+    use assert_matches::assert_matches;
+    use near_primitives::sharding::ShardChunkHeader;
+    use near_primitives::types::EpochId;
+
+    #[test]
+    fn make_outgoing_receipts_proofs_returns_err_on_root_mismatch() {
+        let fixture = ChunkTestFixture::default();
+        let shard_id = fixture
+            .epoch_manager
+            .get_shard_layout(&EpochId::default())
+            .unwrap()
+            .shard_ids()
+            .next()
+            .unwrap();
+        let header = ShardChunkHeader::new_dummy(0, shard_id, CryptoHash::default());
+
+        let result = make_outgoing_receipts_proofs(&header, vec![], &fixture.epoch_manager);
+
+        assert_matches!(result, Err(ChainError::InvalidChunkReceiptsRoot));
+    }
 }

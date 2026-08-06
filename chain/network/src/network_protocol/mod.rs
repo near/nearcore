@@ -180,6 +180,17 @@ pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 /// increase the receive limit in one release then increase the send limit in the next.
 pub const MAX_SHARDS_PER_SNAPSHOT_HOST_INFO: usize = 512;
 
+/// Limit on the number of shard ids in a peer's [`PeerChainInfoV2::tracked_shards`] sent during
+/// the handshake. Reached pre-authentication on raw TCP, so the cap is tight: mainnet has 9
+/// shards today; 128 leaves ~14x headroom for future resharding. Rejecting a handshake whose
+/// `tracked_shards` exceeds this cap prevents an unauthenticated peer from forcing
+/// multi-GB `Vec<ShardId>` allocations during handshake parsing.
+///
+/// Warning: this is a receive-side cap. It is safe to tighten unilaterally because honest
+/// peers send at most the network's actual shard count (today: 9). Loosening it later would
+/// require the same send/receive-skew handling described for `MAX_SHARDS_PER_SNAPSHOT_HOST_INFO`.
+pub const MAX_TRACKED_SHARDS_PER_PEER: usize = 128;
+
 impl VersionedAccountData {
     /// Serializes AccountData to proto and signs it using `signer`.
     /// Panics if AccountData.account_id doesn't match signer.validator_id(),

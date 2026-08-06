@@ -593,7 +593,7 @@ pub fn default_enable_early_prepare_transactions() -> bool {
 /// Returns the default value for `chunks_cache_height_horizon`.
 /// A chunk is out of rear horizon if its height + chunks_cache_height_horizon < largest_seen_height.
 pub fn default_chunks_cache_height_horizon() -> BlockHeightDelta {
-    128
+    2
 }
 
 /// Config for the Chunk Distribution Network feature.
@@ -840,7 +840,7 @@ pub struct ClientConfig {
     pub enable_early_prepare_transactions: bool,
     /// Height horizon for the chunk cache. A chunk is removed from the cache
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
-    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: BlockHeightDelta,
     /// If true, SPICE nodes track uncertified transactions in a pending
     /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy

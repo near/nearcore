@@ -2226,6 +2226,17 @@
             ],
             "description": "The merkle root of all the block hashes"
           },
+          "chunk_execution_root": {
+            "description": "Merkle root over the block's certified chunk execution results.\n`None` for pre-spice headers.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "epoch_id": {
             "allOf": [
               {
@@ -2344,6 +2355,16 @@
             "type": [
               "array",
               "null"
+            ]
+          },
+          "chunk_execution_root": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "chunk_headers_root": {
@@ -4013,6 +4034,22 @@
               }
             ],
             "description": "Cost for logging per byte"
+          },
+          "ml_dsa_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification base"
+          },
+          "ml_dsa_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification per byte"
           },
           "p256_verify_base": {
             "allOf": [
@@ -5969,6 +6006,28 @@
             ],
             "title": "P256VerifyInvalidInput",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Input length mismatch for ML-DSA-65 signature verification (signature is\nnot 3309 bytes or public key is not 1952 bytes). Parse failures of\notherwise well-sized inputs return 0 from the host function instead of\naborting.",
+            "properties": {
+              "MlDsaVerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "MlDsaVerifyInvalidInput"
+            ],
+            "title": "MlDsaVerifyInvalidInput",
+            "type": "object"
           }
         ],
         "title": "HostError"
@@ -6703,6 +6762,15 @@
               }
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
+          },
+          "max_globals_per_contract": {
+            "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "max_instrumented_code_size": {
             "description": "If present, stores max byte size of the wasm code after gas instrumentation.\nThis prevents Cranelift's 24-bit SSA counter from overflowing on\npathologically large contracts.",
@@ -7461,6 +7529,11 @@
             "const": "OperandStackTooLarge",
             "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_bytes_per_function`.",
             "type": "string"
+          },
+          {
+            "const": "TooManyGlobals",
+            "description": "Contract declares too many entries in the wasm global section.",
+            "type": "string"
           }
         ],
         "title": "PrepareError"
@@ -8203,7 +8276,7 @@
             "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
-            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
+            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is given by default_chunks_cache_height_horizon().",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -12547,6 +12620,10 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "ml_dsa_verify_host_fn": {
+            "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
+            "type": "boolean"
           },
           "one_yocto_on_promise": {
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",

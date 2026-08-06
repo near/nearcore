@@ -1371,6 +1371,8 @@ pub enum PrepareError {
     /// A function's max operand-stack size (in bytes) exceeds
     /// `max_operand_stack_bytes_per_function`.
     OperandStackTooLarge = 18,
+    /// Contract declares too many entries in the wasm global section.
+    TooManyGlobals = 19,
 }
 
 /// A kind of a trap happened during execution of a binary
@@ -1498,6 +1500,11 @@ pub enum HostError {
     /// bytes or public key is not 33 bytes). Parse failures of otherwise
     /// well-sized inputs return 0 from the host function instead of aborting.
     P256VerifyInvalidInput { msg: String } = 33,
+    /// Input length mismatch for ML-DSA-65 signature verification (signature is
+    /// not 3309 bytes or public key is not 1952 bytes). Parse failures of
+    /// otherwise well-sized inputs return 0 from the host function instead of
+    /// aborting.
+    MlDsaVerifyInvalidInput { msg: String } = 34,
 }
 
 #[derive(

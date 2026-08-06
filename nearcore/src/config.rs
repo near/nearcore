@@ -1,3 +1,4 @@
+use crate::config_validate::RECOMMENDED_GC_RATE_MULTIPLIER;
 use crate::download_file::{FileDownloadError, run_download_file};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{Context, anyhow, bail};
@@ -48,7 +49,8 @@ use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -56,7 +58,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::archive::cloud_storage::config::{CloudArchivalConfig, CloudStorageContext};
-use near_store::config::{SplitStorageConfig, StateSnapshotType};
+use near_store::config::SplitStorageConfig;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -449,7 +451,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Height horizon for the chunk cache. A chunk is removed from the cache
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
-    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
     /// If true, SPICE nodes track uncertified transactions in a pending
     /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
@@ -925,21 +927,38 @@ impl NightshadeRuntime {
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
-        let state_snapshot_config =
-            match config.config.store.state_snapshot_config.state_snapshot_type {
-                StateSnapshotType::Enabled => {
-                    let hot_store_path =
-                        home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
-                    match &config.client_config.cloud_archival_writer {
-                        Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
-                            hot_store_path,
-                            writer_config.snapshot_every_n_epochs,
-                        ),
-                        None => StateSnapshotConfig::enabled(hot_store_path),
-                    }
-                }
-                StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
-            };
+        let hot_store_path =
+            home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
+        // State snapshots are always enabled for a running node; they let it serve
+        // state parts to peers and are required by cloud archival. Offline tools that
+        // must run without snapshots use `from_config_with_state_snapshot` instead.
+        let state_snapshot_config = match &config.client_config.cloud_archival_writer {
+            Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
+                hot_store_path,
+                writer_config.snapshot_every_n_epochs,
+            ),
+            None => StateSnapshotConfig::enabled(hot_store_path),
+        };
+        Self::from_config_with_state_snapshot(
+            home_dir,
+            store,
+            config,
+            epoch_manager,
+            state_snapshot_config,
+        )
+    }
+
+    /// Like [`NightshadeRuntimeExt::from_config`] but with an explicitly provided
+    /// state snapshot config. Regular nodes should use `from_config`, which always
+    /// enables snapshots. This entry point exists for offline tools (e.g.
+    /// fork-network) that need to run with `StateSnapshotConfig::Disabled`.
+    pub fn from_config_with_state_snapshot(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        state_snapshot_config: StateSnapshotConfig,
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
         // refactor...
@@ -1043,7 +1062,7 @@ fn generate_or_load_keys(
     Ok(())
 }
 
-fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
+pub(crate) fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
     match chain_id {
         near_primitives::chains::MAINNET => {
             config.consensus.min_block_production_delay =
@@ -1063,9 +1082,32 @@ fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
                     Duration::milliseconds(FAST_MIN_BLOCK_PRODUCTION_DELAY);
                 config.consensus.max_block_production_delay =
                     Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+                // Garbage collection has to outpace block production.
+                config.gc.gc_blocks_limit = recommended_gc_blocks_limit_for_block_delay(
+                    config.gc.gc_step_period,
+                    config.consensus.min_block_production_delay,
+                );
             }
         }
     }
+}
+
+/// The `gc_blocks_limit` that keeps garbage collection comfortably ahead of block production,
+/// i.e. reclaiming blocks about twice as fast as they are produced. This is the recommended
+/// value, not the minimum one that passes validation.
+pub(crate) fn recommended_gc_blocks_limit_for_block_delay(
+    gc_step_period: Duration,
+    min_block_production_delay: Duration,
+) -> NumBlocks {
+    let block_delay = min_block_production_delay.whole_nanoseconds();
+    if block_delay <= 0 {
+        return GCConfig::default().gc_blocks_limit;
+    }
+    let chain_time_per_step = gc_step_period.whole_nanoseconds().max(0) as u128;
+    let limit = chain_time_per_step
+        .saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER)
+        .div_ceil(block_delay as u128);
+    NumBlocks::try_from(limit).unwrap_or(NumBlocks::MAX).max(GCConfig::default().gc_blocks_limit)
 }
 
 /// Initializes Genesis, client Config, node and validator keys, and stores in the specified folder.

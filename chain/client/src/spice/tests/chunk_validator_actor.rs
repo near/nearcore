@@ -23,6 +23,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::spice::data_distribution::SpiceChunkContractAccessesMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
@@ -78,7 +79,7 @@ fn chunk_producer_for_block(actor: &TestActor, block: &Block) -> String {
 fn send_empty_contract_accesses(actor: &mut TestActor, block: &Block) {
     let producer = chunk_producer_for_block(actor, block);
     let accesses = make_contract_accesses_with_signer(block, HashSet::new(), &producer);
-    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
 }
 
 #[test]
@@ -486,7 +487,9 @@ fn record_execution_results(actor: &TestActor, block: &Block, state_root: Crypto
     for (account, _) in chunk_validator_assignments.assignments() {
         let endorsement =
             test_chunk_endorsement(account.as_str(), &block, receipts_root, state_root);
-        actor.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
+        actor
+            .core_writer_sender
+            .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
@@ -691,7 +694,7 @@ fn test_empty_contract_accesses_finalizes_witness() {
 
     // Send empty accesses then witness.
     let accesses = make_contract_accesses(&block, HashSet::new());
-    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
     actor.handle(witness_message.span_wrap());
 
     // No contract requests should be sent.
@@ -720,7 +723,7 @@ fn test_witness_before_empty_accesses() {
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
     let accesses = make_contract_accesses(&block, HashSet::new());
-    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
 
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
@@ -736,7 +739,7 @@ fn test_contract_accesses_sends_request_for_missing() {
     let hash_a: CodeHash = hash(b"contract_a").into();
     let hash_b: CodeHash = hash(b"contract_b").into();
     let accesses = make_contract_accesses(&block, HashSet::from([hash_a.clone(), hash_b.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
 
     let requests = drain_contract_requests(&mut actor.network_rc);
     assert_eq!(requests.len(), 1);
@@ -761,7 +764,7 @@ fn test_contract_accesses_invalid_signature_rejected() {
     // Sign accesses with a key that does not belong to the chunk producer.
     let accesses =
         make_contract_accesses_with_signer(&block, HashSet::new(), "not-a-chunk-producer");
-    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
     actor.handle(witness_message.span_wrap());
 
     // No contract requests should be sent, and no endorsement should be recorded.
@@ -815,13 +818,13 @@ fn test_correct_accesses_first_then_malicious() {
     // Correct accesses (empty set) from validator-1.
     let correct_accesses =
         make_contract_accesses_with_signer(&block, HashSet::new(), "test-validator-1");
-    actor.handle(SpiceChunkContractAccessesMessage(correct_accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(correct_accesses, RecvMessagePermit::none()));
 
     // Malicious accesses (bogus hashes) from validator-2.
     let bogus_hash: CodeHash = hash(b"bogus_contract").into();
     let malicious_accesses =
         make_contract_accesses_with_signer(&block, HashSet::from([bogus_hash]), "test-validator-2");
-    actor.handle(SpiceChunkContractAccessesMessage(malicious_accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(malicious_accesses, RecvMessagePermit::none()));
 
     // Send witness — should finalize using the correct (first) accesses.
     // Endorsement is sent over the network (core needs >1 endorsement with 2 validators).
@@ -850,7 +853,7 @@ fn test_malicious_accesses_first_then_correct() {
     let bogus_hash: CodeHash = hash(b"bogus_contract").into();
     let malicious_accesses =
         make_contract_accesses_with_signer(&block, HashSet::from([bogus_hash]), "test-validator-2");
-    actor.handle(SpiceChunkContractAccessesMessage(malicious_accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(malicious_accesses, RecvMessagePermit::none()));
     drain_contract_requests(&mut actor.network_rc);
 
     // Send witness — can't finalize yet because the trusted accesses are wrong
@@ -861,7 +864,7 @@ fn test_malicious_accesses_first_then_correct() {
     // Correct accesses (empty set) from validator-1 arrive.
     let correct_accesses =
         make_contract_accesses_with_signer(&block, HashSet::new(), "test-validator-1");
-    actor.handle(SpiceChunkContractAccessesMessage(correct_accesses));
+    actor.handle(SpiceChunkContractAccessesMessage(correct_accesses, RecvMessagePermit::none()));
 
     // Now validation should succeed after falling back to the correct accesses.
     assert!(!drain_endorsements(&mut actor.network_rc).is_empty());

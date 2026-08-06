@@ -346,6 +346,25 @@ mod tests {
     }
 
     #[test]
+    fn too_many_globals() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 1000;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_globals_per_contract = Some(limit);
+
+            // Over the limit: rejected at prepare time.
+            let wasm = near_test_contracts::contract_with_num_globals((limit + 1) as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyGlobals));
+
+            // At the limit: accepted.
+            let wasm = near_test_contracts::contract_with_num_globals(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    #[test]
     fn instrumented_code_too_large() {
         with_vm_variants(|kind| {
             let mut config = test_vm_config(Some(kind));

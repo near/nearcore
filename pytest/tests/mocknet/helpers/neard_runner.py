@@ -1160,9 +1160,6 @@ class NeardRunner:
         # Nodes always take state snapshots so they can serve state parts to
         # peers; state sync itself is peer-to-peer (the default), so no `sync`
         # config is set. A `location` is only used to configure a state dumper.
-        config['store']['state_snapshot_config'] = {
-            'state_snapshot_type': "Enabled"
-        }
         if location is None:
             return config
 

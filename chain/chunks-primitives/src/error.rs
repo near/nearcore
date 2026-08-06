@@ -5,6 +5,8 @@ use std::fmt;
 pub enum Error {
     InvalidPartMessage,
     InvalidChunkPartId,
+    InvalidChunkPartSize,
+    TooManyChunkParts,
     InvalidChunkShardId,
     InvalidMerkleProof,
     InvalidChunkSignature,
