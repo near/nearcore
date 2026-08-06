@@ -23,9 +23,10 @@ use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
     GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
-    GetMaintenanceWindows, GetMaintenanceWindowsError, GetNextLightClientBlockError,
-    GetProcessedReceiptIds, GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError,
-    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    GetLightClientChunkExecutionProof, GetLightClientProofError, GetMaintenanceWindows,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
+    GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
     GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError, TxStatusOutcome,
@@ -52,16 +53,17 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
-    Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
-    ValidatorInfoIdentifier,
+    Finality, MaybeBlockId, ShardId, SpiceChunkId, SyncCheckpoint, TransactionOrReceiptId,
+    ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
-    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
+    BlockView, ChunkExecutionProofView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView,
+    LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView, QueryRequest,
+    QueryResponse, ReceiptView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
+    TxExecutionStatus, TxStatusView,
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
@@ -1617,6 +1619,94 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> f
             &msg.head_block_hash,
         )?;
         Ok(GetBlockProofResponse { block_header_lite, proof })
+    }
+}
+
+impl ViewClientActor {
+    /// Builds a light-client proof that a chunk's certified execution roots are
+    /// committed by the block certifying them, and that this block is in the
+    /// block merkle tree of a final `light_client_head`.
+    fn build_chunk_execution_proof(
+        &self,
+        chunk_id: &SpiceChunkId,
+        light_client_head: &CryptoHash,
+    ) -> Result<ChunkExecutionProofView, GetLightClientProofError> {
+        let Some(certifying_block_hash) =
+            self.runtime.store().chain_store().get_chunk_certifying_block(chunk_id)
+        else {
+            return Err(GetLightClientProofError::ChunkNotCertified { chunk_id: chunk_id.clone() });
+        };
+
+        let head_header = self.chain.get_block_header(light_client_head)?;
+        self.chain.check_blocks_final_and_canonical(&[BlockHeader::clone(&head_header)]).map_err(
+            |error| GetLightClientProofError::InternalError {
+                error_message: format!("light client head is not final and canonical: {error}"),
+            },
+        )?;
+
+        let certifying_block = self.chain.get_block(&certifying_block_hash)?;
+        let certifying_height = certifying_block.header().height();
+        let head_height = head_header.height();
+        // The head must be strictly after the certifying block: the block merkle
+        // proof recomputes the head's block_merkle_root from the certifying block,
+        // and that root commits only to blocks before the head.
+        if head_height <= certifying_height {
+            return Err(GetLightClientProofError::LightClientHeadTooOld {
+                chunk_id: chunk_id.clone(),
+                certifying_block_height: certifying_height,
+                head_height,
+            });
+        }
+
+        let leaves = sorted_chunk_execution_roots(
+            certifying_block.spice_core_statements().iter_execution_results(),
+        );
+        let Some(index) = leaves.iter().position(|leaf| leaf.chunk_id() == chunk_id) else {
+            return Err(GetLightClientProofError::ChunkNotCertified { chunk_id: chunk_id.clone() });
+        };
+        let (root, paths) = merklize(&leaves);
+        if Some(root) != certifying_block.header().chunk_execution_root() {
+            return Err(GetLightClientProofError::InternalError {
+                error_message:
+                    "recomputed chunk_execution_root disagrees with the certifying block's committed root"
+                        .to_string(),
+            });
+        }
+        let roots = leaves[index].clone();
+        let roots_proof = paths[index].clone();
+
+        let certifying_block_header_lite =
+            LightClientBlockLiteView::from(BlockHeader::clone(certifying_block.header()));
+        let certifying_block_proof =
+            self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
+                &certifying_block_hash,
+                light_client_head,
+            )?;
+
+        Ok(ChunkExecutionProofView {
+            roots,
+            roots_proof,
+            certifying_block_header_lite,
+            certifying_block_proof,
+        })
+    }
+}
+
+impl
+    Handler<
+        GetLightClientChunkExecutionProof,
+        Result<ChunkExecutionProofView, GetLightClientProofError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetLightClientChunkExecutionProof,
+    ) -> Result<ChunkExecutionProofView, GetLightClientProofError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetLightClientChunkExecutionProof"])
+            .start_timer();
+        self.build_chunk_execution_proof(&msg.chunk_id, &msg.light_client_head)
     }
 }
 
