@@ -1507,7 +1507,7 @@ impl ShardsManagerActor {
             .epoch_manager
             .get_epoch_protocol_version(&epoch_id)
             .map_err(|err| err_mapper(err.into()))?;
-        if ProtocolFeature::EarlyKickout.enabled(protocol_version) && !header.is_spice_chunk() {
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             let Some((prev_prev_block_hash, header_epoch_id)) = anchor else {
                 return Err(err_mapper(Error::InvalidChunkHeader));
             };
@@ -1541,7 +1541,7 @@ impl ShardsManagerActor {
                 return Err(Error::InvalidChunkSignature);
             }
         } else {
-            // Pre-`EarlyKickout` (and spice) path: no producer reassignment exists, so the
+            // Pre-`EarlyKickout` path: no producer reassignment exists, so the
             // producer resolved epoch-based from `epoch_id` is authoritative.
             self.verify_chunk_header_signature(header, epoch_id).map_err(err_mapper)?;
         }

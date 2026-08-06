@@ -116,7 +116,7 @@ pub fn make_partial_encoded_chunk(
     let prev_block_hash = header.prev_block_hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-    if ProtocolFeature::EarlyKickout.enabled(protocol_version) && !header.is_spice_chunk() {
+    if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
         let prev_prev_block_hash =
             epoch_manager.grandparent_anchor(prev_block_hash)?.unwrap_or_default();
         Ok(PartialEncodedChunk::V3(PartialEncodedChunkV3 {
