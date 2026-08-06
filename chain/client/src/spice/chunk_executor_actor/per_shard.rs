@@ -29,6 +29,7 @@ use near_chain::{
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -506,7 +507,8 @@ impl PerShardChunkExecutor {
             &self.network_adapter.clone().into_sender(),
             my_signer,
         );
-        self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
+        self.core_writer_sender
+            .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 
     fn distribute_witness(

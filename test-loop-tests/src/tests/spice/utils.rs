@@ -4,6 +4,7 @@ use crate::setup::state::{NodeExecutionData, SpiceEndorsementDelayState};
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::data::TestLoopData;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
 use near_primitives::hash::CryptoHash;
@@ -81,7 +82,8 @@ fn install_endorsement_delay_handler(
                     let Some(sender) = state.lock().senders.get(&target).cloned() else {
                         continue;
                     };
-                    sender.send(SpiceChunkEndorsementMessage(endorsement));
+                    sender
+                        .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
                 }
                 HandlerResult::Unhandled(request)
             }

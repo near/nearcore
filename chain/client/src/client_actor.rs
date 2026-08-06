@@ -611,7 +611,7 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
 
 impl Handler<SpanWrapped<OptimisticBlockMessage>> for ClientActor {
     fn handle(&mut self, msg: SpanWrapped<OptimisticBlockMessage>) {
-        let OptimisticBlockMessage { optimistic_block, from_peer } = msg.span_unwrap();
+        let OptimisticBlockMessage { optimistic_block, from_peer, .. } = msg.span_unwrap();
         tracing::debug!(target: "client", block_height = optimistic_block.inner.block_height, prev_block_hash = ?optimistic_block.inner.prev_block_hash, ?from_peer, "optimistic block message");
 
         self.client.receive_optimistic_block(optimistic_block, &from_peer);
