@@ -8,9 +8,9 @@ use crate::{PartialStorage, Trie};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{compute_root_from_path, compute_root_from_path_and_item};
 use near_primitives::state::{PartialState, TrieValue};
-use near_primitives::types::ChunkExecutionRoots;
+use near_primitives::types::{ChunkExecutionRoots, StoreValue};
 use near_primitives::views::{
-    ChunkExecutionProofView, ExecutionOutcomeWithIdView, StateItem, StateProofTarget,
+    ChunkExecutionProofView, ExecutionOutcomeWithIdView, StateProofTarget,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -77,7 +77,7 @@ pub fn verify_execution_outcome_proof(
 /// [`verify_chunk_execution_proof`] to bind `roots` to the trusted head.
 pub fn verify_state_proof(
     target: &StateProofTarget,
-    value: Option<&StateItem>,
+    value: Option<&StoreValue>,
     state_proof: &[TrieValue],
     roots: &ChunkExecutionRoots,
 ) -> Result<(), SpiceProofVerificationError> {
@@ -88,7 +88,7 @@ pub fn verify_state_proof(
     let recovered_value = trie
         .get(&trie_key, AccessOptions::DEFAULT)
         .map_err(|error| SpiceProofVerificationError::TrieError(error.to_string()))?;
-    let claimed_value: Option<Vec<u8>> = value.map(|item| item.value.clone().into());
+    let claimed_value: Option<Vec<u8>> = value.map(|value| value.clone().into());
     if recovered_value != claimed_value {
         return Err(SpiceProofVerificationError::InvalidStateProof);
     }

@@ -56,7 +56,7 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochHeight, EpochId,
-    EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, SyncCheckpoint,
+    EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
     TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -66,7 +66,7 @@ use near_primitives::views::{
     ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView,
     LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView, QueryRequest,
     QueryResponse, ReceiptView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
-    StateItem, TxExecutionStatus, TxStatusView,
+    TxExecutionStatus, TxStatusView,
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
@@ -1799,7 +1799,7 @@ impl
             });
         };
         let PartialState::TrieValues(state_proof) = partial_storage.nodes;
-        let value = value.map(|value| StateItem { key: trie_key.into(), value: value.into() });
+        let value = value.map(StoreValue::from);
         Ok(GetLightClientStateProofResponse { chunk_execution_proof, value, state_proof })
     }
 }

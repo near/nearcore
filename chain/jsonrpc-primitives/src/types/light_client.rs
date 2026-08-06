@@ -88,7 +88,7 @@ pub struct RpcLightClientStateProofRequest {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcLightClientStateProofResponse {
     pub chunk_execution_proof: near_primitives::views::ChunkExecutionProofView,
-    pub value: Option<near_primitives::views::StateItem>,
+    pub value: Option<near_primitives::types::StoreValue>,
     #[serde_as(as = "Vec<Base64>")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub state_proof: Vec<Arc<[u8]>>,

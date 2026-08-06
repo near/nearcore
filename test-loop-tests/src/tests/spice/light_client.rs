@@ -14,7 +14,8 @@ use near_primitives::account::Account;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    Balance, ChunkExecutionRoots, ChunkExecutionRootsV1, Gas, SpiceChunkId, TransactionOrReceiptId,
+    Balance, ChunkExecutionRoots, ChunkExecutionRootsV1, Gas, SpiceChunkId, StoreValue,
+    TransactionOrReceiptId,
 };
 use near_primitives::views::{
     ChunkExecutionProofView, ExecutionStatusView, LightClientBlockLiteView, StateProofTarget,
@@ -159,7 +160,7 @@ fn test_spice_light_client_chunk_execution_proofs() {
     )
     .unwrap();
     let account_bytes: Vec<u8> =
-        account_response.value.clone().expect("contract account must be present").value.into();
+        account_response.value.clone().expect("contract account must be present").into();
     let account = Account::try_from_slice(&account_bytes).unwrap();
     assert_eq!(
         account.local_contract_hash(),
@@ -183,7 +184,7 @@ fn test_spice_light_client_chunk_execution_proofs() {
         })
         .unwrap();
     let proved_value: Vec<u8> =
-        data_response.value.clone().expect("contract data must be present").value.into();
+        data_response.value.clone().expect("contract data must be present").into();
     assert_eq!(proved_value, storage_value.to_le_bytes());
     verify_state_proof(
         &data_target,
@@ -194,8 +195,7 @@ fn test_spice_light_client_chunk_execution_proofs() {
     .unwrap();
 
     // Tampering the claimed value must be rejected by the trie proof.
-    let mut tampered_value = data_response.value.clone().unwrap();
-    tampered_value.value = b"tampered contract data".to_vec().into();
+    let tampered_value: StoreValue = b"tampered contract data".to_vec().into();
     assert_matches!(
         verify_state_proof(
             &data_target,

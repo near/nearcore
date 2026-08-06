@@ -5,11 +5,11 @@ use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
-    MaybeBlockId, ShardId, SpiceChunkId, TransactionOrReceiptId,
+    MaybeBlockId, ShardId, SpiceChunkId, StoreValue, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     ChunkExecutionProofView, EpochSyncStatusView, ExecutionOutcomeWithIdView,
-    LightClientBlockLiteView, QueryRequest, StateChangesRequestView, StateItem, StateProofTarget,
+    LightClientBlockLiteView, QueryRequest, StateChangesRequestView, StateProofTarget,
     StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
@@ -945,7 +945,7 @@ pub struct GetLightClientStateProof {
 #[derive(Debug)]
 pub struct GetLightClientStateProofResponse {
     pub chunk_execution_proof: ChunkExecutionProofView,
-    pub value: Option<StateItem>,
+    pub value: Option<StoreValue>,
     pub state_proof: Vec<Arc<[u8]>>,
 }
 
