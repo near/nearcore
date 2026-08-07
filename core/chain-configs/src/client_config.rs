@@ -24,6 +24,11 @@ pub enum LogSummaryStyle {
     Colored,
 }
 
+/// How far above the head a block can be and still be of interest. The client applies this
+/// bound when deciding whether to accept an incoming block while syncing, and the blocks delay
+/// tracker applies it when deciding whether to record one.
+pub const BLOCK_HORIZON: BlockHeightDelta = 500;
+
 /// Minimum number of epochs for which we keep store data
 pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
