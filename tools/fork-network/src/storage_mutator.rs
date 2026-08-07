@@ -1,3 +1,4 @@
+use crate::metrics::{self, CommitStages};
 use anyhow::Context;
 use near_crypto::PublicKey;
 use near_mirror::key_mapping::map_account;
@@ -411,30 +412,47 @@ fn commit_to_existing_state(
     shard_uid: ShardUId,
     root: &mut InProgressRoot,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
+    // Owned by the caller so `total` can cover the lock wait too.
+    stages: &CommitStages,
 ) -> anyhow::Result<()> {
     let updates =
         updates.into_iter().map(|(trie_key, value)| (trie_key.to_vec(), value)).collect::<Vec<_>>();
 
     let num_updates = updates.len();
     tracing::info!(?shard_uid, num_updates, "commit");
+    // None of these stages was timed before, and they are the ones that stall when RocksDB
+    // falls behind on compaction — the suspected reason for the batch-size tuning advice in
+    // the image-creation script.
     let flat_state_changes = FlatStateChanges::from_raw_key_value(&updates);
     let mut update = shard_tries.store_update();
-    flat_state_changes.apply_to_flat_state(&mut update.flat_store_update(), shard_uid);
+    {
+        let _timer = stages.apply_to_flat_state.start_timer();
+        flat_state_changes.apply_to_flat_state(&mut update.flat_store_update(), shard_uid);
+    }
 
-    let trie_changes = shard_tries
-        .get_trie_for_shard(shard_uid, root.state_root)
-        .update(updates, AccessOptions::DEFAULT)
-        .with_context(|| format!("failed updating trie for shard {}", shard_uid))?;
+    let trie_changes = {
+        let _timer = stages.trie_update.start_timer();
+        shard_tries
+            .get_trie_for_shard(shard_uid, root.state_root)
+            .update(updates, AccessOptions::DEFAULT)
+            .with_context(|| format!("failed updating trie for shard {}", shard_uid))?
+    };
     tracing::info!(
         ?shard_uid,
         num_trie_node_insertions = trie_changes.insertions().len(),
         num_trie_node_deletions = trie_changes.deletions().len()
     );
-    let state_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut update);
-    shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, root.update_height);
-    // We may not have loaded memtries (some commands don't need to), so check.
-    if let Some(memtries) = shard_tries.get_memtries(shard_uid) {
-        memtries.write().delete_until_height(root.update_height);
+    let state_root = {
+        let _timer = stages.apply_all.start_timer();
+        shard_tries.apply_all(&trie_changes, shard_uid, &mut update)
+    };
+    {
+        let _timer = stages.apply_memtrie_changes.start_timer();
+        shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, root.update_height);
+        // We may not have loaded memtries (some commands don't need to), so check.
+        if let Some(memtries) = shard_tries.get_memtries(shard_uid) {
+            memtries.write().delete_until_height(root.update_height);
+        }
     }
     root.update_height += 1;
     root.state_root = state_root;
@@ -443,7 +461,10 @@ fn commit_to_existing_state(
     let key = crate::cli::make_state_roots_key(shard_uid);
     update.store_update().set_ser(DBCol::Misc, &key, &state_root);
 
-    update.commit();
+    {
+        let _timer = stages.store_commit.start_timer();
+        update.commit();
+    }
     tracing::info!(?shard_uid, ?state_root, "commit is done");
     Ok(())
 }
@@ -487,11 +508,25 @@ pub(crate) fn commit_shard(
     update_state: &ShardUpdateState,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
 ) -> anyhow::Result<StateRoot> {
+    // Timed from here, before the lock, so `total` covers waiting for it. Every shard's rayon
+    // thread can write to another shard's update state, so contention on this mutex is real and
+    // is exactly the "why was that batch slow" answer an operator is looking for. It also has
+    // to wrap both branches below, or commits to a new shard would be missing from the
+    // histogram entirely.
+    let stages = CommitStages::new(shard_uid);
+    let _total_timer = stages.total.start_timer();
+    let lock_timer = stages.lock_wait.start_timer();
     let mut root = update_state.root.lock();
+    lock_timer.observe_duration();
 
+    // `StorageMutator::commit()` calls this once per target shard, including shards that got no
+    // updates in this batch, so only count the batches that actually wrote something.
+    if !updates.is_empty() {
+        metrics::batch_committed(shard_uid, updates.len());
+    }
     let new_root = match root.as_mut() {
         Some(root) => {
-            commit_to_existing_state(shard_tries, shard_uid, root, updates)?;
+            commit_to_existing_state(shard_tries, shard_uid, root, updates, &stages)?;
             root.state_root
         }
         None => {
