@@ -211,6 +211,12 @@ impl BlocksDelayTracker {
         let block_hash = block.header().hash();
         let height = block.header().height();
 
+        // A block gossiped by several peers arrives more than once. Recording it again is a
+        // no-op, not a refusal, so check before asking why we would refuse it.
+        if self.blocks.contains_key(block_hash) {
+            return;
+        }
+
         if let Some(reason) = self.refusal_reason(height) {
             metrics::BLOCKS_DELAY_TRACKER_REFUSED_BLOCKS.with_label_values(&[reason]).inc();
             return;
