@@ -68,12 +68,13 @@ pub struct ForkNetworkCommand {
 #[derive(clap::Subcommand)]
 enum SubCommand {
     /// Prepares the DB for doing the modifications:
-    /// * Makes a snapshot.
+    /// * Makes a snapshot, unless `--no-snapshot` is given.
     /// * Finds and persists state roots.
     Init(InitCmd),
 
-    /// Creates a DB snapshot, then
     /// Updates the state to ensure every account has a full access key that is known to us.
+    ///
+    /// Does not snapshot the DB — only `init` does that.
     AmendAccessKeys(AmendAccessKeysCmd),
 
     /// Creates a DB snapshot, then
@@ -98,6 +99,19 @@ struct InitCmd {
     /// Shard layout protocol version. If given, the shard layout from the given protocol version will be used to generate the forked genesis state
     #[arg(short = 'p', long)]
     pub shard_layout_protocol_version: Option<ProtocolVersion>,
+    /// Skip the `data/fork-snapshot` checkpoint this command normally makes.
+    ///
+    /// The snapshot exists only so `fork-network reset` can roll the DB back to this
+    /// point; nothing else reads it. It is a hard-link checkpoint, so it costs nothing at
+    /// first and then grows without bound as `amend-access-keys` compacts the live DB —
+    /// every SST the compaction retires stays on disk because the snapshot still links it.
+    /// On a mainnet fork that reached 340 GB of otherwise-free space, which is enough to
+    /// fill the disk mid-run.
+    ///
+    /// Pass this when you would rebuild the DB from its source image rather than reset it,
+    /// which is what the image-creation pipeline does.
+    #[arg(long)]
+    pub no_snapshot: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -265,7 +279,11 @@ impl ForkNetworkCommand {
         crate::metrics_server::spawn(&self.prometheus_addr);
 
         match &self.command {
-            SubCommand::Init(InitCmd { shard_layout_file, shard_layout_protocol_version }) => {
+            SubCommand::Init(InitCmd {
+                shard_layout_file,
+                shard_layout_protocol_version,
+                no_snapshot,
+            }) => {
                 let shard_layout_override = {
                     if let Some(file) = shard_layout_file {
                         ShardLayoutOverride::UseShardLayoutFromFile(file.clone())
@@ -275,7 +293,7 @@ impl ForkNetworkCommand {
                         ShardLayoutOverride::NoOverride
                     }
                 };
-                self.init(near_config, home_dir, &shard_layout_override)?;
+                self.init(near_config, home_dir, &shard_layout_override, *no_snapshot)?;
             }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
@@ -346,11 +364,19 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
+        no_snapshot: bool,
     ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
-        assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+        if no_snapshot {
+            tracing::warn!(
+                "skipping the fork snapshot as requested; `fork-network reset` will not be \
+                 available for this DB and rolling back means rebuilding it from its source"
+            );
+        } else {
+            assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+        }
         metrics::set_phase(Phase::WriteForkInfo);
 
         let epoch_manager = EpochManager::new_arc_handle(
@@ -440,8 +466,9 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
+        no_snapshot: bool,
     ) -> anyhow::Result<()> {
-        self.write_fork_info(near_config, home_dir, shard_layout_override)?;
+        self.write_fork_info(near_config, home_dir, shard_layout_override, no_snapshot)?;
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {
@@ -460,8 +487,8 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
-    /// Creates a DB snapshot, then
     /// Updates the state to ensure every account has a full access key that is known to us.
+    /// Does not snapshot the DB, despite what this comment used to claim.
     fn amend_access_keys(
         &self,
         batch_size: u64,
