@@ -189,7 +189,8 @@ pub fn default_archival_writer_polling_interval() -> Duration {
 pub fn default_archival_writer_catch_up_throttle() -> Duration {
     // GCS allows about one mutation per second on a single object, and the writer
     // rewrites the cloud heads once per batch.
-    // TODO(cloud_archival): consider a faster catch-up, rewriting the heads less often.
+    // TODO(cloud_archival): consider a faster catch-up, rewriting the heads less
+    // often, or waiting per head object against its own last write.
     Duration::milliseconds(1100)
 }
 

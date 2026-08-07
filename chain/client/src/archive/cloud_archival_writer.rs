@@ -47,7 +47,7 @@ enum CloudArchivingOutcome {
     Recent { batch_end: BlockHeight },
     /// Archived a batch below the previous final head; more batches are
     /// immediately available.
-    Old { batch_end: BlockHeight, target_height: BlockHeight },
+    Old { batch_end: BlockHeight, target_height: BlockHeight, cloud_head_written: bool },
 }
 
 /// Error surfaced while initializing cloud archive or writer.
@@ -152,12 +152,20 @@ struct ShardBatchToArchive {
     retired_parent: bool,
 }
 
+/// The block head height to advance to. `cloud_head_written` is false when
+/// another writer had already published the batch.
+struct BlockHeadUpdate {
+    head: BlockHeight,
+    cloud_head_written: bool,
+}
+
 /// A shard's head height to reflect in the gauge; `retired` drops the shard's
 /// series instead of setting it.
 struct ShardHeadUpdate {
     shard_id: ShardId,
     head: BlockHeight,
     retired: bool,
+    cloud_head_written: bool,
 }
 
 /// Creates the cloud archival writer if it is configured.
@@ -242,6 +250,11 @@ impl CloudArchivalWriter {
                 }
             } else {
                 match self.try_archive_data().await {
+                    // The delay protects the head objects, so a batch that wrote
+                    // none needs none.
+                    Ok(CloudArchivingOutcome::Old { cloud_head_written: false, .. }) => {
+                        Duration::ZERO
+                    }
                     Ok(CloudArchivingOutcome::Old { .. }) => self.config.catch_up_throttle,
                     _ => self.config.polling_interval,
                 }
@@ -305,11 +318,12 @@ impl CloudArchivalWriter {
                     "recent batch was archived"
                 );
             }
-            CloudArchivingOutcome::Old { batch_end, target_height } => {
+            CloudArchivingOutcome::Old { batch_end, target_height, cloud_head_written } => {
                 tracing::trace!(
                     target: "cloud_archival",
                     batch_end,
                     target_height,
+                    cloud_head_written,
                     "older batch was archived - more archiving needed"
                 );
             }
@@ -332,7 +346,7 @@ impl CloudArchivalWriter {
             return Ok(CloudArchivingOutcome::Idle { cloud_head: min_head });
         }
 
-        self.archive_lagging_components(&batch_range).await?;
+        let cloud_head_written = self.archive_lagging_components(&batch_range).await?;
 
         let next_batch = self.next_batch_after(batch_range.end());
         let outcome = if next_batch.end() >= hot_final_height {
@@ -341,6 +355,7 @@ impl CloudArchivalWriter {
             CloudArchivingOutcome::Old {
                 batch_end: batch_range.end(),
                 target_height: hot_final_height - 1,
+                cloud_head_written,
             }
         };
         tracing::trace!(target: "cloud_archival", ?outcome, "ending");
@@ -355,19 +370,22 @@ impl CloudArchivalWriter {
     }
 
     /// Archives all lagging components for the given batch and advances local heads.
+    /// Returns whether any cloud head was rewritten.
     async fn archive_lagging_components(
         &self,
         batch_range: &BatchRange,
-    ) -> Result<(), CloudArchivingError> {
+    ) -> Result<bool, CloudArchivingError> {
         let epoch_ending_block_hash = self.find_epoch_ending_in_batch(batch_range)?;
 
-        let block_advanced = if self.config.archive_block_data {
+        let block_update = if self.config.archive_block_data {
             self.archive_block_batch_if_lagging(batch_range).await?
         } else {
-            false
+            None
         };
-        let advanced_shards =
+        let shards_update =
             self.archive_shard_batches_if_lagging(batch_range, epoch_ending_block_hash).await?;
+        let cloud_head_written = block_update.as_ref().is_some_and(|u| u.cloud_head_written)
+            || shards_update.iter().any(|shard| shard.cloud_head_written);
         if self.config.archive_block_data {
             if let Some(last_block_hash) = epoch_ending_block_hash {
                 self.archive_ending_epoch_data(last_block_hash).await?;
@@ -375,11 +393,11 @@ impl CloudArchivalWriter {
         }
         self.advance_local_heads(
             batch_range.end(),
-            block_advanced,
-            &advanced_shards,
+            block_update.as_ref(),
+            &shards_update,
             epoch_ending_block_hash,
         )?;
-        Ok(())
+        Ok(cloud_head_written)
     }
 
     /// Whether the batch's end lands in a resharding epoch.
@@ -517,24 +535,27 @@ impl CloudArchivalWriter {
     }
 
     /// Archives the block batch if the local block head is behind `batch_range.end()`.
-    /// Returns true if the block head was advanced.
+    /// Returns the head update, absent when the local head already covers the batch.
     async fn archive_block_batch_if_lagging(
         &self,
         batch_range: &BatchRange,
-    ) -> Result<bool, CloudArchivingError> {
+    ) -> Result<Option<BlockHeadUpdate>, CloudArchivingError> {
         if let Some(head) = self.get_local_block_head()? {
             if head >= batch_range.end() {
-                return Ok(false);
+                return Ok(None);
             }
         }
         // TODO(cloud_archival): Race condition between this check and the upload below.
         // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
         let ext_head = self.cloud_storage.retrieve_cloud_block_head_if_exists().await?;
+        let mut cloud_head_written = false;
         if ext_head.is_none_or(|h| h < batch_range.end()) {
             self.cloud_storage.archive_block_batch(&self.hot_store, batch_range).await?;
             self.cloud_storage.update_cloud_block_head(batch_range.end()).await?;
+            cloud_head_written = true;
         }
-        Ok(true)
+        let update = BlockHeadUpdate { head: batch_range.end(), cloud_head_written };
+        Ok(Some(update))
     }
 
     /// Archives shard batches for tracked shards whose local head is behind
@@ -559,6 +580,7 @@ impl CloudArchivalWriter {
             // TODO(cloud_archival): Race condition between this check and the upload below.
             // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
             let ext_head = self.cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id).await?;
+            let mut cloud_head_written = false;
             if ext_head.is_none_or(|h| h < batch_end) {
                 self.cloud_storage
                     .archive_shard_batch(
@@ -570,11 +592,13 @@ impl CloudArchivalWriter {
                     )
                     .await?;
                 self.cloud_storage.update_cloud_shard_head(shard_id, batch_end).await?;
+                cloud_head_written = true;
             }
             advanced_shards.push(ShardHeadUpdate {
                 shard_id,
                 head: batch_end,
                 retired: shard_batch.retired_parent,
+                cloud_head_written,
             });
         }
         Ok(advanced_shards)
@@ -967,7 +991,12 @@ impl CloudArchivalWriter {
         // No shard retires during initialization.
         let head_updates: Vec<ShardHeadUpdate> = shard_heads
             .iter()
-            .map(|&(shard_id, head)| ShardHeadUpdate { shard_id, head, retired: false })
+            .map(|&(shard_id, head)| ShardHeadUpdate {
+                shard_id,
+                head,
+                retired: false,
+                cloud_head_written: false,
+            })
             .collect();
         Self::report_head_heights(block_head, &head_updates, min_height);
         Ok(())
@@ -1034,16 +1063,17 @@ impl CloudArchivalWriter {
     fn advance_local_heads(
         &self,
         height: BlockHeight,
-        block_advanced: bool,
-        advanced_shards: &[ShardHeadUpdate],
+        block_update: Option<&BlockHeadUpdate>,
+        shards_update: &[ShardHeadUpdate],
         new_prev_epoch_end: Option<CryptoHash>,
     ) -> Result<(), near_chain_primitives::Error> {
         let height_bytes = borsh::to_vec(&height).unwrap();
         let mut transaction = DBTransaction::new();
-        if block_advanced {
-            transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), height_bytes.clone());
+        if let Some(block_update) = block_update {
+            let block_head_bytes = borsh::to_vec(&block_update.head).unwrap();
+            transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), block_head_bytes);
         }
-        for advanced in advanced_shards {
+        for advanced in shards_update {
             let shard_head_bytes = borsh::to_vec(&advanced.head).unwrap();
             transaction.set(
                 DBCol::BlockMisc,
@@ -1060,7 +1090,7 @@ impl CloudArchivalWriter {
             );
         }
         self.hot_store.database().write(transaction);
-        Self::report_head_heights(block_advanced.then_some(height), advanced_shards, height);
+        Self::report_head_heights(block_update.map(|u| u.head), shards_update, height);
         Ok(())
     }
 }
