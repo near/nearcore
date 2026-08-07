@@ -1,3 +1,4 @@
+mod all_stake_fallback;
 mod basic;
 mod congestion;
 mod core_statement_limit;

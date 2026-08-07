@@ -6,7 +6,7 @@ use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::AccountId;
+use near_primitives_core::types::{AccountId, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
 
@@ -50,6 +50,12 @@ impl SpiceChunkEndorsement {
     pub fn block_hash(&self) -> &CryptoHash {
         match self {
             Self::V1(v1) => &v1.chunk_id.block_hash,
+        }
+    }
+
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(v1) => v1.chunk_id.shard_id,
         }
     }
 
