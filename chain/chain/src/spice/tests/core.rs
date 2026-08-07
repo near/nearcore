@@ -12,6 +12,7 @@ use assert_matches::assert_matches;
 use itertools::Itertools as _;
 use near_async::messaging::{Handler as _, IntoSender as _, noop};
 use near_async::time::Clock;
+use near_chain_configs::MutableConfigValue;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
@@ -1942,6 +1943,7 @@ fn core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
     SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         noop().into_sender(),
         noop().into_sender(),
