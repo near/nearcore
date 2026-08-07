@@ -587,8 +587,7 @@ fn check_if_descendant_of_tracked_shard_impl(
     // `ShardLayoutV3` introduced storing all ancestor shards, no need to iterate through
     // protocol versions
     if let Some(ancestors) = shard_layout.ancestor_uids(shard_id) {
-        let ancestors = HashSet::from_iter(ancestors);
-        return Ok(!ancestors.is_disjoint(&tracked_shards));
+        return Ok(ancestors.iter().any(|ancestor| tracked_shards.contains(ancestor)));
     }
 
     // `shard_uid` does not belong to `tracked_shards`, but it might be a descendant of one.
