@@ -398,6 +398,7 @@ impl BlocksDelayTracker {
                 self.chunks.remove(&chunk_hash);
             },
         );
+        self.update_size_metrics();
     }
 
     pub fn finish_block_processing(
