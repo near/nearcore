@@ -283,11 +283,6 @@ impl CloudArchiveHarness {
         get_writer_handle(&self.env, &self.archival_id).0.stop();
     }
 
-    fn resume_writer(&mut self) {
-        get_writer_handle(&self.env, &self.archival_id).0.resume();
-        self.restart_writer();
-    }
-
     /// Stops the writer node and starts it again. The writer resolves its tracked shards on
     /// startup, against the layout in force at that height.
     fn restart_writer(&mut self) {
@@ -479,8 +474,9 @@ fn test_cloud_archival_resume() {
     h.run_until(resume_height);
     h.assert_heads_ok_before_gc();
 
-    // Resume and run far enough for GC to collect blocks up to resume_height.
-    h.resume_writer();
+    // A paused writer's loop has exited, so it archives again only after a node restart. Run far
+    // enough for GC to collect blocks up to resume_height.
+    h.restart_writer();
     h.run_until_epoch(2 * MIN_GC_NUM_EPOCHS_TO_KEEP + 4);
     h.assert_heads_and_gc_ok();
     h.assert_snapshots_ok();
