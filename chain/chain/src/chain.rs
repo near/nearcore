@@ -1635,6 +1635,10 @@ impl Chain {
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
+        // State sync moves the head without processing a block, so the tracker has to be told
+        // separately. Otherwise its window stays where the head was before the sync.
+        self.blocks_delay_tracker.update_head(tip.height);
+
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails

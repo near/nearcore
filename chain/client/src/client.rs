@@ -28,7 +28,6 @@ use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::blocks_delay_tracker::BLOCK_HORIZON;
 use near_chain::chain::{
     ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     VerifyBlockHashAndSignatureResult,
@@ -44,7 +43,9 @@ use near_chain::{
     ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
     Provenance,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
+use near_chain_configs::{
+    BLOCK_HORIZON, ClientConfig, MutableValidatorSigner, UpdatableClientConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
