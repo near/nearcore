@@ -76,6 +76,9 @@ struct CloudArchiveHarnessBuilder {
     resharding_enabled: bool,
     /// Cloud archival batch size in blocks.
     batch_size: u32,
+    /// Delay between catch-up batches. Zero by default, so a small batch size
+    /// cannot hold catch-up below block production.
+    catch_up_throttle: Duration,
 }
 
 impl CloudArchiveHarnessBuilder {
@@ -138,12 +141,18 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
+    fn catch_up_throttle(mut self, throttle: Duration) -> Self {
+        self.catch_up_throttle = throttle;
+        self
+    }
+
     fn build(self) -> CloudArchiveHarness {
         let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
         let archival_kind =
             if self.cold_storage { ArchivalKind::ColdAndCloud } else { ArchivalKind::Cloud };
         let archival_id = self.writer.id.clone();
         let snapshot_every_n_epochs = self.writer.snapshot_every_n_epochs;
+        let catch_up_throttle = self.catch_up_throttle;
         let has_drops =
             !self.dropped_block_heights.is_empty() || !self.dropped_chunks_by_shard.is_empty();
         let base_shard_layout = CloudArchiveHarness::default_shard_layout();
@@ -163,6 +172,7 @@ impl CloudArchiveHarnessBuilder {
                     self.writer.archive_block_data,
                     &self.writer.tracked_shards,
                     snapshot_every_n_epochs,
+                    catch_up_throttle,
                 );
             });
         let mut new_shard_layout = None;
@@ -245,6 +255,7 @@ impl CloudArchiveHarness {
             dropped_chunks_by_shard: HashMap::new(),
             resharding_enabled: false,
             batch_size: Self::TEST_BATCH_SIZE,
+            catch_up_throttle: Duration::ZERO,
         }
     }
 
@@ -468,6 +479,42 @@ fn test_cloud_archival_resume() {
     h.run_until_epoch(2 * MIN_GC_NUM_EPOCHS_TO_KEEP + 4);
     h.assert_heads_and_gc_ok();
     h.assert_snapshots_ok();
+    h.shutdown();
+}
+
+/// Verifies that a writer clearing a lag archives one batch per
+/// `catch_up_throttle`, so three seconds of catch-up at a one second delay
+/// archive three batches.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_catch_up_throttle_limits_batch_rate() {
+    let throttle = Duration::seconds(1);
+    let window = Duration::seconds(3);
+    // The window holds one batch per delay.
+    let expected_batches = 3;
+    let batch_size = u64::from(CloudArchiveHarness::TEST_BATCH_SIZE);
+
+    let mut h = CloudArchiveHarness::builder().catch_up_throttle(throttle).build();
+    let paused_at = h.epoch_length;
+    h.run_until(paused_at);
+
+    // Pause long enough to leave the batches the window clears, plus a buffer.
+    h.pause_writer();
+    let lag_batches = expected_batches + 5;
+    h.run_until(paused_at + lag_batches * batch_size);
+    h.resume_writer();
+
+    // The first batch after initializing is archived immediately, the delay only
+    // separating later ones. Let it land before measuring, half a delay being too
+    // short for the next one.
+    h.env.test_loop.run_for(throttle / 2);
+    let head_before = h.cloud_head();
+    h.env.test_loop.run_for(window);
+
+    let batches = (h.cloud_head() - head_before) / batch_size;
+    assert_eq!(batches, expected_batches);
+
     h.shutdown();
 }
 
