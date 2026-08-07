@@ -47,7 +47,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{
-    Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
+    Block, BlockHeader, ChainGenesis, Error as ChainError, Provenance, byzantine_assert,
+    near_chain_primitives,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -1823,11 +1824,21 @@ impl ClientActor {
         {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
-            if let Err(err) = self.client.run_catchup(
+            let result = self.client.run_catchup(
                 &self.sync_jobs_sender.block_catch_up,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
-            ) {
-                tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
+            );
+            match result {
+                Err(Error::Chain(err @ ChainError::StateSyncStateRootMismatch { .. })) => {
+                    tracing::error!(target: "client", ?err, "state sync root mismatch during catchup, triggering data reset");
+                    if let Some(tx) = self.shutdown_signal.take() {
+                        let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
+                }
+                Ok(()) => {}
             }
         }
 
