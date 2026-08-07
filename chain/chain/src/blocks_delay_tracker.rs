@@ -635,8 +635,10 @@ mod tests {
     use near_primitives::block::Block;
     use near_primitives::genesis::genesis_block;
     use near_primitives::hash::hash;
-    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+    use near_primitives::sharding::ShardChunkHeader;
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer, test_chunk_header};
     use near_primitives::types::{Balance, BlockHeight};
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
 
@@ -646,11 +648,22 @@ mod tests {
         distinct_blocks_at(clock, height, 1).pop().unwrap()
     }
 
+    /// A chunk the block treats as new, i.e. one included at the block's own height.
+    ///
+    /// Built via `test_chunk_header` rather than `ShardChunkHeader::new_dummy`: the latter picks
+    /// a Spice transaction-only header inner once that feature is on, which carries no
+    /// `prev_state_root` and panics in `genesis_block`.
+    fn new_chunk_at(height: BlockHeight, signer: &ValidatorSigner) -> ShardChunkHeader {
+        let mut chunk = test_chunk_header(hash(&height.to_le_bytes()), signer, PROTOCOL_VERSION);
+        *chunk.height_included_mut() = height;
+        chunk
+    }
+
     fn distinct_blocks_at(clock: &Clock, height: BlockHeight, count: usize) -> Vec<Arc<Block>> {
         let signer = Arc::new(create_test_signer("test"));
         let genesis = Arc::new(genesis_block(
             PROTOCOL_VERSION,
-            vec![],
+            vec![new_chunk_at(0, &signer)],
             Utc::from_unix_timestamp(0).unwrap(),
             0,
             Balance::ZERO,
@@ -661,6 +674,7 @@ mod tests {
             .map(|nonce| {
                 TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone())
                     .height(height)
+                    .chunks(vec![new_chunk_at(height, &signer)])
                     .block_merkle_root(hash(&(nonce as u64).to_le_bytes()))
                     .build()
             })
@@ -683,6 +697,7 @@ mod tests {
         assert_eq!(tracker.blocks.len(), 1);
         assert!(tracker.blocks.contains_key(within.hash()));
         assert_eq!(tracker.blocks_height_map.len(), 1);
+        assert_eq!(tracker.chunks.len(), 1);
     }
 
     #[test]
@@ -718,5 +733,6 @@ mod tests {
         assert!(tracker.blocks.contains_key(at_new_head.hash()));
         assert!(!tracker.blocks.contains_key(at_old_head.hash()));
         assert_eq!(tracker.blocks_height_map.len(), 1);
+        assert_eq!(tracker.chunks.len(), 1);
     }
 }
