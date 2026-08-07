@@ -1444,6 +1444,10 @@ pub struct SpiceUncertifiedChunkInfo {
     pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
     /// Non-designated endorsements already on chain, accumulated for the all-stake fallback.
     pub present_fallback_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+    /// Height at which the chunk became certifiable, meaning its parent got certified and the
+    /// designated validators could act. Set once, then carried forward. The all-stake fallback
+    /// opens `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks later.
+    pub certifiable_since_height: Option<BlockHeight>,
 }
 
 impl SpiceUncertifiedChunkInfo {

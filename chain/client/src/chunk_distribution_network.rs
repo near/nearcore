@@ -240,7 +240,7 @@ mod tests {
         let (mock_sender, mut message_receiver) = mpsc::unbounded_channel();
         let mut client = MockClient::default();
         let missing_chunk = mock_shard_chunk(0, 0u64.into());
-        let mut blocks_delay_tracker = BlocksDelayTracker::new(Clock::real());
+        let mut blocks_delay_tracker = BlocksDelayTracker::new(Clock::real(), 0);
         let shards_manager = MockSender::new(mock_sender);
         let shards_manager_adapter = shards_manager.into_sender();
 

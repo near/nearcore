@@ -2923,6 +2923,18 @@
             "description": "Determines whether block-related data should be written to cloud storage.",
             "type": "boolean"
           },
+          "catch_up_throttle": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              }
+            ],
+            "default": {
+              "nanos": 100000000,
+              "secs": 1
+            },
+            "description": "Delay between consecutive batches while the writer is catching up, pacing\nhow fast it uploads to the storage backend."
+          },
           "polling_interval": {
             "allOf": [
               {

@@ -332,6 +332,35 @@ pub(crate) static DYNAMIC_RESHARDING_VALIDATION_FAILURES: LazyLock<IntCounterVec
         .unwrap()
     });
 
+pub(crate) static BLOCKS_DELAY_TRACKER_ENTRIES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_blocks_delay_tracker_entries",
+        "Number of entries the blocks delay tracker holds, by map.",
+        &["map"],
+    )
+    .unwrap()
+});
+
+pub(crate) static BLOCKS_DELAY_TRACKER_REFUSED_BLOCKS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_blocks_delay_tracker_refused_blocks_total",
+            "Number of blocks the delay tracker did not record, by reason.",
+            &["reason"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static BLOCKS_DELAY_TRACKER_MISSING_ENTRIES: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_blocks_delay_tracker_missing_entries_total",
+            "Number of marks for a block the delay tracker does not hold, by mark.",
+            &["mark"],
+        )
+        .unwrap()
+    });
+
 /// Values of the `near_resharding_status` gauge.
 #[derive(Clone, Copy)]
 pub(crate) enum ReshardingStatus {
