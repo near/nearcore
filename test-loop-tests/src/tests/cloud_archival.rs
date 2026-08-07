@@ -10,7 +10,6 @@ use crate::utils::cloud_archival::{
     get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
     simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
 };
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use borsh::to_vec;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
@@ -189,8 +188,12 @@ impl CloudArchiveHarnessBuilder {
                 .shard_layout(base_shard_layout)
                 .epoch_length(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH)
                 .build();
-            let (new_epoch_config, derived_layout) =
-                derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary);
+            let split_base_layout = base_epoch_config.static_shard_layout().unwrap();
+            let derived_layout = split_base_layout
+                .derive_v3(boundary.clone(), || vec![split_base_layout.clone()])
+                .unwrap();
+            let new_epoch_config =
+                base_epoch_config.clone().with_shard_layout(derived_layout.clone());
             new_shard_layout = Some(derived_layout);
             let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter([
                 (PROTOCOL_VERSION - 1, Arc::new(base_epoch_config)),
@@ -291,8 +294,9 @@ impl CloudArchiveHarness {
         get_writer_handle(&self.env, &self.archival_id).0.stop();
     }
 
-    fn resume_writer(&mut self) {
-        get_writer_handle(&self.env, &self.archival_id).0.resume();
+    /// Stops the writer node and starts it again. The writer resolves its tracked shards on
+    /// startup, against the layout in force at that height.
+    fn restart_writer(&mut self) {
         let node_data = self.env.get_node_data_by_account_id(&self.archival_id);
         let node_identifier = node_data.identifier.clone();
         stop_and_restart_node(&mut self.env, node_identifier.as_str());
@@ -377,6 +381,13 @@ impl CloudArchiveHarness {
 
     fn cloud_head(&self) -> BlockHeight {
         get_cloud_head(&self.env, &self.archival_id)
+    }
+
+    /// Runs one epoch of blocks from wherever the chain stands.
+    fn run_one_more_epoch(&mut self) {
+        self.env
+            .runner_for_account(&self.archival_id)
+            .run_for_number_of_blocks(self.epoch_length as usize);
     }
 
     fn block_batch_exists_at(&self, block_height: BlockHeight) -> bool {
@@ -474,8 +485,9 @@ fn test_cloud_archival_resume() {
     h.run_until(resume_height);
     h.assert_heads_ok_before_gc();
 
-    // Resume and run far enough for GC to collect blocks up to resume_height.
-    h.resume_writer();
+    // A paused writer's loop has exited, so it archives again only after a node restart. Run far
+    // enough for GC to collect blocks up to resume_height.
+    h.restart_writer();
     h.run_until_epoch(2 * MIN_GC_NUM_EPOCHS_TO_KEEP + 4);
     h.assert_heads_and_gc_ok();
     h.assert_snapshots_ok();
@@ -1585,6 +1597,78 @@ fn test_cloud_archival_resharding_snapshot_forced_off_cadence() {
     let r = h.run_until_one_epoch_after_resharding();
     h.assert_resharding_epoch_snapshot_forced(&r);
 
+    h.shutdown();
+}
+
+/// A writer whose config names a carried-over shard by that shard's own `ShardUId` restarts after
+/// a dynamic split and keeps archiving the shard. The shard is the writer's only component, so
+/// failing to resolve it aborts initialization.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_writer_restart_after_resharding() {
+    let base_shard_layout = CloudArchiveHarness::default_shard_layout();
+    let boundary: AccountId = CloudArchiveHarness::RESHARDING_BOUNDARY_ACCOUNT.parse().unwrap();
+    let split_shard_id = base_shard_layout.account_id_to_shard_id(&boundary);
+    let carried_shard_uid = base_shard_layout
+        .shard_uids()
+        .find(|shard_uid| shard_uid.shard_id() != split_shard_id)
+        .expect("layout has a shard other than the resharding parent");
+
+    let mut h = CloudArchiveHarness::builder()
+        .enable_resharding()
+        .archive_block_data(false)
+        .tracked_shards(vec![carried_shard_uid])
+        .build();
+    h.run_until_one_epoch_after_resharding();
+    let new_shard_layout = h.new_shard_layout();
+    // The writer resolves its shard through the layout's ancestor map, and it names the shard by a
+    // uid the split has to carry over.
+    assert!(new_shard_layout.ancestor_uids(carried_shard_uid.shard_id()).is_some());
+    assert!(new_shard_layout.shard_uids().any(|shard_uid| shard_uid == carried_shard_uid));
+    let cloud_head_before_restart = h.cloud_head();
+
+    h.restart_writer();
+    h.run_one_more_epoch();
+
+    assert!(
+        h.cloud_head() > cloud_head_before_restart,
+        "cloud head stalled at {cloud_head_before_restart} across the restart"
+    );
+    h.shutdown();
+}
+
+/// A writer whose config names the shard that gets split keeps archiving across a restart after
+/// the split, now resolving the children of that shard.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_writer_restart_after_resharding_tracking_split_shard() {
+    let boundary: AccountId = CloudArchiveHarness::RESHARDING_BOUNDARY_ACCOUNT.parse().unwrap();
+    let split_shard_uid =
+        CloudArchiveHarness::default_shard_layout().account_id_to_shard_uid(&boundary);
+
+    let mut h = CloudArchiveHarness::builder()
+        .enable_resharding()
+        .archive_block_data(false)
+        .tracked_shards(vec![split_shard_uid])
+        .build();
+    h.run_until_one_epoch_after_resharding();
+    let new_shard_layout = h.new_shard_layout();
+    assert!(!new_shard_layout.shard_ids().any(|shard_id| shard_id == split_shard_uid.shard_id()));
+    let children_shard_uids = new_shard_layout
+        .get_children_shards_uids(split_shard_uid.shard_id())
+        .expect("the split shard has children");
+    assert_eq!(children_shard_uids.len(), 2);
+    let cloud_head_before_restart = h.cloud_head();
+
+    h.restart_writer();
+    h.run_one_more_epoch();
+
+    assert!(
+        h.cloud_head() > cloud_head_before_restart,
+        "cloud head stalled at {cloud_head_before_restart} across the restart"
+    );
     h.shutdown();
 }
 
