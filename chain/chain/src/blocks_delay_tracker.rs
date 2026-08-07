@@ -6,7 +6,7 @@ use near_primitives::block::{Block, ChunkType, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus, DroppedReason,
@@ -18,13 +18,20 @@ use time::ext::InstantExt as _;
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
+/// Blocks at or above `head + BLOCK_HORIZON` are dropped without being processed.
+/// The client applies the same bound when deciding whether to accept an incoming
+/// block, and the tracker applies it when deciding whether to record one.
+pub const BLOCK_HORIZON: BlockHeightDelta = 500;
+
+/// How many deliberately-skipped block hashes to remember, so the `mark_block_*`
+/// helpers can tell an expected missing entry from a bookkeeping bug. Sized to the
+/// tracking window, which bounds how many blocks can be in flight around the head.
+const SKIPPED_BLOCKS_CACHE_SIZE: usize = (BLOCK_DELAY_TRACKING_COUNT + BLOCK_HORIZON) as usize;
+
 /// A centralized place that records monitoring information about the important timestamps throughout
-/// the lifetime of blocks and chunks. It keeps information of recent blocks and chunks
-/// (blocks with height > head height - BLOCK_DELAY_TRACKING_HORIZON).
-/// A block is added the first time when chain tries to process the block. Note that this means
-/// the block already passes a few checks in ClientActor and in Client before it enters the chain
-/// code. For example, client actor checks that the block must be within head_height + BLOCK_HORIZON (500),
-/// that's why we know tracker at most tracks 550 blocks.
+/// the lifetime of blocks and chunks. It keeps information of recent blocks and chunks, tracking
+/// heights in `[head - BLOCK_DELAY_TRACKING_COUNT, head + BLOCK_HORIZON)` — at most 550 blocks.
+/// A block is added the first time when chain tries to process the block.
 pub struct BlocksDelayTracker {
     clock: Clock,
     // A block is added at the first time it was received, and
@@ -40,6 +47,8 @@ pub struct BlocksDelayTracker {
     chunks: HashMap<ChunkHash, ChunkTrackingStats>,
     // Chunks that we don't know which block it belongs to yet
     floating_chunks: HashMap<ChunkHash, BlockHeight>,
+    // Blocks refused by `is_too_far_ahead`, so a missing entry can be recognized as expected.
+    skipped_blocks: LruCache<CryptoHash, ()>,
     head_height: BlockHeight,
 }
 
@@ -170,7 +179,7 @@ impl ChunkTrackingStats {
 }
 
 impl BlocksDelayTracker {
-    pub fn new(clock: Clock) -> Self {
+    pub fn new(clock: Clock, head_height: BlockHeight) -> Self {
         Self {
             clock,
             blocks: HashMap::new(),
@@ -180,18 +189,35 @@ impl BlocksDelayTracker {
             ),
             chunks: HashMap::new(),
             floating_chunks: HashMap::new(),
-            head_height: 0,
+            skipped_blocks: LruCache::new(NonZeroUsize::new(SKIPPED_BLOCKS_CACHE_SIZE).unwrap()),
+            head_height,
         }
+    }
+
+    /// Whether a block at this height is far enough ahead of the head that the
+    /// client would discard it, in which case the tracker does not record it.
+    fn is_too_far_ahead(&self, height: BlockHeight) -> bool {
+        height >= self.head_height.saturating_add(BLOCK_HORIZON)
+    }
+
+    /// A missing entry is a bug unless the block was deliberately skipped.
+    fn should_report_missing_entry(&self, block_hash: &CryptoHash) -> bool {
+        !self.skipped_blocks.contains(block_hash)
     }
 
     pub fn mark_block_received(&mut self, block: &Block) {
         let block_hash = block.header().hash();
+        let height = block.header().height();
+
+        if self.is_too_far_ahead(height) {
+            self.skipped_blocks.put(*block_hash, ());
+            return;
+        }
 
         let Entry::Vacant(entry) = self.blocks.entry(*block_hash) else {
             return;
         };
 
-        let height = block.header().height();
         let chunks = block
             .chunks()
             .iter()
@@ -233,7 +259,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_dropped(&mut self, block_hash: &CryptoHash, reason: DroppedReason) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.dropped = Some(reason);
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was dropped but was not marked received");
         }
     }
@@ -241,7 +267,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_errored(&mut self, block_hash: &CryptoHash, err: String) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.error = Some(err);
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was errored but was not marked received");
         }
     }
@@ -249,7 +275,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_orphaned(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.orphaned_timestamp = Some(self.clock.now());
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was orphaned but was not marked received");
         }
     }
@@ -257,7 +283,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_unorphaned(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_orphan_timestamp = Some(self.clock.now());
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was unorphaned but was not marked received");
         }
     }
@@ -265,7 +291,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_has_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.missing_chunks_timestamp = Some(self.clock.now());
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as having missing chunks but was not marked received");
         }
     }
@@ -273,7 +299,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_pending_execution(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.pending_execution_timestamp = Some(self.clock.now());
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as pending execution but was not marked received");
         }
     }
@@ -281,7 +307,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_completed_pending_execution(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_pending_timestamp = Some(self.clock.now());
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as completed pending execution but was not marked received");
         }
     }
@@ -289,7 +315,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_completed_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_missing_chunks_timestamp = Some(self.clock.now());
-        } else {
+        } else if self.should_report_missing_entry(block_hash) {
             tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as having no missing chunks but was not marked received");
         }
     }
@@ -335,31 +361,32 @@ impl BlocksDelayTracker {
     }
 
     fn update_head(&mut self, head_height: BlockHeight) {
-        if head_height != self.head_height {
-            let cutoff_height = head_height.saturating_sub(BLOCK_DELAY_TRACKING_COUNT);
-            self.head_height = head_height;
-            let mut blocks_to_remove = self.blocks_height_map.split_off(&cutoff_height);
-            mem::swap(&mut self.blocks_height_map, &mut blocks_to_remove);
-
-            for block_hash in blocks_to_remove.values().flatten() {
-                if let Some(block) = self.blocks.remove(&block_hash) {
-                    for chunk_hash in block.chunks {
-                        if let Some(chunk_hash) = chunk_hash {
-                            self.chunks.remove(&chunk_hash);
-                        }
-                    }
-                } else {
-                    debug_assert!(false);
-                    tracing::error!(target: "block_delay_tracker", ?block_hash, "block in height map but not in blocks");
-                }
-            }
-
-            self.floating_chunks
-                .extract_if(|_, chunk_height| *chunk_height < cutoff_height)
-                .for_each(|(chunk_hash, _)| {
-                    self.chunks.remove(&chunk_hash);
-                });
+        if head_height <= self.head_height {
+            return;
         }
+        let cutoff_height = head_height.saturating_sub(BLOCK_DELAY_TRACKING_COUNT);
+        self.head_height = head_height;
+        let mut blocks_to_remove = self.blocks_height_map.split_off(&cutoff_height);
+        mem::swap(&mut self.blocks_height_map, &mut blocks_to_remove);
+
+        for block_hash in blocks_to_remove.values().flatten() {
+            if let Some(block) = self.blocks.remove(&block_hash) {
+                for chunk_hash in block.chunks {
+                    if let Some(chunk_hash) = chunk_hash {
+                        self.chunks.remove(&chunk_hash);
+                    }
+                }
+            } else {
+                debug_assert!(false);
+                tracing::error!(target: "block_delay_tracker", ?block_hash, "block in height map but not in blocks");
+            }
+        }
+
+        self.floating_chunks.extract_if(|_, chunk_height| *chunk_height < cutoff_height).for_each(
+            |(chunk_hash, _)| {
+                self.chunks.remove(&chunk_hash);
+            },
+        );
     }
 
     pub fn finish_block_processing(
@@ -569,5 +596,80 @@ impl Chain {
             blocks_info,
             floating_chunks_info,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BLOCK_HORIZON, BlocksDelayTracker};
+    use near_async::time::{Clock, Utc};
+    use near_primitives::block::Block;
+    use near_primitives::genesis::genesis_block;
+    use near_primitives::hash::hash;
+    use near_primitives::sharding::ShardChunkHeader;
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer, test_chunk_header};
+    use near_primitives::types::Balance;
+    use near_primitives::validator_signer::ValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
+    use std::sync::Arc;
+
+    /// A chunk the block treats as new, i.e. one included at the block's own height.
+    ///
+    /// Built via `test_chunk_header` rather than `ShardChunkHeader::new_dummy`: the
+    /// latter picks a Spice transaction-only header inner once that feature is on,
+    /// which carries no `prev_state_root` and panics in `genesis_block`.
+    fn new_chunk_at(height: u64, signer: &ValidatorSigner) -> ShardChunkHeader {
+        // Vary the chunk's prev hash so each block contributes a distinct chunk.
+        let mut chunk = test_chunk_header(hash(&height.to_le_bytes()), signer, PROTOCOL_VERSION);
+        *chunk.height_included_mut() = height;
+        chunk
+    }
+
+    /// A block carrying one new chunk, so the tracker's chunk bookkeeping is exercised.
+    fn block_at(height: u64) -> Arc<Block> {
+        let signer = Arc::new(create_test_signer("test"));
+        let genesis = Arc::new(genesis_block(
+            PROTOCOL_VERSION,
+            vec![new_chunk_at(0, &signer)],
+            Utc::now_utc(),
+            0,
+            Balance::ZERO,
+            Balance::ZERO,
+            &vec![],
+        ));
+        TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+            .height(height)
+            .chunks(vec![new_chunk_at(height, &signer)])
+            .build()
+    }
+
+    /// A node far behind the tip keeps receiving blocks gossiped from there. They
+    /// sit above the head, so `update_head` never reclaims them; the tracker must
+    /// refuse them outright or its maps grow for the lifetime of the process.
+    #[test]
+    fn blocks_beyond_the_horizon_are_not_tracked() {
+        let head = 1_000;
+        let mut tracker = BlocksDelayTracker::new(Clock::real(), head);
+
+        let within = block_at(head + BLOCK_HORIZON - 1);
+        let beyond = block_at(head + BLOCK_HORIZON);
+        let from_the_tip = block_at(head + 1_200_000);
+
+        for block in [&within, &beyond, &from_the_tip] {
+            tracker.mark_block_received(block);
+        }
+
+        assert_eq!(tracker.blocks.len(), 1);
+        assert!(tracker.blocks.contains_key(within.hash()));
+        assert_eq!(tracker.blocks_height_map.len(), 1);
+        // Only the tracked block's chunk is recorded; the skipped blocks carry
+        // chunks of their own and must not leave anything behind.
+        assert_eq!(tracker.chunks.len(), 1);
+
+        // The client still runs its own checks against skipped blocks, so the
+        // mark_block_* helpers must treat their missing entries as expected.
+        assert!(!tracker.should_report_missing_entry(beyond.hash()));
+        assert!(!tracker.should_report_missing_entry(from_the_tip.hash()));
+        assert!(tracker.should_report_missing_entry(within.hash()));
     }
 }

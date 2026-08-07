@@ -419,6 +419,7 @@ impl Chain {
             chain_genesis,
             state_roots,
         )?;
+        let head_height = chain_store.head().map_or(0, |tip| tip.height);
         let (sc, rc) = unbounded();
         let resharding_manager = ReshardingManager::new(
             store.clone(),
@@ -448,7 +449,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
+            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone(), head_height),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
@@ -616,6 +617,7 @@ impl Chain {
             epoch_manager.clone(),
             chain_genesis.gas_limit,
         );
+        let head_height = chain_store.head().map_or(0, |tip| tip.height);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -634,7 +636,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
+            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone(), head_height),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner,

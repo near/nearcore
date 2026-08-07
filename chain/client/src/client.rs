@@ -28,6 +28,7 @@ use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::blocks_delay_tracker::BLOCK_HORIZON;
 use near_chain::chain::{
     ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     VerifyBlockHashAndSignatureResult,
@@ -86,9 +87,6 @@ use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
-
-/// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
-const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
