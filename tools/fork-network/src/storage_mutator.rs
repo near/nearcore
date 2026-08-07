@@ -412,8 +412,9 @@ fn commit_to_existing_state(
     shard_uid: ShardUId,
     root: &mut InProgressRoot,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
-    // Owned by the caller so `total` can cover the lock wait too.
-    stages: &CommitStages,
+    // Owned by the caller so `total` can cover the lock wait too. None for empty batches,
+    // which are deliberately not timed.
+    stages: Option<&CommitStages>,
 ) -> anyhow::Result<()> {
     let updates =
         updates.into_iter().map(|(trie_key, value)| (trie_key.to_vec(), value)).collect::<Vec<_>>();
@@ -426,12 +427,12 @@ fn commit_to_existing_state(
     let flat_state_changes = FlatStateChanges::from_raw_key_value(&updates);
     let mut update = shard_tries.store_update();
     {
-        let _timer = stages.apply_to_flat_state.start_timer();
+        let _timer = stages.map(|s| s.apply_to_flat_state.start_timer());
         flat_state_changes.apply_to_flat_state(&mut update.flat_store_update(), shard_uid);
     }
 
     let trie_changes = {
-        let _timer = stages.trie_update.start_timer();
+        let _timer = stages.map(|s| s.trie_update.start_timer());
         shard_tries
             .get_trie_for_shard(shard_uid, root.state_root)
             .update(updates, AccessOptions::DEFAULT)
@@ -443,11 +444,11 @@ fn commit_to_existing_state(
         num_trie_node_deletions = trie_changes.deletions().len()
     );
     let state_root = {
-        let _timer = stages.apply_all.start_timer();
+        let _timer = stages.map(|s| s.apply_all.start_timer());
         shard_tries.apply_all(&trie_changes, shard_uid, &mut update)
     };
     {
-        let _timer = stages.apply_memtrie_changes.start_timer();
+        let _timer = stages.map(|s| s.apply_memtrie_changes.start_timer());
         shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, root.update_height);
         // We may not have loaded memtries (some commands don't need to), so check.
         if let Some(memtries) = shard_tries.get_memtries(shard_uid) {
@@ -462,7 +463,7 @@ fn commit_to_existing_state(
     update.store_update().set_ser(DBCol::Misc, &key, &state_root);
 
     {
-        let _timer = stages.store_commit.start_timer();
+        let _timer = stages.map(|s| s.store_commit.start_timer());
         update.commit();
     }
     tracing::info!(?shard_uid, ?state_root, "commit is done");
@@ -473,6 +474,7 @@ fn commit_to_new_state(
     shard_tries: &ShardTries,
     shard_uid: ShardUId,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
+    stages: Option<&CommitStages>,
 ) -> anyhow::Result<StateRoot> {
     let num_updates = updates.len();
     tracing::info!(?shard_uid, num_updates, "commit new");
@@ -485,18 +487,31 @@ fn commit_to_new_state(
         }
     }
     trie_update.commit(StateChangeCause::InitialState);
-    let TrieUpdateResult { trie_changes, state_changes, .. } =
+    // Instrumented with the same stage labels as commit_to_existing_state, so a commit to a
+    // new shard is not silently missing from the per-stage histogram.
+    let TrieUpdateResult { trie_changes, state_changes, .. } = {
+        let _timer = stages.map(|s| s.trie_update.start_timer());
         trie_update.finalize().with_context(|| {
             format!("Initial trie update finalization failed for shard {}", shard_uid)
-        })?;
+        })?
+    };
     let mut store_update = shard_tries.store_update();
-    let state_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    FlatStateChanges::from_state_changes(&state_changes)
-        .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
+    let state_root = {
+        let _timer = stages.map(|s| s.apply_all.start_timer());
+        shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update)
+    };
+    {
+        let _timer = stages.map(|s| s.apply_to_flat_state.start_timer());
+        FlatStateChanges::from_state_changes(&state_changes)
+            .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
+    }
     let key = crate::cli::make_state_roots_key(shard_uid);
     store_update.store_update().set_ser(DBCol::Misc, &key, &state_root);
     tracing::info!(?shard_uid, "committing initial state to new shard");
-    store_update.commit();
+    {
+        let _timer = stages.map(|s| s.store_commit.start_timer());
+        store_update.commit();
+    }
 
     Ok(state_root)
 }
@@ -508,35 +523,44 @@ pub(crate) fn commit_shard(
     update_state: &ShardUpdateState,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
 ) -> anyhow::Result<StateRoot> {
-    // Timed from here, before the lock, so `total` covers waiting for it. Every shard's rayon
-    // thread can write to another shard's update state, so contention on this mutex is real and
-    // is exactly the "why was that batch slow" answer an operator is looking for. It also has
-    // to wrap both branches below, or commits to a new shard would be missing from the
-    // histogram entirely.
-    let stages = CommitStages::new(shard_uid);
-    let _total_timer = stages.total.start_timer();
-    let lock_timer = stages.lock_wait.start_timer();
-    let mut root = update_state.root.lock();
-    lock_timer.observe_duration();
+    // `StorageMutator::commit()` calls this once per target shard, including every shard that
+    // got no updates in this batch. Those still do a little work — they take the lock and
+    // write a state root — but they are a different population from a 500k-update commit, and
+    // timing both into one histogram makes its mean meaningless: on a mainnet fork 69% of the
+    // observations were empty batches, reporting a mean of 6.9s for commits that actually
+    // cost 38.8s. So only real commits are timed, which keeps the histogram's count equal to
+    // `near_fork_network_batches_committed_total`.
+    let num_updates = updates.len();
+    let stages = (num_updates > 0).then(|| CommitStages::new(shard_uid));
 
-    // `StorageMutator::commit()` calls this once per target shard, including shards that got no
-    // updates in this batch, so only count the batches that actually wrote something.
-    if !updates.is_empty() {
-        metrics::batch_committed(shard_uid, updates.len());
+    // Timed from before the lock, so `total` covers waiting for it. Every shard's rayon thread
+    // can write to another shard's update state, so contention on this mutex is real and is
+    // exactly the "why was that batch slow" answer an operator is looking for.
+    let _total_timer = stages.as_ref().map(|s| s.total.start_timer());
+    let lock_timer = stages.as_ref().map(|s| s.lock_wait.start_timer());
+    let mut root = update_state.root.lock();
+    if let Some(lock_timer) = lock_timer {
+        lock_timer.observe_duration();
     }
+
     let new_root = match root.as_mut() {
         Some(root) => {
-            commit_to_existing_state(shard_tries, shard_uid, root, updates, &stages)?;
+            commit_to_existing_state(shard_tries, shard_uid, root, updates, stages.as_ref())?;
             root.state_root
         }
         None => {
-            let state_root = commit_to_new_state(shard_tries, shard_uid, updates)?;
+            let state_root = commit_to_new_state(shard_tries, shard_uid, updates, stages.as_ref())?;
             // TODO: load memtrie
             *root = Some(InProgressRoot { state_root, update_height: 1 });
             state_root
         }
     };
 
+    // Counted only once the write has actually landed, so a batch that fails on the way to
+    // disk is not reported as committed.
+    if num_updates > 0 {
+        metrics::batch_committed(shard_uid, num_updates);
+    }
     Ok(new_root)
 }
 

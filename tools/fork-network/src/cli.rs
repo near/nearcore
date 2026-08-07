@@ -1212,7 +1212,7 @@ impl ForkNetworkCommand {
                     "pass 2 scanning"
                 );
             }
-            if key[0] == col::ACCOUNT {
+            if key.first() == Some(&col::ACCOUNT) {
                 num_accounts += 1;
                 let account_id = match parse_account_id_from_account_key(&key) {
                     Ok(account_id) => account_id,

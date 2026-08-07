@@ -18,7 +18,7 @@ use near_primitives::trie_key::col;
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// One past the largest column byte, used to normalise a flat-state key into a 0..1 keyspace
+/// One past the largest column byte, used to normalize a flat-state key into a 0..1 keyspace
 /// position. Keys start with the column byte, so without this the position would top out at
 /// around 23/256 and a finished scan would read as 9% done.
 ///
@@ -302,7 +302,7 @@ fn keyspace_position(key: &[u8]) -> f64 {
     let mut prefix = [0u8; 8];
     let len = key.len().min(prefix.len());
     prefix[..len].copy_from_slice(&key[..len]);
-    // Normalise by the prefix value a key one past the last column would have, so a full scan
+    // Normalize by the prefix value a key one past the last column would have, so a full scan
     // spans roughly the whole 0..1 range instead of the bottom tenth of it.
     let max = NUM_TRIE_KEY_COLUMNS as f64 * (1u64 << 56) as f64;
     (u64::from_be_bytes(prefix) as f64 / max).min(1.0)
@@ -338,7 +338,7 @@ impl ShardMetrics {
             ref_values_retrieved: REF_VALUES_RETRIEVED.with_label_values(&[&shard]),
             access_keys_added: ACCESS_KEYS_ADDED.with_label_values(&[&shard]),
         };
-        // Zero-initialise so every series exists before the shard starts rewriting state.
+        // Zero-initialize so every series exists before the shard starts rewriting state.
         metrics.set_phase(ShardPhase::Idle);
         metrics.keys_expected.set(0);
         metrics.pass1.position.set(0.0);
@@ -394,6 +394,10 @@ impl ShardMetrics {
 pub(crate) fn init_shards(shard_uids: &[ShardUId]) {
     for shard_uid in shard_uids {
         ShardMetrics::new(*shard_uid);
+        // Registers the commit-stage histogram series too, so an early scrape shows them at
+        // zero rather than omitting them, and a dashboard can tell "no commits yet" apart
+        // from "this build has no commit instrumentation".
+        CommitStages::new(*shard_uid);
     }
 }
 
@@ -447,10 +451,10 @@ mod tests {
     use super::{NUM_TRIE_KEY_COLUMNS, keyspace_position, max_trie_key_column};
     use near_primitives::trie_key::col;
 
-    /// Guards the normalisation constant against a new trie key column being added. Getting
+    /// Guards the normalization constant against a new trie key column being added. Getting
     /// this too small makes a scan of the last column report 100% while it is still running.
     #[test]
-    fn normalisation_covers_every_column() {
+    fn normalization_covers_every_column() {
         for (column, name) in col::ALL_COLUMNS_WITH_NAMES {
             assert!(
                 (column as u64) < NUM_TRIE_KEY_COLUMNS,
