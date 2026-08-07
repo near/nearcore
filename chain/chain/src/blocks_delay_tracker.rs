@@ -267,7 +267,7 @@ impl BlocksDelayTracker {
     /// A mark for a block the tracker does not hold. The tracker only records blocks near the
     /// head, so this is expected while the node is behind the tip.
     fn report_missing_entry(&self, block_hash: &CryptoHash, mark: &'static str) {
-        metrics::BLOCKS_DELAY_TRACKER_MISSING_ENTRY.with_label_values(&[mark]).inc();
+        metrics::BLOCKS_DELAY_TRACKER_MISSING_ENTRIES.with_label_values(&[mark]).inc();
         tracing::debug!(target: "blocks_delay_tracker", ?block_hash, mark, "no tracking entry for block");
     }
 

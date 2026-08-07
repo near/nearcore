@@ -351,10 +351,10 @@ pub(crate) static BLOCKS_DELAY_TRACKER_REFUSED_BLOCKS: LazyLock<IntCounterVec> =
         .unwrap()
     });
 
-pub(crate) static BLOCKS_DELAY_TRACKER_MISSING_ENTRY: LazyLock<IntCounterVec> =
+pub(crate) static BLOCKS_DELAY_TRACKER_MISSING_ENTRIES: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
-            "near_blocks_delay_tracker_missing_entry_total",
+            "near_blocks_delay_tracker_missing_entries_total",
             "Number of marks for a block the delay tracker does not hold, by mark.",
             &["mark"],
         )
