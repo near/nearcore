@@ -313,14 +313,15 @@ class BaseNode(object):
         return BlockId(height=sync_info['latest_block_height'],
                        hash=sync_info['latest_block_hash'])
 
-    def get_final_block_id(self) -> BlockId:
+    def get_final_block_id(self, **kw) -> BlockId:
         """
         Get the hash and height of the latest final block.
         Prefer this over `.get_latest_block()` as the base block of a
         transaction: the latest block may not have reached the node that the
         transaction is forwarded to, which drops it as expired.
         """
-        return BlockId.from_header(self.get_final_block()['result']['header'])
+        return BlockId.from_header(
+            self.get_final_block(**kw)['result']['header'])
 
     def get_all_heights(self):
 
@@ -438,7 +439,7 @@ class BaseNode(object):
         return self.json_rpc('block', {'block_id': block_height}, **kwargs)
 
     def get_final_block(self, **kwargs):
-        return self.get_block_by_finality('final')
+        return self.get_block_by_finality('final', **kwargs)
 
     def get_block_by_finality(self, finality, **kwargs):
         assert finality in ('final', 'optimistic'), \
