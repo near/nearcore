@@ -36,6 +36,7 @@ pub mod genesis;
 pub mod merkle_proof;
 pub mod metrics;
 mod node_storage;
+pub mod spice_proof_verifier;
 mod store;
 pub mod trie;
 mod utils;

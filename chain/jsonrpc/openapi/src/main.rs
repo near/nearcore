@@ -23,6 +23,7 @@ use near_jsonrpc_primitives::types::{
     gas_price::{RpcGasPriceError, RpcGasPriceRequest, RpcGasPriceResponse},
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
+        RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
         RpcLightClientExecutionProofResponse, RpcLightClientNextBlockError,
         RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
     },
@@ -894,6 +895,16 @@ fn main() {
         &mut all_paths,
         "EXPERIMENTAL_light_client_block_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
+    );
+    add_spec_for_path::<
+        RpcLightClientChunkExecutionProofRequest,
+        RpcLightClientChunkExecutionProofResponse,
+        RpcLightClientProofError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_light_client_chunk_execution_proof".to_string(),
+        "Returns a proof that a chunk's certified execution roots are committed by the chain, verifiable against a trusted light client head.".to_string(),
     );
     add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError>(
         &mut all_schemas,
