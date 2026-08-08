@@ -285,10 +285,14 @@ pub(crate) fn execute_function_call(
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
     // Most VM runner errors translate to a `RuntimeError` and are propagated
-    // up. `WasmUnknownError` is soft-failed into the function-call outcome
-    // instead of panicking: a consensus failure on one chunk is preferable to
-    // crashing all nodes if a VM bug surfaces post-deploy. User-code errors
-    // are reported via `outcome.aborted` and never reach these arms.
+    // up. Unknown execution errors are soft-failed into the outcome instead of
+    // panicking. Unknown compilation errors panic so that a validator does not
+    // endorse or commit a potentially nondeterministic state transition (OOM or
+    // timeout). User-code errors are reported via `outcome.aborted` and never
+    // reach these arms.
+    //
+    // TODO: Compilation must become asynchronous before this can
+    // work with SPICE, where validators endorse before execution.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             if runtime_ext.account().contract().is_some() {
@@ -339,6 +343,9 @@ pub(crate) fn execute_function_call(
             return Ok(VMOutcome::nop_outcome(FunctionCallError::WasmUnknownError {
                 msg: debug_message,
             }));
+        }
+        Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
+            panic!("wasm compilation unknown error: {debug_message}");
         }
         Ok(r) => r,
     };
