@@ -1,10 +1,11 @@
+#[cfg(feature = "rand")]
+#[cfg(feature = "aws-lc-rs")]
+use crate::signature::ml_dsa_65_from_seed;
 use crate::signature::{
     KeyType, ML_DSA_65_SIGNATURE_LENGTH, MlDsa65Signature, PublicKey, SecretKey,
 };
 #[cfg(feature = "rand")]
-use crate::signature::{
-    ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SEED_LENGTH, MlDsa65PublicKey, ml_dsa_65_from_seed,
-};
+use crate::signature::{ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SEED_LENGTH, MlDsa65PublicKey};
 use crate::{InMemorySigner, Signature};
 
 #[cfg(feature = "rand")]
@@ -57,9 +58,17 @@ impl PublicKey {
                 PublicKey::SECP256K1(secret_key.public_key().unwrap_as_secp256k1().clone())
             }
             KeyType::MLDSA65 => {
-                let seed_bytes = ml_dsa_65_seed_bytes_from_str(seed);
-                let sk = ml_dsa_65_from_seed(&seed_bytes).expect("ML-DSA-65 from_seed failed");
-                sk.public_key()
+                #[cfg(feature = "aws-lc-rs")]
+                {
+                    let seed_bytes = ml_dsa_65_seed_bytes_from_str(seed);
+                    let sk = ml_dsa_65_from_seed(&seed_bytes).expect("ML-DSA-65 from_seed failed");
+                    sk.public_key()
+                }
+                #[cfg(not(feature = "aws-lc-rs"))]
+                {
+                    let _ = seed;
+                    unimplemented!("ML-DSA-65 requires the aws-lc-rs feature")
+                }
             }
         }
     }
@@ -75,8 +84,16 @@ impl SecretKey {
             }
             KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
             KeyType::MLDSA65 => {
-                let seed_bytes = ml_dsa_65_seed_bytes_from_str(seed);
-                ml_dsa_65_from_seed(&seed_bytes).expect("ML-DSA-65 from_seed failed")
+                #[cfg(feature = "aws-lc-rs")]
+                {
+                    let seed_bytes = ml_dsa_65_seed_bytes_from_str(seed);
+                    ml_dsa_65_from_seed(&seed_bytes).expect("ML-DSA-65 from_seed failed")
+                }
+                #[cfg(not(feature = "aws-lc-rs"))]
+                {
+                    let _ = seed;
+                    unimplemented!("ML-DSA-65 requires the aws-lc-rs feature")
+                }
             }
         }
     }

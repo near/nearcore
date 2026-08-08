@@ -230,7 +230,7 @@ near-cloud-archive-tool = { path = "tools/cloud-archive" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
-near-crypto = { path = "core/crypto", default-features = false }
+near-crypto = { path = "core/crypto", default-features = false, features = ["aws-lc-rs"] }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-external-storage = { path = "core/external-storage" }
