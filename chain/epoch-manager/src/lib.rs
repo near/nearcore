@@ -2112,6 +2112,9 @@ impl EpochManager {
         Ok(())
     }
 
+    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
+    /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.epoch_id_to_start
             .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
@@ -2395,14 +2398,16 @@ impl EpochManager {
             return Ok(ChunkProducerBlacklist::empty());
         }
         let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
-        // Grace measured against the last-final height, matching the blacklist basis. A
-        // missing `EpochStart` (genesis) counts as just-started (grace, empty); other
-        // errors propagate rather than mask storage corruption.
-        let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
-            Ok(start) => start,
-            Err(EpochError::EpochOutOfBounds(_)) => final_height,
-            Err(e) => return Err(e),
-        };
+        if aggregator.epoch_id != *epoch.epoch_id {
+            // Cross-epoch basis: empty either way, but checked before the walk — right
+            // after epoch sync the aggregator block's `BlockInfo` may not exist.
+            return Ok(ChunkProducerBlacklist::empty());
+        }
+        // Epoch start via the `BlockInfo` walk, not `DBCol::EpochStart`: boundary fork
+        // siblings overwrite that shared row, so its value depends on processing order.
+        // A genesis final block resolves through the stored dummy `BlockInfo` (height 0).
+        // A miss here is structural corruption — propagate, don't map to grace.
+        let epoch_start = self.get_epoch_start_height(final_hash)?;
         let blocks_into_epoch = final_height.saturating_sub(epoch_start);
         Ok(blacklist_for_epoch(
             &aggregator,
