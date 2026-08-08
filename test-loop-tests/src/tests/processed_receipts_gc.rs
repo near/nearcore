@@ -166,6 +166,89 @@ fn test_processed_receipt_ids_gc() {
     );
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_outgoing_receipt_bodies_gc() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(EPOCH_LENGTH)
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .build();
+
+    // Deploy the test contract and call a function; executing the resulting local
+    // receipt produces an outgoing gas-refund receipt.
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    let call_tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "log_something",
+        vec![],
+        Balance::ZERO,
+        Gas::from_teragas(100),
+    );
+    let call_tx_hash = call_tx.get_hash();
+    env.validator().submit_tx(call_tx);
+    let tx_outcome =
+        env.validator_runner().run_until_outcome_available(call_tx_hash, Duration::seconds(5));
+    let [local_receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        panic!("expected single receipt from transaction")
+    };
+    // Wait for the local receipt to execute: that is the chunk that produces the
+    // outgoing receipts we care about.
+    let local_outcome =
+        env.validator_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
+    let produced_block_hash = local_outcome.block_hash;
+    let shard_id = ShardId::new(0);
+    let outgoing_key = get_block_shard_id(&produced_block_hash, shard_id);
+
+    // Every produced (outgoing) receipt body must be fetchable by id in
+    // DBCol::Receipts.
+    let store = env.validator().store();
+    let outgoing = store
+        .get_ser::<Vec<Receipt>>(DBCol::OutgoingReceipts, &outgoing_key)
+        .expect("outgoing receipts should exist for the receipt-execution block");
+    assert!(!outgoing.is_empty(), "expected at least one produced (outgoing) receipt");
+    for receipt in &outgoing {
+        assert!(
+            store.get(DBCol::Receipts, receipt.receipt_id().as_ref()).is_some(),
+            "produced receipt {:?} body should be fetchable by id in DBCol::Receipts",
+            receipt.receipt_id(),
+        );
+    }
+    let outgoing_ids: Vec<CryptoHash> = outgoing.iter().map(|r| *r.receipt_id()).collect();
+
+    #[cfg(feature = "test_features")]
+    env.validator_mut().validate_store();
+
+    // Run enough epochs for GC to clear the producing block.
+    let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
+    env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
+
+    // The index and the produced-receipt bodies should be gone: the GC decrement
+    // brought each refcount to zero. These receipts are outgoing-only (refcount 1)
+    // for this call; `validate_store` is the general refcount-balance check.
+    let store = env.validator().store();
+    assert!(
+        store.get(DBCol::OutgoingReceipts, &outgoing_key).is_none(),
+        "OutgoingReceipts index should be garbage collected",
+    );
+    for id in &outgoing_ids {
+        assert!(
+            store.get(DBCol::Receipts, id.as_ref()).is_none(),
+            "produced receipt {:?} body should be garbage collected",
+            id,
+        );
+    }
+
+    #[cfg(feature = "test_features")]
+    env.validator_mut().validate_store();
+}
+
 /// Tests that ReceiptToTx entries are saved for local receipts, instant receipts, and
 /// transaction→receipt mappings, then properly garbage collected.
 ///

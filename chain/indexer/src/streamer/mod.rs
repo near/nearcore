@@ -13,7 +13,6 @@ use near_indexer_primitives::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{BlockView, ChunkView, ReceiptView};
 use rocksdb::DB;
 use std::collections::HashMap;
@@ -46,7 +45,6 @@ pub async fn build_streamer_message(
     let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
 
     let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
-    let protocol_version = protocol_config_view.protocol_version;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
     let gas_price = if block.header.prev_hash == CryptoHash::default() {
         block.header.gas_price
@@ -68,11 +66,6 @@ pub async fn build_streamer_message(
             state_changes: state_changes.remove(&shard_id).unwrap_or_default(),
         })
         .collect::<Vec<_>>();
-
-    // TODO(spice): Add indexer support for spice.
-    if ProtocolFeature::Spice.enabled(protocol_version) {
-        return Ok(StreamerMessage { block, shards: indexer_shards });
-    }
 
     for chunk in chunks {
         let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
