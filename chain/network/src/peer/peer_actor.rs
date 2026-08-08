@@ -349,6 +349,7 @@ impl PeerActor {
             stream,
             stats.clone(),
             network_state.incoming_message_semaphore.clone(),
+            network_state.config.max_write_buffer_capacity_bytes,
         );
         let actor = Self {
             closing_reason: None,
@@ -443,7 +444,7 @@ impl PeerActor {
                 None => {
                     metrics::MessageDropped::OutgoingQueueLimitExceeded
                         .inc_msg_type(msg.msg_variant());
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "network",
                         msg_type = msg.msg_variant(),
                         bytes_len,
