@@ -1,13 +1,15 @@
 use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::{
-    GetBlockProofError, GetExecutionOutcomeError, GetNextLightClientBlockError,
+    GetBlockProofError, GetExecutionOutcomeError, GetLightClientProofError,
+    GetNextLightClientBlockError,
 };
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::light_client::{
-    RpcLightClientBlockProofRequest, RpcLightClientExecutionProofRequest,
+    RpcLightClientBlockProofRequest, RpcLightClientChunkExecutionProofRequest,
+    RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionProofRequest,
     RpcLightClientNextBlockError, RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
-    RpcLightClientProofError,
+    RpcLightClientProofError, RpcLightClientStateProofRequest,
 };
 use near_primitives::views::LightClientBlockView;
 use serde_json::Value;
@@ -30,6 +32,51 @@ impl RpcRequest for RpcLightClientNextBlockRequest {
 impl RpcRequest for RpcLightClientBlockProofRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Params::parse(value)
+    }
+}
+
+impl RpcRequest for RpcLightClientChunkExecutionProofRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::parse(value)
+    }
+}
+
+impl RpcRequest for RpcLightClientExecutionOutcomeProofRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::parse(value)
+    }
+}
+
+impl RpcRequest for RpcLightClientStateProofRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::parse(value)
+    }
+}
+
+impl RpcFrom<GetLightClientProofError> for RpcLightClientProofError {
+    fn rpc_from(error: GetLightClientProofError) -> Self {
+        match error {
+            GetLightClientProofError::ChunkNotCertified { chunk_id } => {
+                Self::ChunkNotCertified { chunk_id }
+            }
+            GetLightClientProofError::LightClientHeadTooOld {
+                chunk_id,
+                required_head_height,
+                head_height,
+            } => Self::LightClientHeadTooOld { chunk_id, required_head_height, head_height },
+            GetLightClientProofError::UnknownBlock { error_message } => {
+                Self::UnknownBlock { error_message }
+            }
+            GetLightClientProofError::UnknownTransactionOrReceipt { transaction_or_receipt_id } => {
+                Self::UnknownTransactionOrReceipt { transaction_or_receipt_id }
+            }
+            GetLightClientProofError::ShardNotTracked { shard_id } => {
+                Self::ShardNotTracked { shard_id }
+            }
+            GetLightClientProofError::InternalError { error_message } => {
+                Self::InternalError { error_message }
+            }
+        }
     }
 }
 
