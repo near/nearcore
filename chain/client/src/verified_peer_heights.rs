@@ -2,11 +2,52 @@ use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::BlockHeight;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 
 const HEADER_VERIFICATION_CACHE_SIZE: usize = 32;
-const MAX_PENDING_HEADER_VERIFICATIONS: usize = 4;
+const MAX_TRACKED_HEADER_VERIFICATIONS: usize = HEADER_VERIFICATION_CACHE_SIZE;
+const MAX_ACTIVE_HEADER_VERIFICATIONS: usize = 4;
+const MAX_QUEUED_HEADER_VERIFICATIONS: usize =
+    MAX_TRACKED_HEADER_VERIFICATIONS - MAX_ACTIVE_HEADER_VERIFICATIONS;
+
+/// Limits CPU concurrency while retaining accepted work until a worker becomes available.
+pub(crate) struct BlockApprovalVerificationScheduler<T> {
+    active: usize,
+    queued: VecDeque<T>,
+}
+
+impl<T> Default for BlockApprovalVerificationScheduler<T> {
+    fn default() -> Self {
+        Self { active: 0, queued: VecDeque::new() }
+    }
+}
+
+impl<T> BlockApprovalVerificationScheduler<T> {
+    /// Returns the job when it should run immediately, or queues it when all worker slots are busy.
+    /// An error means the total active and queued work budget has been reached.
+    pub(crate) fn enqueue(&mut self, job: T) -> Result<Option<T>, T> {
+        if self.active < MAX_ACTIVE_HEADER_VERIFICATIONS {
+            self.active += 1;
+            return Ok(Some(job));
+        }
+        if self.queued.len() >= MAX_QUEUED_HEADER_VERIFICATIONS {
+            return Err(job);
+        }
+        self.queued.push_back(job);
+        Ok(None)
+    }
+
+    /// Releases a completed worker slot and returns the oldest queued job to take its place.
+    pub(crate) fn complete(&mut self) -> Option<T> {
+        debug_assert!(self.active > 0);
+        if let Some(job) = self.queued.pop_front() {
+            return Some(job);
+        }
+        self.active = self.active.saturating_sub(1);
+        None
+    }
+}
 
 struct PendingHeaderVerification {
     height: BlockHeight,
@@ -20,8 +61,8 @@ pub struct VerifiedPeerHeights {
     by_peer: HashMap<PeerId, BlockHeight>,
     /// Positive and negative results, so repeated invalid headers cannot consume worker time.
     header_verification_results: LruCache<CryptoHash, bool>,
-    /// Peers waiting on each in-flight header verification. The map has a strict cap so an input
-    /// burst cannot create an unbounded computation queue.
+    /// Peers waiting on each active or queued header verification. The map has a strict cap so an
+    /// input burst cannot create an unbounded computation queue.
     pending_header_verifications: HashMap<CryptoHash, PendingHeaderVerification>,
 }
 
@@ -38,10 +79,10 @@ impl Default for VerifiedPeerHeights {
 }
 
 impl VerifiedPeerHeights {
-    /// Registers interest in a header and returns whether the caller should start verification.
-    /// Repeated relays share one in-flight job. Cached valid results update the peer immediately,
+    /// Registers interest in a header and returns whether the caller should enqueue verification.
+    /// Repeated relays share one pending job. Cached valid results update the peer immediately,
     /// while cached invalid results are ignored.
-    pub fn start_verification(
+    pub fn register_verification(
         &mut self,
         peer_id: &PeerId,
         header_hash: &CryptoHash,
@@ -61,7 +102,7 @@ impl VerifiedPeerHeights {
             pending.peers.insert(peer_id.clone());
             return false;
         }
-        if self.pending_header_verifications.len() >= MAX_PENDING_HEADER_VERIFICATIONS {
+        if self.pending_header_verifications.len() >= MAX_TRACKED_HEADER_VERIFICATIONS {
             return false;
         }
         self.pending_header_verifications.insert(
@@ -134,10 +175,10 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let h10 = header_hash(b"h10");
-        assert!(heights.start_verification(&p, &h10, 10));
+        assert!(heights.register_verification(&p, &h10, 10));
         heights.finish_verification(&h10, true, 0);
         let h5 = header_hash(b"h5");
-        assert!(!heights.start_verification(&p, &h5, 5));
+        assert!(!heights.register_verification(&p, &h5, 5));
         assert_eq!(heights.get(&p), Some(10));
     }
 
@@ -146,10 +187,10 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let hash = header_hash(b"h10");
-        assert!(heights.start_verification(&p, &hash, 10));
+        assert!(heights.register_verification(&p, &hash, 10));
         heights.finish_verification(&hash, false, 0);
         assert_eq!(heights.get(&p), None);
-        assert!(!heights.start_verification(&p, &hash, 10));
+        assert!(!heights.register_verification(&p, &hash, 10));
     }
 
     #[test]
@@ -157,8 +198,8 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let (p1, p2) = (peer("a"), peer("b"));
         let hash = header_hash(b"h10");
-        assert!(heights.start_verification(&p1, &hash, 10));
-        assert!(!heights.start_verification(&p2, &hash, 10));
+        assert!(heights.register_verification(&p1, &hash, 10));
+        assert!(!heights.register_verification(&p2, &hash, 10));
         heights.finish_verification(&hash, true, 0);
         assert_eq!(heights.get(&p1), Some(10));
         assert_eq!(heights.get(&p2), Some(10));
@@ -169,9 +210,9 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let (p1, p2) = (peer("a"), peer("b"));
         let hash = header_hash(b"h10");
-        assert!(heights.start_verification(&p1, &hash, 10));
+        assert!(heights.register_verification(&p1, &hash, 10));
         heights.finish_verification(&hash, true, 0);
-        assert!(!heights.start_verification(&p2, &hash, 10));
+        assert!(!heights.register_verification(&p2, &hash, 10));
         assert_eq!(heights.get(&p2), Some(10));
     }
 
@@ -180,7 +221,7 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let hash = header_hash(b"h10");
-        assert!(heights.start_verification(&p, &hash, 10));
+        assert!(heights.register_verification(&p, &hash, 10));
         heights.finish_verification(&hash, true, 10);
         assert_eq!(heights.get(&p), None);
     }
@@ -191,8 +232,8 @@ mod tests {
         let p = peer("a");
         let h10 = header_hash(b"h10");
         let h20 = header_hash(b"h20");
-        assert!(heights.start_verification(&p, &h10, 10));
-        assert!(heights.start_verification(&p, &h20, 20));
+        assert!(heights.register_verification(&p, &h10, 10));
+        assert!(heights.register_verification(&p, &h20, 20));
         heights.finish_verification(&h20, true, 0);
         heights.finish_verification(&h10, true, 0);
         assert_eq!(heights.get(&p), Some(20));
@@ -203,9 +244,9 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let hash = header_hash(b"h10");
-        assert!(heights.start_verification(&p, &hash, 10));
+        assert!(heights.register_verification(&p, &hash, 10));
         heights.cancel_verification(&hash);
-        assert!(heights.start_verification(&p, &hash, 10));
+        assert!(heights.register_verification(&p, &hash, 10));
     }
 
     #[test]
@@ -213,10 +254,10 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let (p1, p2) = (peer("a"), peer("b"));
         let h10 = header_hash(b"h10");
-        assert!(heights.start_verification(&p1, &h10, 10));
+        assert!(heights.register_verification(&p1, &h10, 10));
         heights.finish_verification(&h10, true, 0);
         let h20 = header_hash(b"h20");
-        assert!(heights.start_verification(&p2, &h20, 20));
+        assert!(heights.register_verification(&p2, &h20, 20));
         heights.finish_verification(&h20, true, 0);
         heights.prune_at_or_below(10);
         assert_eq!(heights.get(&p1), None);
@@ -226,13 +267,42 @@ mod tests {
     #[test]
     fn pending_verifications_are_bounded() {
         let mut heights = VerifiedPeerHeights::default();
-        for i in 0..MAX_PENDING_HEADER_VERIFICATIONS {
-            assert!(heights.start_verification(
+        for i in 0..MAX_TRACKED_HEADER_VERIFICATIONS {
+            assert!(heights.register_verification(
                 &peer(&i.to_string()),
                 &header_hash(&[i as u8]),
                 10
             ));
         }
-        assert!(!heights.start_verification(&peer("overflow"), &header_hash(b"overflow"), 10));
+        assert!(!heights.register_verification(&peer("overflow"), &header_hash(b"overflow"), 10));
+    }
+
+    #[test]
+    fn fifth_verification_waits_for_a_worker_slot() {
+        let mut scheduler = BlockApprovalVerificationScheduler::default();
+        for job in 0..MAX_ACTIVE_HEADER_VERIFICATIONS {
+            assert_eq!(scheduler.enqueue(job), Ok(Some(job)));
+        }
+
+        assert_eq!(scheduler.enqueue(MAX_ACTIVE_HEADER_VERIFICATIONS), Ok(None));
+        assert_eq!(scheduler.complete(), Some(MAX_ACTIVE_HEADER_VERIFICATIONS));
+    }
+
+    #[test]
+    fn verification_scheduler_preserves_total_work_bound() {
+        let mut scheduler = BlockApprovalVerificationScheduler::default();
+        for job in 0..MAX_TRACKED_HEADER_VERIFICATIONS {
+            let scheduled = scheduler.enqueue(job);
+            if job < MAX_ACTIVE_HEADER_VERIFICATIONS {
+                assert_eq!(scheduled, Ok(Some(job)));
+            } else {
+                assert_eq!(scheduled, Ok(None));
+            }
+        }
+
+        assert_eq!(
+            scheduler.enqueue(MAX_TRACKED_HEADER_VERIFICATIONS),
+            Err(MAX_TRACKED_HEADER_VERIFICATIONS)
+        );
     }
 }

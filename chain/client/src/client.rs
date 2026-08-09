@@ -20,7 +20,7 @@ use crate::sync::handler::SyncHandler;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncShardResult};
-use crate::verified_peer_heights::VerifiedPeerHeights;
+use crate::verified_peer_heights::{BlockApprovalVerificationScheduler, VerifiedPeerHeights};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::RayonAsyncComputationSpawner;
@@ -39,9 +39,9 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
-    ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
-    Provenance,
+    ApplyChunksSpawner, BlockHeaderApprovalVerification, BlockProcessingArtifact, BlockStatus,
+    Chain, ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode,
+    MemtrieLoadingSpawner, Provenance,
 };
 use near_chain_configs::{
     BLOCK_HORIZON, ClientConfig, MutableValidatorSigner, UpdatableClientConfig,
@@ -194,6 +194,13 @@ pub struct Client {
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
     pub(crate) verified_peer_heights: VerifiedPeerHeights,
     block_approval_verification_spawner: Arc<dyn AsyncComputationSpawner>,
+    block_approval_verification_scheduler:
+        BlockApprovalVerificationScheduler<BlockApprovalVerificationJob>,
+}
+
+struct BlockApprovalVerificationJob {
+    header_hash: CryptoHash,
+    verification: BlockHeaderApprovalVerification,
 }
 
 impl AsRef<Client> for Client {
@@ -518,6 +525,7 @@ impl Client {
             block_notification_watch_sender,
             verified_peer_heights: VerifiedPeerHeights::default(),
             block_approval_verification_spawner: multi_spawner.block_approval_verification,
+            block_approval_verification_scheduler: BlockApprovalVerificationScheduler::default(),
         };
         Ok(client)
     }
@@ -1225,7 +1233,7 @@ impl Client {
             return;
         }
         let header_hash = *block.hash();
-        if !self.verified_peer_heights.start_verification(peer_id, &header_hash, height) {
+        if !self.verified_peer_heights.register_verification(peer_id, &header_hash, height) {
             return;
         }
         let Ok(verification) = self.chain.prepare_header_approval_verification(block.header())
@@ -1233,11 +1241,22 @@ impl Client {
             self.verified_peer_heights.cancel_verification(&header_hash);
             return;
         };
+        let job = BlockApprovalVerificationJob { header_hash, verification };
+        match self.block_approval_verification_scheduler.enqueue(job) {
+            Ok(Some(job)) => self.spawn_block_approval_verification(job),
+            Ok(None) => {}
+            Err(job) => {
+                self.verified_peer_heights.cancel_verification(&job.header_hash);
+            }
+        }
+    }
+
+    fn spawn_block_approval_verification(&self, job: BlockApprovalVerificationJob) {
         let result_sender = self.myself_sender.block_approval_verification_result.clone();
         self.block_approval_verification_spawner.spawn("block_approval_verification", move || {
             result_sender.send(BlockApprovalVerificationResult {
-                header_hash,
-                is_valid: verification.verify().is_ok(),
+                header_hash: job.header_hash,
+                is_valid: job.verification.verify().is_ok(),
             });
         });
     }
@@ -1246,15 +1265,17 @@ impl Client {
         &mut self,
         result: BlockApprovalVerificationResult,
     ) {
-        let Ok(head) = self.chain.head() else {
-            self.verified_peer_heights.cancel_verification(&result.header_hash);
-            return;
-        };
-        self.verified_peer_heights.finish_verification(
-            &result.header_hash,
-            result.is_valid,
-            head.height,
-        );
+        match self.chain.head() {
+            Ok(head) => self.verified_peer_heights.finish_verification(
+                &result.header_hash,
+                result.is_valid,
+                head.height,
+            ),
+            Err(_) => self.verified_peer_heights.cancel_verification(&result.header_hash),
+        }
+        if let Some(job) = self.block_approval_verification_scheduler.complete() {
+            self.spawn_block_approval_verification(job);
+        }
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
