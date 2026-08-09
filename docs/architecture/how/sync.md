@@ -23,6 +23,13 @@ If your node is behind the head, it starts the sync process. This runs
 periodically in the client actor — if the node is behind by more than
 `sync_height_threshold` (default 1) blocks, sync is enabled.
 
+While the local head is fresh, peer heights are accepted as sync targets only after the peer has
+relayed a block whose producer signature and approvals verify against a known epoch. Signature
+verification runs on a bounded background computation queue so relayed blocks cannot stall the
+client actor. Relays of the same header share one verification, and the result is applied only if
+the block is still ahead of the local head when the worker completes. Once the local head is stale,
+the node falls back to advertised peer heights so a node outside its known epochs can bootstrap.
+
 The sync handler classifies the node into one of two categories based on how
 far behind it is, and routes it through the appropriate path.
 

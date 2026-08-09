@@ -7,7 +7,7 @@ use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 #[cfg(feature = "test_features")]
 use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
-use crate::client_actor::ClientSenderForClient;
+use crate::client_actor::{BlockApprovalVerificationResult, ClientSenderForClient};
 use crate::debug::BlockProductionTracker;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use crate::spice::timer::SpiceTimer;
@@ -24,7 +24,7 @@ use crate::verified_peer_heights::VerifiedPeerHeights;
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::RayonAsyncComputationSpawner;
-use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt, FutureSpawner};
 use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
@@ -193,6 +193,7 @@ pub struct Client {
     pub block_notification_watch_sender:
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
     pub(crate) verified_peer_heights: VerifiedPeerHeights,
+    block_approval_verification_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl AsRef<Client> for Client {
@@ -289,6 +290,8 @@ pub struct AsyncComputationMultiSpawner {
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
     prepare_transactions: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to verify peer block approvals without blocking the client actor.
+    block_approval_verification: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run background memtrie loading tasks (defaults to `StdThreadAsyncComputationSpawner`)
     pub memtrie_loading: MemtrieLoadingSpawner,
 }
@@ -299,6 +302,7 @@ impl Default for AsyncComputationMultiSpawner {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
             prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
+            block_approval_verification: Arc::new(RayonAsyncComputationSpawner),
             memtrie_loading: Default::default(),
         }
     }
@@ -311,6 +315,7 @@ impl AsyncComputationMultiSpawner {
             apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
             epoch_sync: spawner.clone(),
             prepare_transactions: spawner.clone(),
+            block_approval_verification: spawner.clone(),
             memtrie_loading: MemtrieLoadingSpawner::Custom(spawner),
         }
     }
@@ -512,6 +517,7 @@ impl Client {
             last_validator_key_check_epoch: None,
             block_notification_watch_sender,
             verified_peer_heights: VerifiedPeerHeights::default(),
+            block_approval_verification_spawner: multi_spawner.block_approval_verification,
         };
         Ok(client)
     }
@@ -1206,19 +1212,49 @@ impl Client {
         Ok(Some(block))
     }
 
-    /// Record `peer_id`'s verified height if the relayed block is ahead of us
-    /// and its approvals verify as >2/3 of a known epoch's stake; far-ahead
-    /// blocks (unknown epoch) fail that check and are ignored.
+    /// Schedule approval verification for a relayed block that is ahead of us. Duplicate relays
+    /// share one bounded background job, and far-ahead blocks with unknown epochs are ignored.
     pub(crate) fn note_verified_peer_height(&mut self, block: &Block, peer_id: &PeerId) {
-        let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
+        let Ok(head) = self.chain.head() else {
+            return;
+        };
+        let head_height = head.height;
         self.verified_peer_heights.prune_at_or_below(head_height);
         let height = block.header().height();
         if height <= head_height {
             return;
         }
-        self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
-            self.chain.verify_header_approvals_without_ancestry(block.header()).is_ok()
+        let header_hash = *block.hash();
+        if !self.verified_peer_heights.start_verification(peer_id, &header_hash, height) {
+            return;
+        }
+        let Ok(verification) = self.chain.prepare_header_approval_verification(block.header())
+        else {
+            self.verified_peer_heights.cancel_verification(&header_hash);
+            return;
+        };
+        let result_sender = self.myself_sender.block_approval_verification_result.clone();
+        self.block_approval_verification_spawner.spawn("block_approval_verification", move || {
+            result_sender.send(BlockApprovalVerificationResult {
+                header_hash,
+                is_valid: verification.verify().is_ok(),
+            });
         });
+    }
+
+    pub(crate) fn finish_block_approval_verification(
+        &mut self,
+        result: BlockApprovalVerificationResult,
+    ) {
+        let Ok(head) = self.chain.head() else {
+            self.verified_peer_heights.cancel_verification(&result.header_hash);
+            return;
+        };
+        self.verified_peer_heights.finish_verification(
+            &result.header_hash,
+            result.is_valid,
+            head.height,
+        );
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.

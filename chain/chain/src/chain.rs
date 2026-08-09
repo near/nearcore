@@ -1,5 +1,5 @@
 use crate::approval_verification::{
-    verify_approval_with_approvers_info, verify_approvals_and_threshold_orphan,
+    BlockHeaderApprovalVerification, verify_approval_with_approvers_info,
 };
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
@@ -4058,42 +4058,30 @@ impl Chain {
         self.invalid_blocks.contains(hash)
     }
 
-    /// Verifies that a header carries approvals from >2/3 of the stake of a
-    /// validator set we already know (current or next epoch). Errors if the
-    /// header's epoch is unknown (too far ahead to validate), the approvals fall
-    /// short, or the header is too old to carry a `prev_height` (V1/V2).
+    /// Collects the immutable inputs needed to verify a header's producer signature and approvals.
+    /// The returned verification performs only CPU work and can run outside the client actor.
+    pub fn prepare_header_approval_verification(
+        &self,
+        header: &BlockHeader,
+    ) -> Result<BlockHeaderApprovalVerification, Error> {
+        let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
+        let block_producer =
+            epoch_info.get_validator(epoch_info.sample_block_producer(header.height()));
+        Ok(BlockHeaderApprovalVerification::new(
+            header.clone(),
+            block_producer,
+            epoch_info,
+            self.doomslug_threshold_mode,
+        ))
+    }
+
+    /// Verifies a block producer signature and approvals synchronously. Callers on latency-sensitive
+    /// threads should prepare the immutable inputs above and run `verify` on a computation worker.
     pub fn verify_header_approvals_without_ancestry(
         &self,
         header: &BlockHeader,
     ) -> Result<(), Error> {
-        // Producer signature first: the header hash covers the approvals, so a
-        // header with any tampered approval dies after one signature check
-        // instead of a full pass over ~100 approval signatures.
-        if !self.partial_verify_orphan_header_signature(header)? {
-            return Err(Error::InvalidSignature);
-        }
-        let prev_hash = header.prev_hash();
-        let Some(prev_height) = header.prev_height() else {
-            return Err(Error::Other("header too old to verify approvals without ancestry".into()));
-        };
-        let height = header.height();
-        let epoch_id = header.epoch_id();
-        let approvals = header.approvals();
-        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
-        verify_approvals_and_threshold_orphan(
-            &|approvals, stakes| {
-                Doomslug::can_approved_block_be_produced(
-                    self.doomslug_threshold_mode,
-                    approvals,
-                    stakes,
-                )
-            },
-            prev_hash,
-            prev_height,
-            height,
-            approvals,
-            epoch_info,
-        )
+        self.prepare_header_approval_verification(header)?.verify()
     }
 
     /// Check that sync_hash matches the one we expect for the epoch containing that block.

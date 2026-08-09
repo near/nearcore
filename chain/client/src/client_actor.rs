@@ -291,6 +291,13 @@ pub fn start_client(
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
     pub on_post_state_ready: Sender<SpanWrapped<PostStateReadyMessage>>,
+    pub block_approval_verification_result: Sender<BlockApprovalVerificationResult>,
+}
+
+#[derive(Debug)]
+pub struct BlockApprovalVerificationResult {
+    pub(crate) header_hash: CryptoHash,
+    pub(crate) is_valid: bool,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -652,6 +659,12 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
                 _ => {}
             }
         }
+    }
+}
+
+impl Handler<BlockApprovalVerificationResult> for ClientActor {
+    fn handle(&mut self, msg: BlockApprovalVerificationResult) {
+        self.client.finish_block_approval_verification(msg);
     }
 }
 

@@ -1,12 +1,62 @@
+use crate::{Doomslug, DoomslugThresholdMode};
 use near_chain_primitives::error::Error;
 use near_crypto::Signature;
 use near_primitives::{
+    block::BlockHeader,
     block_header::{Approval, ApprovalInner},
     epoch_info::EpochInfo,
     hash::CryptoHash,
-    types::{AccountId, ApprovalStake, Balance, BlockHeight},
+    types::{AccountId, ApprovalStake, Balance, BlockHeight, validator_stake::ValidatorStake},
 };
 use std::{collections::HashSet, sync::Arc};
+
+/// All immutable inputs needed for the CPU-intensive portion of block header approval
+/// verification. Epoch-manager lookups happen while preparing this value, so `verify` can safely
+/// run on a computation worker without accessing `Chain`.
+pub struct BlockHeaderApprovalVerification {
+    header: BlockHeader,
+    block_producer: ValidatorStake,
+    epoch_info: Arc<EpochInfo>,
+    doomslug_threshold_mode: DoomslugThresholdMode,
+}
+
+impl BlockHeaderApprovalVerification {
+    pub(crate) fn new(
+        header: BlockHeader,
+        block_producer: ValidatorStake,
+        epoch_info: Arc<EpochInfo>,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+    ) -> Self {
+        Self { header, block_producer, epoch_info, doomslug_threshold_mode }
+    }
+
+    pub fn verify(self) -> Result<(), Error> {
+        if !self
+            .header
+            .signature()
+            .verify(self.header.hash().as_ref(), self.block_producer.public_key())
+        {
+            return Err(Error::InvalidSignature);
+        }
+        let Some(prev_height) = self.header.prev_height() else {
+            return Err(Error::Other("header too old to verify approvals without ancestry".into()));
+        };
+        verify_approvals_and_threshold_orphan(
+            &|approvals, stakes| {
+                Doomslug::can_approved_block_be_produced(
+                    self.doomslug_threshold_mode,
+                    approvals,
+                    stakes,
+                )
+            },
+            self.header.prev_hash(),
+            prev_height,
+            self.header.height(),
+            self.header.approvals(),
+            self.epoch_info,
+        )
+    }
+}
 
 pub fn verify_approval_with_approvers_info(
     prev_block_hash: &CryptoHash,
