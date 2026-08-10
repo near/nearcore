@@ -1,17 +1,16 @@
 //! Progress metrics for `neard fork-network`.
 //!
-//! `amend-access-keys` is a single command that runs for hours (~3h50m on the Jul 24 mainnet
-//! fork) with no progress signal other than one log line per commit batch, so operators cannot
-//! tell a slow run from a wedged one. These metrics make the run legible: which phase it is in,
-//! how far each shard's flat-state scan has got, and how long each commit stage takes.
+//! `amend-access-keys` is a single command that runs for hours with no progress signal other
+//! than one log line per commit batch, so operators cannot tell a slow run from a wedged one.
+//! These metrics make the run legible: which phase it is in, how far each shard's flat-state
+//! scan has got, and how long each commit stage takes.
 //!
 //! Everything here is read through the `/metrics` endpoint started by [`crate::metrics_server`].
 
 use near_o11y::metrics::{
     Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
     exponential_buckets, try_create_gauge, try_create_gauge_vec, try_create_histogram_vec,
-    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge,
-    try_create_int_gauge_vec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::col;
@@ -50,8 +49,11 @@ const fn max_trie_key_column() -> u8 {
 /// a whole mainnet fork emits a few thousand of these lines, which is nothing.
 pub(crate) const SCAN_PROGRESS_INTERVAL: u64 = 250_000;
 
-/// Values of the `near_fork_network_phase` gauge. Process-wide; each subcommand only visits a
-/// subset of these.
+/// Values of the `near_fork_network_phase` gauge.
+///
+/// Only the phases of `init` and `amend-access-keys`, the two subcommands image creation runs.
+/// `set-validators` and `finalize` run later, on the forknet hosts booted from the finished
+/// image, and are deliberately not tracked here.
 #[derive(Clone, Copy)]
 #[repr(i64)]
 pub(crate) enum Phase {
@@ -68,11 +70,8 @@ pub(crate) enum Phase {
     BandwidthScheduler = 6,
     DelayedReceipts = 7,
     FinalizeState = 8,
-    AddValidatorAccounts = 9,
-    AddUserAccounts = 10,
-    WriteGenesis = 11,
-    Reset = 12,
-    Done = 13,
+    Reset = 9,
+    Done = 10,
 }
 
 static PHASE: LazyLock<IntGauge> = LazyLock::new(|| {
@@ -81,8 +80,7 @@ static PHASE: LazyLock<IntGauge> = LazyLock::new(|| {
         "Current phase of the running fork-network subcommand, enum-encoded: 0 - idle, \
          1 - snapshot, 2 - write fork info, 3 - clear columns, 4 - load memtries, \
          5 - prepare state, 6 - bandwidth scheduler, 7 - delayed receipts, 8 - finalize state, \
-         9 - add validator accounts, 10 - add user accounts, 11 - write genesis, 12 - reset, \
-         13 - done",
+         9 - reset, 10 - done",
     )
     .unwrap()
 });
@@ -106,8 +104,6 @@ pub(crate) fn set_phase(phase: Phase) {
 /// process starts serving `/metrics` rather than appearing partway through a multi-hour run.
 pub(crate) fn init() {
     set_phase(Phase::Idle);
-    USER_ACCOUNTS_CREATED.reset();
-    USER_ACCOUNTS_EXPECTED.set(0);
 }
 
 fn unix_time_seconds() -> f64 {
@@ -235,23 +231,6 @@ static COMMIT_STAGE_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
         // 10ms .. ~5.5 minutes: batch commits are normally seconds, and the point of the
         // metric is to catch the pathological tail.
         Some(exponential_buckets(0.01, 2.0, 16).unwrap()),
-    )
-    .unwrap()
-});
-
-static USER_ACCOUNTS_CREATED: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_fork_network_user_accounts_created_total",
-        "Benchmark user accounts written to state by set-validators",
-    )
-    .unwrap()
-});
-
-static USER_ACCOUNTS_EXPECTED: LazyLock<IntGauge> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "near_fork_network_user_accounts_expected",
-        "Benchmark user accounts set-validators will write in total. Unlike the flat-state \
-         scans this total is known up front, so the ratio is a true percentage.",
     )
     .unwrap()
 });
@@ -397,13 +376,14 @@ pub(crate) fn init_shards(shard_uids: &[ShardUId]) {
         // Registers the commit-stage histogram series too, so an early scrape shows them at
         // zero rather than omitting them, and a dashboard can tell "no commits yet" apart
         // from "this build has no commit instrumentation".
-        CommitStages::new(*shard_uid);
+        CommitStagesMetrics::new(*shard_uid);
     }
 }
 
-/// Timers for the stages of one shard's batch commit. These are the four writes most likely to
-/// stall on RocksDB, and none of them was timed before.
-pub(crate) struct CommitStages {
+/// Timers for the stages of one shard's batch commit. These are the writes most likely to stall
+/// on RocksDB, timed one by one so a stall can be attributed to a stage rather than to the
+/// commit as a whole.
+pub(crate) struct CommitStagesMetrics {
     /// Time spent waiting for the shard's update-state lock, which every shard's rayon thread
     /// can contend for. Counted inside `total`.
     pub(crate) lock_wait: Histogram,
@@ -415,7 +395,7 @@ pub(crate) struct CommitStages {
     pub(crate) total: Histogram,
 }
 
-impl CommitStages {
+impl CommitStagesMetrics {
     pub(crate) fn new(shard_uid: ShardUId) -> Self {
         let shard = shard_uid.to_string();
         let stage = |stage: &str| COMMIT_STAGE_DURATION.with_label_values(&[shard.as_str(), stage]);
@@ -436,14 +416,6 @@ pub(crate) fn batch_committed(shard_uid: ShardUId, num_updates: usize) {
     let shard = shard_uid.to_string();
     KEYS_WRITTEN.with_label_values(&[&shard]).inc_by(num_updates as u64);
     BATCHES_COMMITTED.with_label_values(&[&shard]).inc();
-}
-
-pub(crate) fn set_user_accounts_expected(total: u64) {
-    USER_ACCOUNTS_EXPECTED.set(total as i64);
-}
-
-pub(crate) fn user_account_created() {
-    USER_ACCOUNTS_CREATED.inc();
 }
 
 #[cfg(test)]

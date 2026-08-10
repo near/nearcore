@@ -1,4 +1,4 @@
-use crate::metrics::{self, CommitStages};
+use crate::metrics::{self, CommitStagesMetrics};
 use anyhow::Context;
 use near_crypto::PublicKey;
 use near_mirror::key_mapping::map_account;
@@ -414,16 +414,15 @@ fn commit_to_existing_state(
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
     // Owned by the caller so `total` can cover the lock wait too. None for empty batches,
     // which are deliberately not timed.
-    stages: Option<&CommitStages>,
+    stages: Option<&CommitStagesMetrics>,
 ) -> anyhow::Result<()> {
     let updates =
         updates.into_iter().map(|(trie_key, value)| (trie_key.to_vec(), value)).collect::<Vec<_>>();
 
     let num_updates = updates.len();
     tracing::info!(?shard_uid, num_updates, "commit");
-    // None of these stages was timed before, and they are the ones that stall when RocksDB
-    // falls behind on compaction — the suspected reason for the batch-size tuning advice in
-    // the image-creation script.
+    // These stages are the ones that stall when RocksDB falls behind on compaction, so they
+    // are timed individually rather than as one commit duration.
     let flat_state_changes = FlatStateChanges::from_raw_key_value(&updates);
     let mut update = shard_tries.store_update();
     {
@@ -474,7 +473,7 @@ fn commit_to_new_state(
     shard_tries: &ShardTries,
     shard_uid: ShardUId,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
-    stages: Option<&CommitStages>,
+    stages: Option<&CommitStagesMetrics>,
 ) -> anyhow::Result<StateRoot> {
     let num_updates = updates.len();
     tracing::info!(?shard_uid, num_updates, "commit new");
@@ -531,7 +530,7 @@ pub(crate) fn commit_shard(
     // cost 38.8s. So only real commits are timed, which keeps the histogram's count equal to
     // `near_fork_network_batches_committed_total`.
     let num_updates = updates.len();
-    let stages = (num_updates > 0).then(|| CommitStages::new(shard_uid));
+    let stages = (num_updates > 0).then(|| CommitStagesMetrics::new(shard_uid));
 
     // Timed from before the lock, so `total` covers waiting for it. Every shard's rayon thread
     // can write to another shard's update state, so contention on this mutex is real and is

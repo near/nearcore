@@ -645,7 +645,6 @@ impl ForkNetworkCommand {
             update_state.clone(),
             target_shard_layout.clone(),
         )?;
-        metrics::set_phase(Phase::AddValidatorAccounts);
         let new_validator_accounts = self.add_validator_accounts(
             validators,
             runtime_config,
@@ -654,7 +653,6 @@ impl ForkNetworkCommand {
             storage_mutator,
         )?;
         let new_state_roots = update_state.into_iter().map(|u| u.state_root()).collect::<Vec<_>>();
-        metrics::set_phase(Phase::WriteGenesis);
         tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
 
@@ -796,7 +794,6 @@ impl ForkNetworkCommand {
 
         // 3. Add benchmark accounts to the state and override new state
         // roots in state and genesis.
-        metrics::set_phase(Phase::AddUserAccounts);
         let state_roots = self.add_user_accounts(
             runtime.as_ref(),
             genesis_protocol_version,
@@ -818,7 +815,6 @@ impl ForkNetworkCommand {
             state_roots.clone(),
             validators,
         )?;
-        metrics::set_phase(Phase::WriteGenesis);
         Self::set_genesis_block(
             epoch_manager.as_ref(),
             runtime.as_ref(),
@@ -831,7 +827,6 @@ impl ForkNetworkCommand {
     /// Deletes DB columns that are not needed in the new chain.
     fn finalize(&self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         tracing::info!("delete unneeded columns in the original DB");
-        metrics::set_phase(Phase::ClearColumns);
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) {
@@ -1486,9 +1481,6 @@ impl ForkNetworkCommand {
         let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let account_prefixes = Self::shard_account_prefixes(shard_layout);
-        // Unlike the flat-state scans, this total is known up front, so it yields a real
-        // percentage rather than an estimate.
-        metrics::set_user_accounts_expected(num_accounts_per_shard * account_prefixes.len() as u64);
         for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
             tracing::info!(
                 %account_prefix_idx,
@@ -1543,7 +1535,6 @@ impl ForkNetworkCommand {
                         storage_bytes,
                     ),
                 )?;
-                metrics::user_account_created();
 
                 // Create multiple access keys for this account (one per CP)
                 for cp_idx in 0..cps_per_shard {
