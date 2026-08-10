@@ -1786,7 +1786,7 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
         create_receipt_with_actions(account.clone(), signer.clone(), vec![read_action.clone()]);
     let read_and_add_keys_receipt = create_receipt_with_actions(
         account.clone(),
-        signer.clone(),
+        signer,
         std::iter::once(read_action)
             .chain(added_keys.iter().map(|public_key| {
                 Action::AddKey(Box::new(AddKeyAction {
