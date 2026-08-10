@@ -14,6 +14,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Compute, EpochInfoProvider, ShardId, StateChangeCause};
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::ContractCode;
@@ -208,11 +209,22 @@ fn apply_distribution_current_shard(
     let trie_key = TrieKey::GlobalContractCode { identifier };
     let code_len = global_contract_data.code().len() as u64;
     state_update.set(trie_key, global_contract_data.code().to_vec());
-    state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+
+    // Record the deploy so a same-chunk call can find the code without a warm cache.
     let code_hash = match global_contract_data.id() {
         GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
         GlobalContractIdentifier::AccountId(_) => None,
     };
+    if ProtocolFeature::GlobalContractSameChunkCallFix.enabled(apply_state.current_protocol_version)
+    {
+        state_update.record_contract_deploy(ContractCode::new(
+            global_contract_data.code().to_vec(),
+            code_hash,
+        ));
+    }
+
+    state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+
     precompile_contract_with_warming(
         &ContractCode::new(global_contract_data.code().to_vec(), code_hash),
         config,

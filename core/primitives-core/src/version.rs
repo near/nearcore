@@ -408,6 +408,8 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
+    /// Fix same-chunk calls to a just-distributed global contract by recording the deploy.
+    GlobalContractSameChunkCallFix,
     /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
     /// per-action `Vec<AccountContract>`: one entry per action in the
     /// receipt, recording the contract attached to the receiver account
@@ -594,6 +596,7 @@ impl ProtocolFeature {
             ProtocolFeature::RejectEmptyMethodName => 87,
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
+            ProtocolFeature::GlobalContractSameChunkCallFix => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
