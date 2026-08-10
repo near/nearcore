@@ -1431,6 +1431,35 @@ mod tests {
             validate_action(&limit, &action_for(&empty), &empty_receiver, feature_version),
             Ok(())
         );
+
+        // Per-entry storage limits, at the boundary and one byte over.
+        let with_entry = |key_len: usize, value_len: usize| {
+            UniversalStateInit::V1(UniversalStateInitV1 {
+                code: Some(GlobalContractIdentifier::AccountId("ft.near".parse().unwrap())),
+                data: BTreeMap::from([(vec![1u8; key_len], vec![2u8; value_len])]),
+                access_keys: BTreeSet::new(),
+            })
+        };
+        let check = |state_init: &UniversalStateInit| {
+            let receiver = derive_universal_account_id(state_init);
+            validate_action(&limit, &action_for(state_init), &receiver, feature_version)
+        };
+
+        assert_eq!(check(&with_entry(2_048, 4_194_304)), Ok(()));
+        assert_eq!(
+            check(&with_entry(2_049, 1)),
+            Err(ActionsValidationError::UniversalStateInitKeyLengthExceeded {
+                length: 2_049,
+                limit: 2_048,
+            })
+        );
+        assert_eq!(
+            check(&with_entry(1, 4_194_305)),
+            Err(ActionsValidationError::UniversalStateInitValueLengthExceeded {
+                length: 4_194_305,
+                limit: 4_194_304,
+            })
+        );
     }
 
     #[test]

@@ -32,6 +32,10 @@ pub(crate) fn action_universal_state_init(
     // an account that already exists here is the one this action initialized.
     // Initialize on first sight; on repeat, skip straight to the deposit
     // handling without touching the installed state.
+    //
+    // A half-installed account can never be observed here: a failed action
+    // rolls the whole state update back (see `runtime::apply_action_receipt`),
+    // so `Some(account)` always means a completed install.
     let needs_init = maybe_account.is_none();
     let account = match maybe_account {
         Some(account) => account,
@@ -95,37 +99,49 @@ fn install_universal_account(
         }
     }
 
-    // Step 2: storage entries.
+    // Step 2: storage entries. Size each record before writing it, so an
+    // overflow bails out before touching the trie.
+    let extra_bytes = storage_usage_config.num_extra_bytes_record;
     let mut required_storage_usage = account.storage_usage();
     for (key, value) in state_init.data() {
-        let trie_key = TrieKey::ContractData { account_id: account_id.clone(), key: key.to_vec() };
-        let new_bytes = (key.len() as u64)
-            .checked_add(value.len() as u64)
-            .and_then(|acc| acc.checked_add(storage_usage_config.num_extra_bytes_record))
-            .ok_or(IntegerOverflowError {})?;
-        state_update.set(trie_key, value.clone());
+        let new_bytes = record_storage_usage(key.len() as u64, value.len() as u64, extra_bytes)?;
         required_storage_usage =
             required_storage_usage.checked_add(new_bytes).ok_or(IntegerOverflowError {})?;
+
+        let trie_key = TrieKey::ContractData { account_id: account_id.clone(), key: key.to_vec() };
+        state_update.set(trie_key, value.clone());
     }
 
     // Step 3: full-access keys, stored directly as their on-trie handles (an
     // ML-DSA-65 handle is the pubkey hash, so no full pubkey is needed here).
-    let nonce = initial_nonce_value(block_height);
+    // Every key is the same full-access value, so size it once.
+    let mut access_key = AccessKey::full_access();
+    access_key.nonce = initial_nonce_value(block_height);
+    let access_key_bytes = borsh::object_length(&access_key).expect("borsh must not fail") as u64;
     for handle in state_init.access_keys() {
-        let mut access_key = AccessKey::full_access();
-        access_key.nonce = nonce;
-        set_access_key_by_handle(state_update, account_id.clone(), handle.clone(), &access_key);
-
         // Mirror `access_key_storage_usage`: on-trie handle length + the access
         // key's borsh length + the per-record overhead.
-        let key_bytes = (handle.trie_id_len() as u64)
-            .checked_add(borsh::object_length(&access_key).expect("borsh must not fail") as u64)
-            .and_then(|acc| acc.checked_add(storage_usage_config.num_extra_bytes_record))
-            .ok_or(IntegerOverflowError {})?;
+        let key_bytes =
+            record_storage_usage(handle.trie_id_len() as u64, access_key_bytes, extra_bytes)?;
         required_storage_usage =
             required_storage_usage.checked_add(key_bytes).ok_or(IntegerOverflowError {})?;
+
+        set_access_key_by_handle(state_update, account_id.clone(), handle.clone(), &access_key);
     }
 
     account.set_storage_usage(required_storage_usage);
     Ok(())
+}
+
+/// Storage usage of a single trie record: key and value lengths plus the
+/// per-record overhead.
+fn record_storage_usage(
+    key_bytes: u64,
+    value_bytes: u64,
+    extra_bytes: u64,
+) -> Result<u64, IntegerOverflowError> {
+    key_bytes
+        .checked_add(value_bytes)
+        .and_then(|acc| acc.checked_add(extra_bytes))
+        .ok_or(IntegerOverflowError {})
 }
