@@ -1242,12 +1242,8 @@ impl Client {
             return;
         };
         let job = BlockApprovalVerificationJob { header_hash, verification };
-        match self.block_approval_verification_scheduler.enqueue(job) {
-            Ok(Some(job)) => self.spawn_block_approval_verification(job),
-            Ok(None) => {}
-            Err(job) => {
-                self.verified_peer_heights.cancel_verification(&job.header_hash);
-            }
+        if let Some(job) = self.block_approval_verification_scheduler.enqueue(job) {
+            self.spawn_block_approval_verification(job);
         }
     }
 

@@ -6,12 +6,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 
 const HEADER_VERIFICATION_CACHE_SIZE: usize = 32;
-const MAX_TRACKED_HEADER_VERIFICATIONS: usize = HEADER_VERIFICATION_CACHE_SIZE;
 const MAX_ACTIVE_HEADER_VERIFICATIONS: usize = 4;
-const MAX_QUEUED_HEADER_VERIFICATIONS: usize =
-    MAX_TRACKED_HEADER_VERIFICATIONS - MAX_ACTIVE_HEADER_VERIFICATIONS;
 
-/// Limits CPU concurrency while retaining accepted work until a worker becomes available.
+/// Limits CPU concurrency while retaining admitted work until a worker becomes available.
+/// [`VerifiedPeerHeights`] admits at most one pending job per relaying peer, so the queue is bounded
+/// by the network peer set rather than by an arbitrary burst size.
 pub(crate) struct BlockApprovalVerificationScheduler<T> {
     active: usize,
     queued: VecDeque<T>,
@@ -25,17 +24,13 @@ impl<T> Default for BlockApprovalVerificationScheduler<T> {
 
 impl<T> BlockApprovalVerificationScheduler<T> {
     /// Returns the job when it should run immediately, or queues it when all worker slots are busy.
-    /// An error means the total active and queued work budget has been reached.
-    pub(crate) fn enqueue(&mut self, job: T) -> Result<Option<T>, T> {
+    pub(crate) fn enqueue(&mut self, job: T) -> Option<T> {
         if self.active < MAX_ACTIVE_HEADER_VERIFICATIONS {
             self.active += 1;
-            return Ok(Some(job));
-        }
-        if self.queued.len() >= MAX_QUEUED_HEADER_VERIFICATIONS {
-            return Err(job);
+            return Some(job);
         }
         self.queued.push_back(job);
-        Ok(None)
+        None
     }
 
     /// Releases a completed worker slot and returns the oldest queued job to take its place.
@@ -61,9 +56,12 @@ pub struct VerifiedPeerHeights {
     by_peer: HashMap<PeerId, BlockHeight>,
     /// Positive and negative results, so repeated invalid headers cannot consume worker time.
     header_verification_results: LruCache<CryptoHash, bool>,
-    /// Peers waiting on each active or queued header verification. The map has a strict cap so an
-    /// input burst cannot create an unbounded computation queue.
+    /// Peers waiting on each active or queued header verification.
     pending_header_verifications: HashMap<CryptoHash, PendingHeaderVerification>,
+    /// The pending header assigned to each peer. A peer can consume at most one verification slot,
+    /// which bounds admitted work by the network peer set without dropping distinct peers merely
+    /// because a short block burst exceeds the result cache size.
+    pending_header_by_peer: HashMap<PeerId, CryptoHash>,
 }
 
 impl Default for VerifiedPeerHeights {
@@ -74,6 +72,7 @@ impl Default for VerifiedPeerHeights {
                 NonZeroUsize::new(HEADER_VERIFICATION_CACHE_SIZE).unwrap(),
             ),
             pending_header_verifications: HashMap::new(),
+            pending_header_by_peer: HashMap::new(),
         }
     }
 }
@@ -97,18 +96,20 @@ impl VerifiedPeerHeights {
             }
             return false;
         }
+        if self.pending_header_by_peer.contains_key(peer_id) {
+            return false;
+        }
         if let Some(pending) = self.pending_header_verifications.get_mut(header_hash) {
             debug_assert_eq!(pending.height, height);
             pending.peers.insert(peer_id.clone());
-            return false;
-        }
-        if self.pending_header_verifications.len() >= MAX_TRACKED_HEADER_VERIFICATIONS {
+            self.pending_header_by_peer.insert(peer_id.clone(), *header_hash);
             return false;
         }
         self.pending_header_verifications.insert(
             *header_hash,
             PendingHeaderVerification { height, peers: HashSet::from([peer_id.clone()]) },
         );
+        self.pending_header_by_peer.insert(peer_id.clone(), *header_hash);
         true
     }
 
@@ -120,7 +121,7 @@ impl VerifiedPeerHeights {
         is_valid: bool,
         head_height: BlockHeight,
     ) {
-        let Some(pending) = self.pending_header_verifications.remove(header_hash) else {
+        let Some(pending) = self.take_pending_verification(header_hash) else {
             return;
         };
         self.header_verification_results.put(*header_hash, is_valid);
@@ -136,7 +137,7 @@ impl VerifiedPeerHeights {
     /// available. Unlike a failed cryptographic check, this is not cached because epoch data can
     /// become available later.
     pub fn cancel_verification(&mut self, header_hash: &CryptoHash) {
-        self.pending_header_verifications.remove(header_hash);
+        self.take_pending_verification(header_hash);
     }
 
     pub fn get(&self, peer_id: &PeerId) -> Option<BlockHeight> {
@@ -154,6 +155,17 @@ impl VerifiedPeerHeights {
             .entry(peer_id)
             .and_modify(|recorded| *recorded = (*recorded).max(height))
             .or_insert(height);
+    }
+
+    fn take_pending_verification(
+        &mut self,
+        header_hash: &CryptoHash,
+    ) -> Option<PendingHeaderVerification> {
+        let pending = self.pending_header_verifications.remove(header_hash)?;
+        for peer_id in &pending.peers {
+            self.pending_header_by_peer.remove(peer_id);
+        }
+        Some(pending)
     }
 }
 
@@ -265,44 +277,60 @@ mod tests {
     }
 
     #[test]
-    fn pending_verifications_are_bounded() {
+    fn pending_verifications_are_bounded_per_peer() {
         let mut heights = VerifiedPeerHeights::default();
-        for i in 0..MAX_TRACKED_HEADER_VERIFICATIONS {
+        let p = peer("a");
+        let first = header_hash(b"first");
+        assert!(heights.register_verification(&p, &first, 10));
+        assert!(!heights.register_verification(&p, &header_hash(b"second"), 11));
+        assert_eq!(heights.pending_header_verifications.len(), 1);
+
+        heights.finish_verification(&first, false, 0);
+        assert!(heights.register_verification(&p, &header_hash(b"third"), 12));
+    }
+
+    #[test]
+    fn distinct_peers_are_retained_beyond_the_result_cache_size() {
+        let mut heights = VerifiedPeerHeights::default();
+        for i in 0..=HEADER_VERIFICATION_CACHE_SIZE {
             assert!(heights.register_verification(
                 &peer(&i.to_string()),
                 &header_hash(&[i as u8]),
                 10
             ));
         }
-        assert!(!heights.register_verification(&peer("overflow"), &header_hash(b"overflow"), 10));
+
+        let overflow_peer = peer(&HEADER_VERIFICATION_CACHE_SIZE.to_string());
+        let overflow_hash = header_hash(&[HEADER_VERIFICATION_CACHE_SIZE as u8]);
+        heights.finish_verification(&overflow_hash, true, 0);
+        assert_eq!(heights.get(&overflow_peer), Some(10));
     }
 
     #[test]
     fn fifth_verification_waits_for_a_worker_slot() {
         let mut scheduler = BlockApprovalVerificationScheduler::default();
         for job in 0..MAX_ACTIVE_HEADER_VERIFICATIONS {
-            assert_eq!(scheduler.enqueue(job), Ok(Some(job)));
+            assert_eq!(scheduler.enqueue(job), Some(job));
         }
 
-        assert_eq!(scheduler.enqueue(MAX_ACTIVE_HEADER_VERIFICATIONS), Ok(None));
+        assert_eq!(scheduler.enqueue(MAX_ACTIVE_HEADER_VERIFICATIONS), None);
         assert_eq!(scheduler.complete(), Some(MAX_ACTIVE_HEADER_VERIFICATIONS));
     }
 
     #[test]
-    fn verification_scheduler_preserves_total_work_bound() {
+    fn verification_scheduler_retains_a_burst_beyond_the_result_cache_size() {
         let mut scheduler = BlockApprovalVerificationScheduler::default();
-        for job in 0..MAX_TRACKED_HEADER_VERIFICATIONS {
+        for job in 0..=HEADER_VERIFICATION_CACHE_SIZE {
             let scheduled = scheduler.enqueue(job);
             if job < MAX_ACTIVE_HEADER_VERIFICATIONS {
-                assert_eq!(scheduled, Ok(Some(job)));
+                assert_eq!(scheduled, Some(job));
             } else {
-                assert_eq!(scheduled, Ok(None));
+                assert_eq!(scheduled, None);
             }
         }
 
-        assert_eq!(
-            scheduler.enqueue(MAX_TRACKED_HEADER_VERIFICATIONS),
-            Err(MAX_TRACKED_HEADER_VERIFICATIONS)
-        );
+        for job in MAX_ACTIVE_HEADER_VERIFICATIONS..=HEADER_VERIFICATION_CACHE_SIZE {
+            assert_eq!(scheduler.complete(), Some(job));
+        }
     }
 }
